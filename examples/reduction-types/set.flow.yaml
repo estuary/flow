@@ -1,0 +1,47 @@
+collections:
+  example/reductions/set:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        value:
+          # Sets are always represented as an object.
+          type: object
+          reduce: { strategy: set }
+          # Schema for "add", "intersect", & "remove" properties
+          # (each a map of keys and their associated sums):
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: number
+              reduce: { strategy: sum }
+            # Flow requires that all parents of locations with a reduce
+            # annotation also have one themselves.
+            # This strategy therefore must (currently) be here, but is ignored.
+            reduce: { strategy: lastWriteWins }
+
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can apply set operations to incrementally build associative maps":
+    - ingest:
+        collection: example/reductions/set
+        documents:
+          - { key: "key", value: { "add": { "a": 1, "b": 1, "c": 1 } } }
+          - { key: "key", value: { "remove": { "b": 0 } } }
+          - { key: "key", value: { "add": { "a": 1, "d": 1 } } }
+    - verify:
+        collection: example/reductions/set
+        documents:
+          - { key: "key", value: { "add": { "a": 2, "c": 1, "d": 1 } } }
+    - ingest:
+        collection: example/reductions/set
+        documents:
+          - { key: "key", value: { "intersect": { "a": 0, "d": 0 } } }
+          - { key: "key", value: { "add": { "a": 1, "e": 1 } } }
+    - verify:
+        collection: example/reductions/set
+        documents:
+          - { key: "key", value: { "add": { "a": 3, "d": 1, "e": 1 } } }

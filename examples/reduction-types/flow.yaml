@@ -1,0 +1,11 @@
+import:
+  - append.flow.yaml
+  - fww_lww.flow.yaml
+  - merge.flow.yaml
+  - merge_key.flow.yaml
+  - min_max.flow.yaml
+  - min_max_key.flow.yaml
+  - reset_counter.flow.yaml
+  - set.flow.yaml
+  - set_array.flow.yaml
+  - sum.flow.yaml

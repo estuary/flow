@@ -1,0 +1,40 @@
+import:
+  - pages.flow.yaml
+
+tests:
+  "Expect wiki pages roll up from edits":
+    - ingest:
+        collection: examples/wiki/edits
+        documents:
+          - {
+              "time": "2015-09-12T00:49:09Z",
+              "page": "正岡大介",
+              "channel": "#ja.wikipedia",
+              "countryIsoCode": "JP",
+              "delta": -113,
+              "added": 0,
+              "deleted": 113,
+            }
+          - {
+              "time": "2015-09-13T01:12:27Z",
+              "page": "正岡大介",
+              "channel": "#ja.wikipedia",
+              "countryIsoCode": "IN",
+              "delta": 256,
+              "added": 250,
+              "deleted": 6,
+            }
+    - verify:
+        collection: examples/wiki/pages
+        documents:
+          - {
+              "page": "正岡大介",
+              "cnt": 2,
+              "add": 250,
+              "del": 119,
+              "byCountry":
+                {
+                  "IN": { "add": 250, "cnt": 1, "del": 6 },
+                  "JP": { "add": 0, "cnt": 1, "del": 113 },
+                },
+            }

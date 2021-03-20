@@ -1,0 +1,52 @@
+# Compose in the "station" definition from ride.schema.yaml,
+# which defines "id", "name", and "geo".
+$ref: ride.schema.yaml#/$defs/station
+
+properties:
+  arrival:
+    description: "Statistics on Bike arrivals to the station"
+    properties:
+      ride:
+        title: "Bikes ridden to the station"
+        type: integer
+        reduce: { strategy: sum }
+      move:
+        title: "Bikes moved to the station"
+        type: integer
+        reduce: { strategy: sum }
+
+    type: object
+    reduce: { strategy: merge }
+
+  departure:
+    description: "Statistics on Bike departures from the station"
+    properties:
+      ride:
+        title: "Bikes ridden from the station"
+        type: integer
+        reduce: { strategy: sum }
+      move:
+        title: "Bikes moved from the station"
+        type: integer
+        reduce: { strategy: sum }
+
+    type: object
+    reduce: { strategy: merge }
+
+  stable:
+    description: "Set of Bike IDs which are currently at this station"
+    type: object
+
+    reduce:
+      strategy: set
+      # Use bike IDs as their own keys.
+      key: [""]
+
+    # Sets are composed of 'add', 'intersect', and 'remove' components.
+    # Here, we're representing the set as an array of integer bike IDs.
+    additionalProperties:
+      type: array
+      items: { type: integer }
+      reduce: { strategy: merge }
+
+reduce: { strategy: merge }

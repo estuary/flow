@@ -1,0 +1,11 @@
+import:
+  - rides.flow.yaml
+  - rides.test.flow.yaml
+  - last-seen.flow.yaml
+  - last-seen.test.flow.yaml
+  - rides-and-relocations.flow.yaml
+  - rides-and-relocations.test.flow.yaml
+  - stations.flow.yaml
+  - stations.test.flow.yaml
+  - idle-bikes.flow.yaml
+  - idle-bikes.test.flow.yaml

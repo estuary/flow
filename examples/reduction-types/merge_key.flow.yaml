@@ -1,0 +1,30 @@
+collections:
+  example/reductions/merge-key:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        value:
+          type: array
+          reduce:
+            strategy: merge
+            key: [/k]
+          items: { reduce: { strategy: firstWriteWins } }
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can merge sorted arrays":
+    - ingest:
+        collection: example/reductions/merge-key
+        documents:
+          - { key: "key", value: [{ k: "a", v: 1 }, { k: "b", v: 1 }] }
+          - { key: "key", value: [{ k: "a", v: 2 }, { k: "c", v: 2 }] }
+    - verify:
+        collection: example/reductions/merge-key
+        documents:
+          - {
+              key: "key",
+              value: [{ k: "a", v: 1 }, { k: "b", v: 1 }, { k: "c", v: 2 }],
+            }

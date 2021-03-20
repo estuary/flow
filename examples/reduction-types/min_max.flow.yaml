@@ -1,0 +1,23 @@
+collections:
+  example/reductions/min-max:
+    schema:
+      type: object
+      reduce: { strategy: merge }
+      properties:
+        key: { type: string }
+        min: { reduce: { strategy: minimize } }
+        max: { reduce: { strategy: maximize } }
+      required: [key]
+    key: [/key]
+
+tests:
+  "Expect we can min/max values":
+    - ingest:
+        collection: example/reductions/min-max
+        documents:
+          - { key: "key", min: 32, max: "abc" }
+          - { key: "key", min: 42, max: "def" }
+    - verify:
+        collection: example/reductions/min-max
+        documents:
+          - { key: "key", min: 32, max: "def" }

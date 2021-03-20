@@ -1,6 +1,5 @@
 [workspace]
 members = [ "crates/*"]
-exclude = ["crates/driver-tester"]
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,

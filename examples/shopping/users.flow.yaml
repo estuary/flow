@@ -1,0 +1,28 @@
+collections:
+  examples/shopping/users:
+    key: [/id]
+    schema: user.schema.yaml
+
+tests:
+  "A users email is updated":
+    - ingest:
+        collection: examples/shopping/users
+        documents:
+          - { id: 1, name: "Jane", email: "janesoldemail@email.test" }
+          - { id: 2, name: "Jill", email: "jill@upahill.test" }
+    - ingest:
+        collection: examples/shopping/users
+        documents:
+          - id: 1
+            name: Jane
+            email: jane82@email.test
+    - verify:
+        collection: examples/shopping/users
+        documents:
+          - id: 1
+            name: Jane
+            email: jane82@email.test
+          - id: 2
+            name: Jill
+            email: jill@upahill.test
+
