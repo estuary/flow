@@ -84,6 +84,17 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
 // Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type StockDailyStats = unknown;
 
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/averageTempsRegister.
+// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location/derivation.
+export type TemperatureAverageByLocation = {
+    lastReading?: string;
+    locationName?: string | null;
+    maxTempC?: number;
+    minTempC?: number;
+    numReadings?: number;
+    totalC?: number;
+};
+
 // Generated from examples/int-string.flow.yaml?ptr=/collections/testing~1int-strings/derivation/register/schema.
 // Referenced as register_schema of examples/int-string.flow.yaml#/collections/testing~1int-strings/derivation.
 export type TestingIntStrings = unknown;

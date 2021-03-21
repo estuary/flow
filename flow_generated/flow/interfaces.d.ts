@@ -83,6 +83,27 @@ export interface StockDailyStats {
     ): collections.StockDailyStats[];
 }
 
+// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location/derivation.
+// Required to be implemented by examples/temp-sensors/flow.ts.
+export interface TemperatureAverageByLocation {
+    readingsUpdate(
+        source: collections.TemperatureReadings,
+    ): registers.TemperatureAverageByLocation[];
+    readingsPublish(
+        source: collections.TemperatureReadings,
+        register: registers.TemperatureAverageByLocation,
+        previous: registers.TemperatureAverageByLocation,
+    ): collections.TemperatureAverageByLocation[];
+    sensorsUpdate(
+        source: collections.TemperatureSensors,
+    ): registers.TemperatureAverageByLocation[];
+    sensorsPublish(
+        source: collections.TemperatureSensors,
+        register: registers.TemperatureAverageByLocation,
+        previous: registers.TemperatureAverageByLocation,
+    ): collections.TemperatureAverageByLocation[];
+}
+
 // Generated from derivation examples/int-string.flow.yaml#/collections/testing~1int-strings/derivation.
 // Required to be implemented by examples/int-string.flow.ts.
 export interface TestingIntStrings {

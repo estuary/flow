@@ -27,6 +27,10 @@ import {
     StockDailyStats,
 } from '../../examples/stock-stats/flow';
 
+import {
+    TemperatureAverageByLocation,
+} from '../../examples/temp-sensors/flow';
+
 // Build instances of each class, which will be bound to this module's router.
 let __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
 let __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
@@ -34,6 +38,7 @@ let __MarketingViewsWithCampaign: interfaces.MarketingViewsWithCampaign = new Ma
 let __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
 let __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
 let __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
+let __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
 let __TestingIntStrings: interfaces.TestingIntStrings = new TestingIntStrings();
 
 // Now build the router that's used for transformation lambda dispatch.
@@ -70,6 +75,18 @@ let routes: { [path: string]: Lambda | undefined } = {
     ) as Lambda,
     '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(
         __StockDailyStats,
+    ) as Lambda,
+    '/derive/temperature/average-by-location/readings/Update': __TemperatureAverageByLocation.readingsUpdate.bind(
+        __TemperatureAverageByLocation,
+    ) as Lambda,
+    '/derive/temperature/average-by-location/readings/Publish': __TemperatureAverageByLocation.readingsPublish.bind(
+        __TemperatureAverageByLocation,
+    ) as Lambda,
+    '/derive/temperature/average-by-location/sensors/Update': __TemperatureAverageByLocation.sensorsUpdate.bind(
+        __TemperatureAverageByLocation,
+    ) as Lambda,
+    '/derive/temperature/average-by-location/sensors/Publish': __TemperatureAverageByLocation.sensorsPublish.bind(
+        __TemperatureAverageByLocation,
     ) as Lambda,
     '/derive/testing/int-strings/appendStrings/Publish': __TestingIntStrings.appendStringsPublish.bind(
         __TestingIntStrings,

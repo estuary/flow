@@ -1,0 +1,80 @@
+$defs:
+  tempSensor:
+    description: 'A sensor that produces temperature readings'
+    type: object
+    properties:
+      id:
+        type: integer
+        description: 'The unique id of this sensor'
+      locationName:
+        type: string
+        description: 'Human readable name of the sensor location'
+        examples: ['Behind the couch']
+      location:
+        $ref: https://geojson.org/schema/Point.json
+        description: 'The precise geographic location of the sensor'
+    required: [id, locationName]
+
+  tempReading:
+    description: 'A reading of a temperature from a sensor'
+    type: object
+    properties:
+      sensorId:
+        type: integer
+        description: 'The id of the sensor that produced the reading'
+      timestamp:
+        type: string
+        format: timestamp
+        description: 'An RFC-3339 formatted string holding the time of the reading'
+      tempC:
+        type: number
+        description: 'The temperature in degrees celcius'
+    required: [sensorId, timestamp, tempC]
+
+  locationTemps:
+    description: 'Average temperature information for a particular location'
+    type: object
+    properties:
+      sensorId: {type: integer}
+      # locationName may be null if we've received readings before the corresponding sensor
+      # documents. That's OK because we'll later update the locationName once it becomes known.
+      locationName: {type: [string, 'null']} # null quoted because it's a yaml keyword
+      averageTempC:
+        type: number
+      minTempC:
+        type: number
+      maxTempC:
+        type: number
+      lastReading:
+        type: string
+        format: timestamp
+        description: 'Timestamp of the most recent reading for this named location'
+    required: [sensorId, locationName, averageTempC, minTempC, maxTempC, lastReading]
+
+  averageTempsRegister:
+    type: object
+    properties:
+      numReadings:
+        type: integer
+        reduce: {strategy: sum}
+      totalC:
+        type: number
+        reduce: {strategy: sum}
+      # locationName implicitly uses the 'lastWriteWins' strategy
+      locationName: {type: [string, 'null']}
+      lastReading:
+        type: string
+        format: timestamp
+        # Since our timestamps are in RFC 3339 format, the lexicographic comparison done by
+        # maximize will pick the most recent time.
+        reduce: {strategy: maximize}
+      minTempC:
+        type: number
+        reduce: {strategy: minimize}
+      maxTempC:
+        type: number
+        reduce: {strategy: maximize}
+    # Sets the reduc strategy for the top-level object. This is needed for reduction strategies in
+    # child properties to take effect.
+    reduce: {strategy: merge}
+
