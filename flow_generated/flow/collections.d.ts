@@ -183,6 +183,37 @@ export type StockTicks = /* Level-one market tick of a security. */ {
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
 
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/locationTemps.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location.
+export type TemperatureAverageByLocation = /* Average temperature information for a particular location */ {
+    averageTempC: number;
+    lastReading: /* Timestamp of the most recent reading for this named location */ string;
+    locationName: string | null;
+    maxTempC: number;
+    minTempC: number;
+    sensorId: number;
+};
+
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempReading.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1readings.
+export type TemperatureReadings = /* A reading of a temperature from a sensor */ {
+    sensorId: /* The id of the sensor that produced the reading */ number;
+    tempC: /* The temperature in degrees celcius */ number;
+    timestamp: /* An RFC-3339 formatted string holding the time of the reading */ string;
+};
+
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempSensor.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1sensors.
+export type TemperatureSensors = /* A sensor that produces temperature readings */ {
+    id: /* The unique id of this sensor */ number;
+    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+        bbox?: number[];
+        coordinates: number[];
+        type: "Point";
+    };
+    locationName: /* Human readable name of the sensor location */ string;
+};
+
 // Generated from examples/int-string.flow.yaml?ptr=/collections/testing~1int-string/schema.
 // Referenced as schema of examples/int-string.flow.yaml#/collections/testing~1int-string.
 export type TestingIntString = {
