@@ -4,6 +4,7 @@
     "../examples/marketing/flow.ts",
     "../examples/soak-tests/set-ops/flow.ts",
     "../examples/stock-stats/flow.ts",
+    "../examples/temp-sensors/flow.ts",
     "../flow_generated/flow/anchors.d.ts",
     "../flow_generated/flow/collections.d.ts",
     "../flow_generated/flow/interfaces.d.ts",

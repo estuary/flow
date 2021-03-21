@@ -1,0 +1,92 @@
+collections:
+  # Information about a temperature sensor, which may produce many temperature readings
+  temperature/sensors:
+    schema: schemas.yaml#/$defs/tempSensor
+    key: [/id]
+
+  # Stream of readings that come from temperature sensors.
+  temperature/readings:
+    schema: schemas.yaml#/$defs/tempReading
+    key: [/sensorId, /timestamp]
+
+  # Aggregate of temperature readings by sensor
+  temperature/average-by-location:
+    schema: schemas.yaml#/$defs/locationTemps
+    key: [/sensorId]
+    derivation:
+      register:
+        # The register schema includes reduction annotations that allow it to accumulate state.
+        schema: schemas.yaml#/$defs/averageTempsRegister
+        # All registers will start out with a default locationName. This allows us to publish
+        # aggregates based on readings that are received before the sensor information has been
+        # processed.
+        initial: {locationName: null}
+      
+      transform:
+        sensors:
+          # The sensors transform does not declare a shuffle key because the key of the sensors
+          # collection is already what we want here.
+          source: {name: temperature/sensors}
+          update: {lambda: typescript}
+          publish: {lambda: typescript}
+        readings:
+          source: {name: temperature/readings}
+          # The shuffle key determines the key of each register value, so we shuffle both
+          # sensors and readings on the sensor id, which allows us to access state that's
+          # associated with each sensor
+          shuffle: {key: [/sensorId]}
+          update: {lambda: typescript}
+          publish: {lambda: typescript}
+
+tests:
+  'test average temperature by location':
+    - ingest: &sensors
+        collection: temperature/sensors
+        documents:
+          - {id: 1, locationName: 'Office'}
+          - {id: 2, locationName: 'Workshop'}
+    - ingest: &readings
+        collection: temperature/readings
+        documents:
+          - {sensorId: 1, timestamp: '2020-08-26T06:30:31Z', tempC: 18.9}
+          - {sensorId: 1, timestamp: '2020-08-26T11:39:57Z', tempC: 21.1}
+          - {sensorId: 2, timestamp: '2020-08-26T13:32:44Z', tempC: 23.2}
+          - {sensorId: 1, timestamp: '2020-08-26T17:19:00Z', tempC: 21.0}
+          - {sensorId: 2, timestamp: '2020-08-26T19:26:53Z', tempC: 20.9}
+    - verify: &expected
+        collection: temperature/average-by-location
+        documents:
+          - sensorId: 1
+            locationName: 'Office'
+            averageTempC: 20.33
+            minTempC: 18.9
+            maxTempC: 21.1
+            lastReading: '2020-08-26T17:19:00Z'
+          - sensorId: 2
+            locationName: 'Workshop'
+            averageTempC: 22.05
+            minTempC: 20.9
+            maxTempC: 23.2
+            lastReading: '2020-08-26T19:26:53Z'
+
+  'test readings produced before sensor info':
+    - ingest: *readings
+    # Expect that the same results are produced, only without the location name
+    - verify:
+        collection: temperature/average-by-location
+        documents:
+          - sensorId: 1
+            locationName: null
+            averageTempC: 20.33
+            minTempC: 18.9
+            maxTempC: 21.1
+            lastReading: '2020-08-26T17:19:00Z'
+          - sensorId: 2
+            locationName: null
+            averageTempC: 22.05
+            minTempC: 20.9
+            maxTempC: 23.2
+            lastReading: '2020-08-26T19:26:53Z'
+    - ingest: *sensors
+    # Expect that the locationNames have been added
+    - verify: *expected
