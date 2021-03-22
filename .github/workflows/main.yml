@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
       - uses: actions/checkout@v2
@@ -69,6 +69,9 @@ jobs:
       - run: make rust-test
       - run: make go-test-ci
       - run: make catalog-test
+      # catalog-test dirties the branch by creating examples/examples.db.
+      # Tidy up before further invocations using `git describe --dirty`
+      - run: git clean -f -d && git status && git diff
       - run: make package
       - run: make docker-image
       - run: make docker-push-to-quay

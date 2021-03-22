@@ -72,6 +72,7 @@ endpoints:
   acmeBank/database:
     postgres:
       # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+      # Use host: host.docker.internal when running Docker for Windows / Mac.
       host: localhost
       password: password
       dbname: postgres
@@ -191,7 +192,20 @@ to jump off from. If you have early access to
 you can try it right from your browser.
 
 A Docker image of the development branch is also available as `quay.io/estuary/flow:dev`.
-We'll start more regular releases soon, but not quite yet.
+We'll start more regular releases soon, but not quite yet. We recommend using an alias to run the image:
+
+```console
+$ alias flowctl='docker run --rm -it --mount type=bind,source="$(pwd)",target=/home/flow/project --port 8080:8080 quay.io/estuary/flow:dev flowctl'
+
+# Test all examples from the Flow repository.
+$ git clone https://github.com/estuary/flow.git && cd flow
+$ flowctl test --source examples/all.flow.yaml
+
+# Or you can test & develop from a remote catalog without cloning.
+# flowctl will create necessary TypeScript project scaffolding:
+$ mkdir ~/tmp && cd ~/tmp
+$ flowctl test --source https://raw.githubusercontent.com/estuary/flow/master/examples/all.flow.yaml
+```
 
 You interact with Flow through the `flowctl` CLI tool:
 
