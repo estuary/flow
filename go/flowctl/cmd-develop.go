@@ -20,7 +20,7 @@ import (
 
 type cmdDevelop struct {
 	Source    string `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Directory string `long:"directory" default:"flowctl-develop" description:"Build and runtime directory."`
+	Directory string `long:"directory" default:"." description:"Build directory"`
 	mbp.ServiceConfig
 }
 
@@ -39,14 +39,19 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
 
-	// Directory is used for:
+	var runDir = filepath.Join(cmd.Directory, "flowctl_develop")
+	if err := os.MkdirAll(runDir, 0700); err != nil {
+		return fmt.Errorf("creating temp directory: %w", err)
+	}
+
+	// Running directory is used for:
 	// * Storing our built catalog database.
 	// * Etcd storage and UDS sockets.
 	// * NPM worker UDS socket.
 	// * Backing persisted file:/// fragments.
 
 	built, err := buildCatalog(pf.BuildAPI_Config{
-		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
+		CatalogPath:       filepath.Join(runDir, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		TypescriptCompile: true,
@@ -73,13 +78,13 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	}
 
 	// Spawn Etcd and NPM worker processes for cluster use.
-	etcd, etcdClient, err := startEtcd(cmd.Directory)
+	etcd, etcdClient, err := startEtcd(runDir)
 	if err != nil {
 		return err
 	}
 	defer stopWorker(etcd)
 
-	var lambdaJSUDS = filepath.Join(cmd.Directory, "lambda-js")
+	var lambdaJSUDS = filepath.Join(runDir, "lambda-js")
 	jsWorker, err := startJSWorker(cmd.Directory, lambdaJSUDS)
 	if err != nil {
 		return err
@@ -91,9 +96,9 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		Context:            context.Background(),
 		DisableClockTicks:  false,
 		Etcd:               etcdClient,
-		EtcdCatalogPrefix:  "/flowctl-develop/catalog",
-		EtcdBrokerPrefix:   "/flowctl-develop/broker",
-		EtcdConsumerPrefix: "/flowctl-develop/runtime",
+		EtcdCatalogPrefix:  "/flowctl/develop/catalog",
+		EtcdBrokerPrefix:   "/flowctl/develop/broker",
+		EtcdConsumerPrefix: "/flowctl/develop/runtime",
 		ServiceConfig:      cmd.ServiceConfig,
 	}
 	cfg.ZoneConfig.Zone = "local"
@@ -105,7 +110,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return err
 	}
 
-	fragment.FileSystemStoreRoot = filepath.Join(cmd.Directory, "fragments")
+	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
 	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 
 	cluster, err := testing.NewCluster(cfg)

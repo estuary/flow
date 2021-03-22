@@ -61,20 +61,20 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
 
-	// Create a temp directory, used for:
-	// * Storing our built catalog database.
-	// * Etcd storage and UDS sockets.
-	// * NPM worker UDS socket.
-	// * "Persisted" fragment files.
-
-	tempdir, err := ioutil.TempDir("", "flow-test")
+	runDir, err := ioutil.TempDir("", "flow-test")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempdir)
+	defer os.RemoveAll(runDir)
+
+	// Temporary running directory, used for:
+	// * Storing our built catalog database.
+	// * Etcd storage and UDS sockets.
+	// * NPM worker UDS socket.
+	// * Backing persisted file:/// fragments.
 
 	built, err := buildCatalog(pf.BuildAPI_Config{
-		CatalogPath:       filepath.Join(tempdir, "catalog.db"),
+		CatalogPath:       filepath.Join(runDir, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		TypescriptCompile: true,
@@ -103,13 +103,13 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 
 	// Spawn Etcd and NPM worker processes for cluster use.
-	etcd, etcdClient, err := startEtcd(tempdir)
+	etcd, etcdClient, err := startEtcd(runDir)
 	if err != nil {
 		return err
 	}
 	defer stopWorker(etcd)
 
-	var lambdaJSUDS = filepath.Join(tempdir, "lambda-js")
+	var lambdaJSUDS = filepath.Join(runDir, "lambda-js")
 	jsWorker, err := startJSWorker(cmd.Directory, lambdaJSUDS)
 	if err != nil {
 		return err
@@ -119,11 +119,11 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	// Configure and start the cluster.
 	var cfg = testing.ClusterConfig{
 		Context:            context.Background(),
-		DisableClockTicks:  true,
+		DisableClockTicks:  true, // Test driver advances synthetic time.
 		Etcd:               etcdClient,
-		EtcdCatalogPrefix:  "/flowctl-test/catalog",
-		EtcdBrokerPrefix:   "/flowctl-test/broker",
-		EtcdConsumerPrefix: "/flowctl-test/runtime",
+		EtcdCatalogPrefix:  "/flowctl/test/catalog",
+		EtcdBrokerPrefix:   "/flowctl/test/broker",
+		EtcdConsumerPrefix: "/flowctl/test/runtime",
 	}
 	cfg.ZoneConfig.Zone = "local"
 	pb.RegisterGRPCDispatcher(Config.Zone)
@@ -134,7 +134,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return err
 	}
 
-	fragment.FileSystemStoreRoot = tempdir
+	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
 	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 
 	cluster, err := testing.NewCluster(cfg)
