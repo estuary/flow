@@ -49,6 +49,10 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				// Mangle to turn into a file opened relative to the current directory.
 				var parts = append([]string{u.Host}, strings.Split(u.Path, "/")...)
 				parsed.Path = strings.Join(parts, "_")
+
+				if u.RawQuery != "" {
+					parsed.Path += "?" + u.RawQuery
+				}
 			}
 
 			log.WithFields(log.Fields{
