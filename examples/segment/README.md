@@ -70,7 +70,7 @@ $ go run examples/segment/generate.go | \
 Segment events are written into collection `examples/segment/events` and, from there,
 persisted to the configured fragment store -- which for these examples is a local
 file system stand-in for cloud storage. Within the created `flowctl_develop` runtime
-directory you'll see fragments being written every minute or so:
+directory you'll see fragments being written every few minutes:
 
 ```console
 $ find flowctl_develop/fragments/examples/segment/events -type f

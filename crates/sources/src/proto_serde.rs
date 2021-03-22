@@ -153,17 +153,20 @@ pub struct JournalSpecFragment {
     #[serde(default)]
     pub stores: Vec<String>,
     /// # Period between refreshes of fragment listings from configured stores.
-    #[serde(default)]
+    #[serde(default, with = "humantime_serde")]
+    #[schemars(schema_with = "JournalSpecFragment::duration_schema")]
     pub refresh_interval: std::time::Duration,
     /// # Duration for which historical data of a journal should be kept.
     /// If zero, then fragments are retained indefinitely.
-    #[serde(default)]
+    #[serde(default, with = "humantime_serde")]
+    #[schemars(schema_with = "JournalSpecFragment::duration_schema")]
     pub retention: std::time::Duration,
     /// # Maximum flush delay before in-progress fragments are closed and persisted into cloud storage.
     /// Intervals are converted into uniform time segments: 24h will "roll" all fragments at
     /// midnight UTC every day, 1h at the top of every hour, 15m a :00, :15, :30, :45 past the
     /// hour, and so on.
-    #[serde(default)]
+    #[serde(default, with = "humantime_serde")]
+    #[schemars(schema_with = "JournalSpecFragment::duration_schema")]
     pub flush_interval: std::time::Duration,
     /// # Path postfix template evaluates to a partial path under which fragments are persisted to the store.
     #[serde(default)]
