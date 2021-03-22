@@ -386,7 +386,8 @@ expression: intents
         "prettify": "prettier --write **/*.ts"
       },
       "version": "0.0.0"
-    },
+    }
+    ,
     "sub/module.ts": IfNotExists:
     import { collections, interfaces, registers } from 'flow/modules';
     
