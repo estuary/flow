@@ -242,6 +242,9 @@ impl JournalSpecFragment {
         }))
         .unwrap()
     }
+    pub fn duration_schema(g: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
+        duration_schema(g)
+    }
 }
 
 impl CompressionCodec {

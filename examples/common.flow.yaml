@@ -33,3 +33,4 @@ journalRules:
       fragment:
         compression_codec: GZIP
         stores: [file:///]
+        flush_interval: 5m

@@ -360,25 +360,6 @@
       },
       "additionalProperties": false
     },
-    "Duration": {
-      "type": "object",
-      "required": [
-        "nanos",
-        "secs"
-      ],
-      "properties": {
-        "nanos": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "secs": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        }
-      }
-    },
     "Endpoint": {
       "description": "Endpoint names a Flow endpoint.",
       "examples": [
@@ -527,20 +508,11 @@
           "template": {
             "fragment": {
               "compression_codec": "INVALID",
-              "flush_interval": {
-                "nanos": 0,
-                "secs": 0
-              },
+              "flush_interval": "0s",
               "length": 0,
               "path_postfix_template": "",
-              "refresh_interval": {
-                "nanos": 0,
-                "secs": 0
-              },
-              "retention": {
-                "nanos": 0,
-                "secs": 0
-              },
+              "refresh_interval": "0s",
+              "retention": "0s",
               "stores": [
                 "s3://my-bucket/path"
               ]
@@ -590,20 +562,11 @@
         {
           "fragment": {
             "compression_codec": "INVALID",
-            "flush_interval": {
-              "nanos": 0,
-              "secs": 0
-            },
+            "flush_interval": "0s",
             "length": 0,
             "path_postfix_template": "",
-            "refresh_interval": {
-              "nanos": 0,
-              "secs": 0
-            },
-            "retention": {
-              "nanos": 0,
-              "secs": 0
-            },
+            "refresh_interval": "0s",
+            "retention": "0s",
             "stores": [
               "s3://bucket/and/path"
             ]
@@ -621,20 +584,11 @@
           "title": "Fragment defines how journal content is mapped to fragment files.",
           "default": {
             "compression_codec": "INVALID",
-            "flush_interval": {
-              "nanos": 0,
-              "secs": 0
-            },
+            "flush_interval": "0s",
             "length": 0,
             "path_postfix_template": "",
-            "refresh_interval": {
-              "nanos": 0,
-              "secs": 0
-            },
-            "retention": {
-              "nanos": 0,
-              "secs": 0
-            },
+            "refresh_interval": "0s",
+            "retention": "0s",
             "stores": []
           },
           "allOf": [
@@ -676,20 +630,11 @@
       "examples": [
         {
           "compression_codec": "INVALID",
-          "flush_interval": {
-            "nanos": 0,
-            "secs": 0
-          },
+          "flush_interval": "0s",
           "length": 0,
           "path_postfix_template": "",
-          "refresh_interval": {
-            "nanos": 0,
-            "secs": 0
-          },
-          "retention": {
-            "nanos": 0,
-            "secs": 0
-          },
+          "refresh_interval": "0s",
+          "retention": "0s",
           "stores": [
             "s3://bucket/and/path"
           ]
@@ -709,15 +654,12 @@
         "flush_interval": {
           "title": "Maximum flush delay before in-progress fragments are closed and persisted into cloud storage.",
           "description": "Intervals are converted into uniform time segments: 24h will \"roll\" all fragments at midnight UTC every day, 1h at the top of every hour, 15m a :00, :15, :30, :45 past the hour, and so on.",
-          "default": {
-            "nanos": 0,
-            "secs": 0
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Duration"
-            }
-          ]
+          "default": "0s",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
         },
         "length": {
           "title": "Desired byte content length of each fragment, before compression.",
@@ -733,28 +675,22 @@
         },
         "refresh_interval": {
           "title": "Period between refreshes of fragment listings from configured stores.",
-          "default": {
-            "nanos": 0,
-            "secs": 0
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Duration"
-            }
-          ]
+          "default": "0s",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
         },
         "retention": {
           "title": "Duration for which historical data of a journal should be kept.",
           "description": "If zero, then fragments are retained indefinitely.",
-          "default": {
-            "nanos": 0,
-            "secs": 0
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Duration"
-            }
-          ]
+          "default": "0s",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
         },
         "stores": {
           "title": "Storage backend base path for this Journal's Fragments.",
