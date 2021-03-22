@@ -62,7 +62,7 @@ func (c *Commons) initTypeScript(etcd *clientv3.Client) (err error) {
 		if err != nil {
 			return fmt.Errorf("fetching Etcd key %q: %w", url.Path, err)
 		} else if resp.Count != 1 {
-			return fmt.Errorf("Etcd key %q not found", url.Path)
+			return fmt.Errorf("etcd key %q not found", url.Path)
 		}
 
 		c.tsWorker, err = NewJSWorker(resp.Kvs[0].Value)
@@ -97,6 +97,6 @@ func (c *Commons) Destroy() {
 		}
 	}
 	if c.schemaIndex != nil {
-		// TODO destroy schema index.
+		_ = true // TODO destroy schema index.
 	}
 }

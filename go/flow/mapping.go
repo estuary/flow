@@ -53,11 +53,12 @@ func PartitionPointers(spec *pf.CollectionSpec) []string {
 func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	var msg = mappable.(Mappable)
 
-	var buf = mappingBufferPool.Get().([]byte)[:0]
-	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey(buf, msg)
+	var bufPtr = mappingBufferPool.Get().(*[]byte)
+	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey((*bufPtr)[:0], msg)
+	*bufPtr = buf
 
 	defer func() {
-		mappingBufferPool.Put(buf)
+		mappingBufferPool.Put(bufPtr)
 	}()
 
 	for attempt := 0; true; attempt++ {
@@ -184,7 +185,11 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 }
 
 var mappingBufferPool = sync.Pool{
-	New: func() interface{} { return make([]byte, 256) },
+	New: func() interface{} {
+		var buf = new([]byte)
+		*buf = make([]byte, 256)
+		return buf
+	},
 }
 
 // Implementation of message.Message for Mappable follows:

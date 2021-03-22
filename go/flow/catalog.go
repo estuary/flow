@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"runtime"
+	"sort"
 
 	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -162,6 +163,15 @@ func ApplyCatalogToEtcd(
 		return 0, fmt.Errorf("expected a TypeScript UDS or package")
 	}
 
+	var oldCatalog, err = NewCatalog(ctx, etcd, root)
+	if err != nil {
+		return 0, fmt.Errorf("loading existing catalog: %w", err)
+	}
+	var oldKeys = make(map[string]int64, len(oldCatalog.KeyValues))
+	for _, kv := range oldCatalog.KeyValues {
+		oldKeys[string(kv.Raw.Key)] = kv.Raw.ModRevision
+	}
+
 	// Build CatalogCommons and CatalogTasks around a generated CommonsID.
 	var commons = pf.CatalogCommons{
 		CommonsId:             uuid.New().String(),
@@ -203,6 +213,7 @@ func ApplyCatalogToEtcd(
 			Materialization: &build.Materializations[i],
 		})
 	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].Name() < tasks[j].Name() })
 
 	// Validate the world.
 	if err := commons.Validate(); err != nil {
@@ -215,21 +226,38 @@ func ApplyCatalogToEtcd(
 	}
 
 	// Build an Etcd transaction which applies the request tasks & commons.
+	var cmps []clientv3.Cmp
 	var ops []clientv3.Op
 
 	for _, task := range tasks {
 		var key = root + TasksPrefix + task.Name()
-		ops = append(ops, clientv3.OpPut(key, marshalString(&task)))
 
-		log.WithField("key", key).Debug("inserting or updating CatalogTask")
+		if rev, ok := oldKeys[key]; ok {
+			log.WithField("key", key).Debug("updating CatalogTask")
+			cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", rev))
+			delete(oldKeys, key)
+		} else {
+			log.WithField("key", key).Debug("inserting CatalogTask")
+			cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", 0))
+		}
+		ops = append(ops, clientv3.OpPut(key, marshalString(&task)))
 	}
 	var key = root + CommonsPrefix + commons.CommonsId
 	ops = append(ops, clientv3.OpPut(key, marshalString(&commons)))
 	log.WithField("key", key).Debug("inserting CatalogCommons")
 
-	var txnResp, err = etcd.Do(ctx, clientv3.OpTxn(nil, ops, nil))
+	// Delete remaining old keys.
+	for key, rev := range oldKeys {
+		cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", rev))
+		ops = append(ops, clientv3.OpDelete(key))
+		log.WithField("key", key).Debug("removing dropped catalog item")
+	}
+
+	txnResp, err := etcd.Do(ctx, clientv3.OpTxn(cmps, ops, nil))
 	if err == nil && !txnResp.Txn().Succeeded {
-		return 0, fmt.Errorf("Etcd transaction failed")
+		return 0, fmt.Errorf("etcd transaction checks failed")
+	} else if err != nil {
+		return 0, err
 	}
 	return txnResp.Txn().Header.Revision, nil
 }
