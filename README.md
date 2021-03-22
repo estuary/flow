@@ -195,7 +195,7 @@ A Docker image of the development branch is also available as `quay.io/estuary/f
 We'll start more regular releases soon, but not quite yet. We recommend using an alias to run the image:
 
 ```console
-$ alias flowctl='docker run --rm -it --mount type=bind,source="$(pwd)",target=/home/flow/project -p 8080:8080 quay.io/estuary/flow:dev flowctl'
+$ alias flowctl='docker run --rm -it --mount type=bind,source="$(pwd)",target=/home/flow/project --env RUST_LOG -p 8080:8080 quay.io/estuary/flow:dev flowctl'
 
 # Test all examples from the Flow repository.
 $ git clone https://github.com/estuary/flow.git && cd flow
