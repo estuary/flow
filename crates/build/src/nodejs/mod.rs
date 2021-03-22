@@ -309,7 +309,7 @@ fn patch_package_dot_json(
         dom.bundled_dependencies.insert(package.clone());
     }
 
-    Ok(serde_json::to_string_pretty(&dom)?)
+    Ok(format!("{}\n", &serde_json::to_string_pretty(&dom)?))
 }
 
 fn camel_case(name: &str, mut upper: bool) -> String {
