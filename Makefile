@@ -34,23 +34,11 @@ EXTRA_APT_PACKAGES = \
 	libprotobuf-dev \
 	libsnappy-dev \
 	libzstd-dev \
-	protobuf-compiler \
-	sqlite3-pcre
-
-# Apt packages that we remove.
-# We'll manually install the sqlite CLI; this version is too old.
-REMOVE_APT_PACKAGES = \
-	sqlite3
+	protobuf-compiler
 
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
 ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
-
-# We require a more recent sqlite3 than that provided by 18.04.
-# Our Go and Rust libraries provide their own recent built-in versions,
-# so this is only a concern with the `sqlite3` tool itself.
-SQLITE_VERSION = 3330000
-SQLITE_SHA256 = b34f4c0c0eefad9a7e515c030c18702e477f4ef7d8ade6142bdab8011b487ac6
 
 # Version of Rocks to build against.
 ROCKSDB_VERSION = 6.11.4
@@ -77,14 +65,9 @@ GO_MODULE_PATH = $(shell go list -f '{{ .Dir }}' -m $(module))
 
 PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
-	${PKGDIR}/bin/flow-consumer \
-	${PKGDIR}/bin/sql-driver \
-	${PKGDIR}/bin/flow-ingester \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/gazctl \
 	${PKGDIR}/bin/gazette \
-	${PKGDIR}/bin/sqlite3 \
-	${PKGDIR}/bin/websocat \
 	${PKGDIR}/lib/${LIBROCKS}
 
 ##########################################################################
@@ -125,35 +108,6 @@ ${TOOLBIN}/etcd:
 		&& chown ${UID}:${UID} ${TOOLBIN}/etcd ${TOOLBIN}/etcdctl \
 		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
 		&& rm /tmp/etcd.tgz \
-		&& $@ --version
-
-# `sqlite3` is used for catalog tests, and packaged as a release artifact.
-# We build our own, more recent binary with enabled feature vs relying on
-# what the package manager provides (which on 18.04, is pretty old).
-${TOOLBIN}/sqlite3:
-	mkdir -p ${TOOLBIN} \
-		&& curl -L -o /tmp/sqlite.zip \
-			https://www.sqlite.org/2020/sqlite-amalgamation-${SQLITE_VERSION}.zip \
-		&& echo "${SQLITE_SHA256} /tmp/sqlite.zip" | sha256sum -c - \
-		&& mkdir /tmp/sqlite \
-		&& unzip -j -d /tmp/sqlite /tmp/sqlite.zip \
-		&& gcc -Os \
-			-DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_FTS4 \
-			-DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1 \
-			-DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
-			-DHAVE_USLEEP -DHAVE_READLINE \
-			/tmp/sqlite/shell.c /tmp/sqlite/sqlite3.c -lpthread -ldl -lreadline -lncurses -lm -o $@ \
-		&& rm -r /tmp/sqlite/ \
-		&& rm /tmp/sqlite.zip \
-		&& $@ --version
-
-# Websocat is a command-line utility for working with WebSocket APIs.
-${TOOLBIN}/websocat:
-	mkdir -p ${TOOLBIN} \
-		&& curl -L -o /tmp/websocat https://github.com/vi/websocat/releases/download/v1.6.0/websocat_amd64-linux \
-		&& echo "cec0d7d05252dcadb09a5afb8851cf9f3a8997bba44334eee5f7db70ca72aa0b /tmp/websocat" | sha256sum -c - \
-		&& chmod +x /tmp/websocat \
-		&& mv /tmp/websocat $@ \
 		&& $@ --version
 
 # librocksdb.so fetches and builds the version of RocksDB identified by
@@ -209,12 +163,6 @@ ${PKGDIR}:
 	mkdir ${PKGDIR}/lib
 ${PKGDIR}/bin/etcd: ${PKGDIR} ${TOOLBIN}/etcd
 	cp ${TOOLBIN}/etcd $@
-${PKGDIR}/bin/flow-consumer: ${PKGDIR} ${GOBIN}/flow-consumer
-	cp ${GOBIN}/flow-consumer $@
-${PKGDIR}/bin/sql-driver: ${PKGDIR} ${GOBIN}/sql-driver
-	cp ${GOBIN}/sql-driver $@
-${PKGDIR}/bin/flow-ingester: ${PKGDIR} ${GOBIN}/flow-ingester
-	cp ${GOBIN}/flow-ingester $@
 ${PKGDIR}/bin/flowctl:     ${PKGDIR} ${GOBIN}/flowctl
 	cp ${GOBIN}/flowctl $@
 ${PKGDIR}/bin/gazctl: ${PKGDIR} ${GOBIN}/gazctl
@@ -223,19 +171,15 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 	cp ${GOBIN}/gazette $@
 ${PKGDIR}/lib/${LIBROCKS}:     ${PKGDIR} ${ROCKSDIR}/${LIBROCKS}
 	cp ${ROCKSDIR}/${LIBROCKS} $@
-${PKGDIR}/bin/sqlite3: ${PKGDIR} ${TOOLBIN}/sqlite3
-	cp ${TOOLBIN}/sqlite3 $@
-${PKGDIR}/bin/websocat: ${PKGDIR} ${TOOLBIN}/websocat
-	cp ${TOOLBIN}/websocat $@
 
 ##########################################################################
 # Make targets used by CI:
 
+# We use LLVM for faster linking. See .cargo/config.
 .PHONY: extra-ci-setup
 extra-ci-runner-setup:
 	sudo apt install -y $(EXTRA_APT_PACKAGES)
-	sudo apt remove -y $(REMOVE_APT_PACKAGES)
-	sudo ln --force --symbolic /usr/bin/ld.lld-9 /usr/bin/ld.lld
+	sudo ln --force --symbolic /usr/bin/ld.lld-11 /usr/bin/ld.lld
 
 .PHONY: print-versions
 print-versions:
@@ -249,11 +193,7 @@ print-versions:
 		&& /usr/bin/ld.lld --version
 
 .PHONY: install-tools
-install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd ${TOOLBIN}/sqlite3
-
-.PHONY: sql-test
-sql-test: ${TOOLBIN}/sqlite3
-	${ROOTDIR}/crates/catalog/src/test_catalog.sh
+install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd
 
 .PHONY: rocks-build
 rocks-build: ${ROCKSDIR}/${LIBROCKS}
@@ -263,7 +203,7 @@ rust-build: ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p bindings
 
 .PHONY: rust-test
-rust-test: ${TOOLBIN}/sqlite3 ${ROCKSDIR}/${LIBROCKS}
+rust-test: ${ROCKSDIR}/${LIBROCKS}
 	FLOW_VERSION=${VERSION} cargo test --release --locked
 
 .PHONY: go-test-fast
