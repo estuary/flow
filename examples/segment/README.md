@@ -69,15 +69,15 @@ $ go run examples/segment/generate.go | \
 
 Segment events are written into collection `examples/segment/events` and, from there,
 persisted to the configured fragment store -- which for these examples is a local
-file system stand-in for cloud storage. Within the created `flowctl-develop` runtime
+file system stand-in for cloud storage. Within the created `flowctl_develop` runtime
 directory you'll see fragments being written every minute or so:
 
 ```console
-$ find flowctl-develop/fragments/examples/segment/events -type f
-flowctl-develop/fragments/examples/segment/events/vendor=1/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cb-b4e33489b66bcca2aa02a3465e427cee73522d21.gz
-flowctl-develop/fragments/examples/segment/events/vendor=2/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cc-fd1d8f293c2aa161ec08242b789c14b1d589baf0.gz
-flowctl-develop/fragments/examples/segment/events/vendor=3/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cb-3e26c095227bd0ce15169aea62724f7c4e7f7423.gz
-flowctl-develop/fragments/examples/segment/events/vendor=4/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cd-2dab2dcb76e001e85610ef98a61a44a83e11a06e.gz
+$ find flowctl_develop/fragments/examples/segment/events -type f
+flowctl_develop/fragments/examples/segment/events/vendor=1/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cb-b4e33489b66bcca2aa02a3465e427cee73522d21.gz
+flowctl_develop/fragments/examples/segment/events/vendor=2/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cc-fd1d8f293c2aa161ec08242b789c14b1d589baf0.gz
+flowctl_develop/fragments/examples/segment/events/vendor=3/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cb-3e26c095227bd0ce15169aea62724f7c4e7f7423.gz
+flowctl_develop/fragments/examples/segment/events/vendor=4/pivot=00/utc_date=2021-03-19/utc_hour=19/0000000000000000-00000000000000cd-2dab2dcb76e001e85610ef98a61a44a83e11a06e.gz
 ```
 
 The listing reflects the collection's logical partitioning on `/vendor`, as well
@@ -233,12 +233,10 @@ webhook server.
 
 ## Cleanup
 
-Stop `flowctl`, remove the `flowctl-develop` runtime directory, and remove
+Stop `flowctl`, remove the `flowctl_develop` runtime directory, and remove
 `examples/examples.db` to complete a development session and restore
-to a pristine state. Without doing this, Flow will (currently) remember previous
-data and applied derivations and materializations, even if they've
-since been commented or removed from your catalog sources -- which can be
-confusing if you're not expecting it.
+to a pristine state. If you're working from a Git clone of the Flow repo,
+simply `git clean -f -d`.
 
 ## Extras #1: "push" profiles
 
