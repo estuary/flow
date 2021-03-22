@@ -118,33 +118,42 @@ $ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles limit
 Or do a point lookup of a specific user:
 
 ```console
-$ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles WHERE user = "usr-0003df"' | \
+$ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles WHERE user = "usr-000fce"' | \
     jq  '.segments'
 [
   {
-    "first": "2021-03-19T17:46:15-04:00",
-    "last": "2021-03-19T18:00:55-04:00",
+    "first": "2021-03-22T18:17:07-04:00",
+    "last": "2021-03-22T18:17:07-04:00",
     "member": true,
     "segment": {
-      "name": "seg-0",
-      "vendor": 1
+      "name": "seg-1233",
+      "vendor": 10
     }
   },
   {
-    "first": "2021-03-19T17:55:17-04:00",
-    "last": "2021-03-19T17:55:42-04:00",
-    "member": true,
-    "segment": {
-      "name": "seg-1",
-      "vendor": 2
-    }
-  },
-  {
-    "last": "2021-03-19T18:06:27-04:00",
+    "last": "2021-03-22T18:18:10-04:00",
     "member": false,
     "segment": {
-      "name": "seg-116",
-      "vendor": 9
+      "name": "seg-2",
+      "vendor": 3
+    }
+  },
+  {
+    "first": "2021-03-22T18:17:12-04:00",
+    "last": "2021-03-22T18:17:15-04:00",
+    "member": true,
+    "segment": {
+      "name": "seg-2141",
+      "vendor": 4
+    }
+  },
+  {
+    "first": "2021-03-22T18:17:30-04:00",
+    "last": "2021-03-22T18:17:30-04:00",
+    "member": true,
+    "segment": {
+      "name": "seg-9",
+      "vendor": 10
     }
   }
 ]
