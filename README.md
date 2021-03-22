@@ -214,4 +214,4 @@ You interact with Flow through the `flowctl` CLI tool:
 -   `flowctl run` joins, and `flowctl apply` updates, a small-scale production cluster.
 
 Estuary also provides a fully managed offering of Flow, running in your Kubernetes cluster.
-Please [reach out](https://estuary.dev/contact) to us for details.
+Please [reach out](https://estuary.dev/#contact-us) to us for details.
