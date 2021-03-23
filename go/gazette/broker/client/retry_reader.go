@@ -86,18 +86,25 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			client:   rr.Reader.client,
 		}
 
+		var squelch bool
+
 		switch err {
 		case context.DeadlineExceeded, context.Canceled:
 			return // Surface to caller.
 		case ErrOffsetNotYetAvailable:
 			if rr.Reader.Request.Block {
 				// |Block| was set after a non-blocking reader was started. Restart in blocking mode.
+				squelch = true
 			} else {
 				return // Surface to caller.
 			}
-		case io.EOF, ErrNotJournalBroker:
-			// Suppress logging for expected errors.
+		case io.EOF, ErrInsufficientJournalBrokers, ErrNotJournalBroker:
+			// Suppress logging for expected errors on first read attempt.
+			squelch = attempt == 0
 		default:
+		}
+
+		if !squelch {
 			log.WithFields(log.Fields{
 				"journal": rr.Journal(),
 				"offset":  rr.Offset(),
