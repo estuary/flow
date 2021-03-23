@@ -98,19 +98,20 @@ func (c BaseConfig) GetBaseConfig() BaseConfig { return c }
 
 const iniFilename = "gazette.ini"
 
-type cmdServe struct {
-	cfg Config
-	app Application
+// Cmd wraps a Config and Application to provide an Execute entry-point.
+type Cmd struct {
+	Cfg Config
+	App Application
 }
 
-func (sc cmdServe) Execute(args []string) error {
-	var bc = sc.cfg.GetBaseConfig()
+func (sc Cmd) Execute(args []string) error {
+	var bc = sc.Cfg.GetBaseConfig()
 
 	defer mbp.InitDiagnosticsAndRecover(bc.Diagnostics)()
 	mbp.InitLog(bc.Log)
 
 	log.WithFields(log.Fields{
-		"config":    sc.cfg,
+		"config":    sc.Cfg,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("consumer configuration")
@@ -131,7 +132,7 @@ func (sc cmdServe) Execute(args []string) error {
 	}
 	// If an Etcd prefix isn't provided, synthesize one using the application type.
 	if bc.Etcd.Prefix == "" {
-		bc.Etcd.Prefix = fmt.Sprintf("/gazette/consumers/%T", sc.app)
+		bc.Etcd.Prefix = fmt.Sprintf("/gazette/consumers/%T", sc.App)
 	}
 
 	var (
@@ -143,7 +144,7 @@ func (sc cmdServe) Execute(args []string) error {
 		ks       = consumer.NewKeySpace(bc.Etcd.Prefix)
 		state    = allocator.NewObservedState(ks, allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix), consumer.ShardIsConsistent)
 		rjc      = bc.Broker.MustRoutedJournalClient(context.Background())
-		service  = consumer.NewService(sc.app, state, rjc, srv.GRPCLoopback, etcd)
+		service  = consumer.NewService(sc.App, state, rjc, srv.GRPCLoopback, etcd)
 		tasks    = task.NewGroup(context.Background())
 		signalCh = make(chan os.Signal, 1)
 	)
@@ -159,9 +160,9 @@ func (sc cmdServe) Execute(args []string) error {
 		"group":    bc.Etcd.Prefix,
 	}).Info("starting consumer")
 
-	mbp.Must(sc.app.InitApplication(InitArgs{
+	mbp.Must(sc.App.InitApplication(InitArgs{
 		Context: context.Background(),
-		Config:  sc.cfg,
+		Config:  sc.Cfg,
 		Server:  srv,
 		Service: service,
 		Tasks:   tasks,
@@ -198,7 +199,7 @@ func Main(app Application) {
 		serve a Gazette consumer with the provided configuration, until signaled to
 		exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
 		its responsible shards and will exit only when it can safely do so.
-		`, &cmdServe{cfg: cfg, app: app})
+		`, &Cmd{Cfg: cfg, App: app})
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
 	mbp.MustParseConfig(parser, iniFilename)
