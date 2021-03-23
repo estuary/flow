@@ -212,7 +212,7 @@ func testCSVHeaderMissingRequiredField(t *testing.T, addr string) {
 	require.NoError(t, err)
 
 	var whoops, _ = runWebsocket(t, c, rows)
-	require.Equal(t, "processing frame: Header does not include any field that maps to the location: '/theKey', which is required to exist by the collection schema", whoops)
+	require.Equal(t, "processing frame: header does not include any field that maps to the location \"/theKey\", which is required to exist by the collection schema", whoops)
 }
 
 func testCSVNumOrIntOrNull(t *testing.T, addr string) {
@@ -267,7 +267,7 @@ func testCSVUnsupportedArray(t *testing.T, addr string) {
 	require.NoError(t, err)
 
 	var whoops, processed = runWebsocket(t, c, rows)
-	var expectedErr = "processing frame: failed to parse '[]' (of column: boolOrArrayOrNull) into [array boolean null]: unspported type 'array'"
+	var expectedErr = "processing frame: failed to parse '[]' (of column: boolOrArrayOrNull) into [array boolean null]: unsupported type 'array'"
 	require.Equal(t, expectedErr, whoops)
 	require.Equal(t, 0, processed)
 }
@@ -284,7 +284,7 @@ func testCSVUnsupportedObject(t *testing.T, addr string) {
 	require.NoError(t, err)
 
 	var whoops, processed = runWebsocket(t, c, rows)
-	var expectedErr = "processing frame: failed to parse '{}' (of column: intOrObjectOrNull) into [integer null object]: unspported type 'object'"
+	var expectedErr = "processing frame: failed to parse '{}' (of column: intOrObjectOrNull) into [integer null object]: unsupported type 'object'"
 	require.Equal(t, expectedErr, whoops)
 	require.Equal(t, 0, processed)
 }

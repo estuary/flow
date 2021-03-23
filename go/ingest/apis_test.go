@@ -41,7 +41,15 @@ func TestAPIs(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	_, err = flow.ApplyCatalogToEtcd(ctx, etcd, "/flow/catalog", built, "/not/used", "")
+	_, err = flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  ctx,
+		Etcd:                 etcd,
+		Root:                 "/flow/catalog",
+		Build:                built,
+		TypeScriptUDS:        "/not/used",
+		TypeScriptPackageURL: "",
+		DryRun:               false,
+	})
 	require.NoError(t, err)
 	catalog, err := flow.NewCatalog(ctx, etcd, "/flow/catalog")
 	require.NoError(t, err)

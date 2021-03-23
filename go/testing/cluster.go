@@ -2,9 +2,9 @@ package testing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/ingest"
@@ -19,11 +19,11 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/keyspace"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-	"google.golang.org/grpc"
 )
 
 // ClusterConfig configures a single-process Flow cluster member.
@@ -39,12 +39,14 @@ type ClusterConfig struct {
 
 // Cluster is an in-process Flow cluster environment.
 type Cluster struct {
-	Consumer *runtime.FlowConsumer
-	Ingester *ingest.Ingester
-	Journals pb.RoutedJournalClient
-	Server   *server.Server
-	Shards   pc.ShardClient
-	Tasks    *task.Group
+	Config      ClusterConfig
+	Consumer    *runtime.FlowConsumer
+	Ingester    *ingest.Ingester
+	Journals    pb.RoutedJournalClient
+	Server      *server.Server
+	Shards      pc.ShardClient
+	Tasks       *task.Group
+	ProcessSpec pb.ProcessSpec
 }
 
 // NewCluster builds and returns a new, running flow Cluster.
@@ -98,12 +100,17 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 		})
 		service.QueueTasks(tasks, server, persister.Finish)
 
+		// Testing Clusters which are stopped and started (e.x. `flowctl develop`)
+		// by definition have lost broker offset consistency: they start again at
+		// offset zero, while having larger offset in the fragment index.
+		// Automatically reset the write-heads of these journals.
 		ks.Observers = append(ks.Observers, func() {
 			for _, item := range allocState.LocalItems {
 				var name = item.Item.Decoded.(allocator.Item).ID
 				go resetJournalHead(tasks.Context(), rjc, pb.Journal(name))
 			}
 		})
+		ks.WatchApplyDelay = 0 // Faster convergence.
 
 		err = allocator.StartSession(allocator.SessionArgs{
 			Etcd:     c.Etcd,
@@ -141,6 +148,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 
 		pc.RegisterShardServer(server.GRPCServer, service)
 		service.QueueTasks(tasks, server)
+		ks.WatchApplyDelay = 0 // Faster convergence.
 
 		err = flowConsumer.InitApplication(runconsumer.InitArgs{
 			Context: tasks.Context(),
@@ -182,25 +190,36 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 	tasks.GoRun()
 
 	return &Cluster{
-		Consumer: flowConsumer,
-		Ingester: ingester,
-		Journals: rjc,
-		Server:   server,
-		Shards:   pc.NewShardClient(server.GRPCLoopback),
-		Tasks:    tasks,
+		Config:      c,
+		Consumer:    flowConsumer,
+		Ingester:    ingester,
+		Journals:    rjc,
+		Server:      server,
+		Shards:      pc.NewShardClient(server.GRPCLoopback),
+		Tasks:       tasks,
+		ProcessSpec: processSpec,
 	}, nil
 }
 
 // Stop the Cluster, blocking until it's shut down.
 func (c *Cluster) Stop() error {
-	c.Tasks.Cancel()
-	var err = c.Tasks.Wait()
+	defer c.Tasks.Cancel()
 
-	if errors.Is(err, grpc.ErrClientConnClosing) {
-		// This error is expected, as both the broker and consumer
-		// service will each close the gRPC client on tear-down.
-		err = nil
+	var memberKey = allocator.MemberKey(
+		&keyspace.KeySpace{Root: c.Config.EtcdConsumerPrefix},
+		c.ProcessSpec.Id.Zone,
+		c.ProcessSpec.Id.Suffix)
+
+	var _, err = c.Config.Etcd.Delete(context.Background(), memberKey)
+	if err != nil {
+		return fmt.Errorf("attempting to delete member key: %w", err)
 	}
+
+	err = c.Tasks.Wait()
+	if strings.Contains(err.Error(), "member key not found in Etcd") {
+		err = nil // Expected given our tear-down behavior.
+	}
+
 	return err
 }
 
