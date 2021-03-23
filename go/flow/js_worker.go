@@ -46,16 +46,10 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	}
 
 	// Spawn the worker.
-	cmd = exec.Command("node_modules/.bin/catalog-js-transformer")
-	cmd.Dir = tempdir
-	cmd.Env = append(os.Environ(), "SOCKET_PATH="+socketPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
-
-	log.WithField("args", cmd.Args).Info("starting worker")
-
-	if err = StartCmdAndReadReady(cmd); err != nil {
+	cmd, err = StartCmdAndReadReady(tempdir, socketPath,
+		true, // Place in own process group, to not propagate terminal signals.
+		"node_modules/.bin/catalog-js-transformer")
+	if err != nil {
 		return nil, fmt.Errorf("failed to start catalog-js-transformer: %w", err)
 	}
 
@@ -81,12 +75,25 @@ func (worker *JSWorker) Stop() error {
 }
 
 // StartCmdAndReadReady starts the Cmd blocks until it prints "READY\n" to stderr.
-func StartCmdAndReadReady(cmd *exec.Cmd) error {
+func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) (*exec.Cmd, error) {
+	var cmd = exec.Command(args[0], args[1:]...)
+	_ = os.Remove(socketPath)
+
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "SOCKET_PATH="+socketPath)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
 	// Deliver a SIGTERM to the process if this thread should die uncleanly.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	// Place child its own process group so that terminal SIGINT isn't
 	// delivered from the terminal.
-	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Setpgid = setpgid
+
+	log.WithFields(log.Fields{
+		"args":       cmd.Args,
+		"socketPath": socketPath,
+	}).Info("starting node worker")
 
 	var realStdErr io.Writer
 	realStdErr, cmd.Stderr = cmd.Stderr, nil
@@ -97,19 +104,19 @@ func StartCmdAndReadReady(cmd *exec.Cmd) error {
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("cmd.StderrPipe: %w", err)
+		return nil, fmt.Errorf("cmd.StderrPipe: %w", err)
 	} else if err = cmd.Start(); err != nil {
-		return fmt.Errorf("cmd.Start: %w", err)
+		return nil, fmt.Errorf("cmd.Start: %w", err)
 	}
 
 	var br = bufio.NewReader(stderr)
 	if ready, err := br.ReadString('\n'); err != nil {
-		return fmt.Errorf("attempting to read READY: %w", err)
+		return nil, fmt.Errorf("attempting to read READY: %w", err)
 	} else if ready != "READY\n" {
-		return fmt.Errorf("wanted READY from subprocess but got %q", ready)
+		return nil, fmt.Errorf("wanted READY from subprocess but got %q", ready)
 	}
 	// Hereafter, shunt stderr output directly to our own handle.
 	go io.Copy(realStdErr, br)
 
-	return nil
+	return cmd, nil
 }
