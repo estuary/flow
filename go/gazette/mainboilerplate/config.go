@@ -49,7 +49,7 @@ func MustParseArgs(parser *flags.Parser) {
 	if _, err := parser.ParseArgs(os.Args[1:]); err != nil {
 		var flagErr, ok = err.(*flags.Error)
 		if !ok {
-			panic(err)
+			Must(err, "fatal error")
 		}
 
 		switch flagErr.Type {
@@ -64,7 +64,17 @@ func MustParseArgs(parser *flags.Parser) {
 			os.Stderr.WriteString("\n")
 			parser.WriteHelp(os.Stderr)
 			fmt.Fprintf(os.Stderr, "\nVersion %s, built at %s.\n", Version, BuildDate)
-			fallthrough
+			os.Exit(1)
+
+		case flags.ErrHelp:
+			if parser.Options&flags.PrintErrors != 0 {
+				// Help was already printed.
+			} else {
+				parser.WriteHelp(os.Stderr)
+				fmt.Fprintf(os.Stderr, "\nVersion %s, built at %s.\n", Version, BuildDate)
+			}
+			os.Exit(1)
+
 		default:
 			// Other error types indicate a problem of input. Generally, `go-flags`
 			// already prints a helpful message and we can simply exit.
