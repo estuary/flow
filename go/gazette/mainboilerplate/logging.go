@@ -6,7 +6,7 @@ import (
 
 // LogConfig configures handling of application log events.
 type LogConfig struct {
-	Level  string `long:"level" env:"LEVEL" default:"info" choice:"info" choice:"debug" choice:"warn" description:"Logging level"`
+	Level  string `long:"level" env:"LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" description:"Logging level"`
 	Format string `long:"format" env:"FORMAT" default:"text" choice:"json" choice:"text" choice:"color" description:"Logging output format"`
 }
 
