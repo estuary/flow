@@ -211,7 +211,7 @@ You interact with Flow through the `flowctl` CLI tool:
 
 -   `flowctl test` runs all tests of a `--source` catalog.
 -   `flowctl develop` starts the Flow runtime around a `--source` catalog, miniaturized to a single local process.
--   `flowctl run` joins, and `flowctl apply` updates, a small-scale production cluster.
+-   `flowctl serve ... ` joins, and `flowctl apply` updates, a production cluster with separate Gazette & Etcd deployments.
 
 Estuary also provides a fully managed offering of Flow, running in your Kubernetes cluster.
 Please [reach out](https://estuary.dev/#contact-us) to us for details.

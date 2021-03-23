@@ -190,11 +190,3 @@ func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
 func (a *Derive) ClearRegistersForTest() error {
 	return a.binding.ClearRegisters()
 }
-
-func shardLabel(shard consumer.Shard, label string) (string, error) {
-	var values = shard.Spec().LabelSet.ValuesOf(label)
-	if len(values) != 1 {
-		return "", fmt.Errorf("expected single shard label %q (got %s)", label, values)
-	}
-	return values[0], nil
-}

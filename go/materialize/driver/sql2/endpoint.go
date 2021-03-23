@@ -65,7 +65,7 @@ func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
 		log.WithFields(log.Fields{
 			"table": e.Tables.Specs.Identifier,
 			"err":   err,
-		}).Warn("failed to query materialization spec (the table may not be initialized?)")
+		}).Info("failed to query materialization spec (the table may not be initialized?)")
 
 		return nil, nil
 	} else if err != nil {

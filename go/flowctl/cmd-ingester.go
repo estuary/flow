@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/estuary/flow/go/runtime"
-	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -16,42 +15,39 @@ import (
 	"go.gazette.dev/core/task"
 )
 
-const iniFilename = "flow.ini"
+type cmdIngester struct {
+	runtime.FlowIngesterConfig
+}
 
-// Config is the top-level configuration object of a Flow ingester.
-var Config = new(runtime.FlowIngesterConfig)
-
-type cmdServe struct{}
-
-func (cmdServe) Execute(_ []string) error {
-	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	mbp.InitLog(Config.Log)
+func (cmd cmdIngester) Execute(_ []string) error {
+	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
+	mbp.InitLog(cmd.Log)
 
 	log.WithFields(log.Fields{
-		"config":    Config,
+		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
-	}).Info("flow-ingester configuration")
+	}).Info("flowctl configuration")
 
-	pb.RegisterGRPCDispatcher(Config.Ingest.Zone)
+	pb.RegisterGRPCDispatcher(cmd.Ingest.Zone)
 
-	if Config.Broker.Cache.Size <= 0 {
+	if cmd.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")
 	}
 
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	var server, err = server.New("", Config.Ingest.Port)
+	var server, err = server.New("", cmd.Ingest.Port)
 	if err != nil {
 		return fmt.Errorf("building server: %w", err)
 	}
 
 	var args = runtime.FlowIngesterArgs{
-		BrokerRoot:  Config.Flow.BrokerRoot,
-		CatalogRoot: Config.Flow.CatalogRoot,
+		BrokerRoot:  cmd.Flow.BrokerRoot,
+		CatalogRoot: cmd.Flow.CatalogRoot,
 		Server:      server,
 		Tasks:       task.NewGroup(context.Background()),
-		Journals:    Config.Broker.MustRoutedJournalClient(context.Background()),
-		Etcd:        Config.Etcd.MustDial(),
+		Journals:    cmd.Broker.MustRoutedJournalClient(context.Background()),
+		Etcd:        cmd.Etcd.MustDial(),
 	}
 	if _, err = runtime.StartIngesterService(args); err != nil {
 		return fmt.Errorf("starting ingester service: %w", err)
@@ -59,8 +55,8 @@ func (cmdServe) Execute(_ []string) error {
 	args.Server.QueueTasks(args.Tasks)
 
 	log.WithFields(log.Fields{
-		"zone":     Config.Ingest.Zone,
-		"endpoint": Config.Ingest.BuildProcessSpec(server).Endpoint,
+		"zone":     cmd.Ingest.Zone,
+		"endpoint": cmd.Ingest.BuildProcessSpec(server).Endpoint,
 	}).Info("starting flow-ingester")
 
 	// Install signal handler & start broker tasks.
@@ -89,16 +85,4 @@ func (cmdServe) Execute(_ []string) error {
 
 	log.Info("goodbye")
 	return nil
-}
-
-func main() {
-	var parser = flags.NewParser(Config, flags.Default)
-
-	_, _ = parser.AddCommand("serve", "Serve as Flow ingester", `
-Serve a Flow ingester with the provided configuration, until signaled to
-exit (via SIGTERM).
-`, &cmdServe{})
-
-	mbp.AddPrintConfigCmd(parser, iniFilename)
-	mbp.MustParseConfig(parser, iniFilename)
 }

@@ -26,6 +26,7 @@ type BuiltCatalog struct {
 	Derivations      []pf.DerivationSpec
 	JournalRules     pf.JournalRules
 	Materializations []pf.MaterializationSpec
+	NPMPackage       []byte
 	Schemas          pf.SchemaBundle
 	ShardRules       pf.ShardRules
 	Tests            []pf.TestSpec
@@ -85,26 +86,6 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 	}
 
 	if err := loadSpecs(db,
-		`SELECT spec FROM built_materializations ORDER BY materialization ASC;`,
-		func() loadableSpec { return new(pf.MaterializationSpec) },
-		func(l loadableSpec) {
-			out.Materializations = append(out.Materializations, *l.(*pf.MaterializationSpec))
-		},
-	); err != nil {
-		return nil, fmt.Errorf("loading materializations: %w", err)
-	}
-
-	if err := loadSpecs(db,
-		`SELECT spec FROM built_tests ORDER BY test ASC;`,
-		func() loadableSpec { return new(pf.TestSpec) },
-		func(l loadableSpec) {
-			out.Tests = append(out.Tests, *l.(*pf.TestSpec))
-		},
-	); err != nil {
-		return nil, fmt.Errorf("loading test cases: %w", err)
-	}
-
-	if err := loadSpecs(db,
 		`SELECT spec FROM journal_rules ORDER BY rule ASC;`,
 		func() loadableSpec { return new(pf.JournalRules_Rule) },
 		func(l loadableSpec) {
@@ -115,11 +96,21 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 	}
 
 	if err := loadSpecs(db,
-		`SELECT spec FROM shard_rules ORDER BY rule ASC;`,
-		func() loadableSpec { return new(pf.ShardRules_Rule) },
-		func(l loadableSpec) { out.ShardRules.Rules = append(out.ShardRules.Rules, *l.(*pf.ShardRules_Rule)) },
+		`SELECT spec FROM built_materializations ORDER BY materialization ASC;`,
+		func() loadableSpec { return new(pf.MaterializationSpec) },
+		func(l loadableSpec) {
+			out.Materializations = append(out.Materializations, *l.(*pf.MaterializationSpec))
+		},
 	); err != nil {
-		return nil, fmt.Errorf("loading shard rules: %w", err)
+		return nil, fmt.Errorf("loading materializations: %w", err)
+	}
+
+	if err := loadRows(db,
+		`SELECT content FROM resources WHERE content_type = "NpmPackage";`,
+		func() []interface{} { return []interface{}{[]byte(nil)} },
+		func(l []interface{}) { out.NPMPackage = l[0].([]byte) },
+	); err != nil {
+		return nil, fmt.Errorf("loading NPM package: %w", err)
 	}
 
 	if err := loadRows(db,
@@ -127,7 +118,25 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 		func() []interface{} { return []interface{}{new(string), new(string)} },
 		func(l []interface{}) { out.Schemas.Bundle[*l[0].(*string)] = *l[1].(*string) },
 	); err != nil {
-		return nil, fmt.Errorf("loading build errors: %w", err)
+		return nil, fmt.Errorf("loading schema documents: %w", err)
+	}
+
+	if err := loadSpecs(db,
+		`SELECT spec FROM shard_rules ORDER BY rule ASC;`,
+		func() loadableSpec { return new(pf.ShardRules_Rule) },
+		func(l loadableSpec) { out.ShardRules.Rules = append(out.ShardRules.Rules, *l.(*pf.ShardRules_Rule)) },
+	); err != nil {
+		return nil, fmt.Errorf("loading shard rules: %w", err)
+	}
+
+	if err := loadSpecs(db,
+		`SELECT spec FROM built_tests ORDER BY test ASC;`,
+		func() loadableSpec { return new(pf.TestSpec) },
+		func(l loadableSpec) {
+			out.Tests = append(out.Tests, *l.(*pf.TestSpec))
+		},
+	); err != nil {
+		return nil, fmt.Errorf("loading test cases: %w", err)
 	}
 
 	return out, nil

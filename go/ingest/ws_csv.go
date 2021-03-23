@@ -135,7 +135,7 @@ func (csvIngester *wsCsvIngester) onHeader(collection *pf.CollectionSpec) error 
 	// explicit than the validation error.
 	for _, projection := range collection.Projections {
 		if projection.Inference.MustExist && !isProjectionIncluded(&projection, columnPointers) {
-			return fmt.Errorf("Header does not include any field that maps to the location: '%s', which is required to exist by the collection schema", projection.Ptr)
+			return fmt.Errorf("header does not include any field that maps to the location %q, which is required to exist by the collection schema", projection.Ptr)
 		}
 	}
 	return nil
@@ -215,11 +215,11 @@ func parseBoolean(input string) (interface{}, error) {
 }
 
 func parseObject(input string) (interface{}, error) {
-	return nil, fmt.Errorf("unspported type 'object'")
+	return nil, fmt.Errorf("unsupported type 'object'")
 }
 
 func parseArray(input string) (interface{}, error) {
-	return nil, fmt.Errorf("unspported type 'array'")
+	return nil, fmt.Errorf("unsupported type 'array'")
 }
 
 func parseString(input string) (interface{}, error) {
@@ -232,11 +232,4 @@ func parseNull(input string) (interface{}, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("expected an empty value")
-}
-
-func nullValueError(input string) (interface{}, error) {
-	if len(input) == 0 {
-		return nil, fmt.Errorf("value cannot be null")
-	}
-	panic("non-null value passed to nullValueError")
 }

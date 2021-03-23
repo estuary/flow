@@ -149,21 +149,25 @@ func (c Catalog) GetTask(name string) (*pf.CatalogTask, *Commons, error) {
 	return task, commons, nil
 }
 
+// ApplyArgs are arguments to ApplyCatalogToEtcd.
+type ApplyArgs struct {
+	Ctx                  context.Context
+	Etcd                 *clientv3.Client
+	Root                 string
+	Build                *bindings.BuiltCatalog
+	TypeScriptUDS        string
+	TypeScriptPackageURL string
+	DryRun               bool
+}
+
 // ApplyCatalogToEtcd inserts a CatalogCommons and updates CatalogTasks
 // into the Etcd Catalog keyspace rooted by |root|.
-func ApplyCatalogToEtcd(
-	ctx context.Context,
-	etcd *clientv3.Client,
-	root string,
-	build *bindings.BuiltCatalog,
-	typescriptUDS string,
-	typescriptPackageURL string,
-) (int64, error) {
-	if typescriptUDS == "" && typescriptPackageURL == "" {
+func ApplyCatalogToEtcd(args ApplyArgs) (int64, error) {
+	if args.TypeScriptUDS == "" && args.TypeScriptPackageURL == "" {
 		return 0, fmt.Errorf("expected a TypeScript UDS or package")
 	}
 
-	var oldCatalog, err = NewCatalog(ctx, etcd, root)
+	var oldCatalog, err = NewCatalog(args.Ctx, args.Etcd, args.Root)
 	if err != nil {
 		return 0, fmt.Errorf("loading existing catalog: %w", err)
 	}
@@ -171,6 +175,7 @@ func ApplyCatalogToEtcd(
 	for _, kv := range oldCatalog.KeyValues {
 		oldKeys[string(kv.Raw.Key)] = kv.Raw.ModRevision
 	}
+	var build = args.Build
 
 	// Build CatalogCommons and CatalogTasks around a generated CommonsID.
 	var commons = pf.CatalogCommons{
@@ -178,8 +183,8 @@ func ApplyCatalogToEtcd(
 		JournalRules:          build.JournalRules,
 		ShardRules:            build.ShardRules,
 		Schemas:               build.Schemas,
-		TypescriptLocalSocket: typescriptUDS,
-		TypescriptPackageUrl:  typescriptPackageURL,
+		TypescriptLocalSocket: args.TypeScriptUDS,
+		TypescriptPackageUrl:  args.TypeScriptPackageURL,
 	}
 	var tasks []pf.CatalogTask
 
@@ -230,7 +235,7 @@ func ApplyCatalogToEtcd(
 	var ops []clientv3.Op
 
 	for _, task := range tasks {
-		var key = root + TasksPrefix + task.Name()
+		var key = args.Root + TasksPrefix + task.Name()
 
 		if rev, ok := oldKeys[key]; ok {
 			log.WithField("key", key).Debug("updating CatalogTask")
@@ -242,7 +247,7 @@ func ApplyCatalogToEtcd(
 		}
 		ops = append(ops, clientv3.OpPut(key, marshalString(&task)))
 	}
-	var key = root + CommonsPrefix + commons.CommonsId
+	var key = args.Root + CommonsPrefix + commons.CommonsId
 	ops = append(ops, clientv3.OpPut(key, marshalString(&commons)))
 	log.WithField("key", key).Debug("inserting CatalogCommons")
 
@@ -253,7 +258,11 @@ func ApplyCatalogToEtcd(
 		log.WithField("key", key).Debug("removing dropped catalog item")
 	}
 
-	txnResp, err := etcd.Do(ctx, clientv3.OpTxn(cmps, ops, nil))
+	if args.DryRun {
+		return 0, nil
+	}
+
+	txnResp, err := args.Etcd.Do(args.Ctx, clientv3.OpTxn(cmps, ops, nil))
 	if err == nil && !txnResp.Txn().Succeeded {
 		return 0, fmt.Errorf("etcd transaction checks failed")
 	} else if err != nil {

@@ -22,18 +22,23 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+type FlowConfig struct {
+	CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
+	BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+}
+
 // FlowConsumerConfig configures the flow-consumer application.
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
-
-	// Flow application flags.
-	Flow struct {
-		CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
-		BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
+	Flow FlowConfig `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 
 	// DisableClockTicks is exposed for in-process testing, where we manually adjust the current Timepoint.
 	DisableClockTicks bool
+}
+
+// Execute delegates to runconsumer.Cmd.Execute.
+func (c *FlowConsumerConfig) Execute(args []string) error {
+	return runconsumer.Cmd{Cfg: c, App: new(FlowConsumer)}.Execute(args)
 }
 
 // FlowConsumer implements the Estuary Flow Consumer.
