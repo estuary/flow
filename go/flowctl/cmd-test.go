@@ -230,22 +230,9 @@ func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 }
 
 func startJSWorker(dir, socketPath string) (*exec.Cmd, error) {
-	var cmd = exec.Command("node", "dist/flow_generated/flow/main.js")
-	_ = os.Remove(socketPath)
-
-	cmd.Env = append(cmd.Env, os.Environ()...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("SOCKET_PATH=%s", socketPath))
-
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	log.WithField("args", cmd.Args).Info("starting node")
-
-	if err := flow.StartCmdAndReadReady(cmd); err != nil {
-		return nil, fmt.Errorf("failed to start JS worker: %w", err)
-	}
-	return cmd, nil
+	return flow.StartCmdAndReadReady(dir, socketPath,
+		false, // Use process group of parent. Terminal signals pass through.
+		"node", "dist/flow_generated/flow/main.js")
 }
 
 func stopWorker(cmd *exec.Cmd) {
