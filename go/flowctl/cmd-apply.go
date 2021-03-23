@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize/driver"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/runtime"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -20,33 +26,89 @@ import (
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
-type cmdBuild struct {
-	Source    string `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Directory string `long:"directory" default:"." description:"Build directory"`
+type cmdApply struct {
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	DryRun      bool                  `long:"dry-run" description:"Dry run, don't actually apply"`
+	Flow        runtime.FlowConfig    `group:"Flow" namespace:"flow" env-namespace:"FLOW"`
+	Etcd        mbp.EtcdConfig        `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
+	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
-func (cmd cmdBuild) Execute(_ []string) error {
-	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	initLog(Config.Log)
+func (cmd cmdApply) Execute(_ []string) error {
+	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
+	mbp.InitLog(cmd.Log)
 
 	log.WithFields(log.Fields{
-		"config":    Config,
+		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
-	var config = pf.BuildAPI_Config{
-		Source:            cmd.Source,
-		Directory:         cmd.Directory,
+	var err error
+	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
+		return fmt.Errorf("filepath.Abs: %w", err)
+	}
+
+	// Ensure we can connect clients before doing more expensive build steps.
+	var ctx = context.Background()
+	var shards = cmd.Consumer.MustRoutedShardClient(ctx)
+	var etcd = cmd.Etcd.MustDial()
+
+	built, err := buildCatalog(pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
-		TypescriptCompile: true,
+		Directory:         cmd.Directory,
+		Source:            cmd.Source,
 		TypescriptPackage: true,
+	})
+	if err != nil {
+		return err
 	}
 
-	var _, err = buildCatalog(config)
-	if err == nil {
-		fmt.Println("Build Success")
+	// Apply all database materializations first, before we create
+	// catalog entities that reference the applied tables / topics / targets.
+	if err := applyMaterializationsTODO(built, cmd.DryRun); err != nil {
+		return fmt.Errorf("applying materializations: %w", err)
 	}
+
+	// Install NPM package as an etcd:// key that we'll reference.
+	var packageSum = sha1.Sum(built.NPMPackage)
+	var packageKey = fmt.Sprintf("/flow/npm-package/%s-%x",
+		time.Now().Format(time.RFC3339), hex.EncodeToString(packageSum[:8]))
+
+	if !cmd.DryRun {
+		if _, err := etcd.Put(ctx, packageKey, string(built.NPMPackage)); err != nil {
+			return fmt.Errorf("storing NPM package to etcd: %w", err)
+		}
+	}
+
+	// Apply catalog task specifications to the cluster.
+	if _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  ctx,
+		Etcd:                 etcd,
+		Root:                 cmd.Flow.CatalogRoot,
+		Build:                built,
+		TypeScriptUDS:        "",
+		TypeScriptPackageURL: "etcd://" + packageKey,
+		DryRun:               cmd.DryRun,
+	}); err != nil {
+		return fmt.Errorf("applying catalog to Etcd: %w", err)
+	}
+
+	if !cmd.DryRun {
+		// Apply derivation shard specs.
+		if err = applyDerivationShardsTODO(built, shards); err != nil {
+			return fmt.Errorf("applying derivation shards: %w", err)
+		}
+		// Apply materialization shards.
+		if err = applyMaterializationShardsTODO(built, shards); err != nil {
+			return fmt.Errorf("applying materialization shards: %w", err)
+		}
+	}
+
 	return err
 }
 
@@ -61,12 +123,30 @@ func buildCatalog(config pf.BuildAPI_Config) (*bindings.BuiltCatalog, error) {
 	}
 
 	for _, be := range built.Errors {
-		log.WithField("scope", be.Scope).Error(be.Error)
+		var path, ptr = scopeToPathAndPtr(config.Directory, be.Scope)
+		fmt.Println(yellow(path), "error at", red(ptr), ":")
+		fmt.Println(be.Error)
 	}
+
 	if len(built.Errors) != 0 {
-		return nil, fmt.Errorf("one or more catalog errors")
+		return nil, fmt.Errorf("%d build errors", len(built.Errors))
 	}
 	return built, nil
+}
+
+func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
+	u, err := url.Parse(scope)
+	if err != nil {
+		panic(err)
+	}
+
+	ptr, u.Fragment = u.Fragment, ""
+	path = u.String()
+
+	if u.Scheme == "file" && strings.HasPrefix(u.Path, dir) {
+		path = path[len(dir)+len("file://")+1:]
+	}
+	return path, ptr
 }
 
 func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
@@ -175,7 +255,10 @@ func applyMaterializationsTODO(built *bindings.BuiltCatalog, dryRun bool) error 
 			return fmt.Errorf("applying materialization: %w", err)
 		}
 
-		fmt.Println(response.ActionDescription)
+		if response.ActionDescription != "" {
+			fmt.Println("Applying materialization ", spec.Materialization, ":")
+			fmt.Println(response.ActionDescription)
+		}
 	}
 	return nil
 }

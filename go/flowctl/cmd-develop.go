@@ -19,17 +19,19 @@ import (
 )
 
 type cmdDevelop struct {
-	Source    string `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Directory string `long:"directory" default:"." description:"Build directory"`
 	mbp.ServiceConfig
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
 func (cmd cmdDevelop) Execute(_ []string) error {
-	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	initLog(Config.Log)
+	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
+	mbp.InitLog(cmd.Log)
 
 	log.WithFields(log.Fields{
-		"config":    Config,
+		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
@@ -102,14 +104,20 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		ServiceConfig:      cmd.ServiceConfig,
 	}
 	cfg.ZoneConfig.Zone = "local"
-	pb.RegisterGRPCDispatcher(Config.Zone)
+	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
-	if _, err := flow.ApplyCatalogToEtcd(cfg.Context, cfg.Etcd,
-		cfg.EtcdCatalogPrefix, built, lambdaJSUDS, ""); err != nil {
-		return err
+	if _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  cfg.Context,
+		Etcd:                 cfg.Etcd,
+		Root:                 cfg.EtcdCatalogPrefix,
+		Build:                built,
+		TypeScriptUDS:        lambdaJSUDS,
+		TypeScriptPackageURL: "",
+		DryRun:               false,
+	}); err != nil {
+		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
-
 	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
 	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 

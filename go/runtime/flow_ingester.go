@@ -19,11 +19,7 @@ type FlowIngesterConfig struct {
 		mbp.ServiceConfig
 	} `group:"Ingest" namespace:"ingest" env-namespace:"INGEST"`
 
-	Flow struct {
-		CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
-		BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
-
+	Flow        FlowConfig            `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 	Etcd        mbp.EtcdConfig        `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`

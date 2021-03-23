@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,34 +26,18 @@ import (
 )
 
 type cmdTest struct {
-	Source    string `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Directory string `long:"directory" default:"." description:"Build directory"`
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
 func (cmd cmdTest) Execute(_ []string) (retErr error) {
-	var failed []string
-	// This is temporary (...pause for groans) until we modify the gazette mainboilerplate package
-	// to stop printing stacktraces and panicing on errors. The goal is to be able to simply return
-	// a "tests failed" error in the future.
-	defer func() {
-		if retErr == nil { // Failing tests are expected, so we don't return an error in that case.
-			// Exit code will be the number of failed tests
-			var nFailed = len(failed)
-			// Just in case someone has a huge number of failed tests, this will prevent us from
-			// accidentally setting the exit code to 0 (all but the low 8 bits are ignored, and values
-			// in the range 128-256 are given special meaning).
-			if nFailed > 127 {
-				nFailed = 127
-			}
-			os.Exit(nFailed)
-		}
-	}()
-
-	defer mbp.InitDiagnosticsAndRecover(Config.Diagnostics)()
-	initLog(Config.Log)
+	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
+	mbp.InitLog(cmd.Log)
 
 	log.WithFields(log.Fields{
-		"config":    Config,
+		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
@@ -126,12 +112,19 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		EtcdConsumerPrefix: "/flowctl/test/runtime",
 	}
 	cfg.ZoneConfig.Zone = "local"
-	pb.RegisterGRPCDispatcher(Config.Zone)
+	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
-	if _, err := flow.ApplyCatalogToEtcd(cfg.Context, cfg.Etcd,
-		cfg.EtcdCatalogPrefix, built, lambdaJSUDS, ""); err != nil {
-		return err
+	if _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  cfg.Context,
+		Etcd:                 cfg.Etcd,
+		Root:                 cfg.EtcdCatalogPrefix,
+		Build:                built,
+		TypeScriptUDS:        lambdaJSUDS,
+		TypeScriptPackageURL: "",
+		DryRun:               false,
+	}); err != nil {
+		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
 
 	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
@@ -147,36 +140,36 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 
-	// Run all test cases.
-	var graph = testing.NewGraph(built.Derivations)
-	fmt.Println("Running ", len(built.Tests), " tests...")
-	for _, testCase := range built.Tests {
-		fmt.Print(testCase.Test, ": ")
+	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
+	sort.Slice(built.Tests, func(i, j int) bool {
+		return built.Tests[i].Steps[0].StepScope < built.Tests[j].Steps[0].StepScope
+	})
 
+	var graph = testing.NewGraph(built.Derivations)
+	var failed []string
+	fmt.Println("Running ", len(built.Tests), " tests...")
+
+	for _, testCase := range built.Tests {
 		if scope, err := testing.RunTestCase(graph, cluster, &testCase); err != nil {
-			fmt.Printf("%s\n", red("FAILED"))
-			fmt.Println(red("ERROR"), "at", yellow(scope), ":")
+			var path, ptr = scopeToPathAndPtr(cmd.Directory, scope)
+			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
 			fmt.Println(err)
 			failed = append(failed, testCase.Test)
 		} else {
-			fmt.Print(green("PASSED"), "\n")
+			var path, _ = scopeToPathAndPtr(cmd.Directory, testCase.Steps[0].StepScope)
+			fmt.Println("✔️", path, "::", green(testCase.Test))
 		}
 		cluster.Consumer.ClearRegistersForTest(cfg.Context)
 	}
 
-	// Summarize the failed tests at the end so that it's easier to see in case there's a lot of
-	// error output above.
-	if len(failed) > 0 {
-		fmt.Printf("\n%s\n", red("Failed:"))
-		for _, t := range failed {
-			fmt.Println(t)
-		}
-	}
 	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
 		len(built.Tests), len(built.Tests)-len(failed), len(failed))
 
 	if err := cluster.Stop(); err != nil {
 		return fmt.Errorf("stopping cluster: %w", err)
+	}
+	if failed != nil {
+		return fmt.Errorf("failed tests: [%s]", strings.Join(failed, ", "))
 	}
 	return nil
 }

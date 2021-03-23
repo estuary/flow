@@ -310,9 +310,6 @@ func (d *transactor) Destroy() {
 	if d.store.txn != nil {
 		d.store.txn.Rollback()
 	}
-	if _, err := d.load.conn.ExecContext(d.ctx, "DETACH DATABASE load;"); err != nil {
-		log.WithField("err", err).Error("failed to detach 'load' database")
-	}
 	if err := d.load.conn.Close(); err != nil {
 		log.WithField("err", err).Error("failed to close load connection")
 	}
@@ -388,7 +385,7 @@ func BuildSQL(gen *sqlDriver.Generator, table *sqlDriver.Table, fields pf.FieldS
 	)
 
 	// DELETE keys to load, after query.
-	keyTruncate = fmt.Sprintf(`DELETE FROM load.keys ;`)
+	keyTruncate = `DELETE FROM load.keys ;`
 
 	return
 }

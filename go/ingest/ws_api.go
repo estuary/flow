@@ -219,7 +219,7 @@ func newWSReadPump(ctx context.Context, conn *websocket.Conn, buffer *bytes.Buff
 			select {
 			case <-ctx.Done():
 				return // Cancelled.
-			case _ = <-chIn:
+			case <-chIn:
 			}
 			buffer.Reset()
 

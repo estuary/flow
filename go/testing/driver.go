@@ -291,14 +291,6 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	return nil
 }
 
-func newDiffOptions() jsondiff.Options {
-	var opts = jsondiff.DefaultConsoleOptions()
-	opts.CompareNumbers = compareNumbers
-	return opts
-}
-
-var diffOptions = newDiffOptions()
-
 // epsilon is used when comparing floating point numbers. This is the same value as FLT_EPSILON
 // from C, also known as the "machine epsilon".
 var epsilon = math.Nextafter(1.0, 2.0) - 1.0
