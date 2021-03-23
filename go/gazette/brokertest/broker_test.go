@@ -203,7 +203,7 @@ func TestGracefulStopTimeout(t *testing.T) {
 	// Signal the broker to exit. It will, despite the hung RPCs,
 	// upon hitting the graceful-stop timeout.
 	bkB.Signal()
-	require.NotNil(t, bkB.Tasks.Wait())
+	require.NoError(t, bkB.Tasks.Wait())
 
 	// Drop replication, allowing broker A to exit gracefully.
 	updateReplication(t, ctx, bkA.Client(), "foo/bar", 0)

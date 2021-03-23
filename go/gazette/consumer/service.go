@@ -13,6 +13,8 @@ import (
 	"go.gazette.dev/core/task"
 	"golang.org/x/net/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Service is the top-level runtime entity of a Gazette Consumer process.
@@ -113,7 +115,11 @@ func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server) {
 
 		// All shards (and any peer connections they may have held) have
 		// fully torn down. Now we can tear down the loopback.
-		return server.GRPCLoopback.Close()
+		var err = server.GRPCLoopback.Close()
+		if status.Code(err) == codes.Canceled {
+			err = nil // Loopback already closed. Not an error.
+		}
+		return err
 	})
 }
 
