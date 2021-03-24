@@ -68,6 +68,7 @@ func NewMaterializeApp(
 		return nil, fmt.Errorf("building schema index: %w", err)
 	}
 	combiner, err := bindings.NewCombine(
+		shard.FQN(),
 		schemaIndex,
 		spec.Collection.SchemaUri,
 		spec.Collection.KeyPtrs,
