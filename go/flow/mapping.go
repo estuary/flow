@@ -13,12 +13,19 @@ import (
 	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
+
+var createdPartitionsCounters = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_collection_partitions_created_total",
+	Help: "The number of new collection partitions created",
+}, []string{"collection"})
 
 // Mappable is the implementation of message.Message which is expected by Mapper.
 type Mappable struct {
@@ -124,6 +131,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 				"journal":     applySpec.Name,
 				"readThrough": readThrough,
 			}).Info("created partition")
+			createdPartitionsCounters.WithLabelValues(msg.Spec.Collection.String()).Inc()
 		}
 
 		m.Journals.Mu.RLock()

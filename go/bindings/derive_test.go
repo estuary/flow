@@ -57,6 +57,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 	}
 
 	derive, err := NewDerive(
+		"test/derive/withIntStrings",
 		schemaIndex,
 		derivation,
 		gorocksdb.NewDefaultEnv(),
@@ -250,6 +251,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	var build = func(t *testing.T) *Derive {
 		d, err := NewDerive(
+			"test/derive/withIncReset",
 			schemaIndex,
 			&built.Derivations[0],
 			gorocksdb.NewDefaultEnv(),
