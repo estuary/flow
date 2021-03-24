@@ -19,6 +19,7 @@ require (
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
 	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v1.5.1 // indirect
 	github.com/sirupsen/logrus v1.7.0
 	github.com/snowflakedb/gosnowflake v1.4.2-0.20210318070613-b0c023e3afd7
 	github.com/stretchr/testify v1.5.1

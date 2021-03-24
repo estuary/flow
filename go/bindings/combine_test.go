@@ -27,6 +27,7 @@ func TestCombineBindings(t *testing.T) {
 	require.NoError(t, err)
 
 	combiner, err := NewCombine(
+		collection.Collection.String(),
 		schemaIndex,
 		collection.SchemaUri,
 		collection.KeyPtrs,

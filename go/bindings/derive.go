@@ -19,11 +19,44 @@ import (
 	"unsafe"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 	"github.com/tecbot/gorocksdb"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
+	"golang.org/x/net/trace"
 )
+
+var deriveInputDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_input_documents",
+	Help: "Count of documents input to derive operations",
+}, []string{"derivation"})
+var deriveInputBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_input_bytes",
+	Help: "Number of bytes input as the right hand side of derive operations",
+}, []string{"derivation"})
+var deriveOutputDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_output_docs",
+	Help: "Count of documents drained from derive instances",
+}, []string{"derivation"})
+var deriveOutputBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_output_bytes",
+	Help: "Number of bytes drained from derive instances",
+}, []string{"derivation"})
+var deriveTxnCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_txn_count",
+	Help: "Count of number of derive transactions",
+}, []string{"derivation"})
+var deriveInstanceGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "flow_derive_instances",
+	Help: "Number of derivers currently active",
+}, []string{"task"})
+var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "flow_derive_lambda_time",
+	Help:    "Duration in milliseconds of invocation of derive lambdas",
+	Buckets: []float64{0.5, 2.0, 10.0, 50.0, 100.0, 300.0, 1000.0},
+}, []string{"derivation", "lambdaType"})
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
@@ -33,6 +66,13 @@ type Derive struct {
 	trampolineCh <-chan []byte     // Completed trampoline tasks.
 	pinnedEnv    *gorocksdb.Env    // Used from Rust.
 	pinnedIndex  *SchemaIndex      // Used from Rust.
+
+	// relevant metrics are stored here to avoid doing a lookup on each usage
+	inputDocsCounter   prometheus.Counter
+	inputBytesCounter  prometheus.Counter
+	outputDocsCounter  prometheus.Counter
+	outputBytesCounter prometheus.Counter
+	txnCounter         prometheus.Counter
 }
 
 // NewDerive instantiates the derivation workflow around the given catalog and
@@ -71,6 +111,7 @@ func NewDerive(
 		return nil, err
 	}
 
+	var derivationName = derivation.Collection.Collection.String()
 	var derive = &Derive{
 		svc:          svc,
 		runningTasks: 0,
@@ -78,6 +119,12 @@ func NewDerive(
 		trampolineCh: trampolineCh,
 		pinnedEnv:    rocksEnv,
 		pinnedIndex:  index,
+
+		inputBytesCounter:  deriveInputBytesCounter.WithLabelValues(derivationName),
+		inputDocsCounter:   deriveInputDocsCounter.WithLabelValues(derivationName),
+		outputBytesCounter: deriveOutputBytesCounter.WithLabelValues(derivationName),
+		outputDocsCounter:  deriveOutputDocsCounter.WithLabelValues(derivationName),
+		txnCounter:         deriveTxnCounter.WithLabelValues(derivationName),
 	}
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
@@ -124,6 +171,8 @@ func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformIndex uint32, doc j
 			TransformIndex: transformIndex,
 		})
 	d.svc.sendBytes(uint32(pf.DeriveAPI_NEXT_DOCUMENT_BODY), doc)
+	d.inputDocsCounter.Inc()
+	d.inputBytesCounter.Add(float64(len(doc)))
 
 	// If we have no resolved tasks to send, AND we don't have many unsent
 	// frames, AND it's not an ACK, THEN skip polling.
@@ -169,6 +218,8 @@ func (d *Derive) sendResolvedTasks() (sent bool) {
 // Drain derived documents, invoking the callback for each distinct group-by document.
 func (d *Derive) Drain(cb CombineCallback) error {
 	d.svc.sendBytes(uint32(pf.DeriveAPI_FLUSH_TRANSACTION), nil)
+	d.txnCounter.Inc()
+	var instrumented = instrumentCallback(d.outputDocsCounter, d.outputBytesCounter, cb)
 
 	for {
 		d.sendResolvedTasks()
@@ -191,7 +242,7 @@ func (d *Derive) Drain(cb CombineCallback) error {
 				"tasks": d.runningTasks,
 			}).Debug("derive.Drain draining combiner")
 
-			return drainCombineToCallback(d.svc, &out, cb)
+			return drainCombineToCallback(d.svc, &out, instrumented)
 		}
 
 		// Otherwise we have active tasks, or the first |out| is a task start.
@@ -300,6 +351,11 @@ func newDeriveInvokeHandler(derivation *pf.DerivationSpec, tsClient *http.Client
 		return request, client, nil
 	}
 
+	// lookup metrics eagerly, to avoid doing it in a hot loop
+	var collection = derivation.Collection.Collection.String()
+	var updateLambdaTimes = deriveLambdaDurations.WithLabelValues(collection, "update")
+	var publishLambdaTimes = deriveLambdaDurations.WithLabelValues(collection, "publish")
+
 	var exec = func(ctx context.Context, i interface{}) ([]byte, error) {
 		var invoke = i.(*pf.DeriveAPI_Invoke)
 		// Map from request to applicable transform.
@@ -307,18 +363,31 @@ func newDeriveInvokeHandler(derivation *pf.DerivationSpec, tsClient *http.Client
 
 		// Distinguish update vs publish invocations on the presence of registers.
 		var lambda *pf.LambdaSpec
+		var lambdaType string
+		var timer *prometheus.Timer
 		if invoke.RegistersLength != 0 {
 			lambda = transform.PublishLambda
+			lambdaType = "publish"
+			timer = prometheus.NewTimer(publishLambdaTimes)
 		} else {
 			lambda = transform.UpdateLambda
+			lambdaType = "update"
+			timer = prometheus.NewTimer(updateLambdaTimes)
 		}
+		defer timer.ObserveDuration()
 		log.WithField("lambda", lambda).Debug("invoking lambda")
+		var tr = trace.New("flow.Lambda", collection)
+		// Add additional information lazily. This will only be evaluated when the /debug/requests
+		// page is actually rendered.
+		tr.LazyPrintf("transform: %s, lambdaType: %s", transform.Transform, lambdaType)
+		defer tr.Finish()
 
 		// Build, dispatch, and read request => response.
 		request, client, err := newRequest(ctx, invoke, lambda)
 		if err != nil {
 			return nil, err
 		}
+
 		response, err := client.Do(request)
 		if err != nil {
 			return nil, fmt.Errorf("invoking %s: %w", request.URL, err)

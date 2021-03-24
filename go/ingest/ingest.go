@@ -197,6 +197,7 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	}
 
 	combine, err := bindings.NewCombine(
+		spec.Collection.String(),
 		schemaIndex,
 		spec.SchemaUri,
 		spec.KeyPtrs,
