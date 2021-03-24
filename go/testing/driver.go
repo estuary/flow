@@ -190,7 +190,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Now feed documents into a combiner, filtering documents which are ACKs.
-	_, commons, err := c.Consumer.Catalog.GetTask(step.Collection.String())
+	task, commons, err := c.Consumer.Catalog.GetTask(step.Collection.String())
 	if err != nil {
 		return fmt.Errorf("mapping step collection to commons: %w", err)
 	}
@@ -200,6 +200,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	combiner, err := bindings.NewCombine(
+		task.Name(),
 		schemaIndex,
 		step.CollectionSchemaUri,
 		step.CollectionKeyPtr,

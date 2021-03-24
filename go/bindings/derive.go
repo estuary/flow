@@ -19,11 +19,20 @@ import (
 	"unsafe"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 	"github.com/tecbot/gorocksdb"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
+	"golang.org/x/net/trace"
 )
+
+var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "flow_derive_lambda_duration_seconds",
+	Help:    "Duration in seconds of invocation of derive lambdas",
+	Buckets: []float64{0.0005, 0.002, 0.01, 0.05, 0.1, 0.3, 1.0},
+}, []string{"derivation", "lambdaType"})
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
@@ -33,11 +42,15 @@ type Derive struct {
 	trampolineCh <-chan []byte     // Completed trampoline tasks.
 	pinnedEnv    *gorocksdb.Env    // Used from Rust.
 	pinnedIndex  *SchemaIndex      // Used from Rust.
+
+	metrics combineMetrics
+	stats   combineStats
 }
 
 // NewDerive instantiates the derivation workflow around the given catalog and
 // derivation collection name, using the local directory & RocksDB environment.
 func NewDerive(
+	shardFqn string,
 	index *SchemaIndex,
 	derivation *pf.DerivationSpec,
 	rocksEnv *gorocksdb.Env,
@@ -53,7 +66,7 @@ func NewDerive(
 
 	var trampoline, trampolineCh = newTrampolineServer(
 		context.Background(),
-		newDeriveInvokeHandler(derivation, typeScriptClient),
+		newDeriveInvokeHandler(shardFqn, derivation, typeScriptClient),
 	)
 
 	var svc = newDeriveSvc()
@@ -78,6 +91,8 @@ func NewDerive(
 		trampolineCh: trampolineCh,
 		pinnedEnv:    rocksEnv,
 		pinnedIndex:  index,
+		metrics:      newCombineMetrics(shardFqn),
+		stats:        combineStats{},
 	}
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
@@ -124,6 +139,8 @@ func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformIndex uint32, doc j
 			TransformIndex: transformIndex,
 		})
 	d.svc.sendBytes(uint32(pf.DeriveAPI_NEXT_DOCUMENT_BODY), doc)
+	d.stats.rightDocs++
+	d.stats.rightBytes += len(doc)
 
 	// If we have no resolved tasks to send, AND we don't have many unsent
 	// frames, AND it's not an ACK, THEN skip polling.
@@ -168,6 +185,7 @@ func (d *Derive) sendResolvedTasks() (sent bool) {
 
 // Drain derived documents, invoking the callback for each distinct group-by document.
 func (d *Derive) Drain(cb CombineCallback) error {
+	defer d.stats.reset()
 	d.svc.sendBytes(uint32(pf.DeriveAPI_FLUSH_TRANSACTION), nil)
 
 	for {
@@ -191,7 +209,11 @@ func (d *Derive) Drain(cb CombineCallback) error {
 				"tasks": d.runningTasks,
 			}).Debug("derive.Drain draining combiner")
 
-			return drainCombineToCallback(d.svc, &out, cb)
+			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb)
+			if err == nil {
+				d.metrics.recordDrain(&d.stats)
+			}
+			return err
 		}
 
 		// Otherwise we have active tasks, or the first |out| is a task start.
@@ -256,7 +278,7 @@ func newDeriveSvc() *service {
 	)
 }
 
-func newDeriveInvokeHandler(derivation *pf.DerivationSpec, tsClient *http.Client) trampolineHandler {
+func newDeriveInvokeHandler(shardFqn string, derivation *pf.DerivationSpec, tsClient *http.Client) trampolineHandler {
 	// Decode a trampoline invocation request message.
 	var decode = func(request []byte) (interface{}, error) {
 		var invoke = new(pf.DeriveAPI_Invoke)
@@ -300,6 +322,10 @@ func newDeriveInvokeHandler(derivation *pf.DerivationSpec, tsClient *http.Client
 		return request, client, nil
 	}
 
+	// lookup metrics eagerly, to avoid doing it in a hot loop
+	var updateLambdaTimes = deriveLambdaDurations.WithLabelValues(shardFqn, "update")
+	var publishLambdaTimes = deriveLambdaDurations.WithLabelValues(shardFqn, "publish")
+
 	var exec = func(ctx context.Context, i interface{}) ([]byte, error) {
 		var invoke = i.(*pf.DeriveAPI_Invoke)
 		// Map from request to applicable transform.
@@ -307,18 +333,31 @@ func newDeriveInvokeHandler(derivation *pf.DerivationSpec, tsClient *http.Client
 
 		// Distinguish update vs publish invocations on the presence of registers.
 		var lambda *pf.LambdaSpec
+		var lambdaType string
+		var timer *prometheus.Timer
 		if invoke.RegistersLength != 0 {
 			lambda = transform.PublishLambda
+			lambdaType = "publish"
+			timer = prometheus.NewTimer(publishLambdaTimes)
 		} else {
 			lambda = transform.UpdateLambda
+			lambdaType = "update"
+			timer = prometheus.NewTimer(updateLambdaTimes)
 		}
+		defer timer.ObserveDuration()
 		log.WithField("lambda", lambda).Debug("invoking lambda")
+		var tr = trace.New("flow.Lambda", shardFqn)
+		// Add additional information lazily. This will only be evaluated when the /debug/requests
+		// page is actually rendered.
+		tr.LazyPrintf("transform: %s, lambdaType: %s", transform.Transform, lambdaType)
+		defer tr.Finish()
 
 		// Build, dispatch, and read request => response.
 		request, client, err := newRequest(ctx, invoke, lambda)
 		if err != nil {
 			return nil, err
 		}
+
 		response, err := client.Do(request)
 		if err != nil {
 			return nil, fmt.Errorf("invoking %s: %w", request.URL, err)

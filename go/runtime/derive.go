@@ -62,6 +62,7 @@ func NewDeriveApp(
 	}
 
 	binding, err := bindings.NewDerive(
+		shard.FQN(),
 		schemaIndex,
 		derivation,
 		store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder)),
