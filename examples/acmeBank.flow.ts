@@ -9,8 +9,8 @@ export class AcmeBankBalances implements interfaces.AcmeBankBalances {
     ): collections.AcmeBankBalances[] {
         return [
             // A transfer removes from the sender and adds to the receiver.
-            {account: source.from, amount: -source.amount},
-            {account: source.to, amount: source.amount},
+            { account: source.from, amount: -source.amount },
+            { account: source.to, amount: source.amount },
         ];
     }
 }

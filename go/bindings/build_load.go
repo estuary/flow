@@ -106,9 +106,9 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 	}
 
 	if err := loadRows(db,
-		`SELECT content FROM resources WHERE content_type = "NpmPackage";`,
-		func() []interface{} { return []interface{}{[]byte(nil)} },
-		func(l []interface{}) { out.NPMPackage = l[0].([]byte) },
+		`SELECT content FROM resources WHERE content_type = '"NpmPackage"';`,
+		func() []interface{} { return []interface{}{&out.NPMPackage} },
+		func(_ []interface{}) {},
 	); err != nil {
 		return nil, fmt.Errorf("loading NPM package: %w", err)
 	}

@@ -32,5 +32,9 @@ journalRules:
     template:
       fragment:
         compression_codec: GZIP
-        stores: [file:///]
+        stores:
+          # Default is to persist to the local file system as a stand-in for cloud storage.
+          - file:///
+          # Uncomment me instead, when testing against a local kubernetes environment.
+          # - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fflow-minio%3A9000
         flush_interval: 5m
