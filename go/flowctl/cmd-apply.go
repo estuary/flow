@@ -19,11 +19,13 @@ import (
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/runtime"
 	log "github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/clientv3"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
+	"google.golang.org/grpc"
 )
 
 type cmdApply struct {
@@ -53,11 +55,6 @@ func (cmd cmdApply) Execute(_ []string) error {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
 
-	// Ensure we can connect clients before doing more expensive build steps.
-	var ctx = context.Background()
-	var shards = cmd.Consumer.MustRoutedShardClient(ctx)
-	var etcd = cmd.Etcd.MustDial()
-
 	built, err := buildCatalog(pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
 		Directory:         cmd.Directory,
@@ -66,6 +63,23 @@ func (cmd cmdApply) Execute(_ []string) error {
 	})
 	if err != nil {
 		return err
+	} else if len(built.NPMPackage) == 0 {
+		panic("built with TypescriptPackage: true but NPM package is empty")
+	}
+
+	var ctx = context.Background()
+	var shards = cmd.Consumer.MustRoutedShardClient(ctx)
+
+	// We don't use Etcd.MustDial because that syncs the Etcd cluster,
+	// and we may be running behind a port-forward which doesn't have
+	// direct access to advertised Etcd member addresses.
+	etcd, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{string(cmd.Etcd.Address)},
+		DialTimeout: 10 * time.Second,
+		DialOptions: []grpc.DialOption{grpc.WithBlock()},
+	})
+	if err != nil {
+		return fmt.Errorf("dialing Etcd: %w", err)
 	}
 
 	// Apply all database materializations first, before we create
