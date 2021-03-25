@@ -24,7 +24,7 @@ import (
 
 type FlowConfig struct {
 	CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
-	BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+	BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster/flow" description:"Broker Etcd base prefix"`
 }
 
 // FlowConsumerConfig configures the flow-consumer application.
