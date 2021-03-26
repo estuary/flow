@@ -66,18 +66,16 @@ func MustParseArgs(parser *flags.Parser) {
 			fmt.Fprintf(os.Stderr, "\nVersion %s, built at %s.\n", Version, BuildDate)
 			os.Exit(1)
 
-		case flags.ErrHelp:
+		default:
 			if parser.Options&flags.PrintErrors != 0 {
 				// Help was already printed.
 			} else {
-				parser.WriteHelp(os.Stderr)
+				fmt.Fprintln(os.Stderr, err)
+			}
+
+			if flagErr.Type == flags.ErrHelp {
 				fmt.Fprintf(os.Stderr, "\nVersion %s, built at %s.\n", Version, BuildDate)
 			}
-			os.Exit(1)
-
-		default:
-			// Other error types indicate a problem of input. Generally, `go-flags`
-			// already prints a helpful message and we can simply exit.
 			os.Exit(1)
 		}
 	}
