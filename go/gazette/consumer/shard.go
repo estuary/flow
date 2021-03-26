@@ -297,8 +297,11 @@ func updateStatusWithRetry(s *shard, status pc.ReplicaStatus) {
 		if err == nil {
 			return
 		}
-		log.WithFields(log.Fields{"err": err, "attempt": attempt}).
-			Warn("failed to advertise Etcd shard status (will retry)")
+
+		if attempt != 0 {
+			log.WithFields(log.Fields{"err": err, "attempt": attempt}).
+				Warn("failed to advertise Etcd shard status (will retry)")
+		}
 	}
 }
 
@@ -354,13 +357,17 @@ func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- EnvelopeOrError)
 }
 
 func backoff(attempt int) time.Duration {
+	// The choices of backoff time reflect that we're usually waiting for the
+	// cluster to converge on a shared understanding of ownership, and that
+	// involves a couple of Nagle-like read delays (~30ms) as Etcd watch
+	// updates are applied by participants.
 	switch attempt {
 	case 0, 1:
-		return 0
-	case 2:
-		return time.Millisecond * 5
-	case 3, 4, 5:
-		return time.Second * time.Duration(attempt-1)
+		return time.Millisecond * 50
+	case 2, 3:
+		return time.Millisecond * 100
+	case 4, 5:
+		return time.Second
 	default:
 		return 5 * time.Second
 	}

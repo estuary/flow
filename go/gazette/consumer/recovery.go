@@ -283,7 +283,7 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 	}
 
 	if s.recovery.log != "" {
-		for i := 0; true; i++ {
+		for attempt := 0; true; attempt++ {
 			if err = storeRecoveredHints(s, recoveredHints); err == nil {
 				break
 			}
@@ -291,14 +291,15 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 			// Storing recovered hints can sometimes fail, eg due to a
 			// shard assignment race.
 			log.WithFields(log.Fields{
-				"err": err,
-				"log": recoveredHints.Log,
+				"attempt": attempt,
+				"err":     err,
+				"log":     recoveredHints.Log,
 			}).Warn("failed to store recovered hints (will retry)")
 
 			select {
 			case <-s.ctx.Done():
 				return cp, s.ctx.Err()
-			case <-time.After(backoff(i)):
+			case <-time.After(backoff(attempt)):
 				// Pass.
 			}
 		}
