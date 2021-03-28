@@ -216,6 +216,16 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 	panic("not reached")
 }
 
+// Update returns a channel which will signal on the next KeySpace update.
+// It's not required to hold a read lock of the KeySpace Mutex, and a write
+// lock must not be held or Update will deadlock.
+func (ks *KeySpace) Update() <-chan struct{} {
+	ks.Mu.RLock()
+	defer ks.Mu.RUnlock()
+
+	return ks.updateCh
+}
+
 // WaitForRevision blocks until the KeySpace Revision is at least |revision|,
 // or until the context is done. A read lock of the KeySpace Mutex must be
 // held at invocation, and will be re-acquired before WaitForRevision returns.
