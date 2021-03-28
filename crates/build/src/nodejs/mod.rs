@@ -212,11 +212,11 @@ pub fn compile_package(package_dir: &path::Path) -> Result<(), anyhow::Error> {
         npm_cmd(package_dir, &["install", "--no-audit", "--no-fund"])?;
     }
     npm_cmd(package_dir, &["run", "compile"])?;
+    npm_cmd(package_dir, &["run", "lint"])?;
     Ok(())
 }
 
 pub fn pack_package(package_dir: &path::Path) -> Result<tables::Resources, anyhow::Error> {
-    npm_cmd(package_dir, &["run", "lint"])?;
     npm_cmd(package_dir, &["pack"])?;
 
     let pack = package_dir.join("catalog-js-transformer-0.0.0.tgz");
