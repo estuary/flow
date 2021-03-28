@@ -280,6 +280,8 @@ github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
 github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe h1:OOI2QZgGwcg7A0Pq3o4P0+gY+rm69pdctOqSz+D7aWk=
 github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
+github.com/jgraettinger/gazette v0.0.0-20210328171803-5197badabb37 h1:uGrLtbngH19mpk289cFhqZsMg+SXLkLeCjZpE/lPB08=
+github.com/jgraettinger/gazette v0.0.0-20210328171803-5197badabb37/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=
