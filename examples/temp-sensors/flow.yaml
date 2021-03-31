@@ -1,3 +1,17 @@
+endpoints:
+  temperaturesSqlite:
+    sqlite:
+      path: temperatures.db
+      table: temperatures
+
+materializations:
+  # Binds the greetings collection to the devSQLite endpoint, which will be
+  # updated in realtime as documents are added to the collection.
+  - source:
+      name: temperature/averageTemps
+    endpoint:
+      name: temperaturesSqlite
+
 collections:
   # Stream of readings that come from temperature sensors.
   # Aggregate of temperature readings by sensor
@@ -5,6 +19,7 @@ collections:
     schema: schemas.yaml#/$defs/tempReading
     key: [/sensorId, /timestamp]
 
+  # Derive the average temps at any time given sensor readings
   temperature/averageTemps:
     schema: schemas.yaml#/$defs/averageTemps
     key: [/sensorId]
@@ -15,11 +30,13 @@ collections:
             name: temperature/readings
           publish: { lambda: typescript }
 
-          # Information about a temperature sensor, which may produce many temperature readings
+  # Information about a temperature sensor, which may produce many temperature readings
   temperature/sensors:
     schema: schemas.yaml#/$defs/tempSensor
-    key: [/id, /locationName]
+    key: [/id]
 
+  # Reactive join to update this collection when either a new sensor is added or a
+  # temperature reading comes in.
   temperature/averageByLocation:
     schema: schemas.yaml#/$defs/avgTempsWithLocation
     key: [/sensorId]
@@ -35,13 +52,16 @@ collections:
         avgTempLocationSensors:
           source:
             name: temperature/sensors
-          shuffle: { key: [/id] }
+          # Update the register when a new sensor location arrives.
           update: { lambda: typescript }
+          # Update the collection if a new sensor arrived which had readings.
           publish: { lambda: typescript }
         avgTempLocationTemps:
           source:
             name: temperature/averageTemps
+          # Update the register when a new reading arrives.
           update: { lambda: typescript }
+          # Update the collection when a new reading arrives.
           publish: { lambda: typescript }
 
 tests:
@@ -56,7 +76,7 @@ tests:
           - { sensorId: 2, timestamp: "2020-08-26T19:26:53Z", tempC: 20.9 }
 
     - verify: &expected
-        collection: temperature/averageByLocation
+        collection: temperature/averageTemps
         documents:
           - sensorId: 1
             numReadings: 3
