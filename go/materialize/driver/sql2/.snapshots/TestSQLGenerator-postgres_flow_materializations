@@ -1,5 +1,5 @@
 -- This table is the source of truth for all materializations into this system.
-CREATE TABLE IF NOT EXISTS "flow_materializations" (
+CREATE TABLE IF NOT EXISTS flow_materializations (
 	-- The name of the target table of the materialization, which may or may not include a schema and catalog prefix
 	table_name TEXT NOT NULL,
 	-- Specification of the materialization, encoded as base64 protobuf.
