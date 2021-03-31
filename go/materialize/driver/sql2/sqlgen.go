@@ -443,7 +443,7 @@ func (gen *Generator) CreateTable(table *Table) (string, error) {
 	if table.IfNotExists {
 		builder.WriteString("IF NOT EXISTS ")
 	}
-	gen.IdentifierQuotes.writeWrapped(&builder, table.Identifier)
+	builder.WriteString(table.Identifier)
 	builder.WriteString(" (\n\t")
 
 	for i, column := range table.Columns {
