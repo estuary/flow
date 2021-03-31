@@ -95,6 +95,7 @@ func (e *Endpoint) ApplyStatements(statements []string) error {
 	}
 
 	for i, stmt := range statements {
+		log.WithField("sql", stmt).Debug("executing statement")
 		if _, err := txn.Exec(stmt); err != nil {
 			_ = txn.Rollback()
 			return fmt.Errorf("executing statement %d: %w", i, err)
