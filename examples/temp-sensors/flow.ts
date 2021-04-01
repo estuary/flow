@@ -71,8 +71,8 @@ export class TemperatureAverageTemps implements interfaces.TemperatureAverageTem
         register: registers.TemperatureAverageTemps,
         previous: registers.TemperatureAverageTemps,
     ): collections.TemperatureAverageTemps[] {
-        // This will execute on every reading, so pass in 1 reading for this document.  Reduction annotations
-        // will handle ensuring temps and other fields are correctly minimized, maximized, or summed.
+        // This will execute on every reading so by setting numReadings to 1 for a single document, we'll sum the number of documents correctly by using
+        // reduction annotations. Reduction annotations will handle ensuring temps and other fields are correctly minimized, maximized, or summed.
         return [{
             sensorId: source.sensorId,
             numReadings: 1,

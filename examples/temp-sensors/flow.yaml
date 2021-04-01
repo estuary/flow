@@ -1,16 +1,15 @@
-endpoints:
-  temperaturesSqlite:
-    sqlite:
-      path: temperatures.db
-      table: temperatures
+import:
+  - ../common.flow.yaml
 
 materializations:
-  # Binds the greetings collection to the devSQLite endpoint, which will be
-  # updated in realtime as documents are added to the collection.
   - source:
       name: temperature/averageTemps
     endpoint:
-      name: temperaturesSqlite
+      name: examples/examples.db
+      config: { table: temperatures }
+
+  # Binds the greetings collection to the examples.db endpoint, which will be
+  # updated in realtime as documents are added to the collection.
 
 collections:
   # Stream of readings that come from temperature sensors.
