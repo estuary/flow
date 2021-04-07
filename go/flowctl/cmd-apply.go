@@ -100,7 +100,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 	}
 
 	// Apply catalog task specifications to the cluster.
-	if _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	if _, _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  ctx,
 		Etcd:                 etcd,
 		Root:                 cmd.Flow.CatalogRoot,
