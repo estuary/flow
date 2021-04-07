@@ -1,0 +1,24 @@
+collections:
+  a/collection:
+    schema:
+      type: object
+      properties:
+        a: { type: integer }
+        aa: { type: string }
+        b: { type: string }
+      required: [a, aa]
+    key: [/a, /aa]
+
+  a/derivation:
+    schema:
+      type: object
+      properties:
+        a: { type: integer }
+      required: [a]
+    key: [/a]
+
+    derivation:
+      transform:
+        fromCollection:
+          source: { name: a/collection }
+          publish: { lambda: typescript }
