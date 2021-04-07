@@ -82,7 +82,7 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 
 	// Grab labeled catalog task, and its journal rules.
 	var name = shardSpec.LabelSet.ValueOf(labels.TaskName)
-	var _, commons, err = f.Catalog.GetTask(name)
+	var _, commons, _, err = f.Catalog.GetTask(name)
 	if err != nil {
 		return "", fmt.Errorf("looking up catalog task %q: %w", name, err)
 	}
@@ -112,19 +112,16 @@ func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var taskName = shard.Spec().LabelSet.ValueOf(labels.TaskName)
-	var task, commons, err = f.Catalog.GetTask(taskName)
-	if err != nil {
-		return nil, fmt.Errorf("looking up catalog task %q: %w", taskName, err)
-	}
+	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 
-	if task.Materialization != nil {
-		return NewMaterializeApp(f.Service, f.Journals, shard, rec, task.Materialization, commons)
+	switch taskType {
+	case labels.TaskTypeDerivation:
+		return NewDeriveApp(f, shard, rec)
+	case labels.TaskTypeMaterialization:
+		return NewMaterializeApp(f, shard, rec)
+	default:
+		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
 	}
-	if task.Derivation != nil {
-		return NewDeriveApp(f.Service, f.Journals, shard, rec, task.Derivation, commons)
-	}
-	return nil, fmt.Errorf("task is not a derivation or materialization: %s", task.String())
 }
 
 // NewMessage panics if called.
