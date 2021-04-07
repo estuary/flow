@@ -1,7 +1,7 @@
 package flow
 
 import (
-	"bytes"
+	fmt "fmt"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -36,19 +36,52 @@ func (m *JournalShuffle) Validate() error {
 		return pb.ExtendContext(err, "Coordinator")
 	} else if err = m.Shuffle.Validate(); err != nil {
 		return pb.ExtendContext(err, "Shuffle")
+	} else if m.CommonsId == "" {
+		return pb.NewValidationError("missing CommonsId")
+	} else if m.CommonsRevision == 0 {
+		return pb.NewValidationError("missing CommonsRevision")
 	}
 
 	return nil
 }
 
 // Validate returns a validation error of the RangeSpec.
-func (m RangeSpec) Validate() error {
-	if bytes.Compare(m.KeyBegin, m.KeyEnd) != -1 {
-		return pb.NewValidationError("expected KeyBegin < KeyEnd (%v vs %v)", m.KeyBegin, m.KeyEnd)
+func (m *RangeSpec) Validate() error {
+	if m.KeyBegin >= m.KeyEnd {
+		return pb.NewValidationError("expected KeyBegin < KeyEnd (%08x vs %08x)", m.KeyBegin, m.KeyEnd)
 	} else if m.RClockBegin >= m.RClockEnd {
-		return pb.NewValidationError("expected RClockBegin < RClockEnd (%v vs %v)", m.RClockBegin, m.RClockEnd)
+		return pb.NewValidationError("expected RClockBegin < RClockEnd (%08x vs %08x)", m.RClockBegin, m.RClockEnd)
 	}
 	return nil
+}
+
+// Less returns true if this RangeSpec orders before the argument RangeSpec.
+// RangeSpecs are ordered first on key range, and if key range is exactly
+// equal, then on r-clock range.
+func (m *RangeSpec) Less(r *RangeSpec) bool {
+	// If lhs & rhs share the exact same key range, then they order
+	// with respect to their RClock range.
+	if m.KeyBegin == r.KeyBegin && m.KeyEnd == r.KeyEnd {
+		if m.RClockBegin < r.RClockBegin && m.RClockEnd <= r.RClockBegin {
+			return true
+		}
+	}
+	return m.KeyBegin < r.KeyBegin && m.KeyEnd <= r.KeyBegin
+}
+
+// Equal returns true if this RangeSpec exactly equals the other.
+func (m *RangeSpec) Equal(r *RangeSpec) bool {
+	return m.KeyBegin == r.KeyBegin &&
+		m.KeyEnd == r.KeyEnd &&
+		m.RClockBegin == r.RClockBegin &&
+		m.RClockEnd == r.RClockEnd
+}
+
+// String returns the RangeSpec in a compact, human-readable text encoding that
+// embeds RangeSpec ordering in its natural lexicographic representation.
+func (m RangeSpec) String() string {
+	return fmt.Sprintf("key:%08x-%08x;r-clock:%08x-%08x",
+		m.KeyBegin, m.KeyEnd, m.RClockBegin, m.RClockEnd)
 }
 
 // Validate returns a validation error of the Shuffle.
@@ -75,9 +108,6 @@ func (m *Shuffle) Validate() error {
 		if err := m.ShuffleLambda.Validate(); err != nil {
 			return pb.ExtendContext(err, "ShuffleLambda")
 		}
-	}
-	if _, ok := Shuffle_Hash_name[int32(m.Hash)]; !ok {
-		return pb.NewValidationError("unknown Hash (%v)", m.Hash)
 	}
 	return nil
 }
