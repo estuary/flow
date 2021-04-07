@@ -92,6 +92,7 @@ import {
 
 import {
     TemperatureAverageByLocation,
+    TemperatureAverageTemps,
 } from '../../examples/temp-sensors/flow';
 
 import {
@@ -126,6 +127,7 @@ let __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
 let __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
 let __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
 let __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
+let __TemperatureAverageTemps: interfaces.TemperatureAverageTemps = new TemperatureAverageTemps();
 
 // Now build the router that's used for transformation lambda dispatch.
 let routes: { [path: string]: Lambda | undefined } = {
@@ -276,17 +278,20 @@ let routes: { [path: string]: Lambda | undefined } = {
     '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(
         __StockDailyStats,
     ) as Lambda,
-    '/derive/temperature/average-by-location/readings/Update': __TemperatureAverageByLocation.readingsUpdate.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationSensors/Update': __TemperatureAverageByLocation.avgTempLocationSensorsUpdate.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/readings/Publish': __TemperatureAverageByLocation.readingsPublish.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationSensors/Publish': __TemperatureAverageByLocation.avgTempLocationSensorsPublish.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/sensors/Update': __TemperatureAverageByLocation.sensorsUpdate.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationTemps/Update': __TemperatureAverageByLocation.avgTempLocationTempsUpdate.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/sensors/Publish': __TemperatureAverageByLocation.sensorsPublish.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationTemps/Publish': __TemperatureAverageByLocation.avgTempLocationTempsPublish.bind(
         __TemperatureAverageByLocation,
+    ) as Lambda,
+    '/derive/temperature/averageTemps/averageTemps/Publish': __TemperatureAverageTemps.averageTempsPublish.bind(
+        __TemperatureAverageTemps,
     ) as Lambda,
 };
 
