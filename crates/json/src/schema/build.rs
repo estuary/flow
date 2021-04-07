@@ -24,8 +24,8 @@ pub enum Error {
     ExpectedSchema,
     #[error("unexpected fragment component '{0}' of $id keyword")]
     UnexpectedFragment(String),
-    #[error("expected a type or array of types")]
-    ExpectedType,
+    #[error("expected a type or array of types: {0}")]
+    ExpectedType(sj::Error),
     #[error("expected an unsigned integer")]
     ExpectedUnsigned,
     #[error("expected a number")]
@@ -473,7 +473,7 @@ fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url, Error>
 }
 
 fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
-    types::Set::deserialize(v).map_err(|_| ExpectedType)
+    types::Set::deserialize(v).map_err(|e| ExpectedType(e))
 }
 
 fn extract_hash(v: &sj::Value) -> HashedLiteral {
