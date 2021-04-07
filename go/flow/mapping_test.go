@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,9 +30,9 @@ func TestPartitionPicking(t *testing.T) {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/items/a/collection/bar=32/foo=A/", "27"},
-		{"/items/a/collection/bar=32/foo=A/", "26"},
-		{"/items/a/collection/bar=42/foo=A%2FB/", "27"},
+		{"/items/a/collection/bar=32/foo=A/", "b9f08d38"},
+		{"/items/a/collection/bar=32/foo=A/", "1505e3cb"},
+		{"/items/a/collection/bar=42/foo=A%2FB/", "b9f08d38"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0], fixtures[ind])
 
@@ -59,19 +60,41 @@ func TestPartitionPicking(t *testing.T) {
 
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("2345")).Name.String(),
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("23")).Name.String(),
 	)
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=77",
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("90ab")).Name.String(),
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("90")).Name.String(),
 	)
 	require.Nil(t,
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("ef01")), // Out of range.
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("ef")), // Out of range.
 	)
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("abcd")).Name.String(),
+		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("ab")).Name.String(),
 	)
+}
+
+func TestAppendHexEncoding(t *testing.T) {
+	// Expect appendHex32 produces identical results to
+	// labels.EncodeRange for a variety of padding edge cases.
+	var cases = []uint32{
+		0x00000000,
+		0x00000001,
+		0x00000020,
+		0x00000300,
+		0x00004000,
+		0x00050000,
+		0x00600000,
+		0x07000000,
+		0x80000000,
+		0x87654321,
+		0xffffffff,
+	}
+	for _, tc := range cases {
+		var b = appendHex32([]byte("foo"), tc)[3:]
+		require.Equal(t, fmt.Sprintf("%08x", tc), string(b), tc)
+	}
 }
 
 func TestPublisherMappingIntegration(t *testing.T) {
@@ -169,6 +192,32 @@ func buildCombineFixtures() []Mappable {
 			PackedKey:  tuple.Tuple{true}.Pack(),
 			Partitions: tuple.Tuple{42, "A/B"},
 		},
+	}
+}
+
+func TestHighwayHashRegression(t *testing.T) {
+	var cases = []struct {
+		expect uint32
+		given  tuple.Tuple
+	}{
+		// Expect that small (e.x. single bit) changes to the input wildly change the output.
+		{0xb9f08d38, tuple.Tuple{true}},
+		{0x1505e3cb, tuple.Tuple{false}},
+		{0x6ae719f3, tuple.Tuple{"foo", "bar"}},
+		{0x8adddd61, tuple.Tuple{"foobar"}},
+		{0x7273e587, tuple.Tuple{"foobas"}},
+		{0xf4ec4d33, tuple.Tuple{"1"}},
+		{0x1e023d95, tuple.Tuple{"2"}},
+		{0x38a34efe, tuple.Tuple{"3"}},
+		{0x17751bae, tuple.Tuple{"10"}},
+		{0x87d93806, tuple.Tuple{"11"}},
+		{0x3c90c1d9, tuple.Tuple{1}},
+		{0x97901bac, tuple.Tuple{2}},
+		{0xcbc7f1e2, tuple.Tuple{3}},
+		{0xd1d3f3eb, tuple.Tuple{10}},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.expect, PackedKeyHash_HH64(tc.given.Pack()))
 	}
 }
 

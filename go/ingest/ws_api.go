@@ -158,7 +158,7 @@ func serveWebsocket(
 	conn.SetCloseHandler(func(int, string) error { return nil })
 
 	var name = strings.Join(strings.Split(r.URL.Path, "/")[2:], "/")
-	collection, _, err := a.ingester.Catalog.GetIngestion(name)
+	collection, _, err := getIngestion(a.ingester.Catalog, name)
 	if err != nil {
 		return fmt.Errorf("'%v' is not an ingestable collection", name)
 	}

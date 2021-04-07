@@ -71,8 +71,8 @@ func BuildPartitionSpec(collection *pf.CollectionSpec, partitions tuple.Tuple, r
 	}
 
 	journal.LabelSet.SetValue(flowLabels.Collection, collection.Collection.String())
-	journal.LabelSet.SetValue(flowLabels.KeyBegin, "00")
-	journal.LabelSet.SetValue(flowLabels.KeyEnd, "ffffffff")
+	journal.LabelSet.SetValue(flowLabels.KeyBegin, flowLabels.KeyBeginMin)
+	journal.LabelSet.SetValue(flowLabels.KeyEnd, flowLabels.KeyEndMax)
 	journal.LabelSet.SetValue(labels.ContentType, labels.ContentType_JSONLines)
 	journal.LabelSet.SetValue(labels.ManagedBy, flowLabels.ManagedByFlow)
 
