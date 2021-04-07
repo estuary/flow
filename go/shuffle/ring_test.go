@@ -20,13 +20,10 @@ import (
 func TestReadingDocuments(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
-
-	var ctx, cancel = context.WithCancel(context.Background())
+	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
 	defer cancel()
 
-	ctx = pb.WithDispatchDefault(ctx)
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
-
 	brokertest.CreateJournals(t, bk, brokertest.Journal(pb.JournalSpec{
 		Name:     "a/journal",
 		LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
@@ -43,14 +40,13 @@ func TestReadingDocuments(t *testing.T) {
 	}
 	require.NoError(t, app.Close())
 
-	var ch = make(chan pf.ShuffleResponse, 1)
+	var ch = make(chan *pf.ShuffleResponse, 1)
 
-	// Place a fixture in |ch| which simulates a very large ShuffleResponse.
+	// Place a fixture in |ch| which has a non-empty arena with no remaining capacity.
 	// This exercises |readDocument|'s back-pressure handling.
-	ch <- pf.ShuffleResponse{
+	ch <- &pf.ShuffleResponse{
 		WriteHead: 1, // Not tailing.
-		Begin:     []pb.Offset{0},
-		End:       []pb.Offset{responseSizeThreshold},
+		Arena:     make(pf.Arena, 1),
 	}
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
@@ -64,10 +60,9 @@ func TestReadingDocuments(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	// Expect to read our unmodified back-pressure fixture.
-	require.Equal(t, pf.ShuffleResponse{
+	require.Equal(t, &pf.ShuffleResponse{
 		WriteHead: 1,
-		Begin:     []pb.Offset{0},
-		End:       []pb.Offset{responseSizeThreshold},
+		Arena:     make(pf.Arena, 1),
 	}, <-ch)
 
 	// Expect to read all fixtures, followed by a channel close.
@@ -84,7 +79,7 @@ func TestReadingDocuments(t *testing.T) {
 	require.Equal(t, count, 0)
 
 	// Case: Start a read that's at the current write head.
-	ch = make(chan pf.ShuffleResponse, 1)
+	ch = make(chan *pf.ShuffleResponse, 1)
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
 		Journal: "a/journal",
@@ -92,7 +87,7 @@ func TestReadingDocuments(t *testing.T) {
 	}, ch)
 
 	// Expect an initial ShuffleResponse which informs us that we're tailing the live log.
-	require.Equal(t, pf.ShuffleResponse{
+	require.Equal(t, &pf.ShuffleResponse{
 		ReadThrough: app.Response.Commit.End,
 		WriteHead:   app.Response.Commit.End,
 	}, <-ch)
@@ -103,14 +98,14 @@ func TestReadingDocuments(t *testing.T) {
 	require.NoError(t, app.Close())
 
 	var out = <-ch
+	require.Equal(t, "", out.TerminalError)
 	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.DocsJson...))
-	require.Equal(t, []pb.Offset{app.Response.Commit.Begin}, out.Begin)
-	require.Equal(t, []pb.Offset{app.Response.Commit.End}, out.End)
+	require.Equal(t, []pb.Offset{app.Response.Commit.Begin, app.Response.Commit.End}, out.Offsets)
 	require.Equal(t, app.Response.Commit.End, out.ReadThrough)
 	require.Equal(t, app.Response.Commit.End, out.WriteHead)
 
 	// Case: Start a read which errors. Expect it's passed through, then the channel is closed.
-	ch = make(chan pf.ShuffleResponse, 1)
+	ch = make(chan *pf.ShuffleResponse, 1)
 
 	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
 		Journal:   "a/journal",
@@ -120,6 +115,12 @@ func TestReadingDocuments(t *testing.T) {
 
 	out = <-ch
 	require.Equal(t, "unexpected EOF", out.TerminalError)
+	require.Equal(t, [][]byte{record[:20]}, out.Arena.AllBytes(out.DocsJson...))
+	require.Equal(t, []pb.Offset{0, 20}, out.Offsets)
+	require.Equal(t, int64(20), out.ReadThrough)
+	require.Equal(t, app.Response.Commit.End, out.WriteHead)
+
+	// Expect channel is closed after sending TerminalError.
 	var _, ok = <-ch
 	require.False(t, ok)
 }
@@ -162,35 +163,6 @@ func TestDocumentExtraction(t *testing.T) {
 		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
 		PackedKey: []pf.Slice{{Begin: 12, End: 14}, {Begin: 14, End: 27}},
 	}, staged)
-
-	// Case: extraction succeeds with a single document having multiple fields,
-	// which also cover all possible field types.
-	staged = pf.ShuffleResponse{}
-	uuids = []pf.UUIDParts{{Clock: 123}}
-
-	fields = [][]byte{tuple.Tuple{
-		nil,
-		true,
-		false,
-		42,
-		-35,
-		3.141,
-		"str",
-		[]byte(`{"k":"v"}`),
-		[]byte("[null]"),
-	}.Pack()}
-	r.onExtract(&staged, uuids, fields, nil)
-
-	var expect = []byte("\x00'&\x15*\x13\xdc!\xc0\t ě\xa5\xe3T\x02str\x00\x01{\"k\":\"v\"}\x00\x01[null]\x00")
-	require.Equal(t, expect, staged.Arena.Bytes(staged.PackedKey[0]))
-
-	// Case: again, but this time expect an MD5 is returned.
-	r.shuffle.Hash = pf.Shuffle_MD5
-	staged = pf.ShuffleResponse{}
-	r.onExtract(&staged, uuids, fields, nil)
-
-	expect = []byte("\x01)@\xb8g蝑D\x13\xe8\r֓b\x1d\xe9\x00")
-	require.Equal(t, expect, staged.Arena.Bytes(staged.PackedKey[0]))
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

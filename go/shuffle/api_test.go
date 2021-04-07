@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"testing"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
@@ -25,24 +28,50 @@ import (
 )
 
 func TestAPIIntegrationWithFixtures(t *testing.T) {
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///ab.flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	var backgroundCtx = pb.WithDispatchDefault(context.Background())
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
+	commonsID, commonsRev, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  backgroundCtx,
+		Etcd:                 etcd,
+		Root:                 "/flow/catalog",
+		Build:                built,
+		TypeScriptUDS:        "/not/used",
+		TypeScriptPackageURL: "",
+		DryRun:               false,
+	})
+	require.NoError(t, err)
+	catalog, err := flow.NewCatalog(backgroundCtx, etcd, "/flow/catalog")
+	require.NoError(t, err)
 
-	brokertest.CreateJournals(t, bk, brokertest.Journal(pb.JournalSpec{
+	//////
+
+	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
+	var journalSpec = brokertest.Journal(pb.JournalSpec{
 		Name:     "a/journal",
 		LabelSet: pb.MustLabelSet(labels.ContentType, labels.ContentType_JSONLines),
-	}))
+	})
+	brokertest.CreateJournals(t, bk, journalSpec)
 
 	// Write a bunch of Document fixtures.
-	var backgroundCtx = pb.WithDispatchDefault(context.Background())
 	var app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})
 
 	for i := 0; i != 100; i++ {
-		var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}, "a": %d, "b": "%d"}`+"\n",
+		var record = fmt.Sprintf(`{"_meta":{"uuid":"%s"}, "a": %d, "aa": "%d", "b": "%d"}`+"\n",
 			message.BuildUUID(message.ProducerID{8, 6, 7, 5, 3, 0},
 				message.Clock(i<<4), message.Flag_OUTSIDE_TXN).String(),
+			i%3,
 			i%3,
 			i%2,
 		)
@@ -53,31 +82,28 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Start a shuffled read of the fixtures.
 	var shuffle = pf.JournalShuffle{
-		Journal:     "a/journal",
-		Coordinator: "the-coordinator",
-		Shuffle: &pf.Shuffle{
-			GroupName:        "shuffle/group",
-			SourceCollection: "a/source",
-			SourceSchemaUri:  "test://schema",
-			SourceUuidPtr:    "/_meta/uuid",
-			ShuffleKeyPtr:    []string{"/a", "/b"},
-			FilterRClocks:    true,
-		},
+		Journal:         "a/journal",
+		Coordinator:     "the-coordinator",
+		Shuffle:         &built.Derivations[0].Transforms[0].Shuffle,
+		CommonsId:       commonsID,
+		CommonsRevision: commonsRev,
 	}
-	var ranges = pf.RangeSpec{
-		// Observe only messages having {"a": 1}.
-		KeyBegin: tuple.Tuple{1}.Pack(),
-		KeyEnd:   tuple.Tuple{2}.Pack(),
+
+	// Observe only messages having {"a": 1, "aa": "1"}, and not 0 or 2.
+	var expectKey = tuple.Tuple{1, "1"}.Pack()
+	var range_ = pf.RangeSpec{
+		KeyBegin: flow.PackedKeyHash_HH64(expectKey),
+		KeyEnd:   flow.PackedKeyHash_HH64(expectKey) + 1,
 		// Observe only even Clock values.
 		RClockBegin: 0,
-		RClockEnd:   1 << 63,
+		RClockEnd:   1 << 31,
 	}
 
 	// Build coordinator and start a gRPC ShuffleServer over loopback.
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, bk.Client())
+	var coordinator = NewCoordinator(apiCtx, bk.Client(), catalog)
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -90,14 +116,15 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		},
 	})
 
+	var shuffler = pf.NewShufflerClient(srv.GRPCLoopback)
 	var tasks = task.NewGroup(apiCtx)
 	srv.QueueTasks(tasks)
 	tasks.GoRun()
 
 	// Start a blocking read which starts at the current write head.
-	tailStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
+	tailStream, err := shuffler.Shuffle(backgroundCtx, &pf.ShuffleRequest{
 		Shuffle: shuffle,
-		Range:   ranges,
+		Range:   range_,
 		Offset:  app.Response.Commit.End,
 	})
 	require.NoError(t, err)
@@ -111,55 +138,84 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	}, out)
 
 	// Start a non-blocking, fixed read which "replays" the written fixtures.
-	replayStream, err := pf.NewShufflerClient(srv.GRPCLoopback).Shuffle(backgroundCtx, &pf.ShuffleRequest{
-		Shuffle:   shuffle,
-		Range:     ranges,
-		Offset:    0,
-		EndOffset: app.Response.Commit.End,
-	})
-	require.NoError(t, err)
+	var mockResolveFn = func(args consumer.ResolveArgs) (consumer.Resolution, error) {
+		// This a no-op fixture intended only to Validate.
+		return consumer.Resolution{
+			Header: pb.Header{
+				Route: pb.Route{Primary: -1},
+				Etcd: pb.Header_Etcd{
+					ClusterId: 1234,
+					MemberId:  1234,
+					Revision:  1234,
+					RaftTerm:  1234,
+				},
+			},
+		}, nil
+	}
+	var replayRead = &read{
+		spec: *journalSpec,
+		req: pf.ShuffleRequest{
+			Shuffle:   shuffle,
+			Range:     range_,
+			Offset:    0,
+			EndOffset: app.Response.Commit.End,
+		},
+	}
+	replayRead.start(backgroundCtx, mockResolveFn, shuffler, nil)
 
-	// Read from |replayStream| until EOF.
-	var actual pf.ShuffleResponse
+	// Read from |replayRead| until EOF.
+	var replayDocs int
 	for {
-		var out, err = replayStream.Recv()
+		var env, err = replayRead.next()
 		if err == io.EOF {
 			break
 		}
 		require.NoError(t, err)
-		require.Equal(t, "", out.TerminalError)
 
-		var content = out.Arena.AllBytes(out.DocsJson...)
-		actual.DocsJson = append(actual.DocsJson, actual.Arena.AddAll(content...)...)
-		actual.Begin = append(actual.Begin, out.Begin...)
-		actual.End = append(actual.End, out.End...)
-		actual.UuidParts = append(actual.UuidParts, out.UuidParts...)
-		actual.PackedKey = append(actual.PackedKey, actual.Arena.AddAll(out.Arena.AllBytes(out.PackedKey...)...)...)
-	}
-
-	for doc, parts := range actual.UuidParts {
-		var i = int(parts.Clock)
+		replayDocs++
+		var msg = env.Message.(pf.IndexedShuffleResponse)
 
 		// Verify expected record shape.
 		var record struct {
 			Meta struct {
 				message.UUID
 			} `json:"_meta"`
-			A int
-			B string
+			A  int
+			AA string
+			B  string
 		}
-		require.NoError(t, json.Unmarshal(actual.Arena.Bytes(actual.DocsJson[doc]), &record))
+		require.NoError(t, json.Unmarshal(msg.Arena.Bytes(msg.DocsJson[msg.Index]), &record))
+
 		require.Equal(t, 1, record.A)
+		require.Equal(t, "1", record.AA)
 		require.Equal(t, "0", record.B)
-		require.Equal(t, 0, i%2)
-		require.Equal(t, parts.Pack(), record.Meta.UUID)
+		require.Equal(t, 0, int(msg.UuidParts[msg.Index].Clock)%2)
+		require.Equal(t, msg.GetUUID(), record.Meta.UUID)
 
 		// Composite shuffle key components were extracted and packed into response keys.
-		var expect = tuple.Tuple{1, "0"}.Pack()
-		require.Equal(t, expect, actual.Arena.Bytes(actual.PackedKey[doc]))
+		require.Equal(t, expectKey, msg.Arena.Bytes(msg.PackedKey[msg.Index]))
 	}
 	// We see 1/3 of key values, and a further 1/2 of those clocks.
-	require.Equal(t, 16, len(actual.DocsJson))
+	require.Equal(t, 16, replayDocs)
+
+	// Interlude: Another read, this time with an invalid schema.
+	var badShuffle = shuffle
+	badShuffle.SourceSchemaUri += "/does/not/exist"
+
+	var badRead = &read{
+		spec: *journalSpec,
+		req: pf.ShuffleRequest{
+			Shuffle:   badShuffle,
+			Range:     range_,
+			EndOffset: app.Response.Commit.End,
+		},
+	}
+	badRead.start(backgroundCtx, mockResolveFn, shuffler, nil)
+
+	// Expect we read an error, and that TerminalError is set.
+	_, err = badRead.next()
+	require.Equal(t, io.EOF, err)
+	require.Regexp(t, "schema index: schema .*", badRead.resp.TerminalError)
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

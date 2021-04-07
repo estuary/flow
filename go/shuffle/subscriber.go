@@ -1,12 +1,13 @@
 package shuffle
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math/bits"
 	"sort"
 
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -14,47 +15,27 @@ import (
 
 // subscriber is an active gRPC stream to which shuffled Documents are dispatched.
 type subscriber struct {
+	// Context of the subscriber.
+	ctx context.Context
 	// Request of this subscriber.
 	pf.ShuffleRequest
-	// Staged, re-used ShuffleResponse to be sent to the subscriber.
-	staged pf.ShuffleResponse
+	// Callback which is invoked with each new ShuffleResponse, or with a final non-nil error.
+	// If a callback returns an error, that error is passed back in the final callback.
+	callback func(*pf.ShuffleResponse, error) error
+	// Next ShuffleResponse to be sent to the subscriber.
+	staged *pf.ShuffleResponse
 	// sentTailing is true if the previously sent |response| had Tailing set.
 	sentTailing bool
-	// Compare to gRPC's ServerStream.SendMsg(). We use a method closure to facilitate testing.
-	sendMsg func(m interface{}) error
-	// Compare to gRPC's ServerStream.Context().
-	sendCtx context.Context
-	// Channel to notify gRPC handler of stream completion.
-	doneCh chan error
-}
-
-func (s *subscriber) initStaged(from *pf.ShuffleResponse) {
-	// Clear previous staged responses, retaining allocations for re-use.
-	// If a TerminalError is set, pass it through to all subscribers.
-	s.staged = pf.ShuffleResponse{
-		TerminalError: from.TerminalError,
-		ReadThrough:   from.ReadThrough,
-		WriteHead:     from.WriteHead,
-
-		// Truncate per-document slices.
-		Arena:     s.staged.Arena[:0],
-		DocsJson:  s.staged.DocsJson[:0],
-		Begin:     s.staged.Begin[:0],
-		End:       s.staged.End[:0],
-		UuidParts: s.staged.UuidParts[:0],
-		PackedKey: s.staged.PackedKey[:0],
-	}
 }
 
 // stageDoc stages the document into the subscriber-specific response.
 func (s *subscriber) stageDoc(response *pf.ShuffleResponse, doc int) {
-	var offset = response.Begin[doc]
+	var offset = response.Offsets[2*doc]
 
 	if offset >= s.Offset && (s.EndOffset == 0 || offset < s.EndOffset) {
 		s.staged.DocsJson = append(s.staged.DocsJson,
 			s.staged.Arena.Add(response.Arena.Bytes(response.DocsJson[doc])))
-		s.staged.Begin = append(s.staged.Begin, offset)
-		s.staged.End = append(s.staged.End, response.End[doc])
+		s.staged.Offsets = append(s.staged.Offsets, offset, response.Offsets[2*doc+1])
 		s.staged.UuidParts = append(s.staged.UuidParts, response.UuidParts[doc])
 		s.staged.PackedKey = append(s.staged.PackedKey,
 			s.staged.Arena.Add(response.Arena.Bytes(response.PackedKey[doc])))
@@ -70,99 +51,73 @@ func (s *subscriber) shouldSendResponse() bool {
 		return true
 	} else if s.staged.Tailing() && !s.sentTailing {
 		return true // Send to inform the client we're now Tailing.
+	} else if s.EndOffset != 0 && s.EndOffset <= s.staged.ReadThrough {
+		return true // Completes bounded client read.
 	} else {
 		return false
 	}
 }
 
-// Subscribers is a set of subscriber instances. It's ordered on ascending
-// (KeyBegin, KeyEnd) to allow for binary searches into the subscriber(s) which
-// match a given shuffle key.
-//
-// Subscribers may *exactly* match the (KeyBegin, KeyEnd) of another subscriber,
-// but may not partially overlap in their ranges. Put differently, KeyBegin
-// and KeyEnd of subscribers are always monotonic.
+// Subscribers is a set of subscriber instances. It's ordered on monotonically
+// increasing RangeSpec. Sibling subscribers are allowed to have exactly equal RangeSpecs,
+// but partially overlapping RangeSpecs are disallowed.
 type subscribers []subscriber
 
-type orderedRanges interface {
-	len() int
-	getKeyBegin(int) []byte
-	getKeyEnd(int) []byte
-}
-
 // keySpan locates the span of indices having ranges which cover the given key.
-func keySpan(s orderedRanges, k []byte) (start, stop int) {
-	// Find the index of the first subscriber having |k| < KeyEnd.
-	start = sort.Search(s.len(), func(i int) bool {
-		return bytes.Compare(k, s.getKeyEnd(i)) < 0
+func (s subscribers) keySpan(key uint32) (start, stop int) {
+	// Find the index of the first subscriber having |key| < KeyEnd.
+	start = sort.Search(len(s), func(i int) bool {
+		return key < s[i].Range.KeyEnd
 	})
-	// Walk forwards while KeyBegin <= |k|.
-	for stop = start; stop != s.len() && bytes.Compare(s.getKeyBegin(stop), k) <= 0; stop++ {
-	}
-	return
-}
-
-// rangeSpan locates the span of indices having ranges which cover the given range.
-func rangeSpan(s orderedRanges, begin, end []byte) (start, stop int) {
-	// Find the index of the first subscriber having |begin| < KeyEnd.
-	start = sort.Search(s.len(), func(i int) bool {
-		return bytes.Compare(begin, s.getKeyEnd(i)) < 0
-	})
-	// Walk forwards while KeyBegin < |end|.
-	for stop = start; stop != s.len() && bytes.Compare(s.getKeyBegin(stop), end) < 0; stop++ {
+	// Walk forwards while KeyBegin <= |key|.
+	for stop = start; stop != len(s) && s[stop].Range.KeyBegin <= key; stop++ {
 	}
 	return
 }
 
 // insertionIndex returns the index at which a subscriber with the given key
 // range could be inserted, or an error if it would result in a partial overlap.
-func insertionIndex(s orderedRanges, begin, end []byte) (int, error) {
-	// Find the first |index| having a KeyBegin > |begin|.
-	// I.e, this is the last index at which [begin, end) could be inserted.
-	var index = sort.Search(s.len(), func(i int) bool {
-		return bytes.Compare(begin, s.getKeyBegin(i)) < 0
+func (s subscribers) insertionIndex(range_ pf.RangeSpec) (int, error) {
+	// Find the first |index| having |range_| < subscribers[index].Range.
+	// I.e, this is the last index at which |range_| could be inserted.
+	var index = sort.Search(len(s), func(i int) bool {
+		return range_.Less(&s[i].Range)
 	})
 
-	// Ensure left neighbor equals this range, or has KeyEnd <= |begin|.
+	// Ensure left neighbor is less-than or equal to this range.
 	if index == 0 {
 		// No left neighbor.
-	} else if l := index - 1; bytes.Equal(begin, s.getKeyBegin(l)) && bytes.Equal(end, s.getKeyEnd(l)) {
-		// Exactly equals left neighbor.
-	} else if bytes.Compare(s.getKeyEnd(l), begin) <= 0 {
+	} else if l := index - 1; s[l].Range.Less(&range_) || range_.Equal(&s[l].Range) {
 		// Left neighbor ends before |begin| starts.
 	} else {
-		return 0, fmt.Errorf("range [%q, %q) overlaps with existing range [%q, %q)",
-			begin, end, s.getKeyBegin(l), s.getKeyEnd(l))
+		return 0, fmt.Errorf("range %s overlaps with existing range %s", range_, s[l].Range)
 	}
 
-	// Ensure right neighbor doesn't exist, or has |end| <= KeyBegin.
-	if index == s.len() {
+	// Ensure right neighbor doesn't exist, or has |range_| <= subscribers[right].Range.
+	if index == len(s) {
 		// No right neighbor.
-	} else if bytes.Compare(end, s.getKeyBegin(index)) <= 0 {
+	} else if r := index; range_.Less(&s[r].Range) {
 		// Okay: |end| is before neighbor begins.
 	} else {
-		return 0, fmt.Errorf("range [%q, %q) overlaps with existing range [%q, %q)",
-			begin, end, s.getKeyBegin(index), s.getKeyEnd(index))
+		return 0, fmt.Errorf("range %s overlaps with existing range %s", range_, s[r].Range)
 	}
 	return index, nil
 }
 
-func (s subscribers) len() int                 { return len(s) }
-func (s subscribers) getKeyBegin(i int) []byte { return s[i].Range.KeyBegin }
-func (s subscribers) getKeyEnd(i int) []byte   { return s[i].Range.KeyEnd }
-
 // Rotate a Clock into a high-entropy sequence by shifting the high-60 bits
 // of timestamp down by 4, XOR-ed with the low 4 bits of sequence counter,
-// and then rotating the result such that the LSB is now the MSB.
-func rotateClock(c message.Clock) uint64 {
-	return bits.Reverse64(uint64((c >> 4) ^ (c & 0xf)))
+// and then rotating to a 32-bit result such that the LSB is now the MSB.
+func rotateClock(c message.Clock) uint32 {
+	return bits.Reverse32(uint32((c >> 4) ^ (c & 0xf)))
 }
 
 // stageResponses distributes Documents of this ShuffleResponse into the staged
 // ShuffleResponses of each subscriber.
 func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
 	for i := range s {
-		s[i].initStaged(from)
+		s[i].staged.TerminalError = from.TerminalError
+		s[i].staged.ReadThrough = from.ReadThrough
+		s[i].staged.WriteHead = from.WriteHead
 	}
 	for doc, uuid := range from.UuidParts {
 		if message.Flags(uuid.ProducerAndFlags) == message.Flag_ACK_TXN {
@@ -173,7 +128,8 @@ func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
 			continue
 		}
 
-		var start, stop = keySpan(s, from.Arena.Bytes(from.PackedKey[doc]))
+		var keyHash = flow.PackedKeyHash_HH64(from.Arena.Bytes(from.PackedKey[doc]))
+		var start, stop = s.keySpan(keyHash)
 		var rClock = rotateClock(uuid.Clock)
 
 		for i := start; i != stop; i++ {
@@ -196,48 +152,48 @@ func (s *subscribers) sendResponses() {
 	for index != len(*s) {
 		var sub = &(*s)[index]
 		var err error
+		var sent = sub.staged
 
 		if sub.shouldSendResponse() {
-			err = sub.sendMsg(&sub.staged)
-			sub.sentTailing = sub.staged.Tailing()
+			err = sub.callback(sent, nil)
+			sub.sentTailing = sent.Tailing()
+			sub.staged = newStagedResponse(len(sent.Arena), len(sent.UuidParts))
 		} else {
 			// Though we're not sending, still poll for context cancellation.
-			err = sub.sendCtx.Err()
+			err = sub.ctx.Err()
 		}
 
 		// This subscriber is still active if we haven't seen an error, and a requested
 		// EndOffset (if present) hasn't been reached.
 		if err == nil &&
-			sub.staged.TerminalError == "" &&
-			(sub.EndOffset == 0 || sub.EndOffset > sub.staged.ReadThrough) {
+			sent.TerminalError == "" &&
+			(sub.EndOffset == 0 || sub.EndOffset > sent.ReadThrough) {
 
 			// Update request Offset to reflect |readThrough|.
-			if sub.Offset < sub.staged.ReadThrough {
-				sub.Offset = sub.staged.ReadThrough
+			if sub.Offset < sent.ReadThrough {
+				sub.Offset = sent.ReadThrough
 			}
 			index++
 			continue
 		}
 
-		// Prune this subscriber.
-		sub.doneCh <- err
-		*s = append((*s)[:index], (*s)[index+1:]...)
-	}
-}
+		// Inform subscriber of shutdown, and prune.
+		if err == nil {
+			err = io.EOF
+		}
+		_ = sub.callback(nil, err)
 
-// sendEOF notifies all active subscribers of EOF.
-func (s subscribers) sendEOF() {
-	for i := range s {
-		s[i].doneCh <- nil
+		// Prune this subscriber.
+		*s = append((*s)[:index], (*s)[index+1:]...)
 	}
 }
 
 // Add a subscriber to the subscribers set. Iff this subscriber requires that
 // a new read be started, a corresponding non-nil ReadRequest is returned.
 func (s *subscribers) add(add subscriber) *pb.ReadRequest {
-	var index, err = insertionIndex(s, add.Range.KeyBegin, add.Range.KeyEnd)
+	var index, err = s.insertionIndex(add.Range)
 	if err != nil {
-		add.doneCh <- err
+		add.callback(nil, err)
 		return nil
 	}
 
@@ -253,6 +209,9 @@ func (s *subscribers) add(add subscriber) *pb.ReadRequest {
 			EndOffset: offset,
 		}
 	}
+
+	// Allocate initial staged ShuffleResponse.
+	add.staged = newStagedResponse(0, 0)
 	// Splice |add| into the subscriber list.
 	*s = append((*s)[:index], append(subscribers{add}, (*s)[index:]...)...)
 	return rr
@@ -270,3 +229,46 @@ func (s *subscribers) minOffset() (offset pb.Offset, ok bool) {
 	}
 	return offset, ok
 }
+
+// newStagedResponse builds an empty ShuffleResponse with pre-allocated
+// slice memory, according to provided estimates of arena & docs utilization.
+// It differse from newReadResponse in that it also pre-allocates extracted fields.
+func newStagedResponse(arenaEstimate, docsEstimate int) *pf.ShuffleResponse {
+	var arenaCap = roundUpPow2(arenaEstimate, arenaCapMin, arenaCapMax)
+	var docsCap = roundUpPow2(docsEstimate, docsCapMin, docsCapMax)
+
+	return &pf.ShuffleResponse{
+		Arena:     make([]byte, 0, arenaCap),
+		DocsJson:  make([]pf.Slice, 0, docsCap),
+		Offsets:   make([]int64, 0, 2*docsCap),
+		UuidParts: make([]pf.UUIDParts, 0, docsCap),
+		PackedKey: make([]pf.Slice, 0, docsCap),
+	}
+}
+
+// roundUpPow2 |v| into the next higher power-of-two, subject to a |min| / |max| bound.
+func roundUpPow2(v, min, max int) int {
+	if v < min {
+		return min
+	} else if v > max {
+		return max
+	}
+
+	// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+	v = (v - 1) | 0x7 // Lower-bound of 8
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v++
+
+	return v
+}
+
+const (
+	arenaCapMin = 4096
+	arenaCapMax = 1 << 20 // 1MB
+	docsCapMin  = 8
+	docsCapMax  = 1024
+)

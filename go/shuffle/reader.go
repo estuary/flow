@@ -4,15 +4,16 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
@@ -41,8 +42,6 @@ type governor struct {
 	// been sent on the *read's channel. Used to wake poll() when
 	// blocking for more data.
 	readReadyCh chan struct{}
-	// Channel which is signaled with each update of journals.
-	journalsUpdateCh chan struct{}
 }
 
 // StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
@@ -53,32 +52,89 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 	}
 
 	var g = &governor{
-		rb:               rb,
-		tp:               tp,
-		mustPoll:         false,
-		pending:          make(map[*read]struct{}),
-		active:           make(map[pb.Journal]*read),
-		idle:             offsets,
-		readReadyCh:      make(chan struct{}, 1),
-		journalsUpdateCh: make(chan struct{}, 1),
+		rb:          rb,
+		tp:          tp,
+		mustPoll:    false,
+		pending:     make(map[*read]struct{}),
+		active:      make(map[pb.Journal]*read),
+		idle:        offsets,
+		readReadyCh: make(chan struct{}, 1),
 	}
 	g.wallTime.Update(time.Now())
 
 	// Spawn a loop which invokes Next() and passes the result to the output |ch|.
 	go func() {
 		var out consumer.EnvelopeOrError
-		for out.Error == nil {
-			out.Envelope, out.Error = g.Next(ctx)
+		defer close(ch)
+
+		if out.Error = g.onConverge(ctx); out.Error != errPollAgain {
 			ch <- out
+			return
+		}
+		for {
+			out.Envelope, out.Error = g.next(ctx)
+
+			if out.Error == nil {
+				ch <- out
+			} else {
+				if out.Error != errDrained {
+					ch <- out
+				}
+				return
+			}
 		}
 	}()
-	// Spawn a loop which wakes |journalsUpdateCh| on each revision update.
-	go signalKeySpaceUpdates(ctx, rb.journals.KeySpace, g.journalsUpdateCh)
-
-	return
 }
 
-func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
+// StartReplayRead builds and starts a read of the given journal and offset range.
+func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, begin, end pb.Offset) message.Iterator {
+	var r *read
+
+	return message.IteratorFunc(func() (env message.Envelope, err error) {
+		var attempt int
+		for {
+			if r != nil {
+				// Fall through to keep using |r|.
+			} else if r, err = rb.buildReplayRead(journal, begin, end); err != nil {
+				return message.Envelope{}, err
+			} else {
+				r.start(ctx, rb.service.Resolver.Resolve,
+					pf.NewShufflerClient(rb.service.Loopback), nil)
+			}
+
+			if env, err = r.next(); err == nil {
+				return env, err
+			} else if r.resp.TerminalError != "" {
+				return message.Envelope{}, fmt.Errorf(r.resp.TerminalError)
+			} else if err == io.EOF {
+				return message.Envelope{}, err // Read through |end| offset.
+			}
+
+			// Other errors indicate a broken stream, but may be retried.
+
+			// Stream is broken, but may be retried.
+			r.log().WithFields(log.Fields{
+				"err":     err,
+				"attempt": attempt,
+			}).Warn("failed to receive shuffled replay read (will retry)")
+
+			switch attempt {
+			case 0, 1: // Don't wait.
+			default:
+				time.Sleep(5 * time.Second)
+			}
+			attempt++
+
+			begin, r = r.req.Offset, nil
+		}
+	})
+}
+
+// next returns the next message.Envelope in the read sequence,
+// or an EOF if none remain, or another encountered error.
+// The supplied Context -- associated with the owning Shard -- is used
+// with started reads.
+func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 	for {
 		if g.mustPoll || len(g.queued) == 0 {
 			if err := g.poll(ctx); err == errPollAgain {
@@ -101,17 +157,16 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 		// If this *read adjusts document clocks, and the adjusted clock runs
 		// ahead of effective wall-clock time, then we must gate the document
 		// until wall-time catches up with its adjusted clock.
-		if a := r.resp.UuidParts[r.resp.Index].Clock + r.readDelay; r.readDelay != 0 && a > g.wallTime {
+		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
-			// TODO(johnny): Leaving for now until we have more testing of this feature.
+		if r.readDelay != 0 && readTime > g.wallTime {
 			log.WithFields(log.Fields{
 				"journal":   r.req.Shuffle.Journal,
 				"tailing":   r.resp.Tailing(),
-				"remaining": len(r.resp.DocsJson),
-				"wallTime":  g.wallTime.Time(),
-				"want":      a.Time(),
-				"actual":    time.Now(),
-			}).Info("GATE")
+				"readyDocs": len(r.resp.DocsJson),
+				"wallTime":  g.wallTime,
+				"readTime":  readTime,
+			}).Debug("gated reads of journal")
 
 			g.gated = append(g.gated, r)
 			continue
@@ -134,6 +189,9 @@ func (g *governor) Next(ctx context.Context) (message.Envelope, error) {
 // must be made to finish the polling operation.
 var errPollAgain = fmt.Errorf("not ready; poll again")
 
+// errDrained is returned by poll() if the ReadBuilder and all reads have drained.
+var errDrained = fmt.Errorf("drained")
+
 // poll for more data, a journal change, a time increment,
 // or for cancellation. poll() returns errPollAgain if it made
 // progress but another call to poll() is required. It returns
@@ -152,9 +210,13 @@ func (g *governor) poll(ctx context.Context) error {
 			// as we may wait an unbounded amount of time for more
 			// data to be written to the journal.
 			select {
-			case result, ok = <-r.pollCh:
+			case <-ctx.Done():
+				return ctx.Err()
+			case result, ok = <-r.ch:
 				// Fall through.
-			case <-g.journalsUpdateCh:
+			case <-g.rb.journals.Update():
+				return g.onConverge(ctx)
+			case <-g.rb.drainCh:
 				return g.onConverge(ctx)
 			case <-g.tp.Ready():
 				return g.onTick()
@@ -164,9 +226,13 @@ func (g *governor) poll(ctx context.Context) error {
 		} else {
 			// If we're not yet tailing the journal, block for the next response.
 			select {
-			case result, ok = <-r.pollCh:
+			case <-ctx.Done():
+				return ctx.Err()
+			case result, ok = <-r.ch:
 				// Fall through.
-			case <-g.journalsUpdateCh:
+			case <-g.rb.journals.Update():
+				return g.onConverge(ctx)
+			case <-g.rb.drainCh:
 				return g.onConverge(ctx)
 			case <-g.tp.Ready():
 				return g.onTick()
@@ -213,11 +279,18 @@ func (g *governor) poll(ctx context.Context) error {
 		return nil
 	}
 
+	if g.rb.drainCh == nil && len(g.active) == 0 {
+		// We've completed draining all reads.
+		return errDrained
+	}
+
 	// If we /still/ have no queued *reads, we must block until woken.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-g.journalsUpdateCh:
+	case <-g.rb.journals.Update():
+		return g.onConverge(ctx)
+	case <-g.rb.drainCh:
 		return g.onConverge(ctx)
 	case <-g.tp.Ready():
 		return g.onTick()
@@ -251,11 +324,8 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range added {
-		if err := g.rb.start(ctx, r); err != nil {
-			return fmt.Errorf("failed to start read: %w", err)
-		}
-		r.pollCh = make(chan readResult, 2)
-		go r.pump(g.readReadyCh)
+		r.start(ctx, g.rb.service.Resolver.Resolve,
+			pf.NewShufflerClient(g.rb.service.Loopback), g.readReadyCh)
 
 		g.active[r.spec.Name] = r
 		delete(g.idle, r.spec.Name)
@@ -271,24 +341,4 @@ func (g *governor) onConverge(ctx context.Context) error {
 
 	// Converge interrupts a current poll(), so we always poll again.
 	return errPollAgain
-}
-
-func signalKeySpaceUpdates(ctx context.Context, ks *keyspace.KeySpace, ch chan<- struct{}) {
-	var revision int64 = -1
-	for {
-		ks.Mu.RLock()
-		var err = ks.WaitForRevision(ctx, revision+1)
-		revision = ks.Header.Revision
-		ks.Mu.RUnlock()
-
-		if err != nil {
-			return
-		}
-
-		select {
-		case ch <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-	}
 }

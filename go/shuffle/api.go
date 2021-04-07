@@ -15,8 +15,10 @@ import (
 // API is the server side implementation of the Shuffle protocol.
 type API struct {
 	// resolve is a consumer.Resolver.Resolve() closure, stubbed for easier testing.
-	resolve func(consumer.ResolveArgs) (consumer.Resolution, error)
+	resolve resolveFn
 }
+
+type resolveFn func(args consumer.ResolveArgs) (consumer.Resolution, error)
 
 // Store are interface expectations of a consumer.Store which is used
 // by the shuffle subsystem.
@@ -54,35 +56,28 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	defer res.Done()
 
 	var coordinator = res.Store.(Store).Coordinator()
-	var doneCh = make(chan error, 1)
-	var sub = subscriber{
-		ShuffleRequest: *req,
-		sendMsg: func(m interface{}) (err error) {
-			if err = stream.SendMsg(m); err == io.EOF {
+	var errCh = make(chan error, 1)
+
+	// Begin a subscription that's delivered to the callback closure.
+	coordinator.Subscribe(
+		stream.Context(),
+		req,
+		func(m *pf.ShuffleResponse, err error) error {
+			if err != nil {
+				errCh <- err
+				close(errCh)
+			} else if err = stream.Send(m); err == io.EOF {
 				// EOF means the stream is broken; we can read a more descriptive error.
 				err = stream.RecvMsg(new(pf.ShuffleRequest))
 			}
 			return err
 		},
-		sendCtx: stream.Context(),
-		doneCh:  doneCh,
-	}
+	)
+	// Block until a final error is delivered.
+	err = <-errCh
 
-	if err = coordinator.subscribe(sub); err != nil {
-		log.WithFields(log.Fields{
-			"err":     err,
-			"journal": req.Shuffle.Journal,
-			"range":   req.Range,
-		}).Warn("failed to subscribe the shuffle client")
-
-		return err
-	}
-
-	// Block for a long time, while the subscription runs.
-	err = <-doneCh
-
-	if stream.Context().Err() != nil {
-		err = nil // Peer cancellations are not an error.
+	if err == io.EOF || stream.Context().Err() != nil {
+		err = nil // Not an error.
 	} else if err == context.Canceled {
 		// Map semantics to gRPC "Unavailable" status.
 		err = status.Error(codes.Unavailable, "server cancelled")
@@ -91,7 +86,7 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 			"err":     err,
 			"journal": req.Shuffle.Journal,
 			"range":   req.Range,
-		}).Warn("failed to send ShuffleResponse to client")
+		}).Warn("failed to serve Shuffle API")
 	}
 	return err
 }
