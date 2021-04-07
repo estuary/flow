@@ -18,18 +18,21 @@ import (
 
 func TestReadBuilding(t *testing.T) {
 	var (
-		allJournals, allShards, allTransforms = buildReadTestJournalsAndTransforms()
-		ranges                                = labels.MustParseRangeSpec(allShards[0].LabelSet)
-		shuffles                              = TransformShuffles(allTransforms)
-		rb                                    = &ReadBuilder{
-			service:  nil, // Not used in this test.
-			ranges:   ranges,
-			shuffles: shuffles,
-			members:  func() []*pc.ShardSpec { return allShards },
-			journals: flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
-		}
+		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
+		ranges                       = labels.MustParseRangeSpec(allShards[0].LabelSet)
+		shuffles                     = TaskShuffles(task)
+		rb, rbErr                    = NewReadBuilder(
+			nil, // Service is not used.
+			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
+			allShards[0].Id,
+			shuffles,
+			"commons-id",
+			1234,
+		)
 		existing = map[pb.Journal]*read{}
 	)
+	require.NoError(t, rbErr)
+	rb.members = func() []*pc.ShardSpec { return allShards }
 
 	var toKeys = func(m map[pb.Journal]*read) (out []string) {
 		for j, r := range m {
@@ -62,10 +65,12 @@ func TestReadBuilding(t *testing.T) {
 			},
 			req: pf.ShuffleRequest{
 				Shuffle: pf.JournalShuffle{
-					Journal:     aJournal,
-					Coordinator: "shard/0",
-					Shuffle:     shuffles[0],
-					Replay:      false,
+					Journal:         aJournal,
+					Coordinator:     "shard/2",
+					Shuffle:         shuffles[0],
+					Replay:          false,
+					CommonsId:       "commons-id",
+					CommonsRevision: 1234,
 				},
 				Range:  ranges,
 				Offset: 1122,
@@ -92,10 +97,12 @@ func TestReadBuilding(t *testing.T) {
 		},
 		req: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{
-				Journal:     aJournal,
-				Coordinator: "shard/0",
-				Shuffle:     shuffles[0],
-				Replay:      true,
+				Journal:         aJournal,
+				Coordinator:     "shard/2",
+				Shuffle:         shuffles[0],
+				Replay:          true,
+				CommonsId:       "commons-id",
+				CommonsRevision: 1234,
 			},
 			Range:     ranges,
 			Offset:    1000,
@@ -105,11 +112,14 @@ func TestReadBuilding(t *testing.T) {
 		readDelay: 0,
 	}, r)
 
+	// Case: attempt to replay an unmatched journal.
+	_, err = rb.buildReplayRead("not/matched", 1000, 2000)
+	require.EqualError(t, err, "journal not matched for replay: not/matched")
+
 	// Case: if the configuration changes, the existing *read
 	// is drained so that it may be restarted.
 	// This is a functional test of the implementation details:
-	// we don't currently allow ShuffleSpecs to change dynamically
-	// at runtime (but could).
+	// ShuffleSpecs of a ReadBuilder are fixed and don't change dynamically.
 	var copied = *shuffles[0]
 	copied.ReadDelaySeconds++
 	rb.shuffles[0] = &copied
@@ -151,6 +161,38 @@ func TestReadBuilding(t *testing.T) {
 		"foo/bar=1/baz=abc/part=01;transform/der/bar-one": 56,
 		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
 	})
+	existing = added
+
+	// Begin to drain the ReadBuilder.
+	rb.Drain()
+
+	// Expect all reads now drain.
+	added, drain, err = rb.buildReads(existing, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string(nil), toKeys(added))
+	require.Equal(t, []string{
+		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def",
+	}, toKeys(drain))
+
+	// Draining doesn't invalidate replay reads.
+	r, err = rb.buildReplayRead("foo/bar=1/baz=abc/part=01;transform/der/bar-one", 1000, 2000)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// It also doesn't invalidate offset filtering.
+	offsets, err = rb.ReadThrough(pb.Offsets{
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
+		"foo/bar=1/baz=def/part=00":                       78,
+	})
+	require.NoError(t, err)
+	require.Equal(t, offsets, pb.Offsets{
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
+	})
 }
 
 func TestReadIteration(t *testing.T) {
@@ -161,8 +203,7 @@ func TestReadIteration(t *testing.T) {
 		resp: pf.IndexedShuffleResponse{
 			Index: 0,
 			ShuffleResponse: pf.ShuffleResponse{
-				Begin: []int64{0, 200, 400},
-				End:   []int64{100, 300, 500},
+				Offsets: []pb.Offset{0, 100, 200, 300, 400, 500},
 			},
 		},
 	}
@@ -183,7 +224,7 @@ func TestReadIteration(t *testing.T) {
 	require.Equal(t, env.End, int64(500))
 	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 2)
 
-	require.Equal(t, r.resp.Index, len(r.resp.Begin))
+	require.Equal(t, 2*r.resp.Index, len(r.resp.Offsets))
 }
 
 func TestReadHeaping(t *testing.T) {
@@ -240,9 +281,9 @@ func TestReadHeaping(t *testing.T) {
 	require.Empty(t, h)
 }
 
-func TestCoordinatorAssignment(t *testing.T) {
-	var journals, shards, transforms = buildReadTestJournalsAndTransforms()
-	shuffles := TransformShuffles(transforms)
+func TestWalkingReads(t *testing.T) {
+	var journals, shards, task = buildReadTestJournalsAndTransforms()
+	var shuffles = TaskShuffles(task)
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {
@@ -250,15 +291,15 @@ func TestCoordinatorAssignment(t *testing.T) {
 		source      string
 		coordinator pc.ShardID
 	}{
-		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/0"},
-		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/2"},
-		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"},
-		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/2"},
-		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"},
-		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/1"},
+		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2"}, // Honors journal range.
+		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1"}, // Honors journal range.
+		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"}, // Honors journal range.
+		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"}, // Ignores journal range.
+		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1"}, // Ignores journal range.
+		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2"}, // Ignores journal range.
 	}
-	var err = walkReads(shards, journals, shuffles,
-		func(spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
+	var err = walkReads(shards[0].Id, shards, journals, shuffles,
+		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 			require.Equal(t, expect[0].journal, spec.Name.String())
 			require.Equal(t, expect[0].source, shuffle.SourceCollection.String())
 			require.Equal(t, expect[0].coordinator, coordinator)
@@ -266,19 +307,33 @@ func TestCoordinatorAssignment(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.Empty(t, expect)
+
+	// Walk with shard/0 and shard/1 only, such that the 0xcccccccc to 0xffffffff
+	// portion of the key range is not covered by any shard.
+	// This results in an error when walking with shuffle "bar-one" which uses the source key.
+	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[:1],
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+	require.EqualError(t, err,
+		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, cccccccc-ffffffff")
+	// But is not an error with shuffle "baz-def", which *doesn't* use the source key.
+	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[1:2],
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+	require.NoError(t, err)
+
+	// Case: shard doesn't exist.
+	err = walkReads("shard/deleted", shards, journals, shuffles,
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+	require.EqualError(t, err, "shard shard/deleted not found among shuffle members")
 }
 
 func TestHRWRegression(t *testing.T) {
-	var ring = []uint32{
-		hashString("Foo"),
-		hashString("Bar"),
-		hashString("Bez"),
-		hashString("Qib"),
+	var ring = []shuffleMember{
+		{hrwHash: 0xc7e1677},
+		{hrwHash: 0xdbbc7dba},
+		{hrwHash: 0xcbb36a2e},
+		{hrwHash: 0x5389fa17},
 	}
-	var h = hashString("Test")
-
-	require.Equal(t, []uint32{0xc7e1677, 0xdbbc7dba, 0xcbb36a2e, 0x5389fa17}, ring)
-	require.Equal(t, uint32(0x2ffcbe05), h)
+	var h uint32 = 0x2ffcbe05
 
 	require.Equal(t, 1, pickHRW(h, ring, 0, 4))
 	require.Equal(t, 0, pickHRW(h, ring, 0, 1))
@@ -287,7 +342,57 @@ func TestHRWRegression(t *testing.T) {
 	require.Equal(t, 2, pickHRW(h, ring, 2, 3))
 }
 
-func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, []pf.TransformSpec) {
+func TestShuffleMemberOrdering(t *testing.T) {
+	var _, shards, _ = buildReadTestJournalsAndTransforms()
+
+	var members, err = newShuffleMembers(shards)
+	require.NoError(t, err)
+
+	// Test rangeSpan cases.
+	for _, tc := range []struct {
+		begin, end  uint32
+		start, stop int
+	}{
+		// Exact matches of ranges.
+		{0xaaaaaaaa, 0xbbbbbbbb, 0, 1},
+		{0xbbbbbbbb, 0xffffffff, 1, 3},
+		// Partial overlap of single entry at list begin & end.
+		{0xa0000000, 0xb0000000, 0, 1},
+		{0xeeeeeeee, 0xffffffff, 2, 3},
+		// Overlaps of multiple entries.
+		{0x00000000, 0xc0000000, 0, 2},
+		{0xc0000000, 0xd0000000, 1, 3},
+	} {
+		var start, stop = rangeSpan(members, tc.begin, tc.end)
+		require.Equal(t, tc.start, start)
+		require.Equal(t, tc.stop, stop)
+	}
+
+	// Add an extra shard which is not strictly greater than it's left-hand sibling.
+	_, err = newShuffleMembers(append(shards, &pc.ShardSpec{
+		Id: "shard/3", LabelSet: pb.MustLabelSet(
+			labels.KeyBegin, "cccccccc",
+			labels.KeyEnd, "ffffffff",
+			// RClock range overlaps with left sibling.
+			labels.RClockBegin, "11111111",
+			labels.RClockEnd, "99999999",
+		)},
+	))
+	require.EqualError(t, err,
+		"shard shard/3 range key:cccccccc-ffffffff;r-clock:11111111-99999999 is not "+
+			"less-than shard shard/2 range key:cccccccc-ffffffff;r-clock:00000000-88888888")
+
+	// Add an extra shard which doesn't have a valid RangeSpec.
+	_, err = newShuffleMembers(append(shards, &pc.ShardSpec{
+		Id: "shard/3", LabelSet: pb.MustLabelSet(
+			labels.KeyBegin, "whoops",
+		)},
+	))
+	require.EqualError(t, err,
+		"shard shard/3: expected estuary.dev/key-begin to be a 4-byte, hex encoded integer; got whoops")
+}
+
+func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.CatalogTask) {
 	var journals = flow.Journals{
 		KeySpace: &keyspace.KeySpace{Root: "/the/journals"}}
 
@@ -298,11 +403,11 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, []pf.
 		end   string
 		part  int
 	}{
-		{"1", "abc", "aa", "cc", 0}, // foo/bar=1/baz=abc/part=00
-		{"1", "abc", "cc", "ff", 1}, // foo/bar=1/baz=abc/part=01
-		{"1", "def", "aa", "ff", 0}, // foo/bar=1/baz=def/part=00
-		{"2", "def", "aa", "bb", 0}, // foo/bar=2/baz=def/part=00
-		{"2", "def", "bb", "ff", 1}, // foo/bar=2/baz=def/part=01
+		{"1", "abc", "cccccccc", "ffffffff", 0}, // foo/bar=1/baz=abc/part=00
+		{"1", "abc", "bbbbbbbb", "cccccccc", 1}, // foo/bar=1/baz=abc/part=01
+		{"1", "def", "aaaaaaaa", "bbbbbbbb", 0}, // foo/bar=1/baz=def/part=00
+		{"2", "def", "aaaaaaaa", "bbbbbbbb", 0}, // foo/bar=2/baz=def/part=00
+		{"2", "def", "bbbbbbbb", "ffffffff", 1}, // foo/bar=2/baz=def/part=01
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
 
@@ -324,60 +429,64 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, []pf.
 	}
 	var shards = []*pc.ShardSpec{
 		{Id: "shard/0", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "aa",
-			labels.KeyEnd, "bb",
-			labels.RClockBegin, "0000000000000000",
-			labels.RClockEnd, "ffffffffffffffff")},
+			labels.KeyBegin, "aaaaaaaa",
+			labels.KeyEnd, "bbbbbbbb",
+			labels.RClockBegin, "00000000",
+			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/1", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "bb",
-			labels.KeyEnd, "cc",
-			labels.RClockBegin, "0000000000000000",
-			labels.RClockEnd, "ffffffffffffffff")},
+			labels.KeyBegin, "bbbbbbbb",
+			labels.KeyEnd, "cccccccc",
+			labels.RClockBegin, "00000000",
+			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/2", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "cc",
-			labels.KeyEnd, "ff",
-			labels.RClockBegin, "0000000000000000",
-			labels.RClockEnd, "8000000000000000")},
+			labels.KeyBegin, "cccccccc",
+			labels.KeyEnd, "ffffffff",
+			labels.RClockBegin, "00000000",
+			labels.RClockEnd, "88888888")},
 	}
 
-	// Transforms reading partitions of "foo" into derivation "der".
-	var transforms = []pf.TransformSpec{
-		{
-			Transform: "bar-one",
-			Shuffle: pf.Shuffle{
-				GroupName:        "transform/der/bar-one",
-				UsesSourceKey:    true,
-				ReadDelaySeconds: 60,
-				SourceCollection: "foo",
-				SourcePartitions: pb.LabelSelector{
-					Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
+	// Derivation fixture reading partitions of "foo" into derivation "der".
+	var task = &pf.CatalogTask{
+		Derivation: &pf.DerivationSpec{
+			Transforms: []pf.TransformSpec{
+				{
+					Transform: "bar-one",
+					Shuffle: pf.Shuffle{
+						GroupName:        "transform/der/bar-one",
+						UsesSourceKey:    true,
+						ReadDelaySeconds: 60,
+						SourceCollection: "foo",
+						SourcePartitions: pb.LabelSelector{
+							Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
+						},
+					},
+					Derivation: "der",
+				},
+				{
+					Transform: "baz-def",
+					Shuffle: pf.Shuffle{
+						GroupName:        "transform/der/baz-def",
+						UsesSourceKey:    false,
+						SourceCollection: "foo",
+						SourcePartitions: pb.LabelSelector{
+							Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
+						},
+					},
+					Derivation: "der",
+				},
+				{
+					Transform: "unmatched",
+					Shuffle: pf.Shuffle{
+						GroupName:        "transform/der/unmatched",
+						SourceCollection: "foo",
+						SourcePartitions: pb.LabelSelector{
+							Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
+						},
+					},
+					Derivation: "der",
 				},
 			},
-			Derivation: "der",
-		},
-		{
-			Transform: "baz-def",
-			Shuffle: pf.Shuffle{
-				GroupName:        "transform/der/baz-def",
-				UsesSourceKey:    false,
-				SourceCollection: "foo",
-				SourcePartitions: pb.LabelSelector{
-					Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
-				},
-			},
-			Derivation: "der",
-		},
-		{
-			Transform: "unmatched",
-			Shuffle: pf.Shuffle{
-				GroupName:        "transform/der/unmatched",
-				SourceCollection: "foo",
-				SourcePartitions: pb.LabelSelector{
-					Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
-				},
-			},
-			Derivation: "der",
 		},
 	}
-	return journals, shards, transforms
+	return journals, shards, task
 }

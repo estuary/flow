@@ -2,72 +2,82 @@ package shuffle
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
-	"golang.org/x/net/context"
 )
 
-func simpleResponseFixture() pf.ShuffleResponse {
-	var resp = pf.ShuffleResponse{
+func simpleResponseFixture() *pf.ShuffleResponse {
+	var resp = &pf.ShuffleResponse{
 		ReadThrough: 400,
 		WriteHead:   600,
-		Begin:       []pb.Offset{200},
-		End:         []pb.Offset{300},
+		Offsets:     []pb.Offset{200, 300, 300, 400},
 		UuidParts: []pf.UUIDParts{
 			{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 1002, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
-	resp.DocsJson = resp.Arena.AddAll([]byte("content"))
-	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"))
+	resp.DocsJson = resp.Arena.AddAll([]byte("one"), []byte("two"))
+	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"), []byte("more-key"))
 	return resp
 }
 
-func TestSubscriberInitAndStage(t *testing.T) {
-	var sub = subscriber{
-		// Start from a populated fixture, to test re-initialization.
-		staged: simpleResponseFixture(),
-	}
+func TestSubscriberDocStaging(t *testing.T) {
+	var sub subscriber
 
 	// Initializing and then staging all docs should re-produce the fixture.
 	var from = simpleResponseFixture()
-	sub.initStaged(&from)
-	sub.stageDoc(&from, 0)
-	require.Equal(t, sub.staged, simpleResponseFixture())
+	sub.staged = newStagedResponse(0, 0)
+	sub.stageDoc(from, 0)
+	sub.stageDoc(from, 1)
+
+	require.Equal(t, sub.staged.Offsets, []pb.Offset{200, 300, 300, 400})
+	require.Equal(t, sub.staged.UuidParts, []pf.UUIDParts{
+		{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+		{Clock: 1002, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+	})
+	require.Equal(t, [][]byte{[]byte("one"), []byte("two")},
+		sub.staged.Arena.AllBytes(sub.staged.DocsJson...))
+	require.Equal(t, [][]byte{[]byte("bb-cc-key"), []byte("more-key")},
+		sub.staged.Arena.AllBytes(sub.staged.PackedKey...))
+
+	sub.staged = newStagedResponse(0, 0)
 
 	// If the Request provides offset restrictions, then expect only those documents are staged.
 	sub.Offset, sub.EndOffset = 0, 200 // Ends before fixture.
-	sub.initStaged(&from)
-	sub.stageDoc(&from, 0)
-	require.Equal(t, sub.staged.Begin, []pb.Offset{})
+	sub.stageDoc(from, 0)
+	sub.stageDoc(from, 1)
+	require.Equal(t, sub.staged.Offsets, []pb.Offset{})
 
-	sub.Offset, sub.EndOffset = 300, 400 // Starts after fixture.
-	sub.initStaged(&from)
-	sub.stageDoc(&from, 0)
-	require.Equal(t, sub.staged.Begin, []pb.Offset{})
+	sub.Offset, sub.EndOffset = 400, 500 // Starts after fixture.
+	sub.stageDoc(from, 0)
+	sub.stageDoc(from, 1)
+	require.Equal(t, sub.staged.Offsets, []pb.Offset{})
 
-	sub.Offset, sub.EndOffset = 100, 500 // Fixture is within range.
-	sub.initStaged(&from)
-	sub.stageDoc(&from, 0)
-	require.Equal(t, sub.staged.Begin, []pb.Offset{200})
-
-	from.TerminalError = "an error" // Error is copied through on staging.
-	sub.initStaged(&from)
-	require.Equal(t, sub.staged.TerminalError, "an error")
+	sub.Offset, sub.EndOffset = 250, 500 // Fixture is partially within range.
+	sub.stageDoc(from, 0)
+	sub.stageDoc(from, 1)
+	require.Equal(t, sub.staged.Offsets, []pb.Offset{300, 400})
 }
 
 func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
-	var mk = func(a, b string) subscriber {
+	var mk = func(a, b uint32) subscriber {
 		var ranges = pf.RangeSpec{
-			KeyBegin:  []byte(a),
-			KeyEnd:    []byte(b),
-			RClockEnd: (1 << 64) - 1,
+			KeyBegin:  a,
+			KeyEnd:    b,
+			RClockEnd: math.MaxUint32,
 		}
 		if err := ranges.Validate(); err != nil {
 			panic(err)
@@ -76,15 +86,15 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 	}
 
 	var fixtures = []subscriber{
-		mk("a", "b"), // 0
-		mk("a", "b"), // 1
-		mk("a", "b"), // 2
-		mk("c", "d"), // 3
-		mk("d", "e"), // 4
-		mk("d", "e"), // 5
-		mk("g", "h"), // 6
-		mk("g", "h"), // 7
-		mk("m", "n"), // 8
+		mk(10, 100),  // 0
+		mk(10, 100),  // 1
+		mk(10, 100),  // 2
+		mk(200, 300), // 3
+		mk(300, 400), // 4
+		mk(300, 400), // 5
+		mk(600, 700), // 6
+		mk(600, 700), // 7
+		mk(900, 999), // 8
 	}
 	// Perturb fixtures randomly; we should not depend on order.
 	rand.Shuffle(len(fixtures), func(i, j int) {
@@ -98,80 +108,60 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 
 	// Test keySpan cases.
 	for _, tc := range []struct {
-		k           string
+		k           uint32
 		start, stop int
 	}{
-		{"a", 0, 3},
-		{"aabb", 0, 3},
-		{"b", 3, 3},
-		{"bbb", 3, 3},
-		{"ccc", 3, 4},
-		{"ddcc", 4, 6},
-		{"eeee", 6, 6},
-		{"f", 6, 6},
-		{"g", 6, 8},
-		{"gzz", 6, 8},
-		{"hh", 8, 8},
-		{"mmnn", 8, 9},
-		{"n", 9, 9},
-		{"zzzz", 9, 9},
+		{0, 0, 0},
+		{10, 0, 3},
+		{50, 0, 3},
+		{100, 3, 3},
+		{111, 3, 3},
+		{200, 3, 4},
+		{350, 4, 6},
+		{410, 6, 6},
+		{500, 6, 6},
+		{550, 6, 6},
+		{600, 6, 8},
+		{690, 6, 8},
+		{899, 8, 8},
+		{950, 8, 9},
+		{999, 9, 9},
+		{10000, 9, 9},
 	} {
-		var start, stop = keySpan(s, []byte(tc.k))
-		require.Equal(t, tc.start, start)
-		require.Equal(t, tc.stop, stop)
-	}
-
-	// Test rangeSpan cases.
-	for _, tc := range []struct {
-		begin, end  string
-		start, stop int
-	}{
-		// Exact matches of ranges.
-		{"a", "b", 0, 3},
-		{"g", "h", 6, 8},
-		// Partial overlap of single entry at list begin & end.
-		{"", "aa", 0, 3},
-		{"mm", "zz", 8, 9},
-		// Overlaps of multiple entries.
-		{"", "cc", 0, 4},   // Begin.
-		{"", "d", 0, 4},    // Begin.
-		{"bb", "dd", 3, 6}, // Middle.
-		{"c", "e", 3, 6},   // Middle.
-		{"c", "g", 3, 6},   // Middle.
-		{"gg", "n", 6, 9},  // End.
-		{"g", "nn", 6, 9},  // End.
-	} {
-		var start, stop = rangeSpan(s, []byte(tc.begin), []byte(tc.end))
+		var start, stop = s.keySpan(tc.k)
 		require.Equal(t, tc.start, start)
 		require.Equal(t, tc.stop, stop)
 	}
 
 	for _, tc := range []struct {
-		begin, end string
+		begin, end uint32
 		index      int
 	}{
 		// Repetitions of key-ranges are fine.
-		{"a", "b", 3},
-		{"d", "e", 6},
+		{10, 100, 3},
+		{300, 400, 6},
 		// As are insertions into list middle.
-		{"b", "c", 3},
-		{"f", "g", 6},
+		{100, 200, 3},
+		{450, 460, 6},
 		// Or begining.
-		{"", "a", 0},
+		{0, 10, 0},
 		// Or end.
-		{"n", "o", 9},
+		{999, 1000, 9},
 
 		// Overlaps are not a okay, at beginning.
-		{"", "b", -1},
+		{0, 11, -1},
 		// Or middle.
-		{"a", "c", -1},
-		{"b", "d", -1},
-		{"d", "f", -1},
+		{100, 300, -1},
+		{399, 600, -1},
 		// Or end.
-		{"m", "o", -1},
-		{"mm", "o", -1},
+		{910, 999, -1},
+		{998, 1000, -1},
 	} {
-		var ind, err = insertionIndex(s, []byte(tc.begin), []byte(tc.end))
+		var ind, err = s.insertionIndex(pf.RangeSpec{
+			KeyBegin:  tc.begin,
+			KeyEnd:    tc.end,
+			RClockEnd: math.MaxUint32,
+		})
 		if tc.index != -1 {
 			require.NoError(t, err)
 			require.Equal(t, tc.index, ind)
@@ -183,85 +173,96 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 
 func TestClockRotationRegression(t *testing.T) {
 	var c message.Clock
-	require.Equal(t, rotateClock(c), uint64(0b00000000))
+	require.Equal(t, rotateClock(c), uint32(0b00000000))
 
 	// Increasing a clock's sequence modulates the MSBs of the output.
 	c++
-	require.Equal(t, rotateClock(c), uint64(0b10000000)<<56)
+	require.Equal(t, rotateClock(c), uint32(0b10000000)<<24)
 	c++
-	require.Equal(t, rotateClock(c), uint64(0b01000000)<<56)
+	require.Equal(t, rotateClock(c), uint32(0b01000000)<<24)
 	c++
-	require.Equal(t, rotateClock(c), uint64(0b11000000)<<56)
+	require.Equal(t, rotateClock(c), uint32(0b11000000)<<24)
 	c++
-	require.Equal(t, rotateClock(c), uint64(0b00100000)<<56)
+	require.Equal(t, rotateClock(c), uint32(0b00100000)<<24)
 
 	// Timestamps are folded with sequence-counter updates.
 	// Each sequence increment leads to a large jump in semiring location.
 	c.Update(time.Unix(0, 0x1234567891))
-	require.Equal(t, rotateClock(c), uint64(0xef6dd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0xef6dd842))
 	c++
-	require.Equal(t, rotateClock(c), uint64(0x6f6dd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0x6f6dd842))
 	c++
-	require.Equal(t, rotateClock(c), uint64(0xaf6dd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0xaf6dd842))
 
 	// Successive timestamps having small nano-second changes also
 	// result in large jumps in semiring location.
 	// (Recall Clocks have resolution of 100ns).
 	c.Update(time.Unix(0, 0x1234567900))
-	require.Equal(t, rotateClock(c), uint64(0x1f6dd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0x1f6dd842))
 	c.Update(time.Unix(0, 0x1234568000))
-	require.Equal(t, rotateClock(c), uint64(0x50edd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0x50edd842))
 	c.Update(time.Unix(0, 0x1234568100))
-	require.Equal(t, rotateClock(c), uint64(0x30edd8424bb84d80))
+	require.Equal(t, rotateClock(c), uint32(0x30edd842))
 }
 
 func TestSubscriberResponseStaging(t *testing.T) {
-	// Subscriber fixtures:
-
 	var requests = []pf.ShuffleRequest{
-		{
+		{ // Subscriber sees first half of keyspace, and first half of clocks.
 			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
-				KeyBegin:    []byte("a"),
-				KeyEnd:      []byte("g"),
+				KeyBegin:    0,
+				KeyEnd:      1 << 31,
 				RClockBegin: 0,
-				RClockEnd:   1 << 63,
+				RClockEnd:   1 << 31,
 			},
 		},
-		{
+		{ // Sees first half of keyspace, and second half of clocks.
 			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
-				KeyBegin:    []byte("a"),
-				KeyEnd:      []byte("g"),
-				RClockBegin: 1 << 63,
-				RClockEnd:   (1 << 64) - 1,
+				KeyBegin:    0x00000000,
+				KeyEnd:      1 << 31,
+				RClockBegin: 1 << 31,
+				RClockEnd:   1<<32 - 1,
 			},
 		},
-		{
+		{ // Sees keyspace 0x8 through 0xa, and clocks are ignored since !FilterRClocks.
 			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: false}},
 			Range: pf.RangeSpec{
-				KeyBegin: []byte("l"),
-				KeyEnd:   []byte("p"),
-				// RClock range matches no fixtures, but is ignored since !IsPublishOnly.
+				KeyBegin:    1 << 31,
+				KeyEnd:      0xa0000000,
 				RClockBegin: 0,
 				RClockEnd:   1,
 			},
 		},
 	}
+
 	var s subscribers
-	for _, r := range requests {
-		s.add(subscriber{
-			ShuffleRequest: r,
-			staged:         simpleResponseFixture(), // Test re-initialization.
-		})
+	for i, r := range requests {
+		var read = s.add(subscriber{ShuffleRequest: r})
+		// First add starts a read at offset 0.
+		require.Equal(t, i == 0, read != nil)
 	}
 
-	var tokens = bytes.Split([]byte("c/low c/high ACK lmn q"), []byte{' '})
+	// Confirm the hash values of "packed key" tokens we'll use.
+	var tokenHashRegresionCheck = []struct {
+		hash  uint32
+		token string
+	}{
+		{0x64ecbab1, "bar"}, // Low half.
+		{0x38ad3674, "qib"}, // Low half.
+		{0x8cad4162, "foo"}, // High.
+		{0xa08b7e30, "fub"}, // High (out of fixture range).
+	}
+	for _, tc := range tokenHashRegresionCheck {
+		require.Equal(t, tc.hash, flow.PackedKeyHash_HH64([]byte(tc.token)))
+	}
+
+	var tokens = bytes.Split([]byte("bar qib ACK foo fub"), []byte{' '})
 	var fixture = pf.ShuffleResponse{
-		ReadThrough: 1000,
-		WriteHead:   2000,
-		Begin:       []pb.Offset{200, 300, 400, 500, 600},
-		End:         []pb.Offset{300, 400, 500, 600, 700},
+		TerminalError: "an error",
+		ReadThrough:   1000,
+		WriteHead:     2000,
+		Offsets:       []pb.Offset{200, 201, 300, 301, 400, 401, 500, 501, 600, 601},
 		UuidParts: []pf.UUIDParts{
 			{Clock: 10000 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
 			{Clock: 10001 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
@@ -275,104 +276,132 @@ func TestSubscriberResponseStaging(t *testing.T) {
 
 	s.stageResponses(&fixture)
 
-	// Subscriber 0 sees c/low & ACK.
-	require.Equal(t, s[0].staged.Begin, []pb.Offset{200, 400})
-	// Subscriber 1 sees c/high & ACK.
-	require.Equal(t, s[1].staged.Begin, []pb.Offset{300, 400})
-	// Subscriber 2 sees ACK & lmn.
-	require.Equal(t, s[2].staged.Begin, []pb.Offset{400, 500})
-	// No subscribers see q.
+	// Subscriber 0 sees bar & ACK.
+	require.Equal(t, s[0].staged.Offsets, []pb.Offset{200, 201, 400, 401})
+	// Subscriber 1 sees qib & ACK.
+	require.Equal(t, s[1].staged.Offsets, []pb.Offset{300, 301, 400, 401})
+	// Subscriber 2 sees ACK & foo.
+	require.Equal(t, s[2].staged.Offsets, []pb.Offset{400, 401, 500, 501})
+	// No subscribers see fub.
+
+	var snap bytes.Buffer
+	for _, sub := range s {
+		require.NoError(t, proto.MarshalText(&snap, sub.staged))
+	}
+	cupaloy.SnapshotT(t, snap.String())
 }
 
 func TestSubscriberSendAndPruneCases(t *testing.T) {
-	var ch = make(chan error, 10)
+	var errCh = make(chan error, 10)
 	var sends int
 
-	var sendMsg = func(interface{}) error {
-		sends++
+	var callback = func(m *pf.ShuffleResponse, err error) error {
+		if err != nil {
+			errCh <- err
+		} else {
+			sends++
+		}
 		return nil
 	}
 	var errContext, cancel = context.WithCancel(context.Background())
 	cancel()
 
 	var s = subscribers{
-		{ // Send completes this subscriber's response.
+		{ // A: Send completes this subscriber's response.
 			ShuffleRequest: pf.ShuffleRequest{Offset: 100, EndOffset: 200},
-			staged:         pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendMsg:        sendMsg,
-			doneCh:         ch,
-		},
-		{ // Nothing to send (subscriber is already tailing).
-			ShuffleRequest: pf.ShuffleRequest{Offset: 300},
-			staged:         pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendCtx:        context.Background(),
-			sendMsg:        sendMsg,
+			staged:         &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			callback:       callback,
 			sentTailing:    true,
-			doneCh:         ch,
 		},
-		{ // Nothing to send (not tailing yet as 299 != 300).
+		{ // B: Nothing to send (subscriber is already tailing).
+			ShuffleRequest: pf.ShuffleRequest{Offset: 300},
+			staged:         &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			ctx:            context.Background(),
+			callback:       callback,
+			sentTailing:    true,
+		},
+		{ // C: Nothing to send (not tailing yet as 299 != 300).
 			ShuffleRequest: pf.ShuffleRequest{Offset: 100},
-			staged:         pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300},
-			sendCtx:        context.Background(),
-			sendMsg:        sendMsg,
-			doneCh:         ch,
+			staged:         &pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300},
+			ctx:            context.Background(),
+			callback:       callback,
 		},
-		{ // Send tailing, but results in an error.
-			staged:  pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendMsg: func(m interface{}) error { return fmt.Errorf("an-error") },
-			doneCh:  ch,
+		{ // D: Send tailing, but results in an error.
+			staged: &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			callback: func(m *pf.ShuffleResponse, err error) error {
+				_ = callback(m, err)
+				return fmt.Errorf("an-error")
+			},
 		},
-		{ // Nothing to send (already tailing), but context is error'd.
-			staged:      pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			sendCtx:     errContext,
+		{ // E: Nothing to send (already tailing), but context is error'd.
+			staged:      &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			ctx:         errContext,
+			callback:    callback,
 			sentTailing: true,
-			doneCh:      ch,
+		},
+		{ // F: Queued document to send.
+			staged:   simpleResponseFixture(),
+			ctx:      context.Background(),
+			callback: callback,
 		},
 	}
 
 	// Verify fixture expectations of which subscribers have responses to send.
-	for i, e := range []bool{true, false, false, true, false} {
+	for i, e := range []bool{true, false, false, true, false, true} {
 		require.Equal(t, e, s[i].shouldSendResponse())
 	}
 	s.sendResponses()
 
-	require.Equal(t, 1, sends)        // Sent to 0 only.
-	require.True(t, s[0].sentTailing) // 0 marked as having sent Tailing.
-	sends = 0                         // Re-zero for next case.
+	require.Equal(t, 3, sends) // Sent to A, D, & F.
+	sends = 0                  // Re-zero for next case.
 
-	// Send to 0 finishes response, resulting in EOF.
-	require.Nil(t, <-ch)
-	// Send to 3 is an error.
-	require.EqualError(t, <-ch, "an-error")
-	// No send to 4, but context is error'd.
-	require.EqualError(t, <-ch, context.Canceled.Error())
+	// Send to A finishes response, resulting in EOF.
+	require.Equal(t, io.EOF, <-errCh)
+	// Send to D is an error.
+	require.EqualError(t, <-errCh, "an-error")
+	// No send to E, but context is error'd.
+	require.EqualError(t, <-errCh, context.Canceled.Error())
 
-	// Only two subscribers are left now.
-	require.Len(t, s, 2)
+	// Three subscribers are left now: B, C, & F.
+	require.Len(t, s, 3)
+	// Send to F cleared its staged response.
+	require.Equal(t, s[2].staged, newStagedResponse(0, 0))
 
-	s[1].staged.ReadThrough = 300              // Now tailing.
-	require.True(t, s[1].shouldSendResponse()) // Toggles Tailing.
+	s[1].staged.ReadThrough = 300                                       // C is now tailing.
+	s[2].staged = &pf.ShuffleResponse{ReadThrough: 400, WriteHead: 500} // F is not tailing.
+
+	for i, e := range []bool{false, true, false} {
+		require.Equal(t, e, s[i].shouldSendResponse())
+	}
 	s.sendResponses()
 
-	require.Equal(t, 1, sends)        // Sent to 1 only.
-	require.True(t, s[1].sentTailing) // 1 marked as having sent Tailing.
+	require.Equal(t, 1, sends)        // Sent to C only.
+	require.True(t, s[1].sentTailing) // C marked as having sent Tailing.
 	sends = 0
 
-	// Case: Terminal error staged, and sent to 0 & 1.
+	// Case: Terminal error staged, and sent to B / C / F.
 	for i := range s {
 		s[i].staged.TerminalError = "foobar"
 		require.True(t, s[i].shouldSendResponse()) // Error always sends.
 	}
 	s.sendResponses()
-	require.Equal(t, 2, sends)
+	require.Equal(t, 3, sends)
 
-	// Both subscribers were notified of EOF.
+	// All subscribers were notified of EOF.
 	require.Len(t, s, 0)
-	require.Nil(t, <-ch)
-	require.Nil(t, <-ch)
+	require.Equal(t, io.EOF, <-errCh)
+	require.Equal(t, io.EOF, <-errCh)
+	require.Equal(t, io.EOF, <-errCh)
 }
 
 func TestSubscriberAddCases(t *testing.T) {
+	// Retain callback error.
+	var callbackErr error
+	var callback = func(_ *pf.ShuffleResponse, err error) error {
+		callbackErr = err
+		return nil
+	}
+
 	// Case: First subscriber, at offset 0.
 	// Starts a read at offset zero.
 	var s subscribers
@@ -381,15 +410,16 @@ func TestSubscriberAddCases(t *testing.T) {
 		ShuffleRequest: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{Journal: "a/journal"},
 			Range: pf.RangeSpec{
-				KeyBegin:  []byte("a"),
-				KeyEnd:    []byte("b"),
-				RClockEnd: (1 << 64) - 1,
+				KeyBegin:  0x100,
+				KeyEnd:    0x200,
+				RClockEnd: (1 << 32) - 1,
 			},
 			Offset: 0,
 		},
-		doneCh: make(chan error, 1),
+		callback: callback,
 	}
 	require.Equal(t, &pb.ReadRequest{Journal: "a/journal"}, s.add(sub))
+	require.NoError(t, callbackErr)
 
 	// Case: First subscriber, at non-zero Offset & EndOffset.
 	// Starts a read at the request offset.
@@ -403,6 +433,7 @@ func TestSubscriberAddCases(t *testing.T) {
 			Offset:    456,
 			EndOffset: 0, // Never EOFs.
 		}, s.add(sub))
+	require.NoError(t, callbackErr)
 
 	// Case: Second subscriber, at a lower offset.
 	// Starts a catch-up read which ends at the already-started read.
@@ -413,17 +444,19 @@ func TestSubscriberAddCases(t *testing.T) {
 			Offset:    123,
 			EndOffset: 456,
 		}, s.add(sub))
+	require.NoError(t, callbackErr)
 
 	// Case: Third subscriber, at a higher Offset.
 	// Doesn't start a new read.
 	sub.ShuffleRequest.Offset = 789
 	require.Nil(t, s.add(sub))
+	require.NoError(t, callbackErr)
 
 	// Case: Subscriber partially overlaps with existing key-range.
-	sub.ShuffleRequest.Range.KeyEnd = []byte("bb")
+	sub.ShuffleRequest.Range.KeyEnd = 0x300
 	require.Nil(t, s.add(sub))
-
-	require.EqualError(t, <-sub.doneCh, `range ["a", "bb") overlaps with existing range ["a", "b")`)
+	require.EqualError(t, callbackErr,
+		"range key:00000100-00000300;r-clock:00000000-ffffffff overlaps with existing range key:00000100-00000200;r-clock:00000000-ffffffff")
 }
 
 func TestSubscriberMinOffset(t *testing.T) {
@@ -441,4 +474,24 @@ func TestSubscriberMinOffset(t *testing.T) {
 	o, ok = s.minOffset()
 	require.Equal(t, pb.Offset(123), o)
 	require.Equal(t, true, ok)
+}
+
+func TestPOW2CapacityEstimates(t *testing.T) {
+	var cases = []struct{ v, e int }{
+		{0, 8},
+		{7, 8},
+		{8, 8},
+		{9, 16},
+		{128, 128},
+		{1025, 2048},
+		{1 << 16, 1 << 16},
+		{1<<16 + 1, 1 << 17},
+		{1 << 19, 1 << 19},
+		{1<<19 + 1, 1 << 20},
+		{1<<20 + 1, 1 << 20},
+		{1 << 30, 1 << 20},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.e, roundUpPow2(tc.v, 8, 1<<20))
+	}
 }

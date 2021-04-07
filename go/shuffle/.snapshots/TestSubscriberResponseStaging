@@ -1,0 +1,94 @@
+terminal_error: "an error"
+read_through: 1000
+write_head: 2000
+arena: "barbarACKACK"
+docs_json: <
+  end: 3
+>
+docs_json: <
+  begin: 6
+  end: 9
+>
+offsets: 200
+offsets: 201
+offsets: 400
+offsets: 401
+uuid_parts: <
+  producer_and_flags: 1
+  clock: 160000
+>
+uuid_parts: <
+  producer_and_flags: 2
+  clock: 160032
+>
+packed_key: <
+  begin: 3
+  end: 6
+>
+packed_key: <
+  begin: 9
+  end: 12
+>
+terminal_error: "an error"
+read_through: 1000
+write_head: 2000
+arena: "qibqibACKACK"
+docs_json: <
+  end: 3
+>
+docs_json: <
+  begin: 6
+  end: 9
+>
+offsets: 300
+offsets: 301
+offsets: 400
+offsets: 401
+uuid_parts: <
+  producer_and_flags: 1
+  clock: 160016
+>
+uuid_parts: <
+  producer_and_flags: 2
+  clock: 160032
+>
+packed_key: <
+  begin: 3
+  end: 6
+>
+packed_key: <
+  begin: 9
+  end: 12
+>
+terminal_error: "an error"
+read_through: 1000
+write_head: 2000
+arena: "ACKACKfoofoo"
+docs_json: <
+  end: 3
+>
+docs_json: <
+  begin: 6
+  end: 9
+>
+offsets: 400
+offsets: 401
+offsets: 500
+offsets: 501
+uuid_parts: <
+  producer_and_flags: 2
+  clock: 160032
+>
+uuid_parts: <
+  producer_and_flags: 1
+  clock: 160048
+>
+packed_key: <
+  begin: 3
+  end: 6
+>
+packed_key: <
+  begin: 9
+  end: 12
+>
+
