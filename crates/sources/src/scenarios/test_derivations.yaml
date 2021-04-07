@@ -35,10 +35,9 @@ test://example/catalog.yaml:
             readDelay: "1 hour"
             priority: 32
             shuffle:
-              md5: ["/shuffle", "/key"]
+              key: ["/shuffle", "/key"]
             update:
               lambda: typescript
-              rollbackOnConflict: true
             publish: { lambda: typescript }
 
     d2/collection:
