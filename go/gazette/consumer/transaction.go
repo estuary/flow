@@ -14,6 +14,8 @@ import (
 
 // runTransactions runs consumer transactions. It consumes from the provided
 // |readCh| and, when notified by |hintsCh|, occasionally stores recorded FSMHints.
+// If |readCh| closes, runTransactions completes and fully commits a current
+// transaction and then returns.
 func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, hintsCh <-chan time.Time) error {
 	var (
 		realTimer = time.NewTimer(0)
@@ -33,7 +35,7 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 			readThrough: make(pb.Offsets),
 		}
 	)
-	<-realTimer.C
+	<-realTimer.C // Timer starts as idle.
 
 	// Begin by acknowledging (or re-acknowledging) messages published as part
 	// of the most-recent recovered transaction checkpoint.
@@ -59,6 +61,8 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 		txnInit(s, &txn, &prev, readCh, txnTimer)
 		if err := txnRun(s, &txn, &prev); err != nil {
 			return err
+		} else if txn.consumedCount == 0 {
+			return nil // |readCh| has closed and drained.
 		}
 		prev, txn = txn, prev
 	}
@@ -124,12 +128,18 @@ func txnRun(s *shard, txn, prev *transaction) error {
 }
 
 func txnBlocks(s *shard, txn, prev *transaction) bool {
+	// We always block to await a prior commit.
+	if txn.barrierCh != nil {
+		return true
+	}
+	// We otherwise don't block if we're no longer reading messages.
+	if txn.readCh == nil {
+		return false
+	}
 	// Block if we haven't consumed messages yet.
 	return txn.consumedCount == 0 ||
 		// Or if the minimum batching duration hasn't elapsed.
 		txn.minDur != -1 ||
-		// Or if the prior transaction hasn't completed.
-		txn.barrierCh != nil ||
 		// Or if the maximum batching duration hasn't elapsed, and a sequence
 		// started this transaction awaits an ACK which we want to wait for.
 		(txn.waitForAck && txn.maxDur != -1 && s.sequencer.HasPending(prev.readThrough))
@@ -139,17 +149,17 @@ func txnBlocks(s *shard, txn, prev *transaction) bool {
 func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	if txnBlocks(s, txn, prev) {
 		select {
-		case env := <-txn.readCh:
-			return false, txnRead(s, txn, env)
+		case env, ok := <-txn.readCh:
+			return false, txnRead(s, txn, env, ok)
 		case tick := <-txn.timer.C:
 			return false, txnTick(s, txn, tick)
-		case _ = <-txn.barrierCh:
+		case <-txn.barrierCh:
 			return false, txnBarrierResolved(s, txn, prev)
 		}
 	} else {
 		select {
-		case env := <-txn.readCh:
-			return false, txnRead(s, txn, env)
+		case env, ok := <-txn.readCh:
+			return false, txnRead(s, txn, env, ok)
 		case tick := <-txn.timer.C:
 			return false, txnTick(s, txn, tick)
 		default:
@@ -157,7 +167,9 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 		}
 	}
 
-	if cp, err := txnStartCommit(s, txn); err != nil {
+	if txn.consumedCount == 0 {
+		return true, nil // |readCh| has closed and drained.
+	} else if cp, err := txnStartCommit(s, txn); err != nil {
 		return false, errors.WithMessage(err, "txnStartCommit")
 	} else if err = txnAcknowledge(s, txn, cp); err != nil {
 		return false, errors.WithMessage(err, "txnAcknowledge")
@@ -170,8 +182,11 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	return true, nil
 }
 
-func txnRead(s *shard, txn *transaction, env EnvelopeOrError) error {
-	if env.Error != nil {
+func txnRead(s *shard, txn *transaction, env EnvelopeOrError, ok bool) error {
+	if !ok {
+		txn.readCh = nil // Channel is closed, don't select it again.
+		return nil
+	} else if env.Error != nil {
 		return errors.WithMessage(env.Error, "readMessage")
 	}
 	txn.readThrough[env.Journal.Name] = env.End

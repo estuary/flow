@@ -191,8 +191,8 @@ func serveStandby(s *shard) (err error) {
 	return errors.WithMessage(beginRecovery(s), "beginRecovery")
 }
 
-// servePrimary completes playback of the recovery log, pumps messages from
-// shard journals, and runs consumer transactions.
+// servePrimary completes playback of the recovery log,
+// performs initialization, and runs consumer transactions.
 func servePrimary(s *shard) (err error) {
 	// Defer a trap which logs and updates Etcd status based on exit error.
 	defer func() {
@@ -212,19 +212,11 @@ func servePrimary(s *shard) (err error) {
 		"log": s.recovery.log,
 	}).Info("promoted to primary")
 
-	var msgCh = make(chan EnvelopeOrError, messageBufferSize)
-
 	// Complete recovery log playback (if applicable) and restore the last
 	// transaction checkpoint.
 	var cp pc.Checkpoint
 	if cp, err = completeRecovery(s); err != nil {
 		return errors.WithMessage(err, "completeRecovery")
-	}
-	// Spawn loops to read decoded messages.
-	if mp, ok := s.svc.App.(MessageProducer); ok {
-		mp.StartReadingMessages(s, s.store, cp, msgCh)
-	} else {
-		startReadingMessages(s, cp, msgCh)
 	}
 	updateStatusWithRetry(s, pc.ReplicaStatus{Code: pc.ReplicaStatus_PRIMARY})
 
@@ -236,10 +228,29 @@ func servePrimary(s *shard) (err error) {
 		hintsCh = t.C
 	}
 	// Run consumer transactions until an error occurs (such as context.Cancelled).
-	if err = runTransactions(s, cp, msgCh, hintsCh); err != nil {
-		return errors.WithMessage(err, "runTransactions")
+	for {
+		var msgCh = make(chan EnvelopeOrError, messageBufferSize)
+
+		if mp, ok := s.svc.App.(MessageProducer); ok {
+			mp.StartReadingMessages(s, s.store, cp, msgCh)
+		} else {
+			startReadingMessages(s, cp, msgCh)
+		}
+
+		if err = runTransactions(s, cp, msgCh, hintsCh); err != nil {
+			return errors.WithMessage(err, "runTransactions")
+		}
+
+		// Restore a checkpoint from the shard Store and re-start processing.
+		// This may be the same Checkpoint we last committed, but it may not be:
+		// that's up to the application.
+
+		cp, err = s.store.RestoreCheckpoint(s)
+		if err != nil {
+			return errors.WithMessage(err, "restart store.RestoreCheckpoint")
+		}
+		s.sequencer = message.NewSequencer(pc.FlattenProducerStates(cp), messageRingSize)
 	}
-	return nil
 }
 
 // waitAndTearDown waits for all outstanding goroutines which are accessing

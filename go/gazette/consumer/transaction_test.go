@@ -355,6 +355,75 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	require.Equal(t, txn.prepareDoneAt, faketime(time.Second+minDur+2))
 }
 
+func TestTxnReadChannelDrain(t *testing.T) {
+	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
+	defer cleanup()
+
+	var (
+		cp          = playAndComplete(t, shard)
+		msgCh       = make(chan EnvelopeOrError, 1)
+		altMsgCh    = make(chan EnvelopeOrError, 1)
+		priorCommit = client.NewAsyncOperation()
+		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
+		prior       = transaction{
+			commitBarrier: priorCommit,
+			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
+		}
+		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
+		txn            = transaction{readThrough: make(pb.Offsets)}
+		store          = shard.store.(*JSONFileStore)
+	)
+	startReadingMessages(shard, cp, msgCh)
+	txnInit(shard, &txn, &prior, altMsgCh, timer.txnTimer)
+
+	// Initial message opens the txn.
+	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "1"})
+	altMsgCh <- <-msgCh
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	require.Equal(t, minDur, timer.reset) // Was Reset to |minDur|.
+
+	// Close of channel is read. Expect it continues to block.
+	close(altMsgCh)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// |prior| commits and ACKs. Still blocking.
+	priorCommit.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	priorAck.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// Signal that |minDur| has elapsed.
+	timer.timepoint = faketime(minDur)
+	timer.signal()
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	require.Equal(t, maxDur-minDur, timer.reset)
+
+	// Next poll of the transaction stalls, and it begins to commit.
+	require.True(t, mustTxnStep(t, shard, &txn, &prior))
+
+	require.True(t, timer.stopped)
+	require.Equal(t, time.Duration(-1), txn.minDur)
+	require.Equal(t, maxDur, txn.maxDur) // Did not reach maxDur.
+	require.Nil(t, txn.readCh)           // Closed on read EOF.
+	require.Equal(t, 1, txn.consumedCount)
+	require.Len(t, txn.acks, 1)
+
+	verifyStoreAndEchoOut(t, shard, map[string]string{"key": "1"})
+	require.NotEmpty(t, store.checkpoint.AckIntents[echoOut.Name])
+	require.NotZero(t, store.checkpoint.Sources[sourceA.Name].ReadThrough)
+
+	require.Equal(t, prior.prepareDoneAt, faketime(0))
+	require.Equal(t, prior.committedAt, faketime(0))
+	require.Equal(t, prior.ackedAt, faketime(0))
+	require.Equal(t, txn.prevPrepareDoneAt, faketime(0))
+	require.Equal(t, txn.beganAt, faketime(0))
+	require.Equal(t, txn.stalledAt, faketime(minDur))
+	require.Equal(t, txn.prepareBeganAt, faketime(minDur))
+	require.Equal(t, txn.prepareDoneAt, faketime(minDur))
+}
+
 func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
@@ -364,10 +433,10 @@ func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 		echoOut.Name: []byte(`{"Key": "recovered fixture"}` + "\n"),
 	}
 
-	// Use a read channel fixture which immediately cancels.
-	var readCh = make(chan EnvelopeOrError, 1)
-	readCh <- EnvelopeOrError{Error: context.Canceled}
-	require.Equal(t, context.Canceled, errors.Cause(runTransactions(shard, cp, readCh, nil)))
+	// Use a read channel fixture which immediately closes.
+	var readCh = make(chan EnvelopeOrError)
+	close(readCh)
+	require.NoError(t, runTransactions(shard, cp, readCh, nil))
 
 	// Expect the ACK intent fixture is written to |echoOut|.
 	var rr = client.NewRetryReader(context.Background(), tf.ajc, pb.ReadRequest{

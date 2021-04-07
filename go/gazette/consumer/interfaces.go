@@ -111,8 +111,9 @@ type Store interface {
 	// alongside the old.
 	StartCommit(_ Shard, _ pc.Checkpoint, waitFor OpFutures) OpFuture
 	// RestoreCheckpoint recovers the most recent Checkpoint previously committed
-	// to the Store. It is called just once, at Shard start-up. If an external
-	// system is used, it should install a transactional "write fence" to ensure
+	// to the Store. It is called at Shard start-up, and may be called again
+	// if a MessageProducer drains its message channel. If an external system
+	// is used, it should install a transactional "write fence" to ensure
 	// that an older Store instance of another process cannot successfully
 	// StartCommit after this RestoreCheckpoint returns.
 	RestoreCheckpoint(Shard) (pc.Checkpoint, error)
@@ -267,8 +268,15 @@ type MessageProducer interface {
 	// StartReadingMessages identifies journals and messages to be processed
 	// by this consumer Shard, and dispatches them to the provided channel.
 	// Any terminal error encountered during initialization or while reading
-	// messages should be returned over the given channel.
-	StartReadingMessages(Shard, Store, pc.Checkpoint, chan<- EnvelopeOrError)
+	// messages should also be delivered over |intoCh|. Reads of journals
+	// included in |from| should begin from the given offset.
+	//
+	// If |intoCh| closes without having sent an error then a current transaction,
+	// if any, is completed and committed. A Store checkpoint is next restored and
+	// StartReadingMessages is called again, effectively restarting processing.
+	// Implementations can use this behavior to update the joint read and
+	// processing context of a shard at a transaction boundary.
+	StartReadingMessages(_ Shard, _ Store, _ pc.Checkpoint, intoCh chan<- EnvelopeOrError)
 	// ReplayRange builds and returns a read-uncommitted Iterator over the
 	// identified byte-range of the journal. The Journal and offset range are
 	// guaranteed to be a journal segment which was previously produced via
