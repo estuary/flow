@@ -136,8 +136,6 @@ pub fn walk_transform(
         priority: _,
         publish_lambda,
         read_delay_seconds: _,
-        rollback_on_register_conflict: _,
-        shuffle_hash: _,
         shuffle_key,
         shuffle_lambda,
         source_collection: source,

@@ -96,11 +96,6 @@ tables!(
         publish_lambda: Option<names::Lambda>,
         // Relative time delay applied to documents processed by this transform.
         read_delay_seconds: Option<u32>,
-        // If true, a register update which reduces to an invalid register value
-        // should silently roll back the register, rather than failing processing.
-        rollback_on_register_conflict: bool,
-        // Hash function applied to shuffled keys.
-        shuffle_hash: protocol::flow::shuffle::Hash,
         // JSON pointers which define the composite shuffle key of the transform.
         shuffle_key: Option<names::CompositeKey>,
         // Computed shuffle of this transform. If set, shuffle_hash and shuffle_key
@@ -417,7 +412,6 @@ json_sql_types!(
     names::PartitionSelector,
     protocol::flow::ContentType,
     protocol::flow::EndpointType,
-    protocol::flow::shuffle::Hash,
     protocol::flow::test_spec::step::Type,
     serde_json::Value,
 );
