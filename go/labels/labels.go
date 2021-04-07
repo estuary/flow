@@ -1,9 +1,8 @@
 package labels
 
 import (
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
+	"strconv"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -21,12 +20,12 @@ const (
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyBegin = "estuary.dev/key-begin"
 	// KeyBeginMin is the minimum possible key.
-	KeyBeginMin = "00"
+	KeyBeginMin = "00000000"
 	// KeyEnd is a hexadecimal encoding of the ending key range (exclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyEnd = "estuary.dev/key-end"
 	// KeyEndMax is the maximum possible key.
-	KeyEndMax = "ffffffffffffffff"
+	KeyEndMax = "ffffffff"
 	// ManagedByFlow is a value for the Gazette labels.ManagedBy label.
 	ManagedByFlow = "estuary.dev/flow"
 )
@@ -46,30 +45,40 @@ const (
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
 	// RClockBeginMin is the minimum possible RClock.
-	RClockBeginMin = "0000000000000000"
+	RClockBeginMin = KeyBeginMin
 	// RClockEnd is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the ending rotated clock range (exclusive) managed by this shard.
 	RClockEnd = "estuary.dev/rclock-end"
 	// RClockEndMax is the maximum possible RClock.
-	RClockEndMax = "ffffffffffffffff"
+	RClockEndMax = KeyEndMax
 )
+
+// EncodeRange encodes the RangeSpec into the given LabelSet,
+// which is then returned.
+func EncodeRange(range_ pf.RangeSpec, set pb.LabelSet) pb.LabelSet {
+	set.AddValue(KeyBegin, fmt.Sprintf("%08x", range_.KeyBegin))
+	set.AddValue(KeyEnd, fmt.Sprintf("%08x", range_.KeyEnd))
+	set.AddValue(RClockBegin, fmt.Sprintf("%08x", range_.RClockBegin))
+	set.AddValue(RClockEnd, fmt.Sprintf("%08x", range_.RClockEnd))
+	return set
+}
 
 // ParseRangeSpec extracts a RangeSpec from its associated labels.
 func ParseRangeSpec(set pb.LabelSet) (pf.RangeSpec, error) {
-	if kb, err := mustHexLabel(KeyBegin, set, -1); err != nil {
+	if kb, err := ParseHexU32Label(KeyBegin, set); err != nil {
 		return pf.RangeSpec{}, err
-	} else if ke, err := mustHexLabel(KeyEnd, set, -1); err != nil {
+	} else if ke, err := ParseHexU32Label(KeyEnd, set); err != nil {
 		return pf.RangeSpec{}, err
-	} else if cb, err := mustHexLabel(RClockBegin, set, 8); err != nil {
+	} else if cb, err := ParseHexU32Label(RClockBegin, set); err != nil {
 		return pf.RangeSpec{}, err
-	} else if ce, err := mustHexLabel(RClockEnd, set, 8); err != nil {
+	} else if ce, err := ParseHexU32Label(RClockEnd, set); err != nil {
 		return pf.RangeSpec{}, err
 	} else {
 		var out = pf.RangeSpec{
 			KeyBegin:    kb,
 			KeyEnd:      ke,
-			RClockBegin: binary.BigEndian.Uint64(cb),
-			RClockEnd:   binary.BigEndian.Uint64(ce),
+			RClockBegin: cb,
+			RClockEnd:   ce,
 		}
 		return out, out.Validate()
 	}
@@ -84,14 +93,16 @@ func MustParseRangeSpec(set pb.LabelSet) pf.RangeSpec {
 	}
 }
 
-func mustHexLabel(name string, set pb.LabelSet, length int) ([]byte, error) {
+// ParseHexU32Label parses label |name|, a hex-encoded uint32, from the LabelSet.
+// It returns an error if the label value is malformed.
+func ParseHexU32Label(name string, set pb.LabelSet) (uint32, error) {
 	if l := set.ValuesOf(name); len(l) != 1 {
-		return nil, fmt.Errorf("missing required label: %s", name)
-	} else if b, err := hex.DecodeString(l[0]); err != nil {
-		return nil, fmt.Errorf("decoding hex label %s, value %v: %w", name, l[0], err)
-	} else if length != -1 && len(b) != length {
-		return nil, fmt.Errorf("label %s value %x has unexpected length (%d; expected %d)", name, b, len(b), length)
+		return 0, fmt.Errorf("missing required label: %s", name)
+	} else if len(l[0]) != 8 {
+		return 0, fmt.Errorf("expected %s to be a 4-byte, hex encoded integer; got %v", name, l[0])
+	} else if b, err := strconv.ParseUint(l[0], 16, 32); err != nil {
+		return 0, fmt.Errorf("decoding hex-encoded label %s: %w", name, err)
 	} else {
-		return b, nil
+		return uint32(b), nil
 	}
 }

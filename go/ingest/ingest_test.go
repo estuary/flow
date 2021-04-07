@@ -41,7 +41,7 @@ func TestIngesterLifecycle(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	_, err = flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	_, _, err = flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  ctx,
 		Etcd:                 etcd,
 		Root:                 "/flow/catalog",

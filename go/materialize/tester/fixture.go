@@ -36,8 +36,9 @@ func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, 
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
 	}
-	extractor, err := bindings.NewExtractor(spec.Shuffle.SourceUuidPtr, spec.Collection.KeyPtrs)
-	if err != nil {
+	var extractor = bindings.NewExtractor()
+
+	if err = extractor.Configure(spec.Shuffle.SourceUuidPtr, spec.Collection.KeyPtrs, "", nil); err != nil {
 		return nil, fmt.Errorf("creating extractor: %w", err)
 	}
 	docGenerator, err := newGenerator(spec)

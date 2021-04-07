@@ -107,46 +107,59 @@ func NewCatalog(ctx context.Context, etcd *clientv3.Client, root string) (Catalo
 	return catalog, nil
 }
 
-// GetIngestion returns the named ingestion task.
-func (c Catalog) GetIngestion(name string) (*pf.CollectionSpec, *Commons, error) {
-	var task, commons, err = c.GetTask(name)
-	if err != nil {
-		return nil, nil, err
-	} else if task.Ingestion == nil {
-		return nil, nil, ErrCatalogTaskNotIngestion
-	}
-	return task.Ingestion, commons, nil
-}
-
-// GetDerivation returns the named derivation task.
-func (c Catalog) GetDerivation(name string) (*pf.CollectionSpec, *Commons, error) {
-	var task, commons, err = c.GetTask(name)
-	if err != nil {
-		return nil, nil, err
-	} else if task.Ingestion == nil {
-		return nil, nil, ErrCatalogTaskNotIngestion
-	}
-	return task.Ingestion, commons, nil
-}
-
-// GetTask returns the named CatalogTask.
-func (c Catalog) GetTask(name string) (*pf.CatalogTask, *Commons, error) {
+// GetTask returns the named CatalogTask, Commons, and its Commons ModRevision.
+func (c Catalog) GetTask(name string) (_ *pf.CatalogTask, _ *Commons, revision int64, _ error) {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
+	return c.getTask(name)
+}
 
+// GetCommons returns the identified Commons, and its ModRevision.
+func (c Catalog) GetCommons(id string) (_ *Commons, revision int64, _ error) {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	return c.getCommons(id)
+}
+
+func (c Catalog) getTask(name string) (task *pf.CatalogTask, commons *Commons, revision int64, err error) {
 	var ind, found = c.Search(c.Root + TasksPrefix + name)
 	if !found {
-		return nil, nil, ErrCatalogTaskNotFound
+		return nil, nil, 0, fmt.Errorf("catalog task %q not found", name)
 	}
-	var task = c.KeyValues[ind].Decoded.(*pf.CatalogTask)
 
-	ind, found = c.Search(c.Root + CommonsPrefix + task.CommonsId)
+	task, revision = c.KeyValues[ind].Decoded.(*pf.CatalogTask), c.KeyValues[ind].Raw.ModRevision
+	commons, _, err = c.getCommons(task.CommonsId)
+	return
+}
+
+func (c Catalog) getCommons(id string) (commons *Commons, revision int64, err error) {
+	var ind, found = c.Search(c.Root + CommonsPrefix + id)
 	if !found {
-		return task, nil, ErrCatalogCommonsNotFound
+		return nil, 0, fmt.Errorf("catalog commons %q not found", id)
 	}
-	var commons = c.KeyValues[ind].Decoded.(*Commons)
+	return c.KeyValues[ind].Decoded.(*Commons), c.KeyValues[ind].Raw.ModRevision, nil
+}
 
-	return task, commons, nil
+// SignalOnTaskUpdate signals the callback |cb| if the given named task
+// and last-observed revision is either updated or removed.
+func (c Catalog) SignalOnTaskUpdate(ctx context.Context, name string, revision int64, cb func()) {
+	// TODO(johnny): Consider using KeySpace.Observers to maintain a consolidated
+	// index rather than spawning off a bunch of goroutines.
+	go func() {
+		defer cb()
+
+		c.KeySpace.Mu.RLock()
+		defer c.KeySpace.Mu.RUnlock()
+
+		for {
+			// Note |next| is 0 if task |name| doesn't exist.
+			if _, _, next, _ := c.getTask(name); revision != next {
+				return
+			} else if err := c.KeySpace.WaitForRevision(ctx, c.KeySpace.Header.Revision+1); err != nil {
+				return
+			}
+		}
+	}()
 }
 
 // ApplyArgs are arguments to ApplyCatalogToEtcd.
@@ -162,14 +175,15 @@ type ApplyArgs struct {
 
 // ApplyCatalogToEtcd inserts a CatalogCommons and updates CatalogTasks
 // into the Etcd Catalog keyspace rooted by |root|.
-func ApplyCatalogToEtcd(args ApplyArgs) (int64, error) {
+// It returns the generated Commons ID and revision.
+func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 	if args.TypeScriptUDS == "" && args.TypeScriptPackageURL == "" {
-		return 0, fmt.Errorf("expected a TypeScript UDS or package")
+		return "", 0, fmt.Errorf("expected a TypeScript UDS or package")
 	}
 
 	var oldCatalog, err = NewCatalog(args.Ctx, args.Etcd, args.Root)
 	if err != nil {
-		return 0, fmt.Errorf("loading existing catalog: %w", err)
+		return "", 0, fmt.Errorf("loading existing catalog: %w", err)
 	}
 	var oldKeys = make(map[string]int64, len(oldCatalog.KeyValues))
 	for _, kv := range oldCatalog.KeyValues {
@@ -222,11 +236,11 @@ func ApplyCatalogToEtcd(args ApplyArgs) (int64, error) {
 
 	// Validate the world.
 	if err := commons.Validate(); err != nil {
-		return 0, fmt.Errorf("validating commons: %w", err)
+		return "", 0, fmt.Errorf("validating commons: %w", err)
 	}
 	for t := range tasks {
 		if err := tasks[t].Validate(); err != nil {
-			return 0, fmt.Errorf("validating Tasks[%d]: %w", t, err)
+			return "", 0, fmt.Errorf("validating Tasks[%d]: %w", t, err)
 		}
 	}
 
@@ -259,16 +273,16 @@ func ApplyCatalogToEtcd(args ApplyArgs) (int64, error) {
 	}
 
 	if args.DryRun {
-		return 0, nil
+		return commons.CommonsId, 0, nil
 	}
 
 	txnResp, err := args.Etcd.Do(args.Ctx, clientv3.OpTxn(cmps, ops, nil))
 	if err == nil && !txnResp.Txn().Succeeded {
-		return 0, fmt.Errorf("etcd transaction checks failed")
+		return "", 0, fmt.Errorf("etcd transaction checks failed")
 	} else if err != nil {
-		return 0, err
+		return "", 0, err
 	}
-	return txnResp.Txn().Header.Revision, nil
+	return commons.CommonsId, txnResp.Txn().Header.Revision, nil
 }
 
 func marshalString(m interface{ Marshal() ([]byte, error) }) string {
@@ -278,10 +292,3 @@ func marshalString(m interface{ Marshal() ([]byte, error) }) string {
 	}
 	return string(b)
 }
-
-var (
-	ErrCatalogTaskNotFound      = fmt.Errorf("not found")
-	ErrCatalogCommonsNotFound   = fmt.Errorf("catalog commons not found")
-	ErrCatalogTaskNotIngestion  = fmt.Errorf("not an ingestion")
-	ErrCatalogTaskNotDerivation = fmt.Errorf("not a derivation")
-)
