@@ -36,27 +36,21 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	svc          *service
+	fqn       string
+	pinnedEnv *gorocksdb.Env // Used from Rust.
+	svc       *service
+	metrics   combineMetrics
+	stats     combineStats
+
+	// Fields which are re-initialized with each reconfiguration.
 	runningTasks int               // Number of trampoline tasks.
 	trampoline   *trampolineServer // Trampolined lambda invocations.
 	trampolineCh <-chan []byte     // Completed trampoline tasks.
-	pinnedEnv    *gorocksdb.Env    // Used from Rust.
 	pinnedIndex  *SchemaIndex      // Used from Rust.
-
-	metrics combineMetrics
-	stats   combineStats
 }
 
-// NewDerive instantiates the derivation workflow around the given catalog and
-// derivation collection name, using the local directory & RocksDB environment.
-func NewDerive(
-	shardFqn string,
-	index *SchemaIndex,
-	derivation *pf.DerivationSpec,
-	rocksEnv *gorocksdb.Env,
-	typeScriptClient *http.Client,
-	localDir string,
-) (*Derive, error) {
+// NewDerive instantiates the derivation API using the RocksDB environment and local directory.
+func NewDerive(fqn string, rocksEnv *gorocksdb.Env, localDir string) (*Derive, error) {
 	// gorocksdb.Env has private field, so we must re-interpret to access.
 	if unsafe.Sizeof(&gorocksdb.Env{}) != unsafe.Sizeof(&gorocksdbEnv{}) ||
 		unsafe.Alignof(&gorocksdb.Env{}) != unsafe.Alignof(&gorocksdbEnv{}) {
@@ -64,19 +58,12 @@ func NewDerive(
 	}
 	var innerPtr = uintptr(unsafe.Pointer(((*gorocksdbEnv)(unsafe.Pointer(rocksEnv))).c))
 
-	var trampoline, trampolineCh = newTrampolineServer(
-		context.Background(),
-		newDeriveInvokeHandler(shardFqn, derivation, typeScriptClient),
-	)
-
 	var svc = newDeriveSvc()
 	svc.mustSendMessage(
-		uint32(pf.DeriveAPI_CONFIGURE),
-		&pf.DeriveAPI_Config{
-			SchemaIndexMemptr: index.indexMemPtr,
-			Derivation:        derivation,
-			RocksdbEnvMemptr:  uint64(innerPtr),
-			LocalDir:          localDir,
+		uint32(pf.DeriveAPI_OPEN),
+		&pf.DeriveAPI_Open{
+			RocksdbEnvMemptr: uint64(innerPtr),
+			LocalDir:         localDir,
 		})
 
 	if err := pollExpectNoOutput(svc); err != nil {
@@ -85,14 +72,17 @@ func NewDerive(
 	}
 
 	var derive = &Derive{
-		svc:          svc,
+		fqn:       fqn,
+		pinnedEnv: rocksEnv,
+		svc:       svc,
+		metrics:   newCombineMetrics(fqn),
+		stats:     combineStats{},
+
+		// Fields updated by Configure:
 		runningTasks: 0,
-		trampoline:   trampoline,
-		trampolineCh: trampolineCh,
-		pinnedEnv:    rocksEnv,
-		pinnedIndex:  index,
-		metrics:      newCombineMetrics(shardFqn),
-		stats:        combineStats{},
+		trampoline:   nil,
+		trampolineCh: nil,
+		pinnedIndex:  nil,
 	}
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
@@ -106,9 +96,43 @@ type gorocksdbEnv struct {
 	c *C.rocksdb_env_t
 }
 
+// Configure or re-configure the Derive. It must be called after NewDerive()
+// before a transaction is begun.
+func (d *Derive) Configure(
+	index *SchemaIndex,
+	derivation *pf.DerivationSpec,
+	typeScriptClient *http.Client,
+) error {
+	if d.runningTasks != 0 {
+		panic("runningTasks != 0")
+	}
+	if d.trampoline != nil {
+		d.trampoline.stop()
+	}
+
+	d.trampoline, d.trampolineCh = newTrampolineServer(
+		context.Background(),
+		newDeriveInvokeHandler(d.fqn, derivation, typeScriptClient),
+	)
+	d.pinnedIndex = index
+
+	d.svc.mustSendMessage(
+		uint32(pf.DeriveAPI_CONFIGURE),
+		&pf.DeriveAPI_Config{
+			SchemaIndexMemptr: index.indexMemPtr,
+			Derivation:        derivation,
+		})
+
+	return pollExpectNoOutput(d.svc)
+}
+
 // RestoreCheckpoint returns the last-committed checkpoint in this derivation store.
-// It must be called after NewDerive(), before a first transaction is begun.
+// It must be called in between transactions.
 func (d *Derive) RestoreCheckpoint() (pc.Checkpoint, error) {
+	if d.runningTasks != 0 {
+		panic("runningTasks != 0")
+	}
+
 	d.svc.sendBytes(uint32(pf.DeriveAPI_RESTORE_CHECKPOINT), nil)
 
 	var _, out, err = d.svc.poll()
@@ -254,9 +278,12 @@ func (d *Derive) ClearRegisters() error {
 // but is optional. If not called explicitly, it will be run during garbage
 // collection of the *Derive.
 func (d *Derive) Destroy() {
-	// We must stop the trampoline server before |d.svc| may be destroyed,
-	// to ensure that no trampoline tasks are reading memory owned by |d.svc|.
-	d.trampoline.stop()
+	if d.trampoline != nil {
+		// We must stop the trampoline server before |d.svc| may be destroyed,
+		// to ensure that no trampoline tasks are reading memory owned by |d.svc|.
+		d.trampoline.stop()
+		d.trampoline = nil
+	}
 	if d.svc != nil {
 		d.svc.destroy()
 		d.svc = nil
