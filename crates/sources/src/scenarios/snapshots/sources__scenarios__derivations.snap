@@ -1,6 +1,7 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
+
 ---
 Tables {
     captures: [],
@@ -147,8 +148,6 @@ Tables {
             priority: 0,
             publish_lambda: NULL,
             read_delay_seconds: NULL,
-            rollback_on_register_conflict: 0,
-            shuffle_hash: "None",
             shuffle_key: NULL,
             shuffle_lambda: NULL,
             source_collection: src/collection,
@@ -163,8 +162,6 @@ Tables {
             priority: 32,
             publish_lambda: "typescript",
             read_delay_seconds: 3600,
-            rollback_on_register_conflict: 1,
-            shuffle_hash: "Md5",
             shuffle_key: ["/shuffle","/key"],
             shuffle_lambda: NULL,
             source_collection: src/collection,

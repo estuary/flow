@@ -145,7 +145,6 @@ test://example/int-halve:
             update:
               lambda:
                 remote: https://an/api
-              rollbackOnConflict: true
 
           halveSelf:
             source:

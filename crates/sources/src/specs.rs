@@ -172,11 +172,6 @@ pub struct Derivation {
 pub enum Shuffle {
     /// Shuffle by extracting the given fields.
     Key(names::CompositeKey),
-    /// Shuffle by taking the MD5 hash of the given fields.
-    /// Note this is **not** a cryptographicly strong hash,
-    /// but is well suited for mapping large keys into shorter ones,
-    /// or for better distributing hot-spots in a key space.
-    Md5(names::CompositeKey),
     /// Invoke the lambda for each source document,
     /// and shuffle on its returned key.
     Lambda(names::Lambda),
@@ -273,23 +268,6 @@ pub struct Publish {
 pub struct Update {
     /// # Lambda invoked by the update.
     pub lambda: names::Lambda,
-    /// # Should lambda documents which produce register conflicts be ignored?
-    /// Documents returned by an update lambda are checked against the register
-    /// schema before being reduced into the register, and again after the register
-    /// value has been fully reduced with the update. Ordinarily a failure of
-    /// either check will halt processing of a derivation.
-    ///
-    /// Optionally, the runtime can be asked to "roll back" the reduced register
-    /// value if an update causes it to violate its schema, effectively ignoring
-    /// the document returned by the update lambda -- for example, because a value
-    /// which must be positive would become negative with the update.
-    ///
-    /// This can be paired with a publish lambda which checks whether the register
-    /// was updated to implement transactional workflows with complex constraint
-    /// checks (for example, in a workflow which joins product inventory updates
-    /// with attempted purchases).
-    #[serde(default)]
-    pub rollback_on_conflict: bool,
 }
 
 /// A schema is a draft 2019-09 JSON Schema which validates Flow documents.

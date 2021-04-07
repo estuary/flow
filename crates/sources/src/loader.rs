@@ -3,9 +3,7 @@ use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
 use models::{names, tables};
-use protocol::flow::{
-    shuffle::Hash as ShuffleHash, test_spec::step::Type as TestStepType, ContentType,
-};
+use protocol::flow::{test_spec::step::Type as TestStepType, ContentType};
 use regex::Regex;
 use std::cell::RefCell;
 use url::Url;
@@ -629,18 +627,14 @@ impl<F: Fetcher> Loader<F> {
             publish,
         } = transform;
 
-        let (shuffle_key, shuffle_lambda, shuffle_hash) = match shuffle {
-            Some(specs::Shuffle::Key(key)) => (Some(key), None, ShuffleHash::None),
-            Some(specs::Shuffle::Md5(key)) => (Some(key), None, ShuffleHash::Md5),
-            Some(specs::Shuffle::Lambda(lambda)) => (None, Some(lambda), ShuffleHash::None),
-            None => (None, None, ShuffleHash::None),
+        let (shuffle_key, shuffle_lambda) = match shuffle {
+            Some(specs::Shuffle::Key(key)) => (Some(key), None),
+            Some(specs::Shuffle::Lambda(lambda)) => (None, Some(lambda)),
+            None => (None, None),
         };
-        let (rollback_on_register_conflict, update_lambda) = match update {
-            Some(specs::Update {
-                rollback_on_conflict,
-                lambda,
-            }) => (rollback_on_conflict, Some(lambda)),
-            None => (false, None),
+        let update_lambda = match update {
+            Some(specs::Update { lambda }) => Some(lambda),
+            None => None,
         };
         let publish_lambda = match publish {
             Some(specs::Publish { lambda }) => Some(lambda),
@@ -662,8 +656,6 @@ impl<F: Fetcher> Loader<F> {
             priority,
             publish_lambda,
             read_delay.map(|d| d.as_secs() as u32),
-            rollback_on_register_conflict,
-            shuffle_hash,
             shuffle_key,
             shuffle_lambda,
             source,

@@ -154,8 +154,6 @@ pub fn transform_spec(
         priority,
         publish_lambda,
         read_delay_seconds,
-        rollback_on_register_conflict,
-        shuffle_hash,
         shuffle_key,
         shuffle_lambda,
         source_collection: _,
@@ -185,8 +183,8 @@ pub fn transform_spec(
             .map(|s| s.to_string())
             .unwrap_or_else(|| source.schema.to_string()),
         uses_source_schema: source_schema.is_none(),
+        validate_schema_at_read: true,
         filter_r_clocks: update_lambda.is_none(),
-        hash: *shuffle_hash as i32,
         read_delay_seconds: read_delay_seconds.unwrap_or(0),
         priority: *priority,
     };
@@ -201,7 +199,6 @@ pub fn transform_spec(
         publish_lambda: publish_lambda
             .as_ref()
             .map(|l| lambda_spec(l, transform, "Publish")),
-        rollback_on_register_conflict: *rollback_on_register_conflict,
     }
 }
 
@@ -300,12 +297,11 @@ pub fn materialization_spec(
             shuffle_lambda: None,
             source_schema_uri: source.spec.schema_uri.clone(),
             uses_source_schema: true,
+            validate_schema_at_read: false,
             // At all times, a given collection key must be exclusively owned by
-            // a single materialization shard. Therefore we can subdivide shards
-            // on key.
+            // a single materialization shard. Therefore we only subdivide
+            // materialization shards on key, never on r-clock.
             filter_r_clocks: false,
-            // Deprecated.
-            hash: flow::shuffle::Hash::None as i32,
             // Never delay materializations.
             read_delay_seconds: 0,
             // Priority has no meaning since there's just one shuffle
