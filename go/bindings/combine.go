@@ -35,17 +35,34 @@ type Combine struct {
 }
 
 // NewCombiner builds and returns a new Combine.
-func NewCombine(
-	shardFqn string,
+func NewCombine(fqn string) *Combine {
+	var combine = &Combine{
+		svc:     newCombineSvc(),
+		drained: nil,
+		stats:   combineStats{},
+		metrics: newCombineMetrics(fqn),
+	}
+
+	combineNewInstanceCounter.WithLabelValues(fqn).Inc()
+	// Destroy the held service on garbage collection.
+	runtime.SetFinalizer(combine, func(c *Combine) {
+		c.svc.destroy()
+		combineDestroyInstanceCounter.WithLabelValues(fqn).Inc()
+	})
+	return combine
+}
+
+// Configure or re-configure the Combine.
+func (c *Combine) Configure(
 	index *SchemaIndex,
 	schemaURI string,
 	keyPtrs []string,
 	fieldPtrs []string,
 	uuidPtr string,
-) (*Combine, error) {
-	var svc = newCombineSvc()
+) error {
 
-	svc.mustSendMessage(
+	c.pinnedIndex = index
+	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
 			SchemaIndexMemptr:  index.indexMemPtr,
@@ -54,28 +71,8 @@ func NewCombine(
 			FieldPtrs:          fieldPtrs,
 			UuidPlaceholderPtr: uuidPtr,
 		})
-	var _, _, err = svc.poll()
-	if err != nil {
-		svc.destroy()
-		return nil, err
-	}
 
-	var combine = &Combine{
-		svc:         svc,
-		drained:     nil,
-		pinnedIndex: index,
-		stats:       combineStats{},
-		metrics:     newCombineMetrics(shardFqn),
-	}
-
-	combineNewInstanceCounter.WithLabelValues(shardFqn).Inc()
-	// Destroy the held service on collection.
-	runtime.SetFinalizer(combine, func(c *Combine) {
-		c.svc.destroy()
-		combineDestroyInstanceCounter.WithLabelValues(shardFqn).Inc()
-	})
-
-	return combine, nil
+	return pollExpectNoOutput(c.svc)
 }
 
 // ReduceLeft reduces |doc| as a fully reduced, left-hand document.

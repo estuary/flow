@@ -11,43 +11,61 @@ import (
 
 // Extractor extracts UUIDs and packed field tuples from Documents.
 type Extractor struct {
-	svc    *service
-	uuids  []pf.UUIDParts
-	tuples [][]byte
-	docs   int
+	svc         *service
+	uuids       []pf.UUIDParts
+	tuples      [][]byte
+	docs        int
+	pinnedIndex *SchemaIndex // Used from Rust.
 }
 
 // NewExtractor returns an instance of the Extractor service.
-func NewExtractor(uuidPtr string, fieldPtrs []string) (*Extractor, error) {
-	var svc = newExtractSvc()
-
-	var err = svc.sendMessage(0, &pf.ExtractAPI_Config{UuidPtr: uuidPtr, FieldPtrs: fieldPtrs})
-	if err != nil {
-		svc.destroy()
-		return nil, err
-	} else if err = pollExpectNoOutput(svc); err != nil {
-		svc.destroy()
-		return nil, err
-	}
-
+func NewExtractor() *Extractor {
 	var extractor = &Extractor{
-		svc:    svc,
-		uuids:  make([]pf.UUIDParts, 8),
-		tuples: make([][]byte, 8),
-		docs:   0,
+		svc:         newExtractSvc(),
+		uuids:       make([]pf.UUIDParts, 32),
+		tuples:      make([][]byte, 32),
+		docs:        0,
+		pinnedIndex: nil,
 	}
 
 	// Destroy the held service on collection.
 	runtime.SetFinalizer(extractor, func(e *Extractor) {
 		e.svc.destroy()
 	})
+	return extractor
+}
 
-	return extractor, nil
+// Configure or re-configure the Extractor. If schemaURI is non-empty, it's
+// validated during extraction and the SchemaIndex must be non-nil.
+// Otherwise, both may be zero-valued.
+func (e *Extractor) Configure(
+	uuidPtr string,
+	fieldPtrs []string,
+	schemaURI string,
+	index *SchemaIndex,
+) error {
+
+	var schemaIndexMemptr uint64
+	if schemaURI != "" {
+		schemaIndexMemptr = index.indexMemPtr
+	}
+	e.pinnedIndex = index
+
+	e.svc.mustSendMessage(
+		uint32(pf.ExtractAPI_CONFIGURE),
+		&pf.ExtractAPI_Config{
+			UuidPtr:           uuidPtr,
+			SchemaUri:         schemaURI,
+			SchemaIndexMemptr: schemaIndexMemptr,
+			FieldPtrs:         fieldPtrs,
+		})
+
+	return pollExpectNoOutput(e.svc)
 }
 
 // Document queues a document for extraction.
 func (e *Extractor) Document(doc []byte) {
-	e.svc.sendBytes(1, doc)
+	e.svc.sendBytes(uint32(pf.ExtractAPI_EXTRACT), doc)
 	e.docs++
 }
 
@@ -64,13 +82,13 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 	if len(out) != e.docs*2 {
 		panic(fmt.Sprintf("wrong number of output frames (%d != %d * 2)", len(out), e.docs))
 	}
-	e.docs = 0
 
+	e.docs = 0
 	e.uuids = e.uuids[:0]
 	e.tuples = e.tuples[:0]
 
 	for _, o := range out {
-		if o.code == 0 {
+		if pf.ExtractAPI_Code(o.code) == pf.ExtractAPI_EXTRACTED_UUID {
 			var uuid pf.UUIDParts
 			e.svc.arenaDecode(o, &uuid)
 			e.uuids = append(e.uuids, uuid)
