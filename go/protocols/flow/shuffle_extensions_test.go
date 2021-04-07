@@ -13,7 +13,6 @@ func TestJournalShuffle(t *testing.T) {
 		Coordinator: "bad shard",
 		Shuffle: &Shuffle{
 			ShuffleKeyPtr: nil,
-			Hash:          99999,
 		},
 	}
 
@@ -34,8 +33,10 @@ func TestJournalShuffle(t *testing.T) {
 	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
 	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
 
-	require.EqualError(t, m.Validate(), "Shuffle: unknown Hash (99999)")
-	m.Shuffle.Hash = Shuffle_MD5
+	require.EqualError(t, m.Validate(), "missing CommonsId")
+	m.CommonsId = "an-id"
+	require.EqualError(t, m.Validate(), "missing CommonsRevision")
+	m.CommonsRevision = 1234
 
 	require.Nil(t, m.Validate())
 }
@@ -53,10 +54,12 @@ func TestShuffleRequest(t *testing.T) {
 				SourceUuidPtr:    "/uuid",
 				SourceSchemaUri:  "test://schema",
 			},
+			CommonsId:       "an-id",
+			CommonsRevision: 1234,
 		},
 		Range: RangeSpec{
-			KeyBegin:    nil,
-			KeyEnd:      nil,
+			KeyBegin:    42,
+			KeyEnd:      32,
 			RClockBegin: 0,
 			RClockEnd:   0,
 		},
@@ -68,9 +71,9 @@ func TestShuffleRequest(t *testing.T) {
 	m.Resolution.Etcd.ClusterId = 1234
 	require.EqualError(t, m.Validate(), "Shuffle.Coordinator: not a valid token (bad coordinator)")
 	m.Shuffle.Coordinator = "a-coordinator"
-	require.EqualError(t, m.Validate(), "Range: expected KeyBegin < KeyEnd ([] vs [])")
-	m.Range.KeyEnd = []byte("end")
-	require.EqualError(t, m.Validate(), "Range: expected RClockBegin < RClockEnd (0 vs 0)")
+	require.EqualError(t, m.Validate(), "Range: expected KeyBegin < KeyEnd (0000002a vs 00000020)")
+	m.Range.KeyEnd = 52
+	require.EqualError(t, m.Validate(), "Range: expected RClockBegin < RClockEnd (00000000 vs 00000000)")
 	m.Range.RClockEnd = 12345
 	require.EqualError(t, m.Validate(), "invalid Offset (-1; expected 0 <= Offset <= MaxInt64)")
 	m.Offset = 200
@@ -91,4 +94,50 @@ func badHeaderFixture() *pb.Header {
 			RaftTerm:  78,
 		},
 	}
+}
+
+func TestRangeSpecOrdering(t *testing.T) {
+	var model = RangeSpec{
+		KeyBegin:    0x00,
+		KeyEnd:      0xb0,
+		RClockBegin: 0xc0,
+		RClockEnd:   0xd0,
+	}
+	// RangeSpec is not less than itself.
+	require.False(t, model.Less(&model))
+	require.True(t, model.Equal(&model))
+
+	// |model| and |other| cover discontinuous chunks of r-clock range.
+	var other = RangeSpec{
+		KeyBegin:    0x00,
+		KeyEnd:      0xb0,
+		RClockBegin: 0xe0,
+		RClockEnd:   0xf0,
+	}
+	require.True(t, model.Less(&other))
+	require.False(t, other.Less(&model))
+	require.False(t, other.Equal(&model))
+
+	// |model| and |other| are continuous r-clock ranges, but non-overlapping.
+	other.RClockBegin = 0xd0
+	require.True(t, model.Less(&other))
+	require.False(t, other.Less(&model))
+	require.False(t, other.Equal(&model))
+
+	// |other| r-clock range now overlaps with |model|.
+	other.RClockBegin = 0xc9
+	require.False(t, model.Less(&other))
+	require.False(t, other.Less(&model))
+
+	// |model| and |other| cover discontinuous chunks of key range.
+	// They continue to cover overlapping r-clock range.
+	model.KeyEnd = 0xa0
+	other.KeyBegin = 0xaa
+	require.True(t, model.Less(&other))
+	require.False(t, other.Less(&model))
+
+	// They cover continuous but non-overlapping key ranges.
+	other.KeyBegin = 0xa0
+	require.True(t, model.Less(&other))
+	require.False(t, other.Less(&model))
 }
