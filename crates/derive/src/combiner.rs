@@ -1,10 +1,10 @@
 use super::DebugJson;
 
-use doc::{reduce, Pointer, SchemaIndex, Validation, Validator};
+use doc::{reduce, Pointer, Validation, Validator};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::rc::Rc;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -24,7 +24,7 @@ pub enum Error {
 
 /// KeyedDoc is a Value document and the composite JSON-Pointers over which it's combined.
 struct KeyedDoc {
-    key: Arc<[Pointer]>,
+    key: Rc<[Pointer]>,
     doc: Value,
     fully_reduced: bool,
 }
@@ -51,21 +51,15 @@ impl PartialEq for KeyedDoc {
 }
 
 pub struct Combiner {
+    key: Rc<[Pointer]>,
     schema: Url,
-    validator: Validator<'static>,
     entries: BTreeSet<KeyedDoc>,
-    key: Arc<[Pointer]>,
 }
 
 impl Combiner {
-    pub fn new(
-        schema_index: &'static SchemaIndex<'static>,
-        schema: &Url,
-        key: Arc<[Pointer]>,
-    ) -> Combiner {
+    pub fn new(schema: Url, key: Rc<[Pointer]>) -> Combiner {
         Combiner {
-            schema: schema.clone(),
-            validator: Validator::new(schema_index),
+            schema: schema,
             entries: BTreeSet::new(),
             key,
         }
@@ -74,7 +68,7 @@ impl Combiner {
     /// Reduce the fully reduced left-hand document with a partially reduced right-hand
     /// document that's already in the Combiner. It's an error if there is already a fully
     /// reduced right-hand document.
-    pub fn reduce_left(&mut self, lhs: Value) -> Result<(), Error> {
+    pub fn reduce_left(&mut self, lhs: Value, validator: &mut Validator) -> Result<(), Error> {
         let lookup = KeyedDoc {
             key: self.key.clone(),
             doc: lhs,
@@ -89,7 +83,7 @@ impl Combiner {
             None => None,
         };
 
-        let lhs = Validation::validate(&mut self.validator, &self.schema, lookup.doc)?
+        let lhs = Validation::validate(validator, &self.schema, lookup.doc)?
             .ok()
             .map_err(Error::PreReduceValidation)?;
 
@@ -98,7 +92,7 @@ impl Combiner {
 
             // Validate RHS (again) to gather annotations. Note that it must have already
             // validated in order to have been in the Combiner.
-            let rhs = Validation::validate(&mut self.validator, &self.schema, rhs)
+            let rhs = Validation::validate(validator, &self.schema, rhs)
                 .unwrap()
                 .ok()
                 .unwrap();
@@ -108,7 +102,7 @@ impl Combiner {
             reduce::reduce(None, lhs, true)?
         };
 
-        let reduced = Validation::validate(&mut self.validator, &self.schema, reduced)?
+        let reduced = Validation::validate(validator, &self.schema, reduced)?
             .ok()
             .map_err(Error::PostReduceValidation)?;
 
@@ -122,7 +116,7 @@ impl Combiner {
     }
 
     /// Combine the partial right-hand side document into the left-hand document held by the Combiner.
-    pub fn combine_right(&mut self, rhs: Value) -> Result<(), Error> {
+    pub fn combine_right(&mut self, rhs: Value, validator: &mut Validator) -> Result<(), Error> {
         let lookup = KeyedDoc {
             key: self.key.clone(),
             doc: rhs,
@@ -134,13 +128,13 @@ impl Combiner {
             None => (None, false),
         };
 
-        let rhs = Validation::validate(&mut self.validator, &self.schema, lookup.doc)?
+        let rhs = Validation::validate(validator, &self.schema, lookup.doc)?
             .ok()
             .map_err(Error::PreReduceValidation)?;
 
         let reduced = reduce::reduce(lhs, rhs, fully_reduced)?;
 
-        let reduced = Validation::validate(&mut self.validator, &self.schema, reduced)?
+        let reduced = Validation::validate(validator, &self.schema, reduced)?
             .ok()
             .map_err(Error::PostReduceValidation)?;
 
@@ -185,7 +179,7 @@ impl Combiner {
         self.drain_entries(uuid_placeholder_ptr)
     }
 
-    pub fn key(&self) -> &Arc<[Pointer]> {
+    pub fn key(&self) -> &Rc<[Pointer]> {
         &self.key
     }
 }
@@ -216,7 +210,7 @@ mod test {
     fn test_lifecycle() {
         let (schema_index, schema) = build_min_max_sum_schema();
         let key: Vec<Pointer> = vec!["/key/1".into(), "/key/0".into()];
-        let key: Arc<[Pointer]> = key.into();
+        let key: Rc<[Pointer]> = key.into();
 
         let docs = vec![
             (
@@ -241,12 +235,13 @@ mod test {
             ),
         ];
 
-        let mut combiner = Combiner::new(schema_index, &schema, key.clone());
+        let mut validator = Validator::new(schema_index);
+        let mut combiner = Combiner::new(schema.clone(), key.clone());
         for (left, doc) in docs {
             if left {
-                combiner.reduce_left(doc)
+                combiner.reduce_left(doc, &mut validator)
             } else {
-                combiner.combine_right(doc)
+                combiner.combine_right(doc, &mut validator)
             }
             .unwrap();
         }
@@ -277,51 +272,56 @@ mod test {
     fn test_errors() {
         let (schema_index, schema) = build_min_max_sum_schema();
         let key: Vec<Pointer> = vec!["/key".into()];
-        let key: Arc<[Pointer]> = key.into();
+        let key: Rc<[Pointer]> = key.into();
 
         // Case: documents to combine don't validate.
-        let mut combiner = Combiner::new(schema_index, &schema, key.clone());
+        let mut validator = Validator::new(schema_index);
+        let mut combiner = Combiner::new(schema.clone(), key.clone());
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "min": "whoops"}))
+                .reduce_left(json!({"key": 1, "min": "whoops"}), &mut validator)
                 .unwrap_err(),
             Error::PreReduceValidation(_)
         );
         matches!(
             combiner
-                .combine_right(json!({"key": 1, "min": "whoops"}))
+                .combine_right(json!({"key": 1, "min": "whoops"}), &mut validator)
                 .unwrap_err(),
             Error::PreReduceValidation(_)
         );
 
         // Case: reduce LHS & combine RHS which each validate, but don't together.
-        let mut combiner = Combiner::new(schema_index, &schema, key.clone());
-        combiner.reduce_left(json!({"key": 1, "sum": -2})).unwrap();
+        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        combiner
+            .reduce_left(json!({"key": 1, "sum": -2}), &mut validator)
+            .unwrap();
         matches!(
             combiner
-                .combine_right(json!({"key": 1, "sum": 1, "positive": 1}))
+                .combine_right(json!({"key": 1, "sum": 1, "positive": 1}), &mut validator)
                 .unwrap_err(),
             Error::PostReduceValidation(_)
         );
 
         // Case: combine RHS & reduce LHS which don't validate together.
-        let mut combiner = Combiner::new(schema_index, &schema, key.clone());
+        let mut combiner = Combiner::new(schema.clone(), key.clone());
         combiner
-            .combine_right(json!({"key": 1, "sum": -2}))
+            .combine_right(json!({"key": 1, "sum": -2}), &mut validator)
             .unwrap();
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "sum": 1, "positive": 1}))
+                .reduce_left(json!({"key": 1, "sum": 1, "positive": 1}), &mut validator)
                 .unwrap_err(),
             Error::PostReduceValidation(_)
         );
 
         // Case: two LHS reductions are prohibited.
-        let mut combiner = Combiner::new(schema_index, &schema, key.clone());
-        combiner.reduce_left(json!({"key": 1, "sum": 1})).unwrap();
+        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        combiner
+            .reduce_left(json!({"key": 1, "sum": 1}), &mut validator)
+            .unwrap();
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "sum": 1}))
+                .reduce_left(json!({"key": 1, "sum": 1}), &mut validator)
                 .unwrap_err(),
             Error::AlreadyFullyReduced(_)
         );
