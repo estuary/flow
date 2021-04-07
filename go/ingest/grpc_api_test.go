@@ -50,5 +50,5 @@ func testGRPCNotFound(t *testing.T, addr string) {
 					DocsJsonLines: []byte(valid),
 				},
 			}})
-	require.EqualError(t, err, `rpc error: code = Unknown desc = fetching specification for "not/found": not found`)
+	require.EqualError(t, err, `rpc error: code = Unknown desc = fetching ingest specification: catalog task "not/found" not found`)
 }

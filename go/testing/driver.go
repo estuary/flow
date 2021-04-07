@@ -177,8 +177,8 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Feed documents into an extractor, to extract UUIDs.
-	extractor, err := bindings.NewExtractor(step.CollectionUuidPtr, nil)
-	if err != nil {
+	var extractor = bindings.NewExtractor()
+	if err = extractor.Configure(step.CollectionUuidPtr, nil, "", nil); err != nil {
 		return fmt.Errorf("failed to build extractor: %w", err)
 	}
 	for _, d := range documents {
@@ -190,7 +190,7 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Now feed documents into a combiner, filtering documents which are ACKs.
-	task, commons, err := c.Consumer.Catalog.GetTask(step.Collection.String())
+	task, commons, _, err := c.Consumer.Catalog.GetTask(step.Collection.String())
 	if err != nil {
 		return fmt.Errorf("mapping step collection to commons: %w", err)
 	}
@@ -199,17 +199,17 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		return err
 	}
 
-	combiner, err := bindings.NewCombine(
-		task.Name(),
+	var combiner = bindings.NewCombine(task.Name())
+	if err = combiner.Configure(
 		schemaIndex,
 		step.CollectionSchemaUri,
 		step.CollectionKeyPtr,
 		nil,
 		"", // Don't populate UUID placeholder.
-	)
-	if err != nil {
-		return fmt.Errorf("failed to build combiner: %w", err)
+	); err != nil {
+		return fmt.Errorf("configuring combiner: %w", err)
 	}
+
 	for d := range documents {
 		if uuids[d].ProducerAndFlags&uint64(message.Flag_ACK_TXN) != 0 {
 			continue

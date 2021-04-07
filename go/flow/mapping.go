@@ -4,15 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/bits"
 	"sort"
+	"strconv"
 	"sync"
 	"unsafe"
 
 	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/minio/highwayhash"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
@@ -159,13 +163,18 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix [
 	}
 	var pivot = len(b)
 
-	// Hex-encode the packed key representation into |b|.
-	const hextable = "0123456789abcdef"
+	b = appendHex32(b, PackedKeyHash_HH64(msg.PackedKey))
 
-	for _, v := range msg.PackedKey {
-		b = append(b, hextable[v>>4], hextable[v&0x0f])
-	}
 	return b[:pivot], b[pivot:], b
+}
+
+// appendHex32 matches the padded hex encoding of labels.EncodeRange,
+// but is much faster than Sprintf and avoids allocation.
+func appendHex32(b []byte, n uint32) []byte {
+	for pad := bits.LeadingZeros32(n|0xf) / 4; pad != 0; pad-- {
+		b = append(b, '0')
+	}
+	return strconv.AppendUint(b, uint64(n), 16)
 }
 
 func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalSpec {
@@ -231,3 +240,12 @@ func (m Mappable) MarshalJSONTo(bw *bufio.Writer) (int, error) {
 	var n, _ = bw.Write(m.Doc)
 	return n + 1, bw.WriteByte('\n')
 }
+
+// PackedKeyHash_HH64 builds a packed key hash from the top 32-bits of a
+// HighwayHash 64-bit checksum computed using a fixed key.
+func PackedKeyHash_HH64(packedKey []byte) uint32 {
+	return uint32(highwayhash.Sum64(packedKey, highwayHashKey) >> 32)
+}
+
+// highwayHashKey is a fixed 32 bytes (as required by HighwayHash) read from /dev/random.
+var highwayHashKey, _ = hex.DecodeString("ba737e89155238d47d8067c35aad4d25ecdd1c3488227e011ffa480c022bd3ba")

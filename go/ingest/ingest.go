@@ -186,9 +186,9 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	}
 
 	// Must start a new stream.
-	var spec, commons, err = i.ingester.Catalog.GetIngestion(collection.String())
+	var spec, commons, err = getIngestion(i.ingester.Catalog, collection.String())
 	if err != nil {
-		return fmt.Errorf("fetching specification for %q: %w", collection, err)
+		return err
 	}
 
 	schemaIndex, err := commons.SchemaIndex()
@@ -196,16 +196,15 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 		return err
 	}
 
-	combine, err := bindings.NewCombine(
-		spec.Collection.String(),
+	var combine = bindings.NewCombine(spec.Collection.String())
+	if err = combine.Configure(
 		schemaIndex,
 		spec.SchemaUri,
 		spec.KeyPtrs,
 		flow.PartitionPointers(spec),
 		spec.UuidPtr,
-	)
-	if err != nil {
-		return fmt.Errorf("building combiner for %q: %w", collection, err)
+	); err != nil {
+		return fmt.Errorf("configuring combiner for %q: %w", collection, err)
 	}
 
 	i.combines[collection] = ingestionCombine{
@@ -317,3 +316,13 @@ func (i *Ingestion) PrepareAndAwait() (pb.Offsets, error) {
 // ErrIngesterExiting is returned by Ingestion Prepare() invocations
 // when the Ingester is shutting down.
 var ErrIngesterExiting = fmt.Errorf("this ingester is exiting")
+
+func getIngestion(catalog flow.Catalog, name string) (*pf.CollectionSpec, *flow.Commons, error) {
+	var task, commons, _, err = catalog.GetTask(name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching ingest specification: %w", err)
+	} else if task.Ingestion == nil {
+		return nil, nil, fmt.Errorf("catalog task %q is not an ingestion", name)
+	}
+	return task.Ingestion, commons, nil
+}
