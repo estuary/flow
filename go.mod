@@ -17,6 +17,7 @@ require (
 	github.com/jackc/pgx/v4 v4.10.1
 	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
+	github.com/minio/highwayhash v1.0.2 // indirect
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.5.1 // indirect
@@ -30,4 +31,4 @@ require (
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210328171803-5197badabb37
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346

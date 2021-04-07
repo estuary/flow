@@ -107,7 +107,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
-	if _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	if _, _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  cfg.Context,
 		Etcd:                 cfg.Etcd,
 		Root:                 cfg.EtcdCatalogPrefix,

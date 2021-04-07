@@ -6,7 +6,6 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/materialize/driver"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -14,7 +13,6 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -28,102 +26,155 @@ type Materialize struct {
 	// Operation started on each transaction StartCommit, which signals on
 	// receipt of Committed from |driverRx|. It's used to sequence recovery log
 	// commits, which it gates, while still allowing for optimistic pipelining.
-	committed   *client.AsyncOperation
+	committed *client.AsyncOperation
+	// Coordinator of shuffled reads for this materialization shard.
 	coordinator *shuffle.Coordinator
+	// FlowConsumer which owns this Materialize shard.
+	host *FlowConsumer
+	// Directory used for local processing files.
+	localDir string
 	// If |deltaUpdates|, we materialize combined delta-update documents of
 	// keys, and not full reductions. We don't issue loads, and don't retain
-	// a cache of documents across transactions. Set in RestoreCheckpoint.
+	// a cache of documents across transactions.
+	// Updated in RestoreCheckpoint.
 	deltaUpdates bool
 	// Driver responses, pumped through a concurrent read loop.
+	// Updated in RestoreCheckpoint.
 	driverRx <-chan driver.TransactionResponse
 	// Driver requests.
+	// Updated in RestoreCheckpoint.
 	driverTx pm.Driver_TransactionsClient
 	// Flighted keys of the current transaction, plus a bounded number of
 	// retained fully-reduced documents of the last transaction.
-	flighted    map[string]json.RawMessage
-	readBuilder *shuffle.ReadBuilder
-	recorder    *recoverylog.Recorder
+	// Updated in RestoreCheckpoint.
+	flighted map[string]json.RawMessage
 	// Request is incrementally built and periodically sent by transaction
 	// lifecycle functions.
 	request *pm.TransactionRequest
-	spec    *pf.MaterializationSpec
-	store   *consumer.JSONFileStore
+	// Store delegate for persisting local checkpoints.
+	store *consumer.JSONFileStore
+	// Embedded task processing state scoped to a current task revision.
+	// Updated in RestoreCheckpoint.
+	taskTerm
 }
+
+var _ Application = (*Materialize)(nil)
 
 type storeState struct {
 	DriverCheckpoint []byte
 }
 
 // NewMaterializeApp returns a new Materialize, which implements Application
-func NewMaterializeApp(
-	service *consumer.Service,
-	journals flow.Journals,
-	shard consumer.Shard,
-	recorder *recoverylog.Recorder,
-	spec *pf.MaterializationSpec,
-	commons *flow.Commons,
-) (*Materialize, error) {
-	schemaIndex, err := commons.SchemaIndex()
-	if err != nil {
-		return nil, fmt.Errorf("building schema index: %w", err)
-	}
-	combiner, err := bindings.NewCombine(
-		shard.FQN(),
-		schemaIndex,
-		spec.Collection.SchemaUri,
-		spec.Collection.KeyPtrs,
-		spec.FieldValuePtrs(),
-		"", // Don't generate UUID placeholders.
-	)
-	if err != nil {
-		return nil, fmt.Errorf("building combiner: %w", err)
-	}
-
-	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
-		[]*pf.Shuffle{&spec.Shuffle})
-	if err != nil {
-		return nil, fmt.Errorf("NewReadBuilder: %w", err)
-	}
-	store, err := consumer.NewJSONFileStore(recorder, new(storeState))
+func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
+	var store, err = consumer.NewJSONFileStore(recorder, new(storeState))
 	if err != nil {
 		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
 	}
-	conn, err := driver.NewDriver(shard.Context(),
-		spec.EndpointType,
-		json.RawMessage(spec.EndpointConfigJson),
-		recorder.Dir(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("building endpoint driver: %w", err)
-	}
-	driverTx, err := conn.Transactions(shard.Context())
-	if err != nil {
-		return nil, fmt.Errorf("driver.Transactions: %w", err)
-	}
-	var driverRx = driver.TransactionResponseChannel(driverTx)
 
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
+	// Initialize into an already-committed state.
 	var committed = client.NewAsyncOperation()
 	committed.Resolve(nil)
 
 	return &Materialize{
-		combiner:     combiner,
+		combiner:     bindings.NewCombine(shard.FQN()),
 		committed:    committed,
 		coordinator:  coordinator,
-		deltaUpdates: false, // Set by RestoreCheckpoint.
-		driverRx:     driverRx,
-		driverTx:     driverTx,
-		flighted:     make(map[string]json.RawMessage),
-		spec:         spec,
-		readBuilder:  readBuilder,
-		recorder:     recorder,
+		host:         host,
+		localDir:     recorder.Dir(),
+		deltaUpdates: false,
+		driverRx:     nil,
+		driverTx:     nil,
+		flighted:     nil,
 		request:      nil,
 		store:        store,
+		taskTerm:     taskTerm{},
 	}, nil
 }
 
-// Implementing consumer.Store for Materialize
-var _ consumer.Store = (*Materialize)(nil)
+// RestoreCheckpoint establishes a driver connection and begins a Transactions RPC.
+// It queries the driver to select from the latest local or driver-persisted checkpoint.
+func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err error) {
+	select {
+	case <-m.committed.Done():
+	default:
+		// After a read drain, the Gazette consumer framework promises that a
+		// prior commit fully completes before RestoreCheckpoint is called again.
+		panic("prior commit is not done")
+	}
+
+	if m.driverTx != nil {
+		_ = m.driverTx.CloseSend()
+	}
+
+	if err = m.taskTerm.initTerm(shard, m.host); err != nil {
+		return cp, err
+	} else if m.task.Materialization == nil {
+		return cp, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
+	}
+
+	if err = m.combiner.Configure(
+		m.schemaIndex,
+		m.task.Materialization.Collection.SchemaUri,
+		m.task.Materialization.Collection.KeyPtrs,
+		m.task.Materialization.FieldValuePtrs(),
+		"", // Don't generate UUID placeholders.
+	); err != nil {
+		return cp, fmt.Errorf("building combiner: %w", err)
+	}
+
+	// Establish driver connection and start Transactions RPC.
+	conn, err := driver.NewDriver(shard.Context(),
+		m.task.Materialization.EndpointType,
+		json.RawMessage(m.task.Materialization.EndpointConfigJson),
+		m.localDir,
+	)
+	if err != nil {
+		return pc.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
+	}
+	m.driverTx, err = conn.Transactions(shard.Context())
+	if err != nil {
+		return pc.Checkpoint{}, fmt.Errorf("driver.Transactions: %w", err)
+	}
+	m.driverRx = driver.TransactionResponseChannel(m.driverTx)
+	m.flighted = make(map[string]json.RawMessage)
+
+	// Write Open request with locally persisted DriverCheckpoint.
+	if err = lifecycle.WriteOpen(
+		m.driverTx,
+		&m.request,
+		m.task.Materialization,
+		shard.FQN(),
+		m.store.State.(*storeState).DriverCheckpoint,
+	); err != nil {
+		return pc.Checkpoint{}, err
+	}
+
+	// Read Opened response, with driver's Checkpoint.
+	var opened = <-m.driverRx
+	if opened.Error != nil {
+		return pc.Checkpoint{}, fmt.Errorf("reading Opened: %w", opened.Error)
+	} else if opened.Opened == nil {
+		return pc.Checkpoint{}, fmt.Errorf("expected Opened, got %#v",
+			opened.TransactionResponse.String())
+	}
+
+	// If the store provided a Flow checkpoint, prefer that over
+	// the |checkpoint| recovered from the local recovery log store.
+	if b := opened.Opened.FlowCheckpoint; len(b) != 0 {
+		if err = cp.Unmarshal(b); err != nil {
+			return pc.Checkpoint{}, fmt.Errorf("unmarshal Opened.FlowCheckpoint: %w", err)
+		}
+	} else {
+		// Otherwise restore locally persisted checkpoint.
+		if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
+			return pc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
+		}
+	}
+	m.deltaUpdates = opened.Opened.DeltaUpdates
+
+	return cp, nil
+}
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
@@ -249,48 +300,6 @@ func awaitCommitted(driverRx <-chan driver.TransactionResponse, result *client.A
 	} else {
 		result.Resolve(nil)
 	}
-}
-
-// RestoreCheckpoint implements consumer.Store.RestoreCheckpoint
-func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (checkpoint pc.Checkpoint, err error) {
-	checkpoint, err = m.store.RestoreCheckpoint(shard)
-	if err != nil {
-		err = fmt.Errorf("store.RestoreCheckpoint: %w", err)
-		return
-	}
-
-	if err = lifecycle.WriteOpen(
-		m.driverTx,
-		&m.request,
-		m.spec,
-		shard.FQN(),
-		m.store.State.(*storeState).DriverCheckpoint,
-	); err != nil {
-		return
-	}
-
-	var opened = <-m.driverRx
-	if opened.Error != nil {
-		err = fmt.Errorf("reading Opened: %w", opened.Error)
-		return
-	} else if opened.Opened == nil {
-		err = fmt.Errorf("expected Opened, got %#v",
-			opened.TransactionResponse.String())
-		return
-	}
-
-	// If the store provided a Flow checkpoint, prefer that over
-	// the |checkpoint| recovered from the store.
-	if b := opened.Opened.FlowCheckpoint; len(b) != 0 {
-		checkpoint = pc.Checkpoint{}
-		if err = checkpoint.Unmarshal(b); err != nil {
-			err = fmt.Errorf("unmarshal Opened.FlowCheckpoint: %w", err)
-			return
-		}
-	}
-	m.deltaUpdates = opened.Opened.DeltaUpdates
-
-	return checkpoint, nil
 }
 
 // Destroy implements consumer.Store.Destroy
@@ -419,25 +428,6 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 
 // FinishedTxn implements Application.FinishedTxn
 func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}
-
-// StartReadingMessages implements Application.StartReadingMessages
-func (m *Materialize) StartReadingMessages(shard consumer.Shard, checkpoint pc.Checkpoint, tp *flow.Timepoint, channel chan<- consumer.EnvelopeOrError) {
-	log.WithFields(log.Fields{
-		"shard":      shard.Spec().Labels,
-		"checkpoint": checkpoint,
-	}).Debug("Starting to Read Messages")
-	shuffle.StartReadingMessages(shard.Context(), m.readBuilder, checkpoint, tp, channel)
-}
-
-// ReadThrough delegates to shuffle.ReadThrough
-func (m *Materialize) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
-	return m.readBuilder.ReadThrough(offsets)
-}
-
-// ReplayRange delegates to shuffle's StartReplayRead.
-func (m *Materialize) ReplayRange(shard consumer.Shard, journal pb.Journal, begin pb.Offset, end pb.Offset) message.Iterator {
-	return m.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
-}
 
 // TODO(johnny): This is an interesting knob that should be exposed.
 const cachedDocumentBound = 2048

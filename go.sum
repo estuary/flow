@@ -280,8 +280,8 @@ github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
 github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe h1:OOI2QZgGwcg7A0Pq3o4P0+gY+rm69pdctOqSz+D7aWk=
 github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
-github.com/jgraettinger/gazette v0.0.0-20210328171803-5197badabb37 h1:uGrLtbngH19mpk289cFhqZsMg+SXLkLeCjZpE/lPB08=
-github.com/jgraettinger/gazette v0.0.0-20210328171803-5197badabb37/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
+github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346 h1:+x314ZKe8kDaWoCVR8KtonrKvqHXsn4CBkaIEA/NfGA=
+github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=
@@ -340,6 +340,8 @@ github.com/mattn/go-sqlite3 v2.0.3+incompatible h1:gXHsfypPkaMZrKbD5209QV9jbUTJK
 github.com/mattn/go-sqlite3 v2.0.3+incompatible/go.mod h1:FPy6KqzDD04eiIsT53CuJW3U88zkxoIYsOqkbpncsNc=
 github.com/matttproud/golang_protobuf_extensions v1.0.1 h1:4hp9jkHxhMHkqkrB3Ix0jegS5sx/RkqARlsWZ6pIwiU=
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
+github.com/minio/highwayhash v1.0.2 h1:Aak5U0nElisjDCfPSG79Tgzkn2gl66NxOMspRrKnA/g=
+github.com/minio/highwayhash v1.0.2/go.mod h1:BQskDq+xkJ12lmlUUi7U0M5Swg3EWR+dLTk+kldvVxY=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
@@ -541,6 +543,7 @@ golang.org/x/sys v0.0.0-20180905080454-ebe1bf3edb33/go.mod h1:STP8DvDyc/dI5b8T5h
 golang.org/x/sys v0.0.0-20180909124046-d0be0721c37e/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20181107165924-66b7b1311ac8/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20181116152217-5ac8a444bdc5/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
+golang.org/x/sys v0.0.0-20190130150945-aca44879d564/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190222072716-a9d3bda3a223/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190312061237-fead79001313/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=

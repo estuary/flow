@@ -10,7 +10,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/broker/client"
-	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -20,113 +19,106 @@ import (
 
 // Derive wires the high-level runtime of the derive consumer flow.
 type Derive struct {
-	binding     *bindings.Derive
+	// Derive binding that's used for the life of the derivation shard.
+	binding *bindings.Derive
+	// Coordinator of shuffled reads for this derivation shard.
 	coordinator *shuffle.Coordinator
-	derivation  *pf.DerivationSpec
-	mapper      flow.Mapper
-	readBuilder *shuffle.ReadBuilder
-	recorder    *recoverylog.Recorder
+	// FlowConsumer which owns this Derive shard.
+	host *FlowConsumer
+	// Instrumented RocksDB recorder.
+	recorder *recoverylog.Recorder
+	// Embedded task processing state scoped to a current task revision.
+	// Updated in RestoreCheckpoint.
+	taskTerm
 }
 
 var _ Application = (*Derive)(nil)
 
 // NewDeriveApp builds and returns a *Derive Application.
-func NewDeriveApp(
-	service *consumer.Service,
-	journals flow.Journals,
-	shard consumer.Shard,
-	recorder *recoverylog.Recorder,
-	derivation *pf.DerivationSpec,
-	commons *flow.Commons,
-) (*Derive, error) {
-	schemaIndex, err := commons.SchemaIndex()
+func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
+
+	var env = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
+	var binding, err = bindings.NewDerive(shard.FQN(), env, recorder.Dir())
 	if err != nil {
-		return nil, fmt.Errorf("building schema index: %w", err)
-	}
-	tsClient, err := commons.TypeScriptClient(service.Etcd)
-	if err != nil {
-		return nil, fmt.Errorf("building TypeScript client: %w", err)
+		return nil, err
 	}
 
-	var mapper = flow.Mapper{
-		Ctx:           shard.Context(),
-		JournalClient: shard.JournalClient(),
-		Journals:      journals,
-		JournalRules:  commons.JournalRules.Rules,
-	}
-
-	readBuilder, err := shuffle.NewReadBuilder(service, journals, shard,
-		shuffle.TransformShuffles(derivation.Transforms))
-	if err != nil {
-		return nil, fmt.Errorf("NewReadBuilder: %w", err)
-	}
-
-	binding, err := bindings.NewDerive(
-		shard.FQN(),
-		schemaIndex,
-		derivation,
-		store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder)),
-		tsClient,
-		recorder.Dir(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("building derive worker: %w", err)
-	}
-
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient())
-
-	return &Derive{
+	var derive = &Derive{
 		binding:     binding,
 		coordinator: coordinator,
-		derivation:  derivation,
-		mapper:      mapper,
-		readBuilder: readBuilder,
+		host:        host,
 		recorder:    recorder,
-	}, nil
+		taskTerm:    taskTerm{},
+	}
+	return derive, nil
 }
 
-// RestoreCheckpoint implements the Store interface, delegating to the worker.
-func (a *Derive) RestoreCheckpoint(shard consumer.Shard) (pc.Checkpoint, error) {
-	return a.binding.RestoreCheckpoint()
+// RestoreCheckpoint initializes a processing term for the derivation,
+// configures the API binding delegate, and restores the last checkpoint.
+// It implements the consumer.Store interface.
+func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err error) {
+	if err = d.taskTerm.initTerm(shard, d.host); err != nil {
+		return cp, err
+	} else if d.task.Derivation == nil {
+		return cp, fmt.Errorf("catalog task %q is not a derivation", d.task.Name())
+	}
+
+	typeScriptClient, err := d.commons.TypeScriptClient(d.host.Service.Etcd)
+	if err != nil {
+		return cp, fmt.Errorf("building TypeScript client: %w", err)
+	}
+	err = d.binding.Configure(d.schemaIndex, d.task.Derivation, typeScriptClient)
+	if err != nil {
+		return cp, fmt.Errorf("configuring derive API: %w", err)
+	}
+
+	return d.binding.RestoreCheckpoint()
 }
 
-// Destroy implements the Store interface. It gracefully stops the flow-worker.
-func (a *Derive) Destroy() {
-	a.binding.Destroy()
+// Destroy releases the API binding delegate, which also cleans up the associated
+// Rust-held RocksDB and its files.
+func (d *Derive) Destroy() {
+	d.binding.Destroy()
 }
 
 // BeginTxn begins a derive transaction.
-func (a *Derive) BeginTxn(shard consumer.Shard) error {
-	a.binding.BeginTxn()
+func (d *Derive) BeginTxn(shard consumer.Shard) error {
+	d.binding.BeginTxn()
 	return nil
 }
 
 // ConsumeMessage passes the message to the derive worker.
-func (a *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
+func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
 	var doc = env.Message.(pf.IndexedShuffleResponse)
 	var uuid = doc.UuidParts[doc.Index]
 
-	for index := range a.derivation.Transforms {
+	for index, shuffle := range d.shuffles {
 		// Find *Shuffle with equal pointer.
-		if &a.derivation.Transforms[index].Shuffle == doc.Shuffle {
-			if err := a.binding.Add(
+		if shuffle == doc.Shuffle {
+			return d.binding.Add(
 				uuid,
 				doc.Arena.Bytes(doc.PackedKey[doc.Index]),
 				uint32(index),
 				doc.Arena.Bytes(doc.DocsJson[doc.Index]),
-			); err != nil {
-				return err
-			}
-			break
+			)
 		}
 	}
-	return nil
+	panic("matching shuffle not found")
 }
 
 // FinalizeTxn finishes and drains the derive worker transaction,
 // and publishes each combined document to the derived collection.
-func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
-	return a.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
+	var mapper = flow.Mapper{
+		Ctx:           shard.Context(),
+		JournalClient: shard.JournalClient(),
+		Journals:      d.host.Journals,
+		JournalRules:  d.commons.JournalRules.Rules,
+	}
+	var collection = &d.task.Derivation.Collection
+
+	return d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("derivation produces only partially combined documents")
 		}
@@ -135,8 +127,8 @@ func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 		if err != nil {
 			return fmt.Errorf("unpacking partitions: %w", err)
 		}
-		_, err = pub.PublishUncommitted(a.mapper.Map, flow.Mappable{
-			Spec:       &a.derivation.Collection,
+		_, err = pub.PublishUncommitted(mapper.Map, flow.Mappable{
+			Spec:       collection,
 			Doc:        doc,
 			PackedKey:  packedKey,
 			Partitions: partitions,
@@ -147,47 +139,26 @@ func (a *Derive) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 
 // StartCommit implements the Store interface, and writes the current transaction
 // as an atomic RocksDB WriteBatch, guarded by a write barrier.
-func (a *Derive) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.OpFutures) client.OpFuture {
+func (d *Derive) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.OpFutures) client.OpFuture {
 	// Install a barrier such that we don't begin writing until |waitFor| has resolved.
-	_ = a.recorder.Barrier(waitFor)
+	_ = d.recorder.Barrier(waitFor)
 
 	// Ask the worker to apply its rocks WriteBatch, with our marshalled Checkpoint.
-	if err := a.binding.PrepareCommit(cp); err != nil {
+	if err := d.binding.PrepareCommit(cp); err != nil {
 		return client.FinishedOperation(err)
 	}
 	// Another barrier which notifies when the WriteBatch
 	// has been durably recorded to the recovery log.
-	return a.recorder.Barrier(nil)
+	return d.recorder.Barrier(nil)
 }
 
-// FinishedTxn resets the current derive RPC.
-func (a *Derive) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {
-	// No-op.
-}
+// FinishedTxn is a no-op.
+func (d *Derive) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {}
 
-// StartReadingMessages delegates to shuffle.StartReadingMessages.
-func (a *Derive) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint,
-	tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
-
-	shuffle.StartReadingMessages(shard.Context(), a.readBuilder, cp, tp, ch)
-}
-
-// ReplayRange delegates to shuffle's StartReplayRead.
-func (a *Derive) ReplayRange(shard consumer.Shard, journal pb.Journal,
-	begin pb.Offset, end pb.Offset) message.Iterator {
-
-	return a.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
-}
-
-// ReadThrough delegates to shuffle.ReadThrough.
-func (a *Derive) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
-	return a.readBuilder.ReadThrough(offsets)
-}
-
-// Coordinator returns the App's shared *shuffle.Coordinator.
-func (a *Derive) Coordinator() *shuffle.Coordinator { return a.coordinator }
+// Coordinator returns the shard's *shuffle.Coordinator.
+func (d *Derive) Coordinator() *shuffle.Coordinator { return d.coordinator }
 
 // ClearRegistersForTest delegates the request to its worker.
-func (a *Derive) ClearRegistersForTest() error {
-	return a.binding.ClearRegisters()
+func (d *Derive) ClearRegistersForTest() error {
+	return d.binding.ClearRegisters()
 }
