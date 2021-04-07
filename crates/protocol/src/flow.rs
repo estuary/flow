@@ -92,6 +92,15 @@ pub struct Shuffle {
     /// schema, and false if it's a source schema specific to this transform.
     #[prost(bool, tag="9")]
     pub uses_source_schema: bool,
+    /// Validate the schema of documents at time of shuffled read.
+    /// We always validate documents, but there's a choice whether we validate
+    /// within the shuffle server (true) or later within the shuffle client (false).
+    /// - Derivations: true, as the derivation runtime can then by-pass
+    ///   a round of JSON parsing and validation.
+    /// - Materializations: false, as the materialization runtime immediately
+    ///   combines over the document --  which requires parsing & validation anyway.
+    #[prost(bool, tag="10")]
+    pub validate_schema_at_read: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
@@ -101,10 +110,8 @@ pub struct Shuffle {
     /// a "publish" but not an "update" lambda, as such documents have no
     /// side-effects on the reader's state store, and would not be published anyway
     /// for falling outside of the reader's r-clock range.
-    #[prost(bool, tag="10")]
+    #[prost(bool, tag="11")]
     pub filter_r_clocks: bool,
-    #[prost(enumeration="shuffle::Hash", tag="11")]
-    pub hash: i32,
     /// Number of seconds for which documents of this collection are delayed
     /// while reading, relative to other documents (when back-filling) and the
     /// present wall-clock time (when tailing).
@@ -115,28 +122,6 @@ pub struct Shuffle {
     /// Higher values imply higher priority.
     #[prost(uint32, tag="13")]
     pub priority: u32,
-}
-/// Nested message and enum types in `Shuffle`.
-pub mod shuffle {
-    /// Optional hash applied to extracted, packed shuffle keys. Hashes can:
-    /// * Mitigate shard skew which might otherwise occur due to key locality
-    ///   (many co-occurring updates to "nearby" keys).
-    /// * Give predictable storage sizes for keys which are otherwise unbounded.
-    /// * Allow for joins over sensitive fields, which should not be stored
-    ///   in-the-clear at rest where possible.
-    /// Either cryptographic or non-cryptographic functions may be appropriate
-    /// depending on the use case.
-    #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum Hash {
-        /// None performs no hash, returning the original key.
-        None = 0,
-        /// MD5 returns the MD5 digest of the original key. It is not a safe
-        /// cryptographic hash, but is well-known and fast, with good distribution
-        /// properties.
-        Md5 = 1,
-    }
 }
 /// JournalShuffle is a Shuffle of a Journal by a Coordinator shard.
 /// They're compared using deep equality in order to consolidate groups of
@@ -163,6 +148,13 @@ pub struct JournalShuffle {
     /// unblock the shard / allow it to drain new ongoing reads.
     #[prost(bool, tag="4")]
     pub replay: bool,
+    /// Catalog commons for resolution of catalog resources like schema URIs.
+    #[prost(string, tag="5")]
+    pub commons_id: ::prost::alloc::string::String,
+    /// Etcd modfication revision of the |commons_id| CatalogCommons. As a
+    /// CatalogCommons is write-once, this is also its creation revision.
+    #[prost(int64, tag="6")]
+    pub commons_revision: i64,
 }
 /// Projection is a mapping between a document location, specified as a
 /// JSON-Pointer, and a corresponding field string in a flattened
@@ -269,12 +261,8 @@ pub struct TransformSpec {
     /// Update lambda of this transform, if any.
     #[prost(message, optional, tag="4")]
     pub update_lambda: ::core::option::Option<LambdaSpec>,
-    /// If an applied update causes the register to be invalid against its
-    /// schema, should the document roll back instead of failing processing?
-    #[prost(bool, tag="5")]
-    pub rollback_on_register_conflict: bool,
     /// Publish lambda of this transform, if any.
-    #[prost(message, optional, tag="6")]
+    #[prost(message, optional, tag="5")]
     pub publish_lambda: ::core::option::Option<LambdaSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
@@ -433,17 +421,27 @@ pub mod test_spec {
 /// is responsible for.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RangeSpec {
-    /// Byte [begin, end) exclusive range of keys to be shuffled to this reader.
-    #[prost(bytes="vec", tag="2")]
-    pub key_begin: ::prost::alloc::vec::Vec<u8>,
-    #[prost(bytes="vec", tag="3")]
-    pub key_end: ::prost::alloc::vec::Vec<u8>,
-    /// Rotated [begin, end) exclusive ranges of Clocks to be shuffled to this
-    /// reader.
-    #[prost(uint64, tag="4")]
-    pub r_clock_begin: u64,
-    #[prost(uint64, tag="5")]
-    pub r_clock_end: u64,
+    /// [begin, end) exclusive range of keys to be shuffled to this reader.
+    /// Ranges are with respect to a 32-bit hash of a packed document key.
+    ///
+    /// The choice of hash function is important: while it need not be
+    /// cryptographically secure, it must demonstrate a strong "avalanche effect"
+    /// (ideally meeting the strict avalanche criterion), to ensure that small
+    /// pertubations of input keys are equally likely to independently affect
+    /// hash output bits. Particularly the higest bits of the hash result,
+    /// which dominate the selection of a shuffled shard.
+    ///
+    /// At present, Flow uses the high 32 bits of a HighWayHash 64-bit
+    /// checksum, using a fixed 32-byte key.
+    #[prost(fixed32, tag="2")]
+    pub key_begin: u32,
+    #[prost(fixed32, tag="3")]
+    pub key_end: u32,
+    /// Rotated [begin, end) exclusive ranges of Clocks.
+    #[prost(fixed32, tag="4")]
+    pub r_clock_begin: u32,
+    #[prost(fixed32, tag="5")]
+    pub r_clock_end: u32,
 }
 /// JournalRules are an ordered sequence of Rules which specify a
 /// condition -- as a label selector -- and, if matched, a template
@@ -555,18 +553,16 @@ pub struct ShuffleResponse {
     /// media-type.
     #[prost(message, repeated, tag="7")]
     pub docs_json: ::prost::alloc::vec::Vec<Slice>,
-    /// The begin offset of each document within the requested journal.
+    /// The journal offsets of each document within the requested journal.
+    /// For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1] ).
     #[prost(int64, repeated, packed="false", tag="8")]
-    pub begin: ::prost::alloc::vec::Vec<i64>,
-    /// The end offset of each document within the journal.
-    #[prost(int64, repeated, packed="false", tag="9")]
-    pub end: ::prost::alloc::vec::Vec<i64>,
+    pub offsets: ::prost::alloc::vec::Vec<i64>,
     /// UUIDParts of each document.
-    #[prost(message, repeated, tag="10")]
+    #[prost(message, repeated, tag="9")]
     pub uuid_parts: ::prost::alloc::vec::Vec<UuidParts>,
     /// Packed, embedded encoding of the shuffle key into a byte string.
     /// If the Shuffle specified a Hash to use, it's applied as well.
-    #[prost(message, repeated, tag="11")]
+    #[prost(message, repeated, tag="10")]
     pub packed_key: ::prost::alloc::vec::Vec<Slice>,
 }
 /// CatalogTask is a self-contained, long lived specification executed
@@ -646,22 +642,36 @@ pub struct ExtractApi {
 }
 /// Nested message and enum types in `ExtractAPI`.
 pub mod extract_api {
-    /// TODO - pass schema_index_memptr & Shuffle spec here, migrating this
-    /// towards a ShuffleAPI which takes over some of the responsibility of
-    /// current Go implementation.
-    ///
-    /// Have ExtractAPI do schema validation so DeriveAPI doesn't have to.
-    /// When we introduce computed lambdas, it will be within this API
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
         /// JSON pointer of the document UUID to extract.
-        /// If empty, UUIDParts are not extracted.
         #[prost(string, tag="1")]
         pub uuid_ptr: ::prost::alloc::string::String,
-        /// Field JSON pointers to extract from documents and return.
-        /// If empty, no fields are extracted.
-        #[prost(string, repeated, tag="2")]
+        /// URI of schema to validate non-ACK documents against.
+        /// If empty, schema validation is not performed.
+        #[prost(string, tag="2")]
+        pub schema_uri: ::prost::alloc::string::String,
+        /// Memory address of the accosiated SchemaIndex, which must exist for
+        /// the remainder of this API's usage.
+        #[prost(fixed64, tag="3")]
+        pub schema_index_memptr: u64,
+        /// Field JSON pointers to extract from documents and return as packed tuples.
+        #[prost(string, repeated, tag="4")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
+    /// Code labels message codes passed over the CGO bridge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        Invalid = 0,
+        /// Configure or re-configure the extractor (Go -> Rust).
+        Configure = 1,
+        /// Extract from a document (Go -> Rust).
+        Extract = 2,
+        /// UUID extracted from a document (Rust -> Go).
+        ExtractedUuid = 3,
+        /// Fields extracted from a document (Rust -> Go).
+        ExtractedFields = 4,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -699,7 +709,9 @@ pub mod combine_api {
     #[repr(i32)]
     pub enum Code {
         Invalid = 0,
-        /// Configure an empty combiner (Go -> Rust).
+        /// Configure or re-configure the combiner (Go -> Rust).
+        /// A combiner may be configured only on first initialization,
+        /// or immediately after having drained.
         Configure = 1,
         /// Reduce a left-hand side document (Go -> Rust).
         ReduceLeft = 2,
@@ -723,23 +735,27 @@ pub struct DeriveApi {
 }
 /// Nested message and enum types in `DeriveAPI`.
 pub mod derive_api {
-    /// Config configures an instance of the derive service.
+    /// Open the registers database.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Config {
-        /// Memory address of a shared SchemaIndex, which must exist for
-        /// the complete lifetime of this API's use.
-        #[prost(fixed64, tag="1")]
-        pub schema_index_memptr: u64,
-        /// Derivation to derive.
-        #[prost(message, optional, tag="2")]
-        pub derivation: ::core::option::Option<super::DerivationSpec>,
+    pub struct Open {
         /// Memory address of an RocksDB Environment to use (as a *rocksdb_env_t).
         /// Ownership of the environment is transferred with this message.
-        #[prost(fixed64, tag="3")]
+        #[prost(fixed64, tag="1")]
         pub rocksdb_env_memptr: u64,
         /// Local directory for ephemeral processing state.
-        #[prost(string, tag="4")]
+        #[prost(string, tag="2")]
         pub local_dir: ::prost::alloc::string::String,
+    }
+    /// Config configures the derived DerivationSpec and its associated schema index.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Config {
+        /// Derivation to derive.
+        #[prost(message, optional, tag="1")]
+        pub derivation: ::core::option::Option<super::DerivationSpec>,
+        /// Memory address of a associated SchemaIndex, which must exist for
+        /// the complete lifetime of this API's use.
+        #[prost(fixed64, tag="2")]
+        pub schema_index_memptr: u64,
     }
     /// DocHeader precedes a JSON-encoded document.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -786,16 +802,15 @@ pub mod derive_api {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Code {
-        /// Configure a new derivation service (Go -> Rust).
-        Configure = 0,
-        /// Restore a checkoint (Go -> Rust).
-        RestoreCheckpoint = 1,
+        Invalid = 0,
+        /// Open the registers database (Go -> Rust).
+        Open = 1,
+        /// Restore the last checkpoint from an opened database (Go <-> Rust).
+        RestoreCheckpoint = 2,
+        /// Configure or re-configure the derive API (Go -> Rust).
+        Configure = 3,
         /// Begin a new transaction (Go -> Rust).
-        BeginTransaction = 2,
-        /// Next source document header (Go -> Rust).
-        NextDocumentHeader = 3,
-        /// Next source document body (Go -> Rust).
-        NextDocumentBody = 4,
+        BeginTransaction = 4,
         /// Next drained document is partially combined (Rust -> Go).
         /// Must match CombineAPI.Code.
         DrainedCombinedDocument = 5,
@@ -808,16 +823,20 @@ pub mod derive_api {
         /// Next drained fields (follows key; Rust -> Go).
         /// Must match CombineAPI.Code.
         DrainedFields = 8,
+        /// Next source document header (Go -> Rust).
+        NextDocumentHeader = 9,
+        /// Next source document body (Go -> Rust).
+        NextDocumentBody = 10,
         /// Trampoline task start or completion (Rust <-> Go).
-        Trampoline = 9,
+        Trampoline = 11,
         /// Trampoline sub-type: invoke transform lambda.
-        TrampolineInvoke = 10,
+        TrampolineInvoke = 12,
         /// Flush transaction (Go -> Rust).
-        FlushTransaction = 12,
+        FlushTransaction = 13,
         /// Prepare transaction to commit (Go -> Rust).
-        PrepareToCommit = 13,
+        PrepareToCommit = 14,
         /// Clear registers values (test support only; Go -> Rust).
-        ClearRegisters = 14,
+        ClearRegisters = 15,
     }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
