@@ -1,6 +1,6 @@
 use super::combiner::{self, Combiner};
 
-use doc::{Pointer, SchemaIndex};
+use doc::{Pointer, Validator};
 use prost::Message;
 use protocol::{
     cgo,
@@ -33,7 +33,14 @@ pub enum Error {
 
 /// API provides a combine capability as a cgo::Service.
 pub struct API {
-    state: Option<(combine_api::Config, Combiner)>,
+    state: Option<State>,
+}
+
+struct State {
+    combiner: Combiner,
+    fields: Vec<Pointer>,
+    uuid_placeholder_ptr: String,
+    validator: Validator<'static>,
 }
 
 impl cgo::Service for API {
@@ -57,46 +64,57 @@ impl cgo::Service for API {
         tracing::trace!(?code, "invoke");
 
         match (code, std::mem::take(&mut self.state)) {
-            (Code::Configure, None) => {
-                let cfg = combine_api::Config::decode(data)?;
+            (Code::Configure, _) => {
+                let combine_api::Config {
+                    schema_index_memptr,
+                    schema_uri,
+                    key_ptr,
+                    field_ptrs,
+                    uuid_placeholder_ptr,
+                } = combine_api::Config::decode(data)?;
 
                 // Re-hydrate a &'static SchemaIndex from a provided memory address.
-                let index_ptr = cfg.schema_index_memptr as usize;
-                let index: &'static SchemaIndex = unsafe { std::mem::transmute(index_ptr) };
+                let schema_index_memptr = schema_index_memptr as usize;
+                let schema_index: &doc::SchemaIndex =
+                    unsafe { std::mem::transmute(schema_index_memptr) };
 
-                let schema_url = url::Url::parse(&cfg.schema_uri)?;
-                index.must_fetch(&schema_url)?;
+                let schema = url::Url::parse(&schema_uri)?;
+                schema_index.must_fetch(&schema)?;
 
-                let key_ptrs: Vec<Pointer> = cfg.key_ptr.iter().map(Pointer::from).collect();
-                let combiner = Combiner::new(index, &schema_url, key_ptrs.into());
+                let key_ptrs: Vec<Pointer> = key_ptr.iter().map(Pointer::from).collect();
 
-                self.state = Some((cfg, combiner));
+                self.state = Some(State {
+                    combiner: Combiner::new(schema, key_ptrs.into()),
+                    validator: Validator::new(schema_index),
+                    fields: field_ptrs.iter().map(Pointer::from).collect(),
+                    uuid_placeholder_ptr,
+                });
                 Ok(())
             }
-            (Code::ReduceLeft, Some((cfg, mut combiner))) => {
+            (Code::ReduceLeft, Some(mut state)) => {
                 let doc: Value = serde_json::from_slice(data)?;
-                combiner.reduce_left(doc)?;
+                state.combiner.reduce_left(doc, &mut state.validator)?;
 
-                self.state = Some((cfg, combiner));
+                self.state = Some(state);
                 Ok(())
             }
-            (Code::CombineRight, Some((cfg, mut combiner))) => {
+            (Code::CombineRight, Some(mut state)) => {
                 let doc: Value = serde_json::from_slice(data)?;
-                combiner.combine_right(doc)?;
+                state.combiner.combine_right(doc, &mut state.validator)?;
 
-                self.state = Some((cfg, combiner));
+                self.state = Some(state);
                 Ok(())
             }
-            (Code::Drain, Some((cfg, mut combiner))) => {
+            (Code::Drain, Some(mut state)) => {
                 drain_combiner(
-                    &mut combiner,
-                    &cfg.uuid_placeholder_ptr,
-                    &cfg.field_ptrs.iter().map(Pointer::from).collect::<Vec<_>>(),
+                    &mut state.combiner,
+                    &state.uuid_placeholder_ptr,
+                    &state.fields,
                     arena,
                     out,
                 );
 
-                self.state = Some((cfg, combiner));
+                self.state = Some(state);
                 Ok(())
             }
             _ => Err(Error::InvalidState),

@@ -1,17 +1,26 @@
-use doc::Pointer;
+use doc::{Pointer, Validator};
 use prost::Message;
-use protocol::{cgo, flow, flow::extract_api};
+use protocol::{
+    cgo, flow,
+    flow::extract_api::{self, Code},
+};
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("parsing URL: {0:?}")]
+    Url(#[from] url::ParseError),
+    #[error("schema index: {0}")]
+    SchemaIndex(#[from] json::schema::index::Error),
     #[error("JSON error")]
     Json(#[from] serde_json::Error),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
     #[error("Protobuf decoding error")]
     ProtoDecode(#[from] prost::DecodeError),
+    #[error("source document validation error: {0:#}")]
+    FailedValidation(doc::FailedValidation),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
 }
@@ -49,7 +58,13 @@ pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Option<flow::
 
 /// API provides extraction as a cgo::Service.
 pub struct API {
-    state: Option<(Pointer, Vec<Pointer>)>,
+    state: Option<State>,
+}
+
+struct State {
+    uuid_ptr: Pointer,
+    field_ptrs: Vec<Pointer>,
+    schema_validator: Option<(url::Url, Validator<'static>)>,
 }
 
 impl cgo::Service for API {
@@ -66,39 +81,80 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
-        match (code, std::mem::take(&mut self.state)) {
-            // Configure service.
-            (0, None) => {
-                let req = extract_api::Config::decode(data)?;
+        let code = match Code::from_i32(code as i32) {
+            Some(c) => c,
+            None => return Err(Error::InvalidState),
+        };
+        tracing::trace!(?code, "invoke");
 
-                self.state = Some((
-                    Pointer::from(&req.uuid_ptr),
-                    req.field_ptrs.iter().map(Pointer::from).collect(),
-                ));
+        match (code, std::mem::take(&mut self.state)) {
+            (Code::Configure, _) => {
+                let extract_api::Config {
+                    uuid_ptr,
+                    schema_uri,
+                    schema_index_memptr,
+                    field_ptrs,
+                } = extract_api::Config::decode(data)?;
+
+                let schema_validator = if schema_uri.is_empty() {
+                    None
+                } else {
+                    // Re-hydrate a &'static SchemaIndex from a provided memory address.
+                    let schema_index_memptr = schema_index_memptr as usize;
+                    let schema_index: &doc::SchemaIndex =
+                        unsafe { std::mem::transmute(schema_index_memptr) };
+
+                    let schema = url::Url::parse(&schema_uri)?;
+                    schema_index.must_fetch(&schema)?;
+
+                    Some((schema, Validator::new(schema_index)))
+                };
+
+                self.state = Some(State {
+                    uuid_ptr: Pointer::from(&uuid_ptr),
+                    field_ptrs: field_ptrs.iter().map(Pointer::from).collect(),
+                    schema_validator,
+                });
                 Ok(())
             }
             // Extract from JSON document.
-            (1, Some((uuid_ptr, field_ptrs))) => {
+            (Code::Extract, Some(mut state)) => {
                 let doc: serde_json::Value = serde_json::from_slice(data)?;
 
+                let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
+                    Error::InvalidUuid {
+                        value: state.uuid_ptr.query(&doc).cloned(),
+                    }
+                })?;
+
+                let doc = match &mut state.schema_validator {
+                    Some((schema, validator))
+                        // Transaction acknowledgements aren't expected to validate.
+                        if protocol::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
+                    {
+                        doc::Validation::validate(validator, schema, doc)?
+                            .ok()
+                            .map_err(Error::FailedValidation)?
+                            .0
+                            .document
+                    }
+                    _ => doc,
+                };
+
                 // Send extracted UUID.
-                let uuid =
-                    extract_uuid_parts(&doc, &uuid_ptr).ok_or_else(|| Error::InvalidUuid {
-                        value: uuid_ptr.query(&doc).cloned(),
-                    })?;
-                cgo::send_message(0, &uuid, arena, out);
+                cgo::send_message(Code::ExtractedUuid as u32, &uuid, arena, out);
 
                 // Send extracted, packed field pointers.
                 let begin = arena.len();
 
-                for p in &field_ptrs {
+                for p in &state.field_ptrs {
                     let v = p.query(&doc).unwrap_or(&Value::Null);
                     // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
                     let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
                 }
-                cgo::send_bytes(1, begin, arena, out);
+                cgo::send_bytes(Code::ExtractedFields as u32, begin, arena, out);
 
-                self.state = Some((uuid_ptr, field_ptrs));
+                self.state = Some(state);
                 Ok(())
             }
             _ => Err(Error::InvalidState),
@@ -108,7 +164,7 @@ impl cgo::Service for API {
 
 #[cfg(test)]
 mod test {
-    use super::{extract_uuid_parts, API};
+    use super::{extract_uuid_parts, Code, API};
     use doc::Pointer;
     use protocol::{
         cgo::{self, Service},
@@ -196,10 +252,11 @@ mod test {
 
         // Configure the service.
         svc.invoke_message(
-            0,
+            Code::Configure as u32,
             flow::extract_api::Config {
                 uuid_ptr: "/0".to_string(),
                 field_ptrs: vec!["/1".to_string(), "/2".to_string()],
+                ..Default::default()
             },
             &mut arena,
             &mut out,
@@ -208,7 +265,7 @@ mod test {
 
         // Extract from a document.
         svc.invoke(
-            1,
+            Code::Extract as u32,
             br#"["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string"]"#,
             &mut arena,
             &mut out,
