@@ -256,6 +256,8 @@ impl serde::Serialize for Set {
     }
 }
 
+/// Deserializes a Set, which may be represented either as a single string, or as an array of
+/// strings.
 struct SetVisitor;
 impl<'de> serde::de::Visitor<'de> for SetVisitor {
     type Value = Set;
@@ -268,14 +270,7 @@ impl<'de> serde::de::Visitor<'de> for SetVisitor {
     where
         E: serde::de::Error,
     {
-        if let Some(ty) = Set::for_type_name(value) {
-            Ok(ty)
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "invalid type name: '{}'",
-                value
-            )))
-        }
+        TypeStrVisitor.visit_str(value).map(TypeStr::into_set)
     }
 
     // used when calling serde_json::from_value, since the string will be owned in that case
@@ -286,20 +281,22 @@ impl<'de> serde::de::Visitor<'de> for SetVisitor {
         self.visit_str(value.as_str())
     }
 
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        TypeStrVisitor
+            .visit_unit()
+            .map(|_| unreachable!("visit_unit always returns error"))
+    }
+
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
         A: serde::de::SeqAccess<'de>,
     {
         let mut s = INVALID;
-        while let Some(type_str) = seq.next_element::<&str>()? {
-            if let Some(t) = Set::for_type_name(type_str) {
-                s = s | t;
-            } else {
-                return Err(serde::de::Error::custom(format!(
-                    "invalid type name: '{}'",
-                    type_str
-                )));
-            }
+        while let Some(type_str) = seq.next_element::<TypeStr>()? {
+            s = s | type_str.into_set()
         }
         Ok(s)
     }
@@ -310,6 +307,62 @@ impl<'de> serde::Deserialize<'de> for Set {
         D: serde::de::Deserializer<'de>,
     {
         deserializer.deserialize_any(SetVisitor)
+    }
+}
+
+/// Exists to provide a deserialize impl that can only accept a single string and provides a more
+/// helpful error message when it encounters a null value. A common mistake in YAML is to forget to
+/// put quotes around "null", which causes it to intrepreted as the null keyword instead of the
+/// string "null".
+struct TypeStr(Set);
+impl TypeStr {
+    fn into_set(self) -> Set {
+        self.0
+    }
+}
+struct TypeStrVisitor;
+impl<'de> serde::de::Visitor<'de> for TypeStrVisitor {
+    type Value = TypeStr;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if let Some(ty) = Set::for_type_name(value) {
+            Ok(TypeStr(ty))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "invalid type name: '{}'",
+                value
+            )))
+        }
+    }
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_str(v.as_str())
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Err(serde::de::Error::custom(
+            "the type \"null\" must be written as a quoted string (null is a keyword in YAML).",
+        ))
+    }
+}
+impl<'de> serde::Deserialize<'de> for TypeStr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(TypeStrVisitor)
     }
 }
 
@@ -327,6 +380,27 @@ mod test {
         assert_eq!(INTEGER, serde_json::from_str("\"integer\"").unwrap());
         assert_eq!(FRACTIONAL, serde_json::from_str("\"fractional\"").unwrap());
         assert_eq!(STRING, serde_json::from_str("\"string\"").unwrap());
+    }
+
+    #[test]
+    fn set_deserialize_returns_error_when_null_is_unquoted() {
+        let err = serde_json::from_str::<Set>(r#"["string", null]"#)
+            .expect_err("expected deserialize to return an error");
+        assert!(
+            err.to_string()
+                .contains("the type \"null\" must be written as a quoted string"),
+            "err is not what was expected: {:?}",
+            err
+        );
+
+        let err = serde_json::from_str::<Set>("null")
+            .expect_err("expected deserialize to return an error");
+        assert!(
+            err.to_string()
+                .contains("the type \"null\" must be written as a quoted string"),
+            "err is not what was expected: {:?}",
+            err
+        );
     }
 
     #[test]
