@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
-	"strconv"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
@@ -27,40 +29,58 @@ import (
 )
 
 func TestConsumerIntegration(t *testing.T) {
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///ab.flow.yaml",
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+			ExtraJournalRules: &pf.JournalRules{
+				Rules: []pf.JournalRules_Rule{
+					{
+						Rule:     "Override for single brokertest broker",
+						Template: pb.JournalSpec{Replication: 1},
+					},
+				},
+			},
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	var ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	commonsID, commonsRev, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+		Ctx:                  ctx,
+		Etcd:                 etcd,
+		Root:                 "/flow/catalog",
+		Build:                built,
+		TypeScriptUDS:        "/not/used",
+		TypeScriptPackageURL: "",
+		DryRun:               false,
+	})
+	require.NoError(t, err)
+	catalog, err := flow.NewCatalog(ctx, etcd, "/flow/catalog")
+	require.NoError(t, err)
+
+	//////
+
 	// Fixtures which parameterize the test:
 	var (
 		sourcePartitions = []pb.Journal{
-			"source/foo/part=10",
-			"source/foo/part=20",
-			"source/foo/part=42",
+			"a/collection/part=10",
+			"a/collection/part=20",
+			"a/collection/part=42",
 		}
 		shards = []pc.ShardID{
 			"derive/bar/abc",
 			"derive/bar/def",
 		}
-		transforms = []pf.TransformSpec{
-			{
-				Transform: "highAndLow",
-				Shuffle: pf.Shuffle{
-					GroupName:        "transform/derive/bar/highAndLow",
-					SourceCollection: "source/foo",
-					SourceSchemaUri:  "test://schema",
-					SourceUuidPtr:    "/_meta/uuid",
-					ShuffleKeyPtr:    []string{"/High", "/Low"},
-					UsesSourceKey:    false,
-					FilterRClocks:    false,
-				},
-				Derivation: "derive/bar",
-			},
-		}
-		N = 200 // Publish each combination of High & Low values two times.
+		N = 200
 	)
-
-	var etcd = etcdtest.TestClient()
-	defer etcdtest.Cleanup()
-
-	var ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
 
 	// Start broker, with journal fixtures.
 	var journalSpecs []*pb.JournalSpec
@@ -69,7 +89,9 @@ func TestConsumerIntegration(t *testing.T) {
 			Name: name,
 			LabelSet: pb.MustLabelSet(
 				gazLabels.ContentType, gazLabels.ContentType_JSONLines,
-				flowLabels.Collection, "source/foo",
+				flowLabels.Collection, "a/collection",
+				flowLabels.KeyBegin, flowLabels.KeyBeginMin,
+				flowLabels.KeyEnd, flowLabels.KeyEndMax,
 			),
 		}))
 	}
@@ -93,8 +115,9 @@ func TestConsumerIntegration(t *testing.T) {
 	var expect = make(map[string]int)
 	for i := 0; i != N; i++ {
 		var msg = &testMsg{
-			High: ((i / 10) * 10) % 100, // Takes values [0, 10, 20, 30, ... 90].
-			Low:  strconv.Itoa(i % 10),  // Takes values ["0, "1", "2", "3", ... "9"].
+			A:  ((i / 10) * 10) % 100,     // Takes values [0, 10, 20, 30, ... 90].
+			AA: fmt.Sprintf("%02x", i%10), // Takes values ["00, "01", "02", "03", ... "09"].
+			B:  "value",
 		}
 
 		// Half of published messages are immediately-committed.
@@ -108,7 +131,7 @@ func TestConsumerIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Build expected packed shuffle key.
-		var k = tuple.Tuple{msg.High, msg.Low}.Pack()
+		var k = tuple.Tuple{msg.A, msg.AA}.Pack()
 		expect[hex.EncodeToString(k)]++
 	}
 
@@ -124,7 +147,10 @@ func TestConsumerIntegration(t *testing.T) {
 			Journals: broker.Client(),
 			App: &testApp{
 				journals:   journals,
-				transforms: transforms,
+				catalog:    catalog,
+				shuffles:   TaskShuffles(&pf.CatalogTask{Derivation: &built.Derivations[0]}),
+				commonsID:  commonsID,
+				commonsRev: commonsRev,
 			},
 		})
 		cmr.Service.App.(*testApp).service = cmr.Service
@@ -135,11 +161,9 @@ func TestConsumerIntegration(t *testing.T) {
 	}
 	var cmr = buildConsumer()
 
-	// Create & install shard fixtures.
+	// Create & install shard fixtures, each owning an equal slice of the key range.
 	var shardSpecs = make([]*pc.ShardSpec, len(shards))
 	for i, id := range shards {
-		var step = 100 / len(shards)
-
 		shardSpecs[i] = &pc.ShardSpec{
 			Id:                id,
 			Sources:           []pc.ShardSpec_Source{},
@@ -147,12 +171,12 @@ func TestConsumerIntegration(t *testing.T) {
 			HintPrefix:        "/hints",
 			HintBackups:       1,
 			MaxTxnDuration:    time.Second,
-			LabelSet: pb.MustLabelSet(
-				flowLabels.KeyBegin, hex.EncodeToString(tuple.Tuple{(i + 0) * step}.Pack()),
-				flowLabels.KeyEnd, hex.EncodeToString(tuple.Tuple{(i + 1) * step}.Pack()),
-				flowLabels.RClockBegin, "0000000000000000",
-				flowLabels.RClockEnd, "ffffffffffffffff",
-			),
+			LabelSet: flowLabels.EncodeRange(pf.RangeSpec{
+				KeyBegin:    uint32((math.MaxUint32 / len(shards)) * i),
+				KeyEnd:      uint32((math.MaxUint32 / len(shards)) * (i + 1)),
+				RClockBegin: 0,
+				RClockEnd:   math.MaxUint32,
+			}, pb.LabelSet{}),
 			DisableWaitForAck: true, // Don't block waiting for an ACK that we'll deliberately delay.
 		}
 	}
@@ -202,9 +226,10 @@ func TestConsumerIntegration(t *testing.T) {
 	}
 
 	// Pluck out each of the worker states.
-	var merged = make(map[string]int)
+	var shardDocCounts = make([]int, len(shards))
+	var mergedKeyCounts = make(map[string]int)
 
-	for _, id := range shards {
+	for i, id := range shards {
 		// Expect the shard store reflects consumed messages.
 		res, err := cmr.Service.Resolver.Resolve(consumer.ResolveArgs{
 			Context:     ctx,
@@ -216,11 +241,15 @@ func TestConsumerIntegration(t *testing.T) {
 
 		var state = *res.Store.(*testStore).JSONFileStore.State.(*map[string]int)
 		for k, c := range state {
-			merged[k] += c
+			mergedKeyCounts[k] += c
+			shardDocCounts[i] += c
 		}
 		res.Done() // Release resolution.
 	}
-	require.Equal(t, expect, merged)
+	require.Equal(t, expect, mergedKeyCounts)
+	// Expect that shards saw roughly equal shares of documents.
+	// Values here are a regression fixture and depend on key encoding & hashing.
+	require.Equal(t, []int{112, 88}, shardDocCounts)
 
 	cmr.Tasks.Cancel()
 	require.NoError(t, cmr.Tasks.Wait())
@@ -232,7 +261,10 @@ func TestConsumerIntegration(t *testing.T) {
 type testApp struct {
 	service    *consumer.Service
 	journals   flow.Journals
-	transforms []pf.TransformSpec
+	catalog    flow.Catalog
+	shuffles   []*pf.Shuffle
+	commonsID  string
+	commonsRev int64
 }
 
 type testStore struct {
@@ -250,12 +282,19 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	readBuilder, err := NewReadBuilder(a.service, a.journals, shard, TransformShuffles(a.transforms))
+	readBuilder, err := NewReadBuilder(
+		a.service,
+		a.journals,
+		shard.Spec().Id,
+		a.shuffles,
+		a.commonsID,
+		a.commonsRev,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	var coordinator = NewCoordinator(shard.Context(), shard.JournalClient())
+	var coordinator = NewCoordinator(shard.Context(), shard.JournalClient(), a.catalog)
 
 	return &testStore{
 		JSONFileStore: store,
@@ -272,7 +311,7 @@ func (a testApp) StartReadingMessages(shard consumer.Shard, store consumer.Store
 
 func (a testApp) ReplayRange(shard consumer.Shard, store consumer.Store, journal pb.Journal, begin, end pb.Offset) message.Iterator {
 	var testStore = store.(*testStore)
-	return testStore.readBuilder.StartReplayRead(shard.Context(), journal, begin, end)
+	return StartReplayRead(shard.Context(), testStore.readBuilder, journal, begin, end)
 }
 
 func (a testApp) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
@@ -293,7 +332,7 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[hex.EncodeToString(key)]++
 
-	if msg.Shuffle.GroupName != "transform/derive/bar/highAndLow" {
+	if msg.Shuffle.GroupName != a.shuffles[0].GroupName {
 		return fmt.Errorf("expected Shuffle fixture to be passed-through")
 	}
 	return nil
@@ -307,8 +346,9 @@ type testMsg struct {
 	Meta struct {
 		UUID message.UUID `json:"uuid"`
 	} `json:"_meta"`
-	High int
-	Low  string
+	A  int    `json:"a"`
+	AA string `json:"aa"`
+	B  string `json:"b"`
 }
 
 func (m *testMsg) GetUUID() message.UUID                         { return m.Meta.UUID }

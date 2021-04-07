@@ -3,13 +3,12 @@ package shuffle
 import (
 	"bufio"
 	"context"
-	"crypto/md5"
 	"fmt"
 	"io"
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -21,37 +20,92 @@ import (
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
 // and matches new ShuffleConfigs to a new or existing ring.
 type Coordinator struct {
-	ctx context.Context
-	rjc pb.RoutedJournalClient
-
-	rings map[*ring]struct{}
-	mu    sync.Mutex
+	catalog flow.Catalog
+	ctx     context.Context
+	mu      sync.Mutex
+	rings   map[*ring]struct{}
+	rjc     pb.RoutedJournalClient
 }
 
 // NewCoordinator returns a new *Coordinator using the given clients.
-func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient) *Coordinator {
+func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, catalog flow.Catalog) *Coordinator {
 	return &Coordinator{
-		ctx:   ctx,
-		rjc:   rjc,
-		rings: make(map[*ring]struct{}),
+		catalog: catalog,
+		ctx:     ctx,
+		rings:   make(map[*ring]struct{}),
+		rjc:     rjc,
+	}
+}
+
+// Subscribe to a coordinated read under the given ShuffleRequest.
+// ShuffleResponses are sent to the provided callback until it completes,
+// a TerminalError is sent, or another error such as cancellation occurs.
+func (c *Coordinator) Subscribe(
+	ctx context.Context,
+	request *pf.ShuffleRequest,
+	callback func(*pf.ShuffleResponse, error) error,
+) {
+	var err = c.subscribe(subscriber{
+		ctx:            ctx,
+		ShuffleRequest: *request,
+		callback:       callback,
+	})
+
+	if err != nil {
+		callback(nil, err)
 	}
 }
 
 func (c *Coordinator) subscribe(sub subscriber) error {
+	// Await a future commons revision before we attempt to resolve it.
+	c.catalog.KeySpace.Mu.RLock()
+	var err = c.catalog.KeySpace.WaitForRevision(sub.ctx, sub.Shuffle.CommonsRevision)
+	c.catalog.KeySpace.Mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	// Load commons runtime instances *before* we obtain the Coordinator Mutex.
+	// This is fast if the commons has been used already.
+	commons, _, err := c.catalog.GetCommons(sub.Shuffle.CommonsId)
+	if err != nil {
+		return fmt.Errorf("resolving commons %q: %w", sub.Shuffle.CommonsId, err)
+	}
+	schemaIndex, err := commons.SchemaIndex()
+	if err != nil {
+		return fmt.Errorf("building schema index: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for ring := range c.rings {
 		if ring.shuffle.Equal(sub.Shuffle) {
-			ring.subscriberCh <- sub
-			return nil
+			select {
+			case ring.subscriberCh <- sub:
+				return nil
+			case <-ring.ctx.Done():
+				// ring.serve() may not be reading ring.subscriberCh after cancellation.
+				// Loop again.
+			}
 		}
 	}
 
 	// We must create a new ring.
-	var ex, err = bindings.NewExtractor(sub.Shuffle.SourceUuidPtr, sub.Shuffle.ShuffleKeyPtr)
-	if err != nil {
-		return fmt.Errorf("failed to start ring extractor: %w", err)
+	var maybeValidateSchemaURI string
+	if sub.Shuffle.ValidateSchemaAtRead {
+		maybeValidateSchemaURI = sub.Shuffle.SourceSchemaUri
+	}
+
+	var ex = bindings.NewExtractor()
+	if ex.Configure(
+		sub.Shuffle.SourceUuidPtr,
+		sub.Shuffle.ShuffleKeyPtr,
+		maybeValidateSchemaURI,
+		schemaIndex,
+	); err != nil {
+		return fmt.Errorf("building document extractor: %w", err)
 	}
 	var ctx, cancel = context.WithCancel(c.ctx)
 
@@ -79,7 +133,7 @@ type ring struct {
 	cancel      context.CancelFunc
 
 	subscriberCh chan subscriber
-	readChans    []chan pf.ShuffleResponse
+	readChans    []chan *pf.ShuffleResponse
 
 	shuffle pf.JournalShuffle
 	subscribers
@@ -98,7 +152,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 		return // This subscriber doesn't require starting a new read.
 	}
 
-	var readCh = make(chan pf.ShuffleResponse, 1)
+	var readCh = make(chan *pf.ShuffleResponse, 1)
 	r.readChans = append(r.readChans, readCh)
 
 	if len(r.readChans) == 1 && rr.EndOffset != 0 {
@@ -107,7 +161,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 	go readDocuments(r.ctx, r.coordinator.rjc, *rr, readCh)
 }
 
-func (r *ring) onRead(staged pf.ShuffleResponse, ok bool, ex *bindings.Extractor) {
+func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extractor) {
 	if !ok {
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
@@ -120,11 +174,11 @@ func (r *ring) onRead(staged pf.ShuffleResponse, ok bool, ex *bindings.Extractor
 			ex.Document(staged.Arena.Bytes(d))
 		}
 		var uuids, fields, err = ex.Extract()
-		r.onExtract(&staged, uuids, fields, err)
+		r.onExtract(staged, uuids, fields, err)
 	}
 
 	// Stage responses for subscribers, and send.
-	r.subscribers.stageResponses(&staged)
+	r.subscribers.stageResponses(staged)
 	r.subscribers.sendResponses()
 
 	// If no active subscribers remain, then cancel this ring.
@@ -148,17 +202,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 
 	staged.PackedKey = make([]pf.Slice, len(packedKeys))
 	for i, packed := range packedKeys {
-		switch r.shuffle.Hash {
-		case pf.Shuffle_NONE:
-			staged.PackedKey[i] = staged.Arena.Add(packed)
-
-		case pf.Shuffle_MD5:
-			var h = md5.New()
-			h.Write(packed)
-			var sum = h.Sum(nil)
-
-			staged.PackedKey[i] = staged.Arena.Add(tuple.Tuple{sum}.Pack())
-		}
+		staged.PackedKey[i] = staged.Arena.Add(packed)
 	}
 
 	staged.UuidParts = uuids
@@ -167,7 +211,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 func (r *ring) serve(ex *bindings.Extractor) {
 loop:
 	for {
-		var readCh chan pf.ShuffleResponse
+		var readCh chan *pf.ShuffleResponse
 		if l := len(r.readChans); l != 0 {
 			readCh = r.readChans[l-1]
 		}
@@ -193,7 +237,7 @@ loop:
 		r.subscribers = append(r.subscribers, sub)
 	}
 	for _, sub := range r.subscribers {
-		sub.doneCh <- r.ctx.Err()
+		sub.callback(nil, r.ctx.Err())
 	}
 
 	r.log().Debug("shuffle ring service exiting")
@@ -214,7 +258,7 @@ func readDocuments(
 	ctx context.Context,
 	rjc pb.RoutedJournalClient,
 	req pb.ReadRequest,
-	ch chan pf.ShuffleResponse,
+	ch chan *pf.ShuffleResponse,
 ) {
 	defer close(ch)
 
@@ -226,30 +270,27 @@ func readDocuments(
 
 	var rr = client.NewRetryReader(ctx, rjc, req)
 	var br = bufio.NewReader(rr)
-
-	// Pop attempts to dequeue a pending ShuffleResponse that we can extend.
-	// Or, it returns a new one if none is buffered.
-	var popPending = func() (out pf.ShuffleResponse) {
-		select {
-		case out = <-ch:
-		default:
-		}
-		return
-	}
-
-	var buffer = make([]byte, 0, 1024)
 	var offset = rr.AdjustedOffset(br)
+
+	// Size of the Arena and DocsJson of the ShuffleResponse last written to |ch|.
+	// These are used to plan capacity of future ShuffleResponse allocations.
+	var lastArena, lastDocs = 0, 0
 
 	for {
 		var line, err = message.UnpackLine(br)
 
 		switch err {
+		case nil:
+			// We read a line.
 		case io.EOF:
 			return // Reached EndOffset, all done!
 		case context.Canceled:
-			return
+			return // All done.
 		case io.ErrNoProgress:
-			continue // Returned by bufio.Reader sometimes. Ignore.
+			// bufio.Reader generates these when a read is restarted multiple
+			// times with no actual bytes read (e.x. because the journal is idle).
+			// It's safe to ignore.
+			line, err = nil, nil
 		case client.ErrOffsetJump:
 			// Occurs when fragments are removed from the middle of the journal.
 			log.WithFields(log.Fields{
@@ -257,51 +298,86 @@ func readDocuments(
 				"from":    offset,
 				"to":      rr.AdjustedOffset(br),
 			}).Warn("source journal offset jump")
-			offset = rr.AdjustedOffset(br)
-			continue
+
+			line, err, offset = nil, nil, rr.AdjustedOffset(br)
+		default:
+			if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
+				// Non-blocking read cannot make further progress.
+				// Continue reading, now with blocking reads.
+				line, err, rr.Reader.Request.Block = nil, nil, true
+			}
+			// Other possible |err| types will be passed through as a
+			// ShuffleResponse.TerminalError, sent to |ch|.
 		}
 
-		var out = popPending()
+		// Attempt to pop an extend-able ShuffleResponse, or allocate a new one.
+		var out *pf.ShuffleResponse
+		select {
+		case out = <-ch:
+		default:
+			out = new(pf.ShuffleResponse)
+		}
 
-		if l := len(out.End); l != 0 && (out.End[l-1]-out.Begin[0]) >= responseSizeThreshold {
-			// |out| is too large for us to extend. Put it back. This cannot block,
-			// since buffer N=1, we dequeued above, and we're the only writer.
+		// Would |line| cause a re-allocation of |out| ?
+		if out.Arena == nil ||
+			line == nil ||
+			(len(out.Arena)+len(line) <= cap(out.Arena) && len(out.DocsJson)+1 <= cap(out.DocsJson)) {
+			// It wouldn't, as |out| hasn't been allocated in the first place,
+			// or it can be extended without re-allocation.
+		} else {
+			// It would. Put |out| back. This cannot block, since channel buffer
+			// N=1, we dequeued above, and we're the only writer.
 			ch <- out
 
 			// Push an empty ShuffleResponse. This may block, applying back pressure
 			// until the prior |out| is picked up by the channel reader.
 			select {
-			case ch <- pf.ShuffleResponse{
+			case ch <- &pf.ShuffleResponse{
 				ReadThrough: out.ReadThrough,
 				WriteHead:   out.WriteHead,
 			}:
 			case <-ctx.Done():
 				return
 			}
-			// Pop it again, for us to extend.
-			out = popPending()
+
+			// Pop it again, for us to extend. This cannot block but we may not
+			// pop it before the channel reader does, and so will need to re-allocate.
+			select {
+			case out = <-ch:
+			default:
+				out = new(pf.ShuffleResponse)
+			}
+
+			// Record that we would have _liked_ to have been able to extend |out|.
+			// This causes future allocations to "round up" more capacity.
+			lastArena += len(line)
+			lastDocs++
 		}
 
-		if err == nil {
-			line = append(buffer, line...)
-			buffer = line[len(line):]
+		// Do we need to allocate capacity in |out| ?
+		if out.Arena == nil && line != nil {
+			var arenaCap = roundUpPow2(max(lastArena, len(line)), arenaCapMin, arenaCapMax)
+			var docsCap = roundUpPow2(lastDocs, docsCapMin, docsCapMax)
+
+			out.Arena = make([]byte, 0, arenaCap)
+			out.DocsJson = make([]pf.Slice, 0, docsCap)
+			out.Offsets = make([]int64, 0, 2*docsCap)
+		}
+
+		if line != nil {
 			out.DocsJson = append(out.DocsJson, out.Arena.Add(line))
-
-			out.Begin = append(out.Begin, offset)
+			out.Offsets = append(out.Offsets, offset)
 			offset = rr.AdjustedOffset(br)
-			out.End = append(out.End, offset)
+			out.Offsets = append(out.Offsets, offset)
+		}
 
-			out.ReadThrough = offset
-			out.WriteHead = rr.Reader.Response.WriteHead
-		} else if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
-			// Continue reading, now with blocking reads.
-			err, rr.Reader.Request.Block = nil, true
-
-			out.ReadThrough = offset
-			out.WriteHead = rr.Reader.Response.WriteHead
-		} else /* err != nil */ {
+		if err != nil {
 			out.TerminalError = err.Error()
 		}
+
+		out.ReadThrough = offset
+		out.WriteHead = rr.Reader.Response.WriteHead
+		lastArena, lastDocs = len(out.Arena), len(out.DocsJson)
 
 		// Place back onto channel (cannot block).
 		ch <- out
@@ -312,4 +388,9 @@ func readDocuments(
 	}
 }
 
-const responseSizeThreshold int64 = 1 << 16 // 65KB.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
