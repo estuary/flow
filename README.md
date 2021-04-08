@@ -22,7 +22,7 @@ products and services that revolve around continuous data. With Flow, you:
 
 ## Documentation
 
--   📖 [Flow documentation](https://app.gitbook.com/@estuary/s/flow/) (🚧 _we're actively building this out_).
+-   📖 [Flow documentation](https://docs.estuary.dev/) (🚧 _we're actively building this out_).
 
 -   🧐 Many [examples/](examples/) are available in this repo, covering a range of use cases and techniques.
 
