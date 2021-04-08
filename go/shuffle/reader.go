@@ -273,11 +273,6 @@ func (g *governor) poll(ctx context.Context) error {
 		return nil
 	}
 
-	if g.rb.drainCh == nil && len(g.active) == 0 {
-		// We've completed draining all reads.
-		return errDrained
-	}
-
 	// If we /still/ have no queued *reads, we must block until woken.
 	select {
 	case <-ctx.Done():
@@ -333,6 +328,18 @@ func (g *governor) onConverge(ctx context.Context) error {
 		r.cancel()
 	}
 
+	if g.rb.drainCh == nil {
+		// We've cancelled all reads. Return errDrained to bubble up and break
+		// the primary loop of StartReadingMessages, gracefully closing the
+		// channel into which it delivers.
+		//
+		// We must stop processing now, rather than delivering remaining queued
+		// ShuffleResponses, because there may be pending non-tailing reads we've
+		// now cancelled. We can't deliver queued documents without knowing their
+		// order with respect to the next documents from those pending
+		// (and now cancelled) reads.
+		return errDrained
+	}
 	// Converge interrupts a current poll(), so we always poll again.
 	return errPollAgain
 }
