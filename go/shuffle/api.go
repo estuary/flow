@@ -61,7 +61,7 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	// Begin a subscription that's delivered to the callback closure.
 	coordinator.Subscribe(
 		stream.Context(),
-		req,
+		*req,
 		func(m *pf.ShuffleResponse, err error) error {
 			if err != nil {
 				errCh <- err
