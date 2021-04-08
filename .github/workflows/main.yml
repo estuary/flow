@@ -68,6 +68,8 @@ jobs:
       - run: make rust-build
       - run: make rust-test
       - run: make go-test-ci
+      - run: df -hai
+      - run: netstat -ive
       - run: make catalog-test
       # catalog-test dirties the branch by creating examples/examples.db.
       # Tidy up before further invocations using `git describe --dirty`
