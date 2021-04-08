@@ -26,9 +26,7 @@ export interface ExamplesCitiBikeIdleBikes {
         register: registers.ExamplesCitiBikeIdleBikes,
         previous: registers.ExamplesCitiBikeIdleBikes,
     ): collections.ExamplesCitiBikeIdleBikes[];
-    liveRidesUpdate(
-        source: collections.ExamplesCitiBikeRides,
-    ): registers.ExamplesCitiBikeIdleBikes[];
+    liveRidesUpdate(source: collections.ExamplesCitiBikeRides): registers.ExamplesCitiBikeIdleBikes[];
 }
 
 // Generated from derivation examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation.
@@ -44,9 +42,7 @@ export interface ExamplesCitiBikeLastSeen {
 // Generated from derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 // Required to be implemented by examples/citi-bike/rides-and-relocations.flow.ts.
 export interface ExamplesCitiBikeRidesAndRelocations {
-    fromRidesUpdate(
-        source: collections.ExamplesCitiBikeRides,
-    ): registers.ExamplesCitiBikeRidesAndRelocations[];
+    fromRidesUpdate(source: collections.ExamplesCitiBikeRides): registers.ExamplesCitiBikeRidesAndRelocations[];
     fromRidesPublish(
         source: collections.ExamplesCitiBikeRides,
         register: registers.ExamplesCitiBikeRidesAndRelocations,
@@ -77,17 +73,13 @@ export interface ExamplesNetTraceServices {
 // Generated from derivation examples/re-key/flow.yaml#/collections/examples~1re-key~1stable_events/derivation.
 // Required to be implemented by examples/re-key/flow.ts.
 export interface ExamplesReKeyStableEvents {
-    fromAnonymousEventsUpdate(
-        source: collections.ExamplesReKeyAnonymousEvents,
-    ): registers.ExamplesReKeyStableEvents[];
+    fromAnonymousEventsUpdate(source: collections.ExamplesReKeyAnonymousEvents): registers.ExamplesReKeyStableEvents[];
     fromAnonymousEventsPublish(
         source: collections.ExamplesReKeyAnonymousEvents,
         register: registers.ExamplesReKeyStableEvents,
         previous: registers.ExamplesReKeyStableEvents,
     ): collections.ExamplesReKeyStableEvents[];
-    fromIdMappingsUpdate(
-        source: collections.ExamplesReKeyMappings,
-    ): registers.ExamplesReKeyStableEvents[];
+    fromIdMappingsUpdate(source: collections.ExamplesReKeyMappings): registers.ExamplesReKeyStableEvents[];
     fromIdMappingsPublish(
         source: collections.ExamplesReKeyMappings,
         register: registers.ExamplesReKeyStableEvents,
@@ -118,9 +110,7 @@ export interface ExamplesSegmentProfiles {
 // Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation.
 // Required to be implemented by examples/segment/flow.ts.
 export interface ExamplesSegmentToggles {
-    fromSegmentationUpdate(
-        source: collections.ExamplesSegmentEvents,
-    ): registers.ExamplesSegmentToggles[];
+    fromSegmentationUpdate(source: collections.ExamplesSegmentEvents): registers.ExamplesSegmentToggles[];
     fromSegmentationPublish(
         source: collections.ExamplesSegmentEvents,
         register: registers.ExamplesSegmentToggles,
@@ -136,9 +126,7 @@ export interface ExamplesShoppingCartUpdatesWithProducts {
         register: registers.ExamplesShoppingCartUpdatesWithProducts,
         previous: registers.ExamplesShoppingCartUpdatesWithProducts,
     ): collections.ExamplesShoppingCartUpdatesWithProducts[];
-    productsUpdate(
-        source: collections.ExamplesShoppingProducts,
-    ): registers.ExamplesShoppingCartUpdatesWithProducts[];
+    productsUpdate(source: collections.ExamplesShoppingProducts): registers.ExamplesShoppingCartUpdatesWithProducts[];
 }
 
 // Generated from derivation examples/shopping/carts.flow.yaml#/collections/examples~1shopping~1carts/derivation.
@@ -165,9 +153,7 @@ export interface ExamplesShoppingCarts {
 // Generated from derivation examples/shopping/purchases.flow.yaml#/collections/examples~1shopping~1purchases/derivation.
 // Required to be implemented by examples/shopping/purchases.flow.ts.
 export interface ExamplesShoppingPurchases {
-    cartsUpdate(
-        source: collections.ExamplesShoppingCarts,
-    ): registers.ExamplesShoppingPurchases[];
+    cartsUpdate(source: collections.ExamplesShoppingCarts): registers.ExamplesShoppingPurchases[];
     purchaseActionsPublish(
         source: collections.ExamplesShoppingCartPurchaseRequests,
         register: registers.ExamplesShoppingPurchases,
@@ -188,9 +174,7 @@ export interface ExamplesWikiPages {
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation.
 // Required to be implemented by examples/marketing/flow.ts.
 export interface MarketingClicksWithViews {
-    indexViewsUpdate(
-        source: collections.MarketingViewsWithCampaign,
-    ): registers.MarketingClicksWithViews[];
+    indexViewsUpdate(source: collections.MarketingViewsWithCampaign): registers.MarketingClicksWithViews[];
     joinClickWithIndexedViewsPublish(
         source: collections.MarketingOfferClicks,
         register: registers.MarketingClicksWithViews,
@@ -201,12 +185,8 @@ export interface MarketingClicksWithViews {
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation.
 // Required to be implemented by examples/marketing/flow.ts.
 export interface MarketingPurchaseWithOffers {
-    indexClicksUpdate(
-        source: collections.MarketingClicksWithViews,
-    ): registers.MarketingPurchaseWithOffers[];
-    indexViewsUpdate(
-        source: collections.MarketingViewsWithCampaign,
-    ): registers.MarketingPurchaseWithOffers[];
+    indexClicksUpdate(source: collections.MarketingClicksWithViews): registers.MarketingPurchaseWithOffers[];
+    indexViewsUpdate(source: collections.MarketingViewsWithCampaign): registers.MarketingPurchaseWithOffers[];
     joinPurchaseWithViewsAndClicksPublish(
         source: collections.MarketingPurchases,
         register: registers.MarketingPurchaseWithOffers,
@@ -217,9 +197,7 @@ export interface MarketingPurchaseWithOffers {
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1views-with-campaign/derivation.
 // Required to be implemented by examples/marketing/flow.ts.
 export interface MarketingViewsWithCampaign {
-    indexCampaignsUpdate(
-        source: collections.MarketingCampaigns,
-    ): registers.MarketingViewsWithCampaign[];
+    indexCampaignsUpdate(source: collections.MarketingCampaigns): registers.MarketingViewsWithCampaign[];
     joinViewWithIndexedCampaignPublish(
         source: collections.MarketingOfferViews,
         register: registers.MarketingViewsWithCampaign,
@@ -230,17 +208,13 @@ export interface MarketingViewsWithCampaign {
 // Generated from derivation examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
 // Required to be implemented by examples/derive-patterns/join-inner.flow.ts.
 export interface PatternsInnerJoin {
-    fromIntsUpdate(
-        source: collections.PatternsInts,
-    ): registers.PatternsInnerJoin[];
+    fromIntsUpdate(source: collections.PatternsInts): registers.PatternsInnerJoin[];
     fromIntsPublish(
         source: collections.PatternsInts,
         register: registers.PatternsInnerJoin,
         previous: registers.PatternsInnerJoin,
     ): collections.PatternsInnerJoin[];
-    fromStringsUpdate(
-        source: collections.PatternsStrings,
-    ): registers.PatternsInnerJoin[];
+    fromStringsUpdate(source: collections.PatternsStrings): registers.PatternsInnerJoin[];
     fromStringsPublish(
         source: collections.PatternsStrings,
         register: registers.PatternsInnerJoin,
@@ -256,9 +230,7 @@ export interface PatternsOneSidedJoin {
         register: registers.PatternsOneSidedJoin,
         previous: registers.PatternsOneSidedJoin,
     ): collections.PatternsOneSidedJoin[];
-    updateRHSUpdate(
-        source: collections.PatternsStrings,
-    ): registers.PatternsOneSidedJoin[];
+    updateRHSUpdate(source: collections.PatternsStrings): registers.PatternsOneSidedJoin[];
 }
 
 // Generated from derivation examples/derive-patterns/join-outer.flow.yaml#/collections/patterns~1outer-join/derivation.
@@ -289,9 +261,7 @@ export interface PatternsSumsDb {
 // Generated from derivation examples/derive-patterns/summer.flow.yaml#/collections/patterns~1sums-register/derivation.
 // Required to be implemented by examples/derive-patterns/summer.flow.ts.
 export interface PatternsSumsRegister {
-    fromIntsUpdate(
-        source: collections.PatternsInts,
-    ): registers.PatternsSumsRegister[];
+    fromIntsUpdate(source: collections.PatternsInts): registers.PatternsSumsRegister[];
     fromIntsPublish(
         source: collections.PatternsInts,
         register: registers.PatternsSumsRegister,
@@ -302,9 +272,7 @@ export interface PatternsSumsRegister {
 // Generated from derivation examples/derive-patterns/zero-crossing.flow.yaml#/collections/patterns~1zero-crossing/derivation.
 // Required to be implemented by examples/derive-patterns/zero-crossing.flow.ts.
 export interface PatternsZeroCrossing {
-    fromIntsUpdate(
-        source: collections.PatternsInts,
-    ): registers.PatternsZeroCrossing[];
+    fromIntsUpdate(source: collections.PatternsInts): registers.PatternsZeroCrossing[];
     fromIntsPublish(
         source: collections.PatternsInts,
         register: registers.PatternsZeroCrossing,
@@ -325,9 +293,7 @@ export interface SoakSetOpsSets {
 // Generated from derivation examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
 // Required to be implemented by examples/soak-tests/set-ops/flow.ts.
 export interface SoakSetOpsSetsRegister {
-    onOperationUpdate(
-        source: collections.SoakSetOpsOperations,
-    ): registers.SoakSetOpsSetsRegister[];
+    onOperationUpdate(source: collections.SoakSetOpsOperations): registers.SoakSetOpsSetsRegister[];
     onOperationPublish(
         source: collections.SoakSetOpsOperations,
         register: registers.SoakSetOpsSetsRegister,
@@ -345,23 +311,29 @@ export interface StockDailyStats {
     ): collections.StockDailyStats[];
 }
 
-// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location/derivation.
+// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation/derivation.
 // Required to be implemented by examples/temp-sensors/flow.ts.
 export interface TemperatureAverageByLocation {
-    readingsUpdate(
-        source: collections.TemperatureReadings,
-    ): registers.TemperatureAverageByLocation[];
-    readingsPublish(
-        source: collections.TemperatureReadings,
-        register: registers.TemperatureAverageByLocation,
-        previous: registers.TemperatureAverageByLocation,
-    ): collections.TemperatureAverageByLocation[];
-    sensorsUpdate(
-        source: collections.TemperatureSensors,
-    ): registers.TemperatureAverageByLocation[];
-    sensorsPublish(
+    avgTempLocationSensorsUpdate(source: collections.TemperatureSensors): registers.TemperatureAverageByLocation[];
+    avgTempLocationSensorsPublish(
         source: collections.TemperatureSensors,
         register: registers.TemperatureAverageByLocation,
         previous: registers.TemperatureAverageByLocation,
     ): collections.TemperatureAverageByLocation[];
+    avgTempLocationTempsUpdate(source: collections.TemperatureAverageTemps): registers.TemperatureAverageByLocation[];
+    avgTempLocationTempsPublish(
+        source: collections.TemperatureAverageTemps,
+        register: registers.TemperatureAverageByLocation,
+        previous: registers.TemperatureAverageByLocation,
+    ): collections.TemperatureAverageByLocation[];
+}
+
+// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps/derivation.
+// Required to be implemented by examples/temp-sensors/flow.ts.
+export interface TemperatureAverageTemps {
+    averageTempsPublish(
+        source: collections.TemperatureReadings,
+        register: registers.TemperatureAverageTemps,
+        previous: registers.TemperatureAverageTemps,
+    ): collections.TemperatureAverageTemps[];
 }

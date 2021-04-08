@@ -2,7 +2,7 @@ import { anchors, collections, interfaces, registers } from 'flow/modules';
 
 // detail maps a segment event into a SegmentDetail.
 function detail(event: collections.ExamplesSegmentEvents): anchors.SegmentDetail {
-    let rest = {
+    const rest = {
         segment: event.segment,
         last: event.timestamp,
     };
@@ -67,7 +67,7 @@ export class ExamplesSegmentToggles implements interfaces.ExamplesSegmentToggles
         _register: registers.ExamplesSegmentToggles,
         previous: registers.ExamplesSegmentToggles,
     ): collections.ExamplesSegmentToggles[] {
-        let { event: last, firstAdd } = previous;
+        const { event: last, firstAdd } = previous;
 
         // Only publish a toggle if the user has been added to the segment at
         // least once, and the |last| event add / remove status is different from

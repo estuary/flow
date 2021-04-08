@@ -28,7 +28,7 @@ export class SoakSetOpsSetsRegister implements interfaces.SoakSetOpsSetsRegister
 
 function operationToSet(source: collections.SoakSetOpsOperations): [collections.SoakSetOpsSets] {
     if (source.Type == 'add' || source.Type == 'remove') {
-        let mutate = source as anchors.MutateOp;
+        const mutate = source as anchors.MutateOp;
 
         return [
             {
@@ -43,7 +43,7 @@ function operationToSet(source: collections.SoakSetOpsOperations): [collections.
         ];
     }
 
-    let verify = source as anchors.VerifyOp;
+    const verify = source as anchors.VerifyOp;
 
     return [
         {
