@@ -30,7 +30,7 @@ export class MarketingClicksWithViews implements interfaces.MarketingClicksWithV
 
 export class MarketingPurchaseWithOffers implements interfaces.MarketingPurchaseWithOffers {
     indexClicksUpdate(source: collections.MarketingClicksWithViews): [registers.MarketingPurchaseWithOffers] {
-        let hour = moment.utc(source.timestamp).format('YYYY-MM-DD-HH');
+        const hour = moment.utc(source.timestamp).format('YYYY-MM-DD-HH');
         return [
             {
                 lastSeen: source.timestamp,
@@ -40,7 +40,7 @@ export class MarketingPurchaseWithOffers implements interfaces.MarketingPurchase
         ];
     }
     indexViewsUpdate(source: collections.MarketingViewsWithCampaign): [registers.MarketingPurchaseWithOffers] {
-        let day = moment.utc(source.timestamp).format('YYYY-MM-DD');
+        const day = moment.utc(source.timestamp).format('YYYY-MM-DD');
         return [
             {
                 lastSeen: source.timestamp,

@@ -216,11 +216,11 @@ expression: intents
     } from '../../flow_generated/external/example/external/module';
     
     // Build instances of each class, which will be bound to this module's router.
-    let __ExternalDerivation: interfaces.ExternalDerivation = new ExternalDerivation();
-    let __LocalDerivation: interfaces.LocalDerivation = new LocalDerivation();
+    const __ExternalDerivation: interfaces.ExternalDerivation = new ExternalDerivation();
+    const __LocalDerivation: interfaces.LocalDerivation = new LocalDerivation();
     
     // Now build the router that's used for transformation lambda dispatch.
-    let routes: { [path: string]: Lambda | undefined } = {
+    const routes: { [path: string]: Lambda | undefined } = {
         '/derive/external/derivation/somethingSomething/Publish': __ExternalDerivation.somethingSomethingPublish.bind(
             __ExternalDerivation,
         ) as Lambda,
@@ -382,8 +382,7 @@ expression: intents
         "clean": "rm -r dist/",
         "compile": "tsc",
         "develop": "node dist/flow_generated/flow/main.js",
-        "lint": "eslint --fix **/*.ts",
-        "prettify": "prettier --write **/*.ts"
+        "lint": "cd flow_generated && eslint --fix $(jq '.files[]' -r tsconfig-files.json)"
       },
       "version": "0.0.0"
     }

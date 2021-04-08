@@ -31,9 +31,9 @@ export class ExamplesReKeyStableEvents implements interfaces.ExamplesReKeyStable
         previous: registers.ExamplesReKeyStableEvents,
     ): collections.ExamplesReKeyStableEvents[] {
         // Publish previous register.events, enriched with the just-learned stable ID.
-        let out = [];
+        const out = [];
         if (register.stable_id && previous.events) {
-            for (var event of previous.events) {
+            for (const event of previous.events) {
                 out.push({ stable_id: register.stable_id, ...event });
             }
         }

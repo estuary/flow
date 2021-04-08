@@ -7,7 +7,7 @@ export class ExamplesWikiPages implements interfaces.ExamplesWikiPages {
         _register: registers.ExamplesWikiPages,
         _previous: registers.ExamplesWikiPages,
     ): collections.ExamplesWikiPages[] {
-        let stats = { cnt: 1, add: source.added, del: source.deleted };
+        const stats = { cnt: 1, add: source.added, del: source.deleted };
 
         if (source.countryIsoCode) {
             return [

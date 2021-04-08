@@ -44,10 +44,12 @@ export type ExamplesReKeyStableEvents = /* Register that's keyed on anonymous ID
   1) Stores anonymous events prior to a stable ID being known, and thereafter
   2) Stores a mapped stable ID for this anonymous ID.
  */ {
-    events: /* An interesting event, keyed on an anonymous ID */ {
-        anonymous_id: string;
-        event_id: string;
-    }[] | null;
+    events: /* An interesting event, keyed on an anonymous ID */
+    | {
+              anonymous_id: string;
+              event_id: string;
+          }[]
+        | null;
     stable_id?: string;
 };
 
@@ -222,13 +224,23 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
 // Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type StockDailyStats = unknown;
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/averageTempsRegister.
-// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location/derivation.
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempToLocationRegister.
+// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation/derivation.
 export type TemperatureAverageByLocation = {
-    lastReading?: string;
+    avgC?: number;
+    lastReading?: /* Timestamp of the most recent reading for this named location */ string;
+    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+        bbox?: number[];
+        coordinates: number[];
+        type: 'Point';
+    };
     locationName?: string | null;
     maxTempC?: number;
     minTempC?: number;
     numReadings?: number;
     totalC?: number;
 };
+
+// Generated from examples/temp-sensors/flow.yaml?ptr=/collections/temperature~1averageTemps/derivation/register/schema.
+// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps/derivation.
+export type TemperatureAverageTemps = unknown;

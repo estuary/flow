@@ -31,8 +31,7 @@
     "clean": "rm -r dist/",
     "compile": "tsc",
     "develop": "node dist/flow_generated/flow/main.js",
-    "lint": "eslint --fix **/*.ts",
-    "prettify": "prettier --write **/*.ts"
+    "lint": "cd flow_generated && eslint --fix $(jq '.files[]' -r tsconfig-files.json)"
   },
   "version": "0.0.0"
 }
