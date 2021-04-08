@@ -110,8 +110,12 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		EtcdCatalogPrefix:  "/flowctl/test/catalog",
 		EtcdBrokerPrefix:   "/flowctl/test/broker",
 		EtcdConsumerPrefix: "/flowctl/test/runtime",
+		ServiceConfig: mbp.ServiceConfig{
+			ZoneConfig: mbp.ZoneConfig{Zone: "local"},
+			Host:       "localhost",
+			Port:       0, // Any available port.
+		},
 	}
-	cfg.ZoneConfig.Zone = "local"
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
