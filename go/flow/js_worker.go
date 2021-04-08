@@ -71,6 +71,13 @@ func (worker *JSWorker) Stop() error {
 	} else if err = os.RemoveAll(worker.tempdir); err != nil {
 		return fmt.Errorf("failed to clean up temp directory: %w", err)
 	}
+
+	log.WithFields(log.Fields{
+		"args":       worker.cmd.Args,
+		"socketPath": worker.socketPath,
+		"pid":        worker.cmd.Process.Pid,
+	}).Info("stopped worker daemon")
+
 	return nil
 }
 
@@ -90,11 +97,6 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 	// delivered from the terminal.
 	cmd.SysProcAttr.Setpgid = setpgid
 
-	log.WithFields(log.Fields{
-		"args":       cmd.Args,
-		"socketPath": socketPath,
-	}).Info("starting node worker")
-
 	var realStdErr io.Writer
 	realStdErr, cmd.Stderr = cmd.Stderr, nil
 
@@ -108,6 +110,12 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 	} else if err = cmd.Start(); err != nil {
 		return nil, fmt.Errorf("cmd.Start: %w", err)
 	}
+
+	log.WithFields(log.Fields{
+		"args":       cmd.Args,
+		"socketPath": socketPath,
+		"pid":        cmd.Process.Pid,
+	}).Info("started worker daemon")
 
 	var br = bufio.NewReader(stderr)
 	if ready, err := br.ReadString('\n'); err != nil {

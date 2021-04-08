@@ -237,7 +237,9 @@ func (g *governor) poll(ctx context.Context) error {
 			// the read pump will close it's channel after this error.
 			// Return errPollAgain to read that close, which will go on to remove
 			// and possibly restart this failed *read.
-			r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
+			if err != context.Canceled {
+				r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
+			}
 			return errPollAgain
 		} else if !ok {
 			// This *read was cancelled and its channel has now drained.

@@ -72,7 +72,7 @@ func (c *Commons) initTypeScript(etcd *clientv3.Client) (err error) {
 		c.TypescriptLocalSocket = c.tsWorker.socketPath
 	}
 
-	// TypeScript h2c client bound to unix socket |typescriptUDSPath|.
+	// TypeScript h2c client bound to unix socket TypescriptLocalSocket.
 	// See: https://www.mailgun.com/blog/http-2-cleartext-h2c-client-example-go/
 	c.tsClient = &http.Client{
 		Transport: &http2.Transport{
