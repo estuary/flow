@@ -40,6 +40,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	var err error
 	var taskName = shard.Spec().LabelSet.ValueOf(labels.TaskName)
 
+	var lastRevision = t.revision
 	t.task, t.commons, t.revision, err = host.Catalog.GetTask(taskName)
 	if err != nil {
 		return err
@@ -70,6 +71,13 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	// Arrange for Drain to be called if the task definition is updated.
 	host.Catalog.SignalOnTaskUpdate(shard.Context(),
 		taskName, t.revision, t.readBuilder.Drain)
+
+	log.WithFields(log.Fields{
+		"task":         t.task.Name(),
+		"shard":        shard.Spec().Id,
+		"revision":     t.revision,
+		"lastRevision": lastRevision,
+	}).Info("initialized catalog task term")
 
 	return nil
 }
