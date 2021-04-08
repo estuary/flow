@@ -42,12 +42,12 @@ func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, catalog flo
 // a TerminalError is sent, or another error such as cancellation occurs.
 func (c *Coordinator) Subscribe(
 	ctx context.Context,
-	request *pf.ShuffleRequest,
+	request pf.ShuffleRequest,
 	callback func(*pf.ShuffleResponse, error) error,
 ) {
 	var err = c.subscribe(subscriber{
 		ctx:            ctx,
-		ShuffleRequest: *request,
+		ShuffleRequest: request,
 		callback:       callback,
 	})
 
@@ -159,12 +159,25 @@ func (r *ring) onSubscribe(sub subscriber) {
 		panic("top-most read cannot have EndOffset")
 	}
 	go readDocuments(r.ctx, r.coordinator.rjc, *rr, readCh)
+
+	log.WithFields(log.Fields{
+		"journal":    r.shuffle.Journal,
+		"subscriber": &sub.Range,
+		"offset":     rr.Offset,
+		"endOffset":  rr.EndOffset,
+		"reads":      len(r.readChans),
+	}).Debug("started journal read")
 }
 
 func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extractor) {
 	if !ok {
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
+
+		log.WithFields(log.Fields{
+			"journal": r.shuffle.Journal,
+			"reads":   len(r.readChans),
+		}).Debug("completed catch-up journal read")
 		return
 	}
 

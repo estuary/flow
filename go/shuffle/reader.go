@@ -198,45 +198,36 @@ var errDrained = fmt.Errorf("drained")
 // nil iff all *reads have been polled, and all non-tailing
 // *reads have at least one document queued.
 func (g *governor) poll(ctx context.Context) error {
+	var mustWait bool
+
 	// Walk all *reads not having a ready ShuffleResponse,
-	// polling if (or blocking until) one is available.
+	// polling each without blocking to see if one is now available.
 	for r := range g.pending {
 
 		var result readResult
 		var ok bool
 
-		if r.resp.Tailing() {
-			// Reader is tailing the journal. Poll without blocking,
-			// as we may wait an unbounded amount of time for more
-			// data to be written to the journal.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case result, ok = <-r.ch:
-				// Fall through.
-			case <-g.rb.journals.Update():
-				return g.onConverge(ctx)
-			case <-g.rb.drainCh:
-				return g.onConverge(ctx)
-			case <-g.tp.Ready():
-				return g.onTick()
-			default:
-				continue // Don't block.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case result, ok = <-r.ch:
+			// Fall through.
+		case <-g.rb.journals.Update():
+			return g.onConverge(ctx)
+		case <-g.rb.drainCh:
+			return g.onConverge(ctx)
+		case <-g.tp.Ready():
+			return g.onTick()
+		default:
+			if !r.resp.Tailing() {
+				// We know that more data is already available for this reader
+				// and it should be forthcoming. We must block for its next read
+				// before we may poll as ready, to ensure that its documents are
+				// ordered correctly with respect to other documents we may have
+				// already queued from other readers.
+				mustWait = true
 			}
-		} else {
-			// If we're not yet tailing the journal, block for the next response.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case result, ok = <-r.ch:
-				// Fall through.
-			case <-g.rb.journals.Update():
-				return g.onConverge(ctx)
-			case <-g.rb.drainCh:
-				return g.onConverge(ctx)
-			case <-g.tp.Ready():
-				return g.onTick()
-			}
+			continue
 		}
 
 		// This *read polled as ready: we now evaluate its outcome.
@@ -259,23 +250,24 @@ func (g *governor) poll(ctx context.Context) error {
 			return g.onConverge(ctx)
 		} else if r.resp.TerminalError != "" {
 			return fmt.Errorf(r.resp.TerminalError)
+		} else if len(r.resp.DocsJson) == 0 && r.resp.Tailing() {
+			// This is an empty read which informed us the reader is now tailing.
+			// Leave it in pending.
 		} else if len(r.resp.DocsJson) == 0 {
-			// Re-enter to poll this *read instance again. In particular,
-			// we *must* perform another blocking read if !Tailing.
-			return errPollAgain
+			return fmt.Errorf("unexpected non-tailing empty ShuffleResponse")
 		} else {
+			// Successful read. Queue it for consumption.
 			delete(g.pending, r)
 			heap.Push(&g.queued, r)
 		}
 	}
 
-	// We've polled all pending *reads, and as a post-condition, know that
-	// a this point all *read instances with available data (i.e., !Tailing)
-	// have at least one document queued.
-	if len(g.queued) != 0 {
-		// This is the once place we return err == nil.
-		// In all other control paths, we return errPollAgain to poll() again,
-		// or a terminal error (including context cancellation).
+	// If all reads are ready and we have at least one non-empty
+	// response queued then we should return it now.
+	// This is the *one* place we return err == nil.
+	// In all other control paths, we return errPollAgain to poll() again,
+	// or a terminal error (including context cancellation).
+	if !mustWait && len(g.queued) != 0 {
 		return nil
 	}
 

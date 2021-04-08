@@ -249,10 +249,7 @@ func (r *read) start(
 ) {
 	r.log().Debug("starting shuffled journal read")
 	r.ctx, r.cancel = context.WithCancel(ctx)
-
-	// Use a minimal buffer to quickly back-pressure to the server coordinator,
-	// so that it packs more data into each ShuffleResponse.
-	r.ch = make(chan readResult, 1)
+	r.ch = make(chan readResult, readChannelCapacity)
 
 	// Resolve coordinator shard to a current member process.
 	var resolution, err = resolveFn(consumer.ResolveArgs{
@@ -277,25 +274,11 @@ func (r *read) start(
 
 		resolution.Store.(Store).Coordinator().Subscribe(
 			r.ctx,
-			&r.req,
+			r.req,
 			func(resp *pf.ShuffleResponse, err error) error {
-				select {
-				case r.ch <- readResult{resp: resp, err: err}:
-				case <-r.ctx.Done(): // Drop on the floor.
-				}
-
-				if err != nil {
-					// Coordinator.Subscribe contract is that err != nil
-					// is always the finall callback.
-					close(r.ch)
-				}
-
-				select {
-				case wakeCh <- struct{}{}:
-				default:
-				}
-
-				return nil
+				// Subscribe promises that that the last call (only) will deliver
+				// a final error. This matches sendReadResult's expectation.
+				return r.sendReadResult(resp, err, wakeCh)
 			},
 		)
 	} else {
@@ -304,13 +287,8 @@ func (r *read) start(
 
 		go func(ch chan<- readResult) (err error) {
 			defer func() {
-				ch <- readResult{err: err}
-				close(ch)
-
-				select {
-				case wakeCh <- struct{}{}:
-				default:
-				}
+				// Deliver final non-nil error.
+				_ = r.sendReadResult(nil, err, wakeCh)
 			}()
 
 			stream, err := shuffler.Shuffle(ctx, &r.req)
@@ -319,21 +297,85 @@ func (r *read) start(
 			}
 
 			for {
-				var resp, err = stream.Recv()
-				if err != nil {
+				if resp, err := stream.Recv(); err != nil {
+					return err
+				} else if err = r.sendReadResult(resp, nil, wakeCh); err != nil {
 					return err
 				}
-
-				ch <- readResult{resp: resp}
-
-				select {
-				case wakeCh <- struct{}{}:
-				default:
-				}
 			}
-
 		}(r.ch)
 	}
+}
+
+// sendReadResult sends a ShuffleResponse or final non-nil error readResult to the
+// read's channel. It back-pressures to the caller using an exponential delay,
+// and if the channel buffer would offer-flow it cancels the read's context.
+//
+// It's important that this doesn't naively stuff the read's channel and block
+// indefinitely as this can cause a distributed read deadlock. Consider
+// shard A & B, and journals X & Y:
+//
+//  - A's channel reading from X is stuffed
+//  - B's channel reading from Y is stuffed
+//  - A must read a next (non-tailing) Y to proceed.
+//  - B must read a next (non-tailing) X to proceed, BUT
+//  - X is blocked sending to the (stuffed) A, and
+//  - Y is blocked sending to the (stuffed) B.
+//  - Result: deadlock.
+//
+// The strategy we employ to avoid this is to use exponential time delays
+// as the channel becomes full, up to the channel capacity, after which we
+// cancel the read to release its server-side resources and prevent the server
+// from blocking on send going forward.
+func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<- struct{}) error {
+	if err != nil {
+		// This is a final call, delivering a terminal error.
+		select {
+		case r.ch <- readResult{err: err}:
+		default: // Don't block.
+		}
+		close(r.ch)
+
+		select {
+		case wakeCh <- struct{}{}:
+		default:
+		}
+
+		return nil
+	}
+
+	var queue, cap = len(r.ch), cap(r.ch)
+	if queue == cap {
+		r.log().WithFields(log.Fields{
+			"queue": queue,
+			"cap":   cap,
+		}).Warn("cancelling read due to full channel timeout")
+
+		r.cancel()
+		return context.Canceled
+	}
+
+	if queue != 0 {
+		select {
+		case <-time.After(time.Millisecond << (queue - 1)):
+			// Fall through to send to channel.
+		case <-r.ctx.Done():
+			return r.ctx.Err()
+		}
+	}
+
+	select {
+	case r.ch <- readResult{resp: resp}:
+	default:
+		panic("cannot block: channel isn't full and we're the only sender")
+	}
+
+	select {
+	case wakeCh <- struct{}{}:
+	default:
+	}
+
+	return nil
 }
 
 // Next returns the next message.Envelope in the read sequence,
@@ -559,3 +601,7 @@ func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
 	}
 	return at
 }
+
+// readChannelCapacity is sized so that sendReadResult will overflow and
+// cancel the read after ~8 seconds of no progress (1 << (14 - 1) millis).
+var readChannelCapacity = 15
