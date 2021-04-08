@@ -18,14 +18,13 @@ products and services that revolve around continuous data. With Flow, you:
     Flow back-fills newly declared views from historical data, and then keeps them fresh using
     precise, low-latency updates when new source documents arrive.
 
+![](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
+
 ## Documentation
 
 -   📖 [Flow documentation](https://app.gitbook.com/@estuary/s/flow/) (🚧 _we're actively building this out_).
 
 -   🧐 Many [examples/](examples/) are available in this repo, covering a range of use cases and techniques.
-
-Documentation for an older version of Flow continues to live at https://estuary.readthedocs.io,
-until we complete our documentation refresh. Concepts remain the same though many details have changed.
 
 ## Just show me the code
 
