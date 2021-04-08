@@ -623,15 +623,8 @@ type JournalShuffle struct {
 	Coordinator go_gazette_dev_core_consumer_protocol.ShardID `protobuf:"bytes,2,opt,name=coordinator,proto3,casttype=go.gazette.dev/core/consumer/protocol.ShardID" json:"coordinator,omitempty"`
 	// Shuffle of this JournalShuffle.
 	*Shuffle `protobuf:"bytes,3,opt,name=shuffle,proto3,embedded=shuffle" json:"shuffle,omitempty"`
-	// Is this a reply of the journal's content?
-	// We separate ongoing vs replayed reads of a journal's content into
-	// distinct rings, so that ongoing reads cannot deadlock a replay read.
-	//
-	// If we didn't do this, a shard might issue a replay read while
-	// *also* having a full recv queue of its ongoing read. Then, the
-	// the server would on sending yet another ongoing read, such that
-	// it's unable to service the replay read that would ultimately
-	// unblock the shard / allow it to drain new ongoing reads.
+	// Is this a reply of the journal's content? We separate ongoing vs replayed
+	// reads of a journal's content into distinct rings.
 	Replay bool `protobuf:"varint,4,opt,name=replay,proto3" json:"replay,omitempty"`
 	// Catalog commons for resolution of catalog resources like schema URIs.
 	CommonsId string `protobuf:"bytes,5,opt,name=commons_id,json=commonsId,proto3" json:"commons_id,omitempty"`

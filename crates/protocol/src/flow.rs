@@ -137,15 +137,8 @@ pub struct JournalShuffle {
     /// Shuffle of this JournalShuffle.
     #[prost(message, optional, tag="3")]
     pub shuffle: ::core::option::Option<Shuffle>,
-    /// Is this a reply of the journal's content?
-    /// We separate ongoing vs replayed reads of a journal's content into
-    /// distinct rings, so that ongoing reads cannot deadlock a replay read.
-    ///
-    /// If we didn't do this, a shard might issue a replay read while
-    /// *also* having a full recv queue of its ongoing read. Then, the
-    /// the server would on sending yet another ongoing read, such that
-    /// it's unable to service the replay read that would ultimately
-    /// unblock the shard / allow it to drain new ongoing reads.
+    /// Is this a reply of the journal's content? We separate ongoing vs replayed
+    /// reads of a journal's content into distinct rings.
     #[prost(bool, tag="4")]
     pub replay: bool,
     /// Catalog commons for resolution of catalog resources like schema URIs.
