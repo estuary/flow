@@ -2,7 +2,9 @@ package shuffle
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
+	"io"
 	"sort"
 	"testing"
 
@@ -279,6 +281,45 @@ func TestReadHeaping(t *testing.T) {
 		require.Equal(t, ind, heap.Pop(&h).(*read).resp.Index)
 	}
 	require.Empty(t, h)
+}
+
+func TestReadSendBackoffAndCancel(t *testing.T) {
+	const capacity = 4
+	var r = &read{ch: make(chan readResult, capacity)}
+	r.ctx, r.cancel = context.WithCancel(context.Background())
+	var wakeCh = make(chan struct{}, 1)
+
+	// If channel is regularly drained, sending is fast.
+	for i := 0; i != 20; i++ {
+		require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+		_, _ = <-r.ch, <-wakeCh // Both select.
+	}
+	// If channel is not drained, we can queue up to the channel capacity.
+	for i := 0; i != capacity; i++ {
+		require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+	}
+
+	// An attempt to send more cancels the context.
+	require.Equal(t, context.Canceled,
+		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+
+	// Suppose we had instead been cancelled elsewhere. Expect the cancellation
+	// would abort an exponential backoff.
+	<-r.ch // No longer full.
+	require.Equal(t, context.Canceled,
+		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+
+	<-wakeCh // Now empty.
+
+	// Pass final error. Expect it wakes and closes channel.
+	require.NoError(t, r.sendReadResult(nil, io.ErrUnexpectedEOF, wakeCh))
+
+	// Expect final error was sent on channel before its closed.
+	var last readResult
+	for last = range r.ch {
+	}
+	require.Equal(t, io.ErrUnexpectedEOF, last.err)
+	<-wakeCh // Was signaled.
 }
 
 func TestWalkingReads(t *testing.T) {
