@@ -2,7 +2,7 @@
 export type __module = null;
 
 // Generated from examples/stock-stats/schemas/exchange.schema.yaml.
-export type Exchange = /* Enum of market exchange codes. */ "NASDAQ" | "NYSE" | "SEHK";
+export type Exchange = /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/header.
 export type Header = /* Common properties of generated operations */ {
@@ -32,7 +32,7 @@ export type MutateOp = /* Operation which mutates a stream */ {
     ID: number;
     Ones: number;
     Op: number;
-    Type: "add" | "remove";
+    Type: 'add' | 'remove';
     Values: {
         [k: string]: number;
     };
@@ -87,7 +87,7 @@ export type VerifyOp = /* Operation which verifies the expected value of a strea
     Op: number;
     TotalAdd: number;
     TotalRemove: number;
-    Type: "verify";
+    Type: 'verify';
     Values: {
         [k: string]: number;
     };

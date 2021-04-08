@@ -8,46 +8,25 @@ export type Lambda = (source: Document, register?: Document, previous?: Document
 // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
 export type __interfaces_module = interfaces.__module;
 // Import derivation classes from their implementation modules.
-import {
-    AcmeBankBalances,
-} from '../../examples/acmeBank.flow';
+import { AcmeBankBalances } from '../../examples/acmeBank.flow';
 
-import {
-    ExamplesCitiBikeIdleBikes,
-} from '../../examples/citi-bike/idle-bikes.flow';
+import { ExamplesCitiBikeIdleBikes } from '../../examples/citi-bike/idle-bikes.flow';
 
-import {
-    ExamplesCitiBikeLastSeen,
-} from '../../examples/citi-bike/last-seen.flow';
+import { ExamplesCitiBikeLastSeen } from '../../examples/citi-bike/last-seen.flow';
 
-import {
-    ExamplesCitiBikeRidesAndRelocations,
-} from '../../examples/citi-bike/rides-and-relocations.flow';
+import { ExamplesCitiBikeRidesAndRelocations } from '../../examples/citi-bike/rides-and-relocations.flow';
 
-import {
-    ExamplesCitiBikeStations,
-} from '../../examples/citi-bike/stations.flow';
+import { ExamplesCitiBikeStations } from '../../examples/citi-bike/stations.flow';
 
-import {
-    PatternsInnerJoin,
-} from '../../examples/derive-patterns/join-inner.flow';
+import { PatternsInnerJoin } from '../../examples/derive-patterns/join-inner.flow';
 
-import {
-    PatternsOneSidedJoin,
-} from '../../examples/derive-patterns/join-one-sided.flow';
+import { PatternsOneSidedJoin } from '../../examples/derive-patterns/join-one-sided.flow';
 
-import {
-    PatternsOuterJoin,
-} from '../../examples/derive-patterns/join-outer.flow';
+import { PatternsOuterJoin } from '../../examples/derive-patterns/join-outer.flow';
 
-import {
-    PatternsSumsDb,
-    PatternsSumsRegister,
-} from '../../examples/derive-patterns/summer.flow';
+import { PatternsSumsDb, PatternsSumsRegister } from '../../examples/derive-patterns/summer.flow';
 
-import {
-    PatternsZeroCrossing,
-} from '../../examples/derive-patterns/zero-crossing.flow';
+import { PatternsZeroCrossing } from '../../examples/derive-patterns/zero-crossing.flow';
 
 import {
     MarketingClicksWithViews,
@@ -55,13 +34,9 @@ import {
     MarketingViewsWithCampaign,
 } from '../../examples/marketing/flow';
 
-import {
-    ExamplesNetTraceServices,
-} from '../../examples/net-trace/services.flow';
+import { ExamplesNetTraceServices } from '../../examples/net-trace/services.flow';
 
-import {
-    ExamplesReKeyStableEvents,
-} from '../../examples/re-key/flow';
+import { ExamplesReKeyStableEvents } from '../../examples/re-key/flow';
 
 import {
     ExamplesSegmentMemberships,
@@ -69,66 +44,52 @@ import {
     ExamplesSegmentToggles,
 } from '../../examples/segment/flow';
 
-import {
-    ExamplesShoppingCartUpdatesWithProducts,
-} from '../../examples/shopping/cart-updates-with-products.flow';
+import { ExamplesShoppingCartUpdatesWithProducts } from '../../examples/shopping/cart-updates-with-products.flow';
 
-import {
-    ExamplesShoppingCarts,
-} from '../../examples/shopping/carts.flow';
+import { ExamplesShoppingCarts } from '../../examples/shopping/carts.flow';
 
-import {
-    ExamplesShoppingPurchases,
-} from '../../examples/shopping/purchases.flow';
+import { ExamplesShoppingPurchases } from '../../examples/shopping/purchases.flow';
 
-import {
-    SoakSetOpsSets,
-    SoakSetOpsSetsRegister,
-} from '../../examples/soak-tests/set-ops/flow';
+import { SoakSetOpsSets, SoakSetOpsSetsRegister } from '../../examples/soak-tests/set-ops/flow';
 
-import {
-    StockDailyStats,
-} from '../../examples/stock-stats/flow';
+import { StockDailyStats } from '../../examples/stock-stats/flow';
 
-import {
-    TemperatureAverageByLocation,
-} from '../../examples/temp-sensors/flow';
+import { TemperatureAverageByLocation, TemperatureAverageTemps } from '../../examples/temp-sensors/flow';
 
-import {
-    ExamplesWikiPages,
-} from '../../examples/wiki/pages.flow';
+import { ExamplesWikiPages } from '../../examples/wiki/pages.flow';
 
 // Build instances of each class, which will be bound to this module's router.
-let __AcmeBankBalances: interfaces.AcmeBankBalances = new AcmeBankBalances();
-let __ExamplesCitiBikeIdleBikes: interfaces.ExamplesCitiBikeIdleBikes = new ExamplesCitiBikeIdleBikes();
-let __ExamplesCitiBikeLastSeen: interfaces.ExamplesCitiBikeLastSeen = new ExamplesCitiBikeLastSeen();
-let __ExamplesCitiBikeRidesAndRelocations: interfaces.ExamplesCitiBikeRidesAndRelocations = new ExamplesCitiBikeRidesAndRelocations();
-let __ExamplesCitiBikeStations: interfaces.ExamplesCitiBikeStations = new ExamplesCitiBikeStations();
-let __ExamplesNetTraceServices: interfaces.ExamplesNetTraceServices = new ExamplesNetTraceServices();
-let __ExamplesReKeyStableEvents: interfaces.ExamplesReKeyStableEvents = new ExamplesReKeyStableEvents();
-let __ExamplesSegmentMemberships: interfaces.ExamplesSegmentMemberships = new ExamplesSegmentMemberships();
-let __ExamplesSegmentProfiles: interfaces.ExamplesSegmentProfiles = new ExamplesSegmentProfiles();
-let __ExamplesSegmentToggles: interfaces.ExamplesSegmentToggles = new ExamplesSegmentToggles();
-let __ExamplesShoppingCartUpdatesWithProducts: interfaces.ExamplesShoppingCartUpdatesWithProducts = new ExamplesShoppingCartUpdatesWithProducts();
-let __ExamplesShoppingCarts: interfaces.ExamplesShoppingCarts = new ExamplesShoppingCarts();
-let __ExamplesShoppingPurchases: interfaces.ExamplesShoppingPurchases = new ExamplesShoppingPurchases();
-let __ExamplesWikiPages: interfaces.ExamplesWikiPages = new ExamplesWikiPages();
-let __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
-let __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
-let __MarketingViewsWithCampaign: interfaces.MarketingViewsWithCampaign = new MarketingViewsWithCampaign();
-let __PatternsInnerJoin: interfaces.PatternsInnerJoin = new PatternsInnerJoin();
-let __PatternsOneSidedJoin: interfaces.PatternsOneSidedJoin = new PatternsOneSidedJoin();
-let __PatternsOuterJoin: interfaces.PatternsOuterJoin = new PatternsOuterJoin();
-let __PatternsSumsDb: interfaces.PatternsSumsDb = new PatternsSumsDb();
-let __PatternsSumsRegister: interfaces.PatternsSumsRegister = new PatternsSumsRegister();
-let __PatternsZeroCrossing: interfaces.PatternsZeroCrossing = new PatternsZeroCrossing();
-let __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
-let __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
-let __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
-let __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
+const __AcmeBankBalances: interfaces.AcmeBankBalances = new AcmeBankBalances();
+const __ExamplesCitiBikeIdleBikes: interfaces.ExamplesCitiBikeIdleBikes = new ExamplesCitiBikeIdleBikes();
+const __ExamplesCitiBikeLastSeen: interfaces.ExamplesCitiBikeLastSeen = new ExamplesCitiBikeLastSeen();
+const __ExamplesCitiBikeRidesAndRelocations: interfaces.ExamplesCitiBikeRidesAndRelocations = new ExamplesCitiBikeRidesAndRelocations();
+const __ExamplesCitiBikeStations: interfaces.ExamplesCitiBikeStations = new ExamplesCitiBikeStations();
+const __ExamplesNetTraceServices: interfaces.ExamplesNetTraceServices = new ExamplesNetTraceServices();
+const __ExamplesReKeyStableEvents: interfaces.ExamplesReKeyStableEvents = new ExamplesReKeyStableEvents();
+const __ExamplesSegmentMemberships: interfaces.ExamplesSegmentMemberships = new ExamplesSegmentMemberships();
+const __ExamplesSegmentProfiles: interfaces.ExamplesSegmentProfiles = new ExamplesSegmentProfiles();
+const __ExamplesSegmentToggles: interfaces.ExamplesSegmentToggles = new ExamplesSegmentToggles();
+const __ExamplesShoppingCartUpdatesWithProducts: interfaces.ExamplesShoppingCartUpdatesWithProducts = new ExamplesShoppingCartUpdatesWithProducts();
+const __ExamplesShoppingCarts: interfaces.ExamplesShoppingCarts = new ExamplesShoppingCarts();
+const __ExamplesShoppingPurchases: interfaces.ExamplesShoppingPurchases = new ExamplesShoppingPurchases();
+const __ExamplesWikiPages: interfaces.ExamplesWikiPages = new ExamplesWikiPages();
+const __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
+const __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
+const __MarketingViewsWithCampaign: interfaces.MarketingViewsWithCampaign = new MarketingViewsWithCampaign();
+const __PatternsInnerJoin: interfaces.PatternsInnerJoin = new PatternsInnerJoin();
+const __PatternsOneSidedJoin: interfaces.PatternsOneSidedJoin = new PatternsOneSidedJoin();
+const __PatternsOuterJoin: interfaces.PatternsOuterJoin = new PatternsOuterJoin();
+const __PatternsSumsDb: interfaces.PatternsSumsDb = new PatternsSumsDb();
+const __PatternsSumsRegister: interfaces.PatternsSumsRegister = new PatternsSumsRegister();
+const __PatternsZeroCrossing: interfaces.PatternsZeroCrossing = new PatternsZeroCrossing();
+const __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
+const __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
+const __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
+const __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
+const __TemperatureAverageTemps: interfaces.TemperatureAverageTemps = new TemperatureAverageTemps();
 
 // Now build the router that's used for transformation lambda dispatch.
-let routes: { [path: string]: Lambda | undefined } = {
+const routes: { [path: string]: Lambda | undefined } = {
     '/derive/acmeBank/balances/fromTransfers/Publish': __AcmeBankBalances.fromTransfersPublish.bind(
         __AcmeBankBalances,
     ) as Lambda,
@@ -249,9 +210,7 @@ let routes: { [path: string]: Lambda | undefined } = {
     '/derive/patterns/outer-join/fromStrings/Publish': __PatternsOuterJoin.fromStringsPublish.bind(
         __PatternsOuterJoin,
     ) as Lambda,
-    '/derive/patterns/sums-db/fromInts/Publish': __PatternsSumsDb.fromIntsPublish.bind(
-        __PatternsSumsDb,
-    ) as Lambda,
+    '/derive/patterns/sums-db/fromInts/Publish': __PatternsSumsDb.fromIntsPublish.bind(__PatternsSumsDb) as Lambda,
     '/derive/patterns/sums-register/fromInts/Update': __PatternsSumsRegister.fromIntsUpdate.bind(
         __PatternsSumsRegister,
     ) as Lambda,
@@ -273,20 +232,21 @@ let routes: { [path: string]: Lambda | undefined } = {
     '/derive/soak/set-ops/sets-register/onOperation/Publish': __SoakSetOpsSetsRegister.onOperationPublish.bind(
         __SoakSetOpsSetsRegister,
     ) as Lambda,
-    '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(
-        __StockDailyStats,
-    ) as Lambda,
-    '/derive/temperature/average-by-location/readings/Update': __TemperatureAverageByLocation.readingsUpdate.bind(
+    '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(__StockDailyStats) as Lambda,
+    '/derive/temperature/averageByLocation/avgTempLocationSensors/Update': __TemperatureAverageByLocation.avgTempLocationSensorsUpdate.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/readings/Publish': __TemperatureAverageByLocation.readingsPublish.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationSensors/Publish': __TemperatureAverageByLocation.avgTempLocationSensorsPublish.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/sensors/Update': __TemperatureAverageByLocation.sensorsUpdate.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationTemps/Update': __TemperatureAverageByLocation.avgTempLocationTempsUpdate.bind(
         __TemperatureAverageByLocation,
     ) as Lambda,
-    '/derive/temperature/average-by-location/sensors/Publish': __TemperatureAverageByLocation.sensorsPublish.bind(
+    '/derive/temperature/averageByLocation/avgTempLocationTemps/Publish': __TemperatureAverageByLocation.avgTempLocationTempsPublish.bind(
         __TemperatureAverageByLocation,
+    ) as Lambda,
+    '/derive/temperature/averageTemps/averageTemps/Publish': __TemperatureAverageTemps.averageTempsPublish.bind(
+        __TemperatureAverageTemps,
     ) as Lambda,
 };
 

@@ -232,14 +232,14 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
     for interface in interfaces {
         writeln!(
             w,
-            "let __{class}: interfaces.{class} = new {class}();",
+            "const __{class}: interfaces.{class} = new {class}();",
             class = camel_case(&interface.derivation.derivation, true)
         )
         .unwrap();
     }
 
     w.push_str("\n// Now build the router that's used for transformation lambda dispatch.\n");
-    w.push_str("let routes: { [path: string]: Lambda | undefined } = {\n");
+    w.push_str("const routes: { [path: string]: Lambda | undefined } = {\n");
 
     for interface in interfaces {
         let derivation: &str = &interface.derivation.derivation;

@@ -10,8 +10,8 @@ export class ExamplesNetTraceServices implements interfaces.ExamplesNetTraceServ
         _previous: registers.ExamplesNetTraceServices,
     ): collections.ExamplesNetTraceServices[] {
         // Use moment.js to deal with oddball timestamp format, and truncate to current date.
-        let date = moment(source.timestamp, 'DD/MM/YYYYhh:mm:ss').format('YYYY-MM-DD');
-        let out = [];
+        const date = moment(source.timestamp, 'DD/MM/YYYYhh:mm:ss').format('YYYY-MM-DD');
+        const out = [];
 
         if (source.src.port < 1024) {
             source.src.ip = source.src.ip.split('.').slice(0, -1).join('.');

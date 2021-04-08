@@ -39,9 +39,11 @@ export type ExampleReductionsFwwLww = {
 // Referenced as schema of examples/reduction-types/merge.flow.yaml#/collections/example~1reductions~1merge.
 export type ExampleReductionsMerge = {
     key: string;
-    value?: {
-        [k: string]: number;
-    } | number[];
+    value?:
+        | {
+              [k: string]: number;
+          }
+        | number[];
 };
 
 // Generated from examples/reduction-types/merge_key.flow.yaml?ptr=/collections/example~1reductions~1merge-key/schema.
@@ -97,7 +99,7 @@ export type ExampleReductionsSum = {
 // Generated from examples/reduction-types/reset_counter.flow.yaml?ptr=/collections/example~1reductions~1sum-reset/schema.
 // Referenced as schema of examples/reduction-types/reset_counter.flow.yaml#/collections/example~1reductions~1sum-reset.
 export type ExampleReductionsSumReset = {
-    action?: "reset" | "sum";
+    action?: 'reset' | 'sum';
     key: string;
     value?: number;
 };
@@ -165,7 +167,7 @@ export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
         timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ "Customer" | "Subscriber";
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ 'Customer' | 'Subscriber';
 };
 
 // Generated from examples/citi-bike/rides-and-relocations.flow.yaml?ptr=/collections/examples~1citi-bike~1rides-and-relocations/schema.
@@ -198,7 +200,7 @@ export type ExamplesCitiBikeRidesAndRelocations = /* Ride within the Citi Bike s
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
     relocation?: true;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ "Customer" | "Subscriber";
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ 'Customer' | 'Subscriber';
 };
 
 // Generated from examples/citi-bike/station.schema.yaml.
@@ -591,7 +593,7 @@ export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
     ID: number;
     Ones: number;
     Op: number;
-    Type: "add" | "remove" | "verify";
+    Type: 'add' | 'remove' | 'verify';
     Values: {
         [k: string]: number;
     };
@@ -671,15 +673,33 @@ export type StockTicks = /* Level-one market tick of a security. */ {
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/locationTemps.
-// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1average-by-location.
-export type TemperatureAverageByLocation = /* Average temperature information for a particular location */ {
-    averageTempC: number;
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/avgTempsWithLocation.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation.
+export type TemperatureAverageByLocation = /* Average temperature with location added */ {
+    avgC?: number;
+    lastReading?: /* Timestamp of the most recent reading for this named location */ string;
+    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+        bbox?: number[];
+        coordinates: number[];
+        type: 'Point';
+    };
+    locationName?: string | null;
+    maxTempC?: number;
+    minTempC?: number;
+    numReadings?: number;
+    sensorId: number;
+    totalC?: number;
+};
+
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/averageTemps.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps.
+export type TemperatureAverageTemps = /* Average temperature information for a particular sensor */ {
     lastReading: /* Timestamp of the most recent reading for this named location */ string;
-    locationName: string | null;
     maxTempC: number;
     minTempC: number;
+    numReadings: number;
     sensorId: number;
+    totalC: number;
 };
 
 // Generated from examples/temp-sensors/schemas.yaml#/$defs/tempReading.
@@ -697,7 +717,7 @@ export type TemperatureSensors = /* A sensor that produces temperature readings 
     location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
         bbox?: number[];
         coordinates: number[];
-        type: "Point";
+        type: 'Point';
     };
     locationName: /* Human readable name of the sensor location */ string;
 };
