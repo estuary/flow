@@ -100,7 +100,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 	}
 
 	// Apply catalog task specifications to the cluster.
-	if _, _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	commons, revision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  ctx,
 		Etcd:                 etcd,
 		Root:                 cmd.Flow.CatalogRoot,
@@ -108,9 +108,14 @@ func (cmd cmdApply) Execute(_ []string) error {
 		TypeScriptUDS:        "",
 		TypeScriptPackageURL: "etcd://" + packageKey,
 		DryRun:               cmd.DryRun,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
+	log.WithFields(log.Fields{
+		"commons":  commons,
+		"revision": revision,
+	}).Debug("applied catalog to Etcd")
 
 	if !cmd.DryRun {
 		// Apply derivation shard specs.
@@ -121,6 +126,9 @@ func (cmd cmdApply) Execute(_ []string) error {
 		if err = applyMaterializationShardsTODO(built, shards); err != nil {
 			return fmt.Errorf("applying materialization shards: %w", err)
 		}
+		fmt.Println("Applied.")
+	} else {
+		fmt.Println("Not applied (dry run).")
 	}
 
 	return err
