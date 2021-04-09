@@ -275,8 +275,30 @@ pub fn stubs_ts(
         .group_by(|i| i.module.relative_path())
         .into_iter()
     {
+        // Collect into a vec so that we can iterate it twice
+        let interfaces = interfaces.collect_vec();
         let mut w = String::with_capacity(4096);
-        w.push_str(STUBS_HEADER);
+
+        // If any transform uses a source schema, then we must import the transforms module, since
+        // the function parameter will use it. We want to avoid importing it if it's not needed so
+        // that it doesn't trigger a linter error.
+        let uses_transform_source_schema = interfaces.iter().any(|iface| {
+            iface
+                .methods
+                .iter()
+                .any(|method| method.transform.source_schema.is_some())
+        });
+        let transforms_import = if uses_transform_source_schema {
+            ", transforms"
+        } else {
+            ""
+        };
+
+        let _ = writeln!(
+            w,
+            "import {{ collections, interfaces, registers{} }} from 'flow/modules';",
+            transforms_import
+        );
 
         for Interface {
             derivation: tables::Derivation {
@@ -359,5 +381,3 @@ export type Lambda = (source: Document, register?: Document, previous?: Document
 // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
 export type __interfaces_module = interfaces.__module;
 "#;
-
-const STUBS_HEADER: &str = "import { collections, interfaces, registers } from 'flow/modules';\n";

@@ -161,6 +161,16 @@ export interface ExamplesShoppingPurchases {
     ): collections.ExamplesShoppingPurchases[];
 }
 
+// Generated from derivation examples/source-schema/flow.yaml#/collections/examples~1source-schema~1restrictive/derivation.
+// Required to be implemented by examples/source-schema/flow.ts.
+export interface ExamplesSourceSchemaRestrictive {
+    fromPermissivePublish(
+        source: transforms.ExamplesSourceSchemaRestrictivefromPermissiveSource,
+        register: registers.ExamplesSourceSchemaRestrictive,
+        previous: registers.ExamplesSourceSchemaRestrictive,
+    ): collections.ExamplesSourceSchemaRestrictive[];
+}
+
 // Generated from derivation examples/wiki/pages.flow.yaml#/collections/examples~1wiki~1pages/derivation.
 // Required to be implemented by examples/wiki/pages.flow.ts.
 export interface ExamplesWikiPages {

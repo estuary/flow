@@ -116,6 +116,10 @@ export type ExamplesShoppingPurchases = /* Roll up of all products that users ha
     userId: number;
 };
 
+// Generated from examples/source-schema/flow.yaml?ptr=/collections/examples~1source-schema~1restrictive/derivation/register/schema.
+// Referenced as register_schema of examples/source-schema/flow.yaml#/collections/examples~1source-schema~1restrictive/derivation.
+export type ExamplesSourceSchemaRestrictive = unknown;
+
 // Generated from examples/wiki/pages.flow.yaml?ptr=/collections/examples~1wiki~1pages/derivation/register/schema.
 // Referenced as register_schema of examples/wiki/pages.flow.yaml#/collections/examples~1wiki~1pages/derivation.
 export type ExamplesWikiPages = unknown;
