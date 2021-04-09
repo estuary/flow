@@ -13,3 +13,4 @@ import:
   - stock-stats/flow.yaml
   - temp-sensors/flow.yaml
   - wiki/flow.yaml
+  - source-schema/flow.yaml
