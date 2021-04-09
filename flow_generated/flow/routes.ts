@@ -52,6 +52,8 @@ import { ExamplesShoppingPurchases } from '../../examples/shopping/purchases.flo
 
 import { SoakSetOpsSets, SoakSetOpsSetsRegister } from '../../examples/soak-tests/set-ops/flow';
 
+import { ExamplesSourceSchemaRestrictive } from '../../examples/source-schema/flow';
+
 import { StockDailyStats } from '../../examples/stock-stats/flow';
 
 import { TemperatureAverageByLocation, TemperatureAverageTemps } from '../../examples/temp-sensors/flow';
@@ -72,6 +74,7 @@ const __ExamplesSegmentToggles: interfaces.ExamplesSegmentToggles = new Examples
 const __ExamplesShoppingCartUpdatesWithProducts: interfaces.ExamplesShoppingCartUpdatesWithProducts = new ExamplesShoppingCartUpdatesWithProducts();
 const __ExamplesShoppingCarts: interfaces.ExamplesShoppingCarts = new ExamplesShoppingCarts();
 const __ExamplesShoppingPurchases: interfaces.ExamplesShoppingPurchases = new ExamplesShoppingPurchases();
+const __ExamplesSourceSchemaRestrictive: interfaces.ExamplesSourceSchemaRestrictive = new ExamplesSourceSchemaRestrictive();
 const __ExamplesWikiPages: interfaces.ExamplesWikiPages = new ExamplesWikiPages();
 const __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
 const __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
@@ -161,6 +164,9 @@ const routes: { [path: string]: Lambda | undefined } = {
     ) as Lambda,
     '/derive/examples/shopping/purchases/purchaseActions/Publish': __ExamplesShoppingPurchases.purchaseActionsPublish.bind(
         __ExamplesShoppingPurchases,
+    ) as Lambda,
+    '/derive/examples/source-schema/restrictive/fromPermissive/Publish': __ExamplesSourceSchemaRestrictive.fromPermissivePublish.bind(
+        __ExamplesSourceSchemaRestrictive,
     ) as Lambda,
     '/derive/examples/wiki/pages/rollUpEdits/Publish': __ExamplesWikiPages.rollUpEditsPublish.bind(
         __ExamplesWikiPages,

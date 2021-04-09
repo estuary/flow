@@ -417,6 +417,21 @@ export type ExamplesShoppingUsers = /* A user who may buy things from our site *
     name: string;
 };
 
+// Generated from examples/source-schema/flow.yaml?ptr=/collections/examples~1source-schema~1permissive/schema.
+// Referenced as schema of examples/source-schema/flow.yaml#/collections/examples~1source-schema~1permissive.
+export type ExamplesSourceSchemaPermissive = /* Allows any JSON object, as long as it has a string id field */ {
+    id: string;
+};
+
+// Generated from examples/source-schema/flow.yaml?ptr=/collections/examples~1source-schema~1restrictive/schema.
+// Referenced as schema of examples/source-schema/flow.yaml#/collections/examples~1source-schema~1restrictive.
+export type ExamplesSourceSchemaRestrictive = {
+    a: number;
+    b: boolean;
+    c: number;
+    id: string;
+};
+
 // Generated from examples/wiki/edits.flow.yaml?ptr=/collections/examples~1wiki~1edits/schema.
 // Referenced as schema of examples/wiki/edits.flow.yaml#/collections/examples~1wiki~1edits.
 export type ExamplesWikiEdits = {
