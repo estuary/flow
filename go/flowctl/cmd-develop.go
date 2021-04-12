@@ -19,9 +19,9 @@ import (
 )
 
 type cmdDevelop struct {
-	mbp.ServiceConfig
-	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Port        uint16                `long:"port" env:"PORT" default:"8080" description:"Service port for HTTP and gRPC requests"`
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -101,9 +101,12 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		EtcdCatalogPrefix:  "/flowctl/develop/catalog",
 		EtcdBrokerPrefix:   "/flowctl/develop/broker",
 		EtcdConsumerPrefix: "/flowctl/develop/runtime",
-		ServiceConfig:      cmd.ServiceConfig,
+		ServiceConfig: mbp.ServiceConfig{
+			ZoneConfig: mbp.ZoneConfig{Zone: "local"},
+			Host:       "localhost",
+			Port:       cmd.Port,
+		},
 	}
-	cfg.ZoneConfig.Zone = "local"
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
