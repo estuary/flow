@@ -3,22 +3,33 @@
 
 # Estuary Flow (Preview)
 
-Estuary Flow's mission is to make it easy for companies to build and operate
-products and services that revolve around continuous data. With Flow, you:
+Estuary Flow is a tool for integrating all of the systems you use to produce, process, and consume data.
+It unifies today's "batch" and "streaming" paradigms so that your systems
+– current and future –
+are synchronized around the same data sets, updating in milliseconds.
+With Flow, you:
 
--   📷 **Capture** batch and streaming data sources into _collections_: schematized continuous
+-   📷 **Capture** data sources into _collections_: schematized continuous
     datasets that are represented using regular files of JSON in your cloud storage bucket.
     Collections are designed to directly plug into to your existing tools: Spark, Snowflake,
     BigQuery, and others, keeping your data portable, flexible, and... yours!
 
--   🌊 Declare structured transformations over collections and **materialize** them
+-   🌊 Declare transformations over collections and **materialize** them
     as views into other systems: databases, key/value stores, Webhooks, pub/sub, and more.
 
     Views are repeatable: they always reflect entire collections, not just ongoing updates.
-    Flow back-fills newly declared views from historical data, and then keeps them fresh using
-    precise, low-latency updates when new source documents arrive.
+    Flow back-fills new views from history and then keeps them fresh using
+    precise, low-latency updates driven by your writes.
 
-![](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
+    Flow's transformations are uniquely powerful:
+    they're able to tackle stream-to-stream joins,
+    real-time reporting,
+    anomaly detection,
+    and transaction processing use-cases
+    without being subject to the windowing constraints and
+    partition limitations that plague other streaming workflows.
+
+![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
 
 ## Documentation
 
@@ -32,7 +43,7 @@ Write declarative YAML and [JSON Schema](https://json-schema.org/):
 
 ```YAML
 collections:
-  # Transfers between accounts, e.x. {id: 123, from: alice, to: bob, amount: 32.50}.
+  # 💲 transfers between accounts, e.x. {id: 123, from: alice, to: bob, amount: 32.50}.
   acmeBank/transfers:
     schema:
       # Inline JSON Schema of collection documents.
@@ -144,12 +155,11 @@ and derivations and materializations leverage the Gazette consumer framework to
 provide durable register states, exactly-once semantics, high availability,
 and dynamic scale-out.
 
-Flow is neither "batch" or "streaming", but unifies these paradigms with its
-_collection_ concept. Collections are an unbounded batch dataset -- they're stored as
-a structured "data lake" of general-purpose files in cloud storage -- and at the same
-time are a millisecond-latency stream of updates. Flow consumes directly from cloud
-storage for high-scale reads of history, and seamlessly transitions to low-latency
-streaming on reaching the present.
+Flow collections are both a batch dataset –
+they're stored as a structured "data lake" of general-purpose files in cloud storage –
+and a stream, able to commit new documents and forward them to readers within milliseconds.
+New use cases read directly from cloud storage for high scale back-fills of history,
+and seamlessly transition to low-latency streaming on reaching the present.
 
 ## Is it "production" yet?
 
@@ -209,8 +219,8 @@ $ flowctl test --source https://raw.githubusercontent.com/estuary/flow/master/ex
 You interact with Flow through the `flowctl` CLI tool:
 
 -   `flowctl test` runs all tests of a `--source` catalog.
--   `flowctl develop` starts the Flow runtime around a `--source` catalog, miniaturized to a single local process.
--   `flowctl serve ... ` joins, and `flowctl apply` updates, a production cluster with separate Gazette & Etcd deployments.
+-   `flowctl develop` serves a `--source` catalog as a single local process (✈️ mode).
+-   `flowctl apply` updates a production deployment of Flow.
 
 Estuary also provides a fully managed offering of Flow, running in your Kubernetes cluster.
 Please [reach out](https://estuary.dev/#contact-us) to us for details.
