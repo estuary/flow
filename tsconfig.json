@@ -5,7 +5,7 @@
 		"forceConsistentCasingInFileNames": true,
 		"incremental": true,
 		"lib": [
-			"ES2020"
+			"ES2019"
 		],
 		"module": "commonjs",
 		"noEmitOnError": true,
@@ -14,7 +14,7 @@
 		"pretty": true,
 		"sourceMap": true,
 		"strict": true,
-		"target": "ES2020",
+		"target": "ES2019",
 		"rootDir": ".",
 		"outDir": "dist",
 		// Any non-relative modules are resolved against this base directory.
