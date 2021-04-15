@@ -4,7 +4,8 @@
 # Estuary Flow (Preview)
 
 Estuary Flow is a tool for integrating all of the systems you use to produce, process, and consume data.
-It unifies today's "batch" and "streaming" paradigms so that your systems
+It unifies today's batch vs streaming paradigms
+so that your systems
 – current and future –
 are synchronized around the same data sets, updating in milliseconds.
 With Flow, you:
@@ -15,25 +16,24 @@ With Flow, you:
     BigQuery, and others, keeping your data portable, flexible, and... yours!
 
 -   🌊 Declare transformations over collections and **materialize** them
-    as views into other systems: databases, key/value stores, Webhooks, pub/sub, and more.
+    into your systems: databases, key/value stores, Webhooks, pub/sub, and more.
 
-    Views are repeatable: they always reflect entire collections, not just ongoing updates.
-    Flow back-fills new views from history and then keeps them fresh using
+    Views are repeatable:
+    they always reflect entire collections, not just ongoing updates.
+    Flow back-fills from history and then keeps your systems fresh using
     precise, low-latency updates driven by your writes.
 
-    Flow's transformations are uniquely powerful:
-    they're able to tackle stream-to-stream joins,
-    real-time reporting,
-    anomaly detection,
-    and transaction processing use-cases
-    without being subject to the windowing constraints and
-    partition limitations that plague other streaming workflows.
+    Transformations are uniquely powerful.
+    You can tackle the full gamut of stateful stream workflows,
+    including joins and aggregations,
+    without being subject to the windowing and scaling
+    limitations that plague other systems.
 
 ![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
 
 ## Documentation
 
--   📖 [Flow documentation](https://docs.estuary.dev/) (🚧 _we're actively building this out_).
+-   📖 [Flow documentation](https://docs.estuary.dev/).
 
 -   🧐 Many [examples/](examples/) are available in this repo, covering a range of use cases and techniques.
 
@@ -43,10 +43,11 @@ Write declarative YAML and [JSON Schema](https://json-schema.org/):
 
 ```YAML
 collections:
-  # 💲 transfers between accounts, e.x. {id: 123, from: alice, to: bob, amount: 32.50}.
+  # Collection of 💲 transfers between accounts:
+  #   {id: 123, from: alice, to: bob, amount: 32.50}
   acmeBank/transfers:
     schema:
-      # Inline JSON Schema of collection documents.
+      # JSON Schema of collection's documents.
       type: object
       properties:
         id: { type: integer }
@@ -56,15 +57,16 @@ collections:
       required: [id, from, to, amount]
     key: [/id]
 
-  # Derived balances of each account, e.x. {account: alice, amount: 67.35}.
+  # Derived balances of each account:
+  #   {account: alice, amount: 67.35}
   acmeBank/balances:
     schema:
       type: object
       properties:
         account: { type: string }
         amount:
-          # "reduce" keyword extends JSON Schema with annotated reduction
-          # behaviors at document locations.
+          # Flow extends JSON schema with "reduce" annotations.
+          # These tell Flow how to combine each document location.
           reduce: { strategy: sum }
           type: number
       required: [account, amount]
@@ -75,14 +77,16 @@ collections:
       transform:
         fromTransfers:
           source: { name: acmeBank/transfers }
-          # Update balances from source transfers.
+          # Lambdas are pure functions.
+          # This one maps a transfer into balance updates.
           publish: { lambda: typescript }
 
 endpoints:
   acmeBank/database:
     postgres:
+      # Try this by standing up a local PostgreSQL database.
       # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
-      # Use host: host.docker.internal when running Docker for Windows / Mac.
+      # (Use host: host.docker.internal when running Docker for Windows/Mac).
       host: localhost
       password: password
       dbname: postgres
@@ -90,7 +94,8 @@ endpoints:
       port: 5432
 
 materializations:
-  # Materialize the current balance for each account. Flow creates table:
+  # Materialize the current balance for each account.
+  # Flow creates the table for us:
   # CREATE TABLE "account_balances" (
   #      account TEXT PRIMARY KEY NOT NULL,
   #      amount  DOUBLE PRECISION NOT NULL,
@@ -124,18 +129,21 @@ corresponding TypeScript module `acmeBank.flow.ts` that export its lambda defini
 ```TypeScript
 import { collections, interfaces, registers } from 'flow/modules';
 
-// `collections`, `interfaces`, and `registers` are generated from your JSON schema.
-// Flow will auto-create this module with an implementation stub if it doesn't exist:
-// all you have to write is the function body.
+// TypeScript types in `flow/modules` are generated from your catalog,
+// and Flow will create this file with an implementation stub if it
+// doesn't exist: all you have to write is the function body.
 
 export class AcmeBankBalances implements interfaces.AcmeBankBalances {
     fromTransfersPublish(
         source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankBalances, // Registers enable stateful derivations,
-        _previous: registers.AcmeBankBalances, // but aren't needed here.
+        // Registers enable stateful workflows, and are part of
+        // the interface Flow expects, but aren't used here.
+        _register: registers.AcmeBankBalances,
+        _previous: registers.AcmeBankBalances,
     ): collections.AcmeBankBalances[] {
         return [
-            // A transfer removes from the sender and adds to the receiver.
+            // Map each transfer into a balance decrement
+            // of the sender and increment of the receiver.
             {account: source.from, amount: -source.amount},
             {account: source.to, amount: source.amount},
         ];
@@ -143,17 +151,18 @@ export class AcmeBankBalances implements interfaces.AcmeBankBalances {
 }
 ```
 
-Lambdas can also be remote HTTP endpoints (e.x. AWS λ), and our road-map includes
-producing OpenAPI specs for type definitions in your language of choice, as well
-as support for WASM modules.
+Today Flow supports TypeScript modules, which Flow runs on your behalf,
+or a JSON HTTP endpoint (such as AWS λ) that you supply.
+In the future we'll add support for WebAssembly and OpenAPI.
 
 ## How does it work?
 
-Flow is built upon [Gazette](https://gazette.dev) and is by the Gazette authors.
-Logical and physical partitions of collections are implemented as Gazette journals,
-and derivations and materializations leverage the Gazette consumer framework to
-provide durable register states, exactly-once semantics, high availability,
-and dynamic scale-out.
+Flow builds upon [Gazette](https://gazette.dev) and is by the Gazette authors.
+Collections have logical and physical partitions
+which are implemented as Gazette journals.
+Derivations and materializations leverage the Gazette consumer framework,
+which provide durable state management, exactly-once semantics,
+high availability, and dynamic scale-out.
 
 Flow collections are both a batch dataset –
 they're stored as a structured "data lake" of general-purpose files in cloud storage –
@@ -163,11 +172,11 @@ and seamlessly transition to low-latency streaming on reaching the present.
 
 ## Is it "production" yet?
 
-Gazette, on which Flow is built, has been operated at large scale (GB/s) for many
-years now and is very stable.
+Gazette, on which Flow is built, has been operating at large scale (GB/s)
+for many years now and is very stable.
 
 Flow itself is winding down from an intense period of research and development.
-We're running production pilots now, but it's early. You should expect that Flow
+Estuary is running production pilots now, but it's early. You should expect that Flow
 may fail in ways that halt execution of derivations or materializations. There may
 be cases where derivations or materialization must be rebuilt due to bugs within Flow.
 Loss of ingested source data, however, is very unlikely.
@@ -182,13 +191,13 @@ We haven't begun any profile-guided optimization work, though, and this is likel
 
 Flow mixes a variety of architectural techniques to achieve great throughput without adding latency:
 
--   Optimistic pipelining, using the natural back-pressure of systems to which data is committed.
+-   Optimistic pipelining, using the natural back-pressure of systems to which data is committed
 -   Leveraging `reduce` annotations to group collection documents by-key wherever possible,
-    in memory, before writing them out.
+    in memory, before writing them out
 -   Co-locating derivation states (_registers_) with derivation compute:
     registers live in an embedded RocksDB that's replicated for durability and machine re-assignment.
     They update in memory and only write out at transaction boundaries.
--   Vectorizing the work done in external and even process-internal RPCs.
+-   Vectorizing the work done in external Remote Procedure Calls (RPCs) and even process-internal operations.
 -   Marrying the development velocity of Go with the raw performance of Rust, using a zero-copy
     [CGO service channel](https://github.com/estuary/flow/commit/0fc0ff83fc5c58e01a09a053419f811d4460776e).
 
