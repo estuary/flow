@@ -602,7 +602,7 @@ export type PatternsSumsRegister = {
 export type PatternsZeroCrossing = anchors.Int;
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
-// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
+// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1operations.
 export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
     Author: number;
     ID: number;
@@ -615,7 +615,7 @@ export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
 };
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/outputWithReductions.
-// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets.
+// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets.
 export type SoakSetOpsSets = /* Output merges expected and actual values for a given stream */ {
     AppliedAdd?: number;
     AppliedOps?: number[];
@@ -635,8 +635,28 @@ export type SoakSetOpsSets = /* Output merges expected and actual values for a g
 };
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
-// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register.
+// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets-register.
 export type SoakSetOpsSetsRegister = /* Output merges expected and actual values for a given stream */ {
+    AppliedAdd?: number;
+    AppliedOps?: number[];
+    AppliedRemove?: number;
+    Author: number;
+    Derived?: {
+        [k: string]: {
+            [k: string]: number;
+        };
+    };
+    ExpectAdd?: number;
+    ExpectRemove?: number;
+    ExpectValues?: {
+        [k: string]: number;
+    };
+    ID: number;
+};
+
+// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
+// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1verify.
+export type SoakSetOpsVerify = /* Output merges expected and actual values for a given stream */ {
     AppliedAdd?: number;
     AppliedOps?: number[];
     AppliedRemove?: number;

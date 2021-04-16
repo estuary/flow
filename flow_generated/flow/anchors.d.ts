@@ -38,6 +38,25 @@ export type MutateOp = /* Operation which mutates a stream */ {
     };
 };
 
+// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
+export type Output = /* Output merges expected and actual values for a given stream */ {
+    AppliedAdd?: number;
+    AppliedOps?: number[];
+    AppliedRemove?: number;
+    Author: number;
+    Derived?: {
+        [k: string]: {
+            [k: string]: number;
+        };
+    };
+    ExpectAdd?: number;
+    ExpectRemove?: number;
+    ExpectValues?: {
+        [k: string]: number;
+    };
+    ID: number;
+};
+
 // Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/priceAndSize.
 export type PriceAndSize = {
     price: /* Dollar price. */ number;

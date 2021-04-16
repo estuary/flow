@@ -200,12 +200,12 @@ export type PatternsSumsRegister = number;
 // Referenced as register_schema of examples/derive-patterns/zero-crossing.flow.yaml#/collections/patterns~1zero-crossing/derivation.
 export type PatternsZeroCrossing = number;
 
-// Generated from examples/soak-tests/set-ops/flow.yaml?ptr=/collections/soak~1set-ops~1sets/derivation/register/schema.
-// Referenced as register_schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets/derivation.
+// Generated from examples/soak-tests/set-ops/set-ops.flow.yaml?ptr=/collections/soak~1set-ops~1sets/derivation/register/schema.
+// Referenced as register_schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets/derivation.
 export type SoakSetOpsSets = unknown;
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/outputWithReductions.
-// Referenced as register_schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
+// Referenced as register_schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
 export type SoakSetOpsSetsRegister = /* Output merges expected and actual values for a given stream */ {
     AppliedAdd?: number;
     AppliedOps?: number[];
@@ -223,6 +223,10 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
     };
     ID: number;
 };
+
+// Generated from examples/soak-tests/set-ops/set-ops.flow.yaml?ptr=/collections/soak~1set-ops~1verify/derivation/register/schema.
+// Referenced as register_schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1verify/derivation.
+export type SoakSetOpsVerify = unknown;
 
 // Generated from examples/stock-stats/flow.yaml?ptr=/collections/stock~1daily-stats/derivation/register/schema.
 // Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.

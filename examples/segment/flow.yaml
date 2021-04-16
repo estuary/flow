@@ -1,5 +1,4 @@
 import:
-  - ../common.flow.yaml
   - tests.flow.yaml
 
 collections:
@@ -143,13 +142,13 @@ collections:
 
 materializations:
   - endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: segment_memberships }
     source:
       name: examples/segment/memberships
 
   - endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: segment_profiles }
     source:
       name: examples/segment/profiles

@@ -50,7 +50,11 @@ import { ExamplesShoppingCarts } from '../../examples/shopping/carts.flow';
 
 import { ExamplesShoppingPurchases } from '../../examples/shopping/purchases.flow';
 
-import { SoakSetOpsSets, SoakSetOpsSetsRegister } from '../../examples/soak-tests/set-ops/flow';
+import {
+    SoakSetOpsSets,
+    SoakSetOpsSetsRegister,
+    SoakSetOpsVerify,
+} from '../../examples/soak-tests/set-ops/set-ops.flow';
 
 import { ExamplesSourceSchemaRestrictive } from '../../examples/source-schema/flow';
 
@@ -87,6 +91,7 @@ const __PatternsSumsRegister: interfaces.PatternsSumsRegister = new PatternsSums
 const __PatternsZeroCrossing: interfaces.PatternsZeroCrossing = new PatternsZeroCrossing();
 const __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
 const __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
+const __SoakSetOpsVerify: interfaces.SoakSetOpsVerify = new SoakSetOpsVerify();
 const __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
 const __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
 const __TemperatureAverageTemps: interfaces.TemperatureAverageTemps = new TemperatureAverageTemps();
@@ -237,6 +242,12 @@ const routes: { [path: string]: Lambda | undefined } = {
     ) as Lambda,
     '/derive/soak/set-ops/sets-register/onOperation/Publish': __SoakSetOpsSetsRegister.onOperationPublish.bind(
         __SoakSetOpsSetsRegister,
+    ) as Lambda,
+    '/derive/soak/set-ops/verify/fromSets/Publish': __SoakSetOpsVerify.fromSetsPublish.bind(
+        __SoakSetOpsVerify,
+    ) as Lambda,
+    '/derive/soak/set-ops/verify/fromSetsRegister/Publish': __SoakSetOpsVerify.fromSetsRegisterPublish.bind(
+        __SoakSetOpsVerify,
     ) as Lambda,
     '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(__StockDailyStats) as Lambda,
     '/derive/temperature/averageByLocation/avgTempLocationSensors/Update': __TemperatureAverageByLocation.avgTempLocationSensorsUpdate.bind(
