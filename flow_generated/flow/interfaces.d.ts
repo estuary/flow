@@ -290,8 +290,8 @@ export interface PatternsZeroCrossing {
     ): collections.PatternsZeroCrossing[];
 }
 
-// Generated from derivation examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets/derivation.
-// Required to be implemented by examples/soak-tests/set-ops/set-ops.flow.ts.
+// Generated from derivation examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets/derivation.
+// Required to be implemented by examples/soak-tests/set-ops/flow.ts.
 export interface SoakSetOpsSets {
     onOperationPublish(
         source: collections.SoakSetOpsOperations,
@@ -300,8 +300,8 @@ export interface SoakSetOpsSets {
     ): collections.SoakSetOpsSets[];
 }
 
-// Generated from derivation examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
-// Required to be implemented by examples/soak-tests/set-ops/set-ops.flow.ts.
+// Generated from derivation examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
+// Required to be implemented by examples/soak-tests/set-ops/flow.ts.
 export interface SoakSetOpsSetsRegister {
     onOperationUpdate(source: collections.SoakSetOpsOperations): registers.SoakSetOpsSetsRegister[];
     onOperationPublish(
@@ -309,21 +309,6 @@ export interface SoakSetOpsSetsRegister {
         register: registers.SoakSetOpsSetsRegister,
         previous: registers.SoakSetOpsSetsRegister,
     ): collections.SoakSetOpsSetsRegister[];
-}
-
-// Generated from derivation examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1verify/derivation.
-// Required to be implemented by examples/soak-tests/set-ops/set-ops.flow.ts.
-export interface SoakSetOpsVerify {
-    fromSetsPublish(
-        source: collections.SoakSetOpsSets,
-        register: registers.SoakSetOpsVerify,
-        previous: registers.SoakSetOpsVerify,
-    ): collections.SoakSetOpsVerify[];
-    fromSetsRegisterPublish(
-        source: collections.SoakSetOpsSetsRegister,
-        register: registers.SoakSetOpsVerify,
-        previous: registers.SoakSetOpsVerify,
-    ): collections.SoakSetOpsVerify[];
 }
 
 // Generated from derivation examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
