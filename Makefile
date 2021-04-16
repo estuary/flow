@@ -208,12 +208,12 @@ rust-test: ${ROCKSDIR}/${LIBROCKS}
 
 .PHONY: go-test-fast
 go-test-fast: $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS}
-	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./...
+	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
 go-test-ci:   $(GO_PROTO_TARGETS) ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h ${TOOLBIN}/etcd ${ROCKSDIR}/${LIBROCKS}
 	GORACE="halt_on_error=1" \
-	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./...
+	go test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: test-pg-driver
 test-pg-driver: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
