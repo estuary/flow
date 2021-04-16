@@ -1,5 +1,4 @@
 import:
-  - ../common.flow.yaml
   - rides-and-relocations.flow.yaml
 
 collections:
@@ -21,5 +20,5 @@ materializations:
   - source:
       name: examples/citi-bike/stations
     endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: citi_stations }

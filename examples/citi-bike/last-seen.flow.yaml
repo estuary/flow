@@ -1,5 +1,4 @@
 import:
-  - ../common.flow.yaml
   - rides.flow.yaml
 
 collections:
@@ -23,5 +22,5 @@ materializations:
   - source:
       name: examples/citi-bike/last-seen
     endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: citi_last_seen }

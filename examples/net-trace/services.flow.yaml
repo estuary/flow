@@ -1,5 +1,4 @@
 import:
-  - ../common.flow.yaml
   - pairs.flow.yaml
 
 npmDependencies:
@@ -28,5 +27,5 @@ materializations:
   - source:
       name: examples/net-trace/services
     endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: net_services }

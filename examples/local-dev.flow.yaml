@@ -1,0 +1,27 @@
+# Example catalog tailored to local development environments
+
+import:
+  - all-collections.flow.yaml
+
+endpoints:
+  examples/example_database:
+    sqlite:
+      # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
+      # don't fail with "database is locked" errors.
+      path: examples.db?_journal=WAL
+
+  # Run `node demo-webhook-api.js` before materializing to this endpoint.
+  examples/webhook-api:
+    webhook:
+      endpoint: http://localhost:9000
+
+journalRules:
+  00_fragment_store:
+    template:
+      fragment:
+        compression_codec: GZIP
+        stores:
+          # Default is to persist to the local file system as a stand-in for cloud storage.
+          - file:///
+        # Max time to wait before writing a fragment file
+        flush_interval: 5m
