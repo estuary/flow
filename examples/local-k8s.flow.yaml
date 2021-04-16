@@ -1,0 +1,32 @@
+# Example catalog tailored to local kubernetes environments like minikube.
+# This expects that you have a postgres service running in the flow namespace.
+# It also assumes that you have minio running and have created a bucket called "examples".
+import:
+  - all-collections.flow.yaml
+
+endpoints:
+  examples/example_database:
+    postgres:
+      host: postgres.flow.svc.cluster.local
+      password: testpgpass
+      dbname: postgres
+      user: postgres
+      port: 5432
+    #snowflake:
+    #  account: am42432.us-central1.gcp
+    #  database: ESTUARY
+    #  role: SYSADMIN
+    #  schema: PUBLIC
+    #  user: jgraettinger
+    #  warehouse: COMPUTE_WH
+    #  password: XYZ
+
+
+journalRules:
+  00_fragment_store:
+    template:
+      fragment:
+        compression_codec: GZIP
+        stores:
+          - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fflow-minio%3A9000
+        flush_interval: 5m

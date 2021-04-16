@@ -67,7 +67,7 @@ materializations:
   - source:
       name: soak/set-ops/sets
     endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: sets }
     fields:
       recommended: true
@@ -78,7 +78,7 @@ materializations:
   - source:
       name: soak/set-ops/sets-register
     endpoint:
-      name: examples/examples.db
+      name: examples/example_database
       config: { table: sets_register }
     fields:
       recommended: true

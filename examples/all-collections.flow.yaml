@@ -1,7 +1,7 @@
+# Imports only all the collections, so we don't have to repeat the import list for each environment.
 import:
   - acmeBank.flow.yaml
   - citi-bike/flow.yaml
-  - common.flow.yaml
   - derive-patterns/flow.yaml
   - marketing/flow.yaml
   - net-trace/flow.yaml
