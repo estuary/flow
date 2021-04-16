@@ -602,76 +602,58 @@ export type PatternsSumsRegister = {
 export type PatternsZeroCrossing = anchors.Int;
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
-// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1operations.
-export type SoakSetOpsOperations = /* Union type over MutateOp and VerifyOp */ {
-    Author: number;
-    ID: number;
-    Ones: number;
-    Op: number;
-    Type: 'add' | 'remove' | 'verify';
-    Values: {
+// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
+export type SoakSetOpsOperations = /* Mutates a set and provides the values that are expected after this operation is applied */ {
+    author: number;
+    expectValues: /* Final values that are expected after this operation has been applied */ {
+        [k: string]: number;
+    };
+    id: number;
+    ones: number;
+    op: number;
+    timestamp: string;
+    type: 'add' | 'remove';
+    values: {
         [k: string]: number;
     };
 };
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/outputWithReductions.
-// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets.
+// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets.
 export type SoakSetOpsSets = /* Output merges expected and actual values for a given stream */ {
-    AppliedAdd?: number;
-    AppliedOps?: number[];
-    AppliedRemove?: number;
-    Author: number;
-    Derived?: {
+    appliedAdd?: number;
+    appliedOps?: number;
+    appliedRemove?: number;
+    author: number;
+    derived?: {
         [k: string]: {
             [k: string]: number;
         };
     };
-    ExpectAdd?: number;
-    ExpectRemove?: number;
-    ExpectValues?: {
+    expectValues?: {
         [k: string]: number;
     };
-    ID: number;
+    id: number;
+    timestamp?: string;
 };
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
-// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1sets-register.
+// Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register.
 export type SoakSetOpsSetsRegister = /* Output merges expected and actual values for a given stream */ {
-    AppliedAdd?: number;
-    AppliedOps?: number[];
-    AppliedRemove?: number;
-    Author: number;
-    Derived?: {
+    appliedAdd?: number;
+    appliedOps?: number;
+    appliedRemove?: number;
+    author: number;
+    derived?: {
         [k: string]: {
             [k: string]: number;
         };
     };
-    ExpectAdd?: number;
-    ExpectRemove?: number;
-    ExpectValues?: {
+    expectValues?: {
         [k: string]: number;
     };
-    ID: number;
-};
-
-// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
-// Referenced as schema of examples/soak-tests/set-ops/set-ops.flow.yaml#/collections/soak~1set-ops~1verify.
-export type SoakSetOpsVerify = /* Output merges expected and actual values for a given stream */ {
-    AppliedAdd?: number;
-    AppliedOps?: number[];
-    AppliedRemove?: number;
-    Author: number;
-    Derived?: {
-        [k: string]: {
-            [k: string]: number;
-        };
-    };
-    ExpectAdd?: number;
-    ExpectRemove?: number;
-    ExpectValues?: {
-        [k: string]: number;
-    };
-    ID: number;
+    id: number;
+    timestamp?: string;
 };
 
 // Generated from examples/stock-stats/schemas/daily-stat.schema.yaml.

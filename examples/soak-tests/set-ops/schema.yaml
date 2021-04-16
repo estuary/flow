@@ -1,82 +1,52 @@
 $defs:
-  header:
-    $anchor: Header
-    description: "Common properties of generated operations"
+  operation:
+    description: "Mutates a set and provides the values that are expected after this operation is applied"
     type: object
     properties:
-      Author: { type: integer }
-      ID: { type: integer }
-      Ones: { type: integer }
-      Op: { type: integer }
-      Type: { type: string }
-    required: [Author, ID, Ones, Op, Type]
-
-  mutateOp:
-    $anchor: MutateOp
-    description: "Operation which mutates a stream"
-    $ref: "#Header"
-
-    properties:
-      Type: { enum: [add, remove] }
-      Values:
+      author: { type: integer }
+      id: { type: integer }
+      ones: { type: integer }
+      op: { type: integer }
+      type: { enum: [add, remove] }
+      timestamp: { type: string, format: date-time }
+      values:
         type: object
         propertyNames: { maxLength: 1 }
         additionalProperties:
           type: integer
-
-    required: [Values]
-
-  verifyOp:
-    $anchor: VerifyOp
-    description: "Operation which verifies the expected value of a stream"
-    $ref: "#Header"
-
-    properties:
-      Type: { const: verify }
-      TotalAdd: { type: integer }
-      TotalRemove: { type: integer }
-      Values:
+      expectValues:
+        description: "Final values that are expected after this operation has been applied"
         type: object
         propertyNames: { maxLength: 1 }
         additionalProperties:
           type: integer
-
-    required: [TotalAdd, TotalRemove, Values]
-
-  operation:
-    description: "Union type over MutateOp and VerifyOp"
-    oneOf:
-      - { $ref: "#MutateOp" }
-      - { $ref: "#VerifyOp" }
+    required: [author, id, ones, op, type, timestamp, values, expectValues]
 
   output:
+    $anchor: Output
     description: "Output merges expected and actual values for a given stream"
     type: object
     properties:
-      Author: { type: integer }
-      ID: { type: integer }
-      AppliedOps:
-        type: array
-        items: { type: integer }
+      author: { type: integer }
+      id: { type: integer }
+      timestamp: { type: string, format: date-time }
+      appliedOps: { type: integer }
+      appliedAdd: { type: integer }
+      appliedRemove: { type: integer }
 
-      AppliedAdd: { type: integer }
-      AppliedRemove: { type: integer }
-      ExpectAdd: { type: integer }
-      ExpectRemove: { type: integer }
-
-      Derived:
+      derived:
         type: object
         additionalProperties:
           type: object
           additionalProperties: { type: integer }
           propertyNames: { maxLength: 1 }
 
-      ExpectValues:
+      expectValues:
         type: object
         propertyNames: { maxLength: 1 }
         additionalProperties: { type: integer }
 
-    required: [Author, ID]
+    required: [author, id]
 
   # outputWithReductions extends output with reduction annotations.
   # We separate these, so that the soak test can exercise both:
@@ -87,12 +57,15 @@ $defs:
 
     reduce: { strategy: merge }
     properties:
-      AppliedOps: { reduce: { strategy: append } }
-      Derived:
+      # maximize here is functionally equivalent to lastWriteWins because op counters are monotonic
+      appliedOps: { reduce: { strategy: maximize } }
+      #timestamp: { reduce: {strategy: maximize} }
+      derived:
         reduce: { strategy: set }
         additionalProperties:
           reduce: { strategy: merge }
           additionalProperties:
             reduce: { strategy: sum }
-      AppliedAdd: { reduce: { strategy: sum } }
-      AppliedRemove: { reduce: { strategy: sum } }
+      appliedAdd: { reduce: { strategy: sum } }
+      appliedRemove: { reduce: { strategy: sum } }
+
