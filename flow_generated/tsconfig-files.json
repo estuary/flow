@@ -17,7 +17,7 @@
     "../examples/shopping/cart-updates-with-products.flow.ts",
     "../examples/shopping/carts.flow.ts",
     "../examples/shopping/purchases.flow.ts",
-    "../examples/soak-tests/set-ops/set-ops.flow.ts",
+    "../examples/soak-tests/set-ops/flow.ts",
     "../examples/source-schema/flow.ts",
     "../examples/stock-stats/flow.ts",
     "../examples/temp-sensors/flow.ts",

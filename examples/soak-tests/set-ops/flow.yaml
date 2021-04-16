@@ -1,67 +1,198 @@
-# Run soak-test as:
-# go run examples/soak-tests/set-ops/generator.go | \
-#  pv --rate-limit 10000 --line-mode --quiet | \
-#  .build/package/bin/websocat --protocol json/v1 ws://localhost:8080/ingest/soak/set-ops/operations
+# To run the set-ops soak test:
+# First get Flow up and running a catalog that includes this file:
+# - For a local environment: flowctl develop --source local-dev.flow.yaml
+# - If running in a local k8s like minikube: flowctl apply --source local-k8s.flow.yaml
 #
-# Verify that all documents were processed correctly so far (should return no rows):
-#   sqlite3 examples/examples.db 'SELECT * FROM sets WHERE ExpectValues != DerivedValues;'
-#   sqlite3 examples/examples.db 'SELECT * FROM sets_register WHERE ExpectValues != DerivedValues;'
-
-import:
-  - ../../common.flow.yaml
-
+# Then start the test running:
+# - For local dev: go test ./examples/soak-test/set-ops -ops-per-second 500 -streams 20
+# - For kubernetes: ./examples/soak-test/set-ops/run-k8s.sh
+#   This will create a kubernetes Job that runs the tests within the cluster.
+#
+# In any
 collections:
   soak/set-ops/operations:
     schema: schema.yaml#/$defs/operation
-    key: [/Author, /ID, /Op]
+    key: [/author, /id, /op]
     projections:
       # Partition on /Ones, which is the number of set bits in /ID.
       # This is simply to exercise the regular creation of new partitions.
-      Ones:
-        location: /Ones
+      ones:
+        location: /ones
         partition: true
 
   soak/set-ops/sets:
     schema: schema.yaml#/$defs/outputWithReductions
-    key: [/Author, /ID]
+    key: [/author, /id]
     projections:
       # Project some non-scalar types that we want to materialize.
-      AppliedOps: /AppliedOps
-      DerivedValues: /Derived/add
-      ExpectValues: /ExpectValues
+      appliedOps: /appliedOps
+      derivedValues: /derived/add
+      expectValues: /expectValues
 
     derivation:
       transform:
         onOperation:
           source: { name: soak/set-ops/operations }
           shuffle:
-            key: [/Author, /ID]
+            key: [/author, /id]
           publish: { lambda: typescript }
 
   soak/set-ops/sets-register:
     schema: schema.yaml#/$defs/output
-    key: [/Author, /ID]
+    key: [/author, /id]
 
     projections:
       # Project the same non-scalar types as above, for materialization.
-      AppliedOps: /AppliedOps
-      DerivedValues: /Derived/add
-      ExpectValues: /ExpectValues
+      appliedOps: /appliedOps
+      derivedValues: /derived/add
+      expectValues: /expectValues
 
     derivation:
       # Unlike "soak/set-ops/sets" above, we do all reduction within the
       # derivation register and only output the final value on a "verify" type.
       register:
         schema: schema.yaml#/$defs/outputWithReductions
-        initial: { Author: 0, ID: 0 }
+        initial: { author: 0, id: 0 }
 
       transform:
         onOperation:
           source: { name: soak/set-ops/operations }
           shuffle:
-            key: [/Author, /ID]
+            key: [/author, /id]
           update: { lambda: typescript }
           publish: { lambda: typescript }
+
+tests:
+  "Set soak-test update and verify":
+    - ingest:
+        collection: soak/set-ops/operations
+        documents:
+          - {
+              "author": 17369,
+              "id": 0,
+              "ones": 0,
+              "timestamp": "2021-04-19T09:00:50",
+              "op": 1,
+              "type": "remove",
+              "values": { "k": 1, "s": 1 },
+              "expectValues": {},
+            }
+          - {
+              "author": 17369,
+              "id": 1,
+              "ones": 1,
+              "timestamp": "2021-04-19T09:00:51",
+              "op": 1,
+              "type": "add",
+              "values": { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
+              "expectValues": { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
+            }
+          - {
+              "author": 17369,
+              "id": 1,
+              "timestamp": "2021-04-19T09:00:52",
+              "ones": 1,
+              "op": 2,
+              "type": "add",
+              "values": { "a": 1, "c": 1, "f": 1, "l": 1, "u": 1 },
+              "expectValues": { "a": 1, "c": 1, "f": 1, "l": 1, "h": 1, "k": 1, "m": 1, "q": 1, "u": 2, "v": 1 },
+            }
+          - {
+              "author": 17369,
+              "id": 0,
+              "ones": 0,
+              "op": 2,
+              "timestamp": "2021-04-19T09:00:59",
+              "type": "add",
+              "values": { "j": 1, "w": 1 },
+              "expectValues": { "j": 1, "w": 1 },
+            }
+          - {
+              "author": 17369,
+              "timestamp": "2021-04-19T09:01:01",
+              "id": 2,
+              "ones": 1,
+              "op": 1,
+              "type": "add",
+              "values": { "k": 1, "t": 1 },
+              "expectValues": { "k": 1, "t": 1 },
+            }
+          - {
+              "author": 17369,
+              "id": 2,
+              "ones": 1,
+              "op": 2,
+              "timestamp": "2021-04-19T09:01:02",
+              "type": "remove",
+              "values":
+                { "a": 1, "d": 1, "f": 1, "h": 1, "k": 1, "o": 1, "p": 1 },
+              "expectValues":
+                { "t": 1 },
+            }
+
+    - verify:
+        collection: soak/set-ops/sets
+        documents: &expected
+          - {
+              "author": 17369,
+              "id": 0,
+              "appliedAdd": 1,
+              "appliedOps": 2,
+              "appliedRemove": 1,
+              "derived": { "add": { "j": 1, "w": 1 } },
+              "timestamp": "2021-04-19T09:00:59",
+              "expectValues": { "j": 1, "w": 1 },
+            }
+          - {
+              "author": 17369,
+              "id": 1,
+              "timestamp": "2021-04-19T09:00:52",
+              "appliedAdd": 2,
+              "appliedOps": 2,
+              "derived":
+                {
+                  "add":
+                    {
+                      "a": 1,
+                      "c": 1,
+                      "f": 1,
+                      "h": 1,
+                      "k": 1,
+                      "l": 1,
+                      "m": 1,
+                      "q": 1,
+                      "u": 2,
+                      "v": 1,
+                    },
+                },
+              "expectValues":
+                {
+                  "a": 1,
+                  "c": 1,
+                  "f": 1,
+                  "h": 1,
+                  "k": 1,
+                  "l": 1,
+                  "m": 1,
+                  "q": 1,
+                  "u": 2,
+                  "v": 1,
+                },
+            }
+          - {
+              "author": 17369,
+              "id": 2,
+              "timestamp": "2021-04-19T09:01:02",
+              "appliedAdd": 1,
+              "appliedOps": 2,
+              "appliedRemove": 1,
+              "derived": { "add": { "t": 1 } },
+              "expectValues": { "t": 1 },
+            }
+
+    - verify:
+        collection: soak/set-ops/sets-register
+        documents: *expected
 
 materializations:
   - source:
@@ -72,8 +203,8 @@ materializations:
     fields:
       recommended: true
       include:
-        DerivedValues: {}
-        ExpectValues: {}
+        derivedValues: {}
+        expectValues: {}
 
   - source:
       name: soak/set-ops/sets-register
@@ -83,169 +214,6 @@ materializations:
     fields:
       recommended: true
       include:
-        DerivedValues: {}
-        ExpectValues: {}
+        derivedValues: {}
+        expectValues: {}
 
-tests:
-  "Set soak-test update and verify":
-    - ingest:
-        collection: soak/set-ops/operations
-        documents:
-          - {
-              "Author": 17369,
-              "ID": 0,
-              "Ones": 0,
-              "Op": 1,
-              "Type": "remove",
-              "Values": { "K": 1, "S": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 1,
-              "Ones": 1,
-              "Op": 1,
-              "Type": "add",
-              "Values": { "H": 1, "K": 1, "M": 1, "Q": 1, "U": 1, "V": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 1,
-              "Ones": 1,
-              "Op": 2,
-              "Type": "add",
-              "Values": { "A": 1, "C": 1, "F": 1, "L": 1, "U": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 0,
-              "Ones": 0,
-              "Op": 2,
-              "Type": "add",
-              "Values": { "J": 1, "W": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 0,
-              "Ones": 0,
-              "Op": 3,
-              "Type": "verify",
-              "TotalAdd": 1,
-              "TotalRemove": 1,
-              "Values": { "J": 1, "W": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 2,
-              "Ones": 1,
-              "Op": 1,
-              "Type": "add",
-              "Values": { "K": 1, "T": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 2,
-              "Ones": 1,
-              "Op": 2,
-              "Type": "remove",
-              "Values":
-                { "A": 1, "D": 1, "F": 1, "H": 1, "K": 1, "O": 1, "P": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 2,
-              "Ones": 1,
-              "Op": 3,
-              "Type": "verify",
-              "TotalAdd": 1,
-              "TotalRemove": 1,
-              "Values": { "T": 1 },
-            }
-          - {
-              "Author": 17369,
-              "ID": 1,
-              "Ones": 1,
-              "Op": 3,
-              "Type": "verify",
-              "TotalAdd": 2,
-              "TotalRemove": 0,
-              "Values":
-                {
-                  "A": 1,
-                  "C": 1,
-                  "F": 1,
-                  "H": 1,
-                  "K": 1,
-                  "L": 1,
-                  "M": 1,
-                  "Q": 1,
-                  "U": 2,
-                  "V": 1,
-                },
-            }
-
-    - verify:
-        collection: soak/set-ops/sets
-        documents: &expected
-          - {
-              "AppliedAdd": 1,
-              "AppliedOps": [1, 2, 3],
-              "AppliedRemove": 1,
-              "Author": 17369,
-              "Derived": { "add": { "J": 1, "W": 1 } },
-              "ExpectAdd": 1,
-              "ExpectRemove": 1,
-              "ExpectValues": { "J": 1, "W": 1 },
-              "ID": 0,
-            }
-          - {
-              "AppliedAdd": 2,
-              "AppliedOps": [1, 2, 3],
-              "Author": 17369,
-              "Derived":
-                {
-                  "add":
-                    {
-                      "A": 1,
-                      "C": 1,
-                      "F": 1,
-                      "H": 1,
-                      "K": 1,
-                      "L": 1,
-                      "M": 1,
-                      "Q": 1,
-                      "U": 2,
-                      "V": 1,
-                    },
-                },
-              "ExpectAdd": 2,
-              "ExpectRemove": 0,
-              "ExpectValues":
-                {
-                  "A": 1,
-                  "C": 1,
-                  "F": 1,
-                  "H": 1,
-                  "K": 1,
-                  "L": 1,
-                  "M": 1,
-                  "Q": 1,
-                  "U": 2,
-                  "V": 1,
-                },
-              "ID": 1,
-            }
-          - {
-              "AppliedAdd": 1,
-              "AppliedOps": [1, 2, 3],
-              "AppliedRemove": 1,
-              "Author": 17369,
-              "Derived": { "add": { "T": 1 } },
-              "ExpectAdd": 1,
-              "ExpectRemove": 1,
-              "ExpectValues": { "T": 1 },
-              "ID": 2,
-            }
-
-    - verify:
-        collection: soak/set-ops/sets-register
-        documents: *expected

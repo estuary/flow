@@ -4,15 +4,6 @@ export type __module = null;
 // Generated from examples/stock-stats/schemas/exchange.schema.yaml.
 export type Exchange = /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
 
-// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/header.
-export type Header = /* Common properties of generated operations */ {
-    Author: number;
-    ID: number;
-    Ones: number;
-    Op: number;
-    Type: string;
-};
-
 // Generated from examples/derive-patterns/schema.yaml#/$defs/int.
 export type Int = /* A document that holds an integer */ {
     Int: number;
@@ -26,35 +17,22 @@ export type Join = /* Document for join examples */ {
     RHS?: string[];
 };
 
-// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/mutateOp.
-export type MutateOp = /* Operation which mutates a stream */ {
-    Author: number;
-    ID: number;
-    Ones: number;
-    Op: number;
-    Type: 'add' | 'remove';
-    Values: {
-        [k: string]: number;
-    };
-};
-
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
 export type Output = /* Output merges expected and actual values for a given stream */ {
-    AppliedAdd?: number;
-    AppliedOps?: number[];
-    AppliedRemove?: number;
-    Author: number;
-    Derived?: {
+    appliedAdd?: number;
+    appliedOps?: number;
+    appliedRemove?: number;
+    author: number;
+    derived?: {
         [k: string]: {
             [k: string]: number;
         };
     };
-    ExpectAdd?: number;
-    ExpectRemove?: number;
-    ExpectValues?: {
+    expectValues?: {
         [k: string]: number;
     };
-    ID: number;
+    id: number;
+    timestamp?: string;
 };
 
 // Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/priceAndSize.
@@ -96,18 +74,4 @@ export type SegmentSet = /* Status of a user's membership within a segment. */ S
 export type String = /* A document that holds a string */ {
     Key: string;
     String: string;
-};
-
-// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/verifyOp.
-export type VerifyOp = /* Operation which verifies the expected value of a stream */ {
-    Author: number;
-    ID: number;
-    Ones: number;
-    Op: number;
-    TotalAdd: number;
-    TotalRemove: number;
-    Type: 'verify';
-    Values: {
-        [k: string]: number;
-    };
 };

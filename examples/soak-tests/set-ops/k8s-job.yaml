@@ -1,0 +1,35 @@
+# Job that runs the set-ops soak test within the kubernetes cluster.
+# This is used by run-k8s.sh.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: soak-test-set-ops
+  namespace: flow
+spec:
+  # Can change completions and parallelism to run n Jobs simultaneously.
+  completions: 1
+  parallelism: 1
+  # Never restart failed pods.
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: set-ops-test
+          image: quay.io/giantswarm/golang:1.16.3
+          workingDir: /workdir
+          command: ['bash', '/soak-test/entrypoint.sh']
+          volumeMounts:
+            - name: sources
+              mountPath: /soak-test
+          env:
+            - name: STREAMS
+              value: '100'
+            - name: OPS_PER_SECOND
+              value: '1000'
+          envFrom:
+            - secretRef: { name: postgres }
+      volumes:
+        - name: sources
+          configMap: { name: set-ops-sources }
+

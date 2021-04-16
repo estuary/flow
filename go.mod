@@ -28,6 +28,7 @@ require (
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200407032746-7eae024eade9
 	go.gazette.dev/core v0.88.0
 	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
+	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba // indirect
 	google.golang.org/grpc v1.28.0
 )
 
