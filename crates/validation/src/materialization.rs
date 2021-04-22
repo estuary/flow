@@ -1,4 +1,4 @@
-use super::{indexed, reference, Drivers, Error};
+use super::{collection, indexed, reference, schema, Drivers, Error};
 use futures::FutureExt;
 use itertools::Itertools;
 use models::{build, names, tables};
@@ -13,6 +13,8 @@ pub async fn walk_all_materializations<D: Drivers>(
     endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
     materializations: &[tables::Materialization],
+    projections: &[tables::Projection],
+    schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     let mut validations = Vec::new();
@@ -25,6 +27,8 @@ pub async fn walk_all_materializations<D: Drivers>(
                 endpoints,
                 imports,
                 materialization,
+                projections,
+                schema_shapes,
                 errors,
             )
             .into_iter(),
@@ -120,6 +124,8 @@ fn walk_materialization_request<'a>(
     endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
     materialization: &'a tables::Materialization,
+    projections: &[tables::Projection],
+    schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
 ) -> Option<(
     &'a tables::BuiltCollection,
@@ -134,6 +140,7 @@ fn walk_materialization_request<'a>(
         fields_include,
         fields_recommended: _,
         patch_config,
+        source_partitions,
     } = materialization;
 
     let source = reference::walk_reference(
@@ -168,6 +175,10 @@ fn walk_materialization_request<'a>(
         .iter()
         .find(|c| c.collection == source.collection)
         .unwrap();
+
+    if let Some(selector) = source_partitions {
+        collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
+    }
 
     let mut endpoint_config = endpoint.base_config.clone();
     json_patch::merge(&mut endpoint_config, &patch_config);

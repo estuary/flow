@@ -1305,6 +1305,10 @@ All {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
                                             },
+                                            Label {
+                                                name: "estuary.dev/field/bit",
+                                                value: "true",
+                                            },
                                         ],
                                     },
                                 ),
@@ -2332,6 +2336,7 @@ All {
             fields_include: {"str":{"pass":"through"}},
             fields_recommended: 1,
             patch_config: {"fixture":"one"},
+            source_partitions: {"include":{"bit":[true]},"exclude":{}},
         },
         Materialization {
             scope: test://example/int-halve-materialization#/materializations/0,
@@ -2341,6 +2346,7 @@ All {
             fields_include: {"Len":{}},
             fields_recommended: 0,
             patch_config: {"fixture":"two"},
+            source_partitions: NULL,
         },
     ],
     named_schemas: [

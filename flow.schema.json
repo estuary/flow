@@ -926,7 +926,8 @@
     "MaterializationSource": {
       "examples": [
         {
-          "name": "source/collection"
+          "name": "source/collection",
+          "partitions": null
         }
       ],
       "type": "object",
@@ -939,6 +940,31 @@
           "allOf": [
             {
               "$ref": "#/definitions/Collection"
+            }
+          ]
+        },
+        "partitions": {
+          "title": "Selector over partition of the source collection to read.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
             }
           ]
         }
@@ -1209,18 +1235,6 @@
           ],
           "properties": {
             "key": {
-              "$ref": "#/definitions/CompositeKey"
-            }
-          }
-        },
-        {
-          "description": "Shuffle by taking the MD5 hash of the given fields. Note this is **not** a cryptographicly strong hash, but is well suited for mapping large keys into shorter ones, or for better distributing hot-spots in a key space.",
-          "type": "object",
-          "required": [
-            "md5"
-          ],
-          "properties": {
-            "md5": {
               "$ref": "#/definitions/CompositeKey"
             }
           }
@@ -1528,8 +1542,7 @@
         "update": {
           "title": "Update that maps a source document into register updates.",
           "default": {
-            "lambda": "typescript",
-            "rollbackOnConflict": false
+            "lambda": "typescript"
           },
           "anyOf": [
             {
@@ -1610,8 +1623,7 @@
       "description": "Update lambdas take a source document and transform it into one or more register updates, which are then reduced into the associated register by the runtime. For example these register updates might update counters, or update the state of a \"join\" window.",
       "examples": [
         {
-          "lambda": "typescript",
-          "rollbackOnConflict": false
+          "lambda": "typescript"
         }
       ],
       "type": "object",
@@ -1626,12 +1638,6 @@
               "$ref": "#/definitions/Lambda"
             }
           ]
-        },
-        "rollbackOnConflict": {
-          "title": "Should lambda documents which produce register conflicts be ignored?",
-          "description": "Documents returned by an update lambda are checked against the register schema before being reduced into the register, and again after the register value has been fully reduced with the update. Ordinarily a failure of either check will halt processing of a derivation.\n\nOptionally, the runtime can be asked to \"roll back\" the reduced register value if an update causes it to violate its schema, effectively ignoring the document returned by the update lambda -- for example, because a value which must be positive would become negative with the update.\n\nThis can be paired with a publish lambda which checks whether the register was updated to implement transactional workflows with complex constraint checks (for example, in a workflow which joins product inventory updates with attempted purchases).",
-          "default": false,
-          "type": "boolean"
         }
       },
       "additionalProperties": false

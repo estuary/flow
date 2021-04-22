@@ -153,6 +153,8 @@ tables!(
         // to fully configure this materialization with respect to the
         // endpoint driver.
         patch_config: serde_json::Value,
+        // Selector over logical partitions of the source collection.
+        source_partitions: Option<names::PartitionSelector>,
     }
 
     table TestSteps (row TestStep, sql "test_steps") {

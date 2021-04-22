@@ -434,6 +434,10 @@ pub struct MaterializationDef {
 pub struct MaterializationSource {
     /// # Name of the collection to be materialized.
     pub name: names::Collection,
+    /// # Selector over partition of the source collection to read.
+    #[serde(default)]
+    #[schemars(default = "names::PartitionSelector::example")]
+    pub partitions: Option<names::PartitionSelector>,
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
