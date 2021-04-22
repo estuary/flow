@@ -178,24 +178,7 @@ pub fn walk_transform(
     if let Some(selector) = source_partitions {
         // Note that the selector is deliberately checked against the
         // collection's schema shape, and not our own transform source schema.
-        let source_shape = schema_shapes
-            .iter()
-            .find(|s| s.schema == source.schema)
-            .unwrap();
-
-        let source_projections = projections
-            .iter()
-            .filter(|p| p.collection == source.collection)
-            .collect::<Vec<_>>();
-
-        collection::walk_selector(
-            scope,
-            &source.collection,
-            &source_projections,
-            source_shape,
-            &selector,
-            errors,
-        );
+        collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
     }
 
     // Map to an effective source schema & shape.

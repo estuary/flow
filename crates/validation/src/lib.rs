@@ -122,6 +122,8 @@ pub async fn validate<D: Drivers>(
         endpoints,
         &imports,
         materializations,
+        projections,
+        &schema_shapes,
         &mut errors,
     )
     .await;

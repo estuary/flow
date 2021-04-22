@@ -123,23 +123,14 @@ pub fn walk_test_step(
         Error::TestVerifyOrder.push(scope, errors);
     }
 
+    // Verify a provided partition selector is valid.
     if let Some(selector) = partitions {
-        let schema_shape = schema_shapes
-            .iter()
-            .find(|s| s.schema == collection.schema)
-            .unwrap();
-
-        let projections = projections
-            .iter()
-            .filter(|p| p.collection == collection.collection)
-            .collect::<Vec<_>>();
-
         collection::walk_selector(
             scope,
-            &collection.collection,
-            &projections,
-            schema_shape,
-            selector,
+            collection,
+            projections,
+            schema_shapes,
+            &selector,
             errors,
         );
     }

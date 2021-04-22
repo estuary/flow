@@ -65,6 +65,9 @@ test://example/int-string-materialization:
   materializations:
     - source:
         name: testing/int-string
+        partitions:
+          include:
+            bit: [true]
       endpoint:
         name: materializeEndpoint
         config: { fixture: one }

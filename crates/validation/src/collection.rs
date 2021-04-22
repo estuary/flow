@@ -202,12 +202,24 @@ fn walk_projection_with_inference(
 
 pub fn walk_selector(
     scope: &Url,
-    collection: &names::Collection,
-    projections: &[&tables::Projection],
-    schema_shape: &schema::Shape,
+    collection: &tables::Collection,
+    projections: &[tables::Projection],
+    schema_shapes: &[schema::Shape],
     selector: &names::PartitionSelector,
     errors: &mut tables::Errors,
 ) {
+    // Shape of this |collection|.
+    let schema_shape = schema_shapes
+        .iter()
+        .find(|s| s.schema == collection.schema)
+        .unwrap();
+
+    // Filter to projections of this |collection|.
+    let projections = projections
+        .iter()
+        .filter(|p| p.collection == collection.collection)
+        .collect::<Vec<_>>();
+
     let names::PartitionSelector { include, exclude } = selector;
 
     for (category, labels) in &[("include", include), ("exclude", exclude)] {
@@ -218,7 +230,7 @@ pub fn walk_selector(
                         Error::ProjectionNotPartitioned {
                             category: category.to_string(),
                             field: field.clone(),
-                            collection: collection.to_string(),
+                            collection: collection.collection.to_string(),
                         }
                         .push(scope, errors);
                     }
@@ -228,7 +240,7 @@ pub fn walk_selector(
                     Error::NoSuchProjection {
                         category: category.to_string(),
                         field: field.clone(),
-                        collection: collection.to_string(),
+                        collection: collection.collection.to_string(),
                     }
                     .push(scope, errors);
                     continue;

@@ -160,6 +160,7 @@ impl MaterializationSource {
     pub fn example() -> Self {
         Self {
             name: names::Collection::new("source/collection"),
+            partitions: None,
         }
     }
 }
