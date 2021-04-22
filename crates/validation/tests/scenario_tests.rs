@@ -689,6 +689,31 @@ test://example/int-string-tests:
 }
 
 #[test]
+fn test_materialization_selector() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string-materialization:
+  materializations:
+    - source:
+        name: testing/int-string
+        partitions:
+          include:
+            bit: [true, 42, ""]
+            Int: [15, true]
+            Unknown: ["whoops"]
+          exclude:
+            bit: [false, "a string"]
+            Int: [false, "", 16]
+            AlsoUnknown: ["whoops"]
+      endpoint:
+        name: materializeEndpoint
+        config: { fixture: one }
+"#,
+    );
+}
+
+#[test]
 fn test_duplicate_named_schema() {
     run_test_errors(
         &GOLDEN,

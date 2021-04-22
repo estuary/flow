@@ -288,8 +288,10 @@ pub fn materialization_spec(
         shuffle: Some(flow::Shuffle {
             group_name: format!("materialize/{}", name),
             source_collection: source.collection.to_string(),
-            // Materializations always read all logical partitions.
-            source_partitions: Some(journal_selector(&source.collection, &None)),
+            source_partitions: Some(journal_selector(
+                &source.collection,
+                &materialization.source_partitions,
+            )),
             source_uuid_ptr: source.spec.uuid_ptr.clone(),
             // Materializations always group by the collection's key.
             shuffle_key_ptr: source.spec.key_ptrs.clone(),

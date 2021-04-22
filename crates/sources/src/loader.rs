@@ -430,7 +430,11 @@ impl<F: Fetcher> Loader<F> {
                 .flatten();
 
             let specs::MaterializationDef {
-                source: specs::MaterializationSource { name: collection },
+                source:
+                    specs::MaterializationSource {
+                        name: collection,
+                        partitions: source_partitions,
+                    },
                 endpoint:
                     specs::EndpointRef {
                         name: endpoint,
@@ -452,6 +456,7 @@ impl<F: Fetcher> Loader<F> {
                 fields_include,
                 fields_recommended,
                 serde_json::Value::Object(patch_config),
+                source_partitions,
             );
         }
 

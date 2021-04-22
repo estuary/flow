@@ -26,11 +26,21 @@ test://example/catalog.yaml:
         config: { extra: "stuff" }
 
   materializations:
+    # No partition selector and default fields behavior.
     - source:
         name: source/collection
       endpoint:
         name: my DB
-        config: { table: "foobar" }
+        config: { table: "table_one" }
+    # Explicit selector and fields.
+    - source:
+        name: source/collection
+        partitions:
+          include: { "a_field": ["some-val"] }
+          exclude: { "other": [42] }
+      endpoint:
+        name: my DB
+        config: { table: "table_two" }
       fields:
         include:
           add: {}
