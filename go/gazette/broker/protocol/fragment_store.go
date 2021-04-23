@@ -10,7 +10,7 @@ import (
 // component must end in a trailing slash.
 //
 // Currently supported schemes are "gs" for Google Cloud Storage, "s3" for
-// Amazon S3, and "file" for a local file-system / NFS mount. Eg:
+// Amazon S3, "azure" for Azure Cloud Storage, and "file" for a local file-system / NFS mount. Eg:
 //
 //  * s3://bucket-name/a/sub-path/?profile=a-shared-credentials-profile
 //  * gs://bucket-name/a/sub-path/?
@@ -47,7 +47,7 @@ func (fs FragmentStore) parse() (*url.URL, error) {
 	}
 
 	switch url.Scheme {
-	case "s3", "gs":
+	case "s3", "gs", "azure":
 		if url.Host == "" {
 			return nil, NewValidationError("missing bucket (%s)", fs)
 		}

@@ -5,6 +5,8 @@ go 1.14
 require (
 	cloud.google.com/go v0.56.0 // indirect
 	cloud.google.com/go/storage v1.6.0
+	github.com/Azure/azure-pipeline-go v0.2.3
+	github.com/Azure/azure-storage-blob-go v0.13.0
 	github.com/DataDog/zstd v1.4.5
 	github.com/aws/aws-sdk-go v1.30.6
 	github.com/dustin/go-humanize v1.0.0

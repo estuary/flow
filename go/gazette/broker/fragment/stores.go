@@ -28,10 +28,12 @@ type backend interface {
 var sharedStores = struct {
 	s3  *s3Backend
 	gcs *gcsBackend
+	azure *azureBackend
 	fs  *fsBackend
 }{
 	s3:  newS3Backend(),
 	gcs: &gcsBackend{},
+	azure: &azureBackend{},
 	fs:  &fsBackend{},
 }
 
@@ -41,6 +43,8 @@ func getBackend(scheme string) backend {
 		return sharedStores.s3
 	case "gs":
 		return sharedStores.gcs
+	case "azure":
+		return sharedStores.azure
 	case "file":
 		return sharedStores.fs
 	default:
