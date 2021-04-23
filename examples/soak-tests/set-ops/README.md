@@ -11,7 +11,7 @@ The soak tests require postgres, and don't work with sqlite.
 
 ## Running locally with flowctl develop
 
-- `docker run --name testpg --rm -it -p 5432:5432 -e POSTGRES_PASSWORD=testpgpass postgres:latest`
+- `docker run --name testpg --rm -it -p 5432:5432 -e POSTGRES_PASSWORD=admin postgres:latest`
 - `flowctl develop --source examples/local-postgres.flow.yaml`
 - `go test -v ./examples/soak-tests/set-ops -streams 20 -ops-per-second -verify-period 15s`
 
