@@ -14,7 +14,7 @@ dir=examples/soak-tests/set-ops
 kubectl create configmap set-ops-sources --dry-run=client \
     --from-file $dir/entrypoint.sh \
     --from-file go.mod \
-    --from-file $dir/setops_test.go \
+    --from-file $dir/main.go \
     --from-file $dir/generator.go -o yaml > "$cm_temp"
 
 # Confirm first, since this uses the current kubernetes context, and it's easy to accidentally
