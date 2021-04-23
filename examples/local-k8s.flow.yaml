@@ -8,7 +8,7 @@ endpoints:
   examples/example_database:
     postgres:
       host: postgres.flow.svc.cluster.local
-      password: testpgpass
+      password: admin
       dbname: postgres
       user: postgres
       port: 5432

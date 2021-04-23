@@ -23,6 +23,12 @@ spec:
             - name: sources
               mountPath: /soak-test
           env:
+            # For running against a local kuberentes deployment, you may need to scale these numbers
+            # back so that the materialization is able to keep up with the rate of data. For
+            # example, I found that more than ~200 ops per second was enough to make the tests
+            # flakey with minikube, since it only uses 2 cores by default. YMMV
+            # Setting VERIFY_PERIOD to longer durations can also help to smooth over variations in
+            # the rate of processing, though the default of 30s seems to work fine.
             - name: STREAMS
               value: '100'
             - name: OPS_PER_SECOND
