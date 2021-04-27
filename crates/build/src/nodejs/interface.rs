@@ -19,7 +19,7 @@ impl MethodType {
         w
     }
 
-    pub fn signature(&self, transform: &tables::Transform) -> Vec<String> {
+    pub fn signature(&self, transform: &tables::Transform, underscore: bool) -> Vec<String> {
         let tables::Transform {
             derivation,
             source_collection,
@@ -39,8 +39,10 @@ impl MethodType {
         let tgt = camel_case(derivation, true);
 
         let mut lines = Vec::new();
+        let underscore = if underscore { "_" } else { "" };
+
         lines.push(format!("{}(", self.method_name(transform)));
-        lines.push(format!("    source: {},", src));
+        lines.push(format!("    {}source: {},", underscore, src));
 
         match self {
             MethodType::Shuffle => {
@@ -50,8 +52,8 @@ impl MethodType {
                 lines.push(format!("): registers.{}[]", tgt));
             }
             MethodType::Publish => {
-                lines.push(format!("    register: registers.{},", tgt));
-                lines.push(format!("    previous: registers.{},", tgt));
+                lines.push(format!("    {}register: registers.{},", underscore, tgt));
+                lines.push(format!("    {}previous: registers.{},", underscore, tgt));
                 lines.push(format!("): collections.{}[]", tgt));
             }
         }
@@ -67,8 +69,8 @@ pub struct Method<'a> {
 }
 
 impl<'a> Method<'a> {
-    pub fn signature(&self) -> Vec<String> {
-        self.type_.signature(&self.transform)
+    pub fn signature(&self, underscore: bool) -> Vec<String> {
+        self.type_.signature(&self.transform, underscore)
     }
 }
 
