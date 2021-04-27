@@ -192,7 +192,7 @@ export interface {name} {{
         .unwrap();
 
         for method in methods {
-            let signature = method.signature().into_iter().join("\n    ");
+            let signature = method.signature(false).into_iter().join("\n    ");
             writeln!(w, "    {};", signature).unwrap();
         }
         w.push_str("}\n");
@@ -322,7 +322,7 @@ export class {name} implements interfaces.{name} {{
             .unwrap();
 
             for method in methods {
-                let signature = method.signature().into_iter().join("\n    ");
+                let signature = method.signature(true).into_iter().join("\n    ");
                 writeln!(w, "    {} {{", signature).unwrap();
                 w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
             }

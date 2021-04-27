@@ -393,14 +393,14 @@ expression: intents
     // Implementation for derivation sub/module.yaml#/collections/local~1derivation/derivation.
     export class LocalDerivation implements interfaces.LocalDerivation {
         thereItIsUpdate(
-            source: collections.LocalDerivation,
+            _source: collections.LocalDerivation,
         ): registers.LocalDerivation[] {
             throw new Error("Not implemented");
         }
         whootPublish(
-            source: collections.SomeInput,
-            register: registers.LocalDerivation,
-            previous: registers.LocalDerivation,
+            _source: collections.SomeInput,
+            _register: registers.LocalDerivation,
+            _previous: registers.LocalDerivation,
         ): collections.LocalDerivation[] {
             throw new Error("Not implemented");
         }
