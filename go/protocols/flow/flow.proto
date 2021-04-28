@@ -482,6 +482,34 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
+// SplitRequest is the request message of a Split RPC.
+message SplitRequest {
+  // Shard to split.
+  string shard = 1 [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  // Split on key.
+  bool split_on_key = 2;
+  // Split on r-clock.
+  bool split_on_rclock = 3;
+}
+
+// SplitResponse is the response message of a Split RPC.
+message SplitResponse {
+  // Status of the Shuffle RPC.
+  consumer.Status status = 1;
+  // Header of the response.
+  protocol.Header header = 2 [ (gogoproto.nullable) = false ];
+  // Original (parent) shard RangeSpec.
+  RangeSpec parent_range = 3;
+  // Future left-hand child RangeSpec.
+  RangeSpec lhs_range = 4;
+  // Future Right-hand child RangeSpec.
+  RangeSpec rhs_range = 5;
+}
+
+service Splitter {
+  rpc Split(SplitRequest) returns (SplitResponse);
+}
+
 // CatalogTask is a self-contained, long lived specification executed
 // by the Flow runtime. Tasks have stable names which coexist in a shared
 // global namespace, with a specification that evolves over time.
@@ -532,8 +560,12 @@ message CatalogCommons {
 }
 
 message SchemaAPI {
-  // Schema API takes SchemaBundle as its request message with code 1,
-  // and sends back instances of BuiltIndex with code 1.
+  // Code labels message codes passed over the CGO bridge.
+  enum Code {
+    INVALID = 0;
+    // Take a request SchemaBundle and respond with a BuiltIndex. (Go <-> Rust).
+    BUILD_INDEX = 1;
+  }
 
   message BuiltIndex {
     fixed64 schema_index_memptr = 1;

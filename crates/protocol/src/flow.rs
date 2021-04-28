@@ -558,6 +558,38 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag="10")]
     pub packed_key: ::prost::alloc::vec::Vec<Slice>,
 }
+/// SplitRequest is the request message of a Split RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SplitRequest {
+    /// Shard to split.
+    #[prost(string, tag="1")]
+    pub shard: ::prost::alloc::string::String,
+    /// Split on key.
+    #[prost(bool, tag="2")]
+    pub split_on_key: bool,
+    /// Split on r-clock.
+    #[prost(bool, tag="3")]
+    pub split_on_rclock: bool,
+}
+/// SplitResponse is the response message of a Split RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SplitResponse {
+    /// Status of the Shuffle RPC.
+    #[prost(enumeration="super::consumer::Status", tag="1")]
+    pub status: i32,
+    /// Header of the response.
+    #[prost(message, optional, tag="2")]
+    pub header: ::core::option::Option<super::protocol::Header>,
+    /// Original (parent) shard RangeSpec.
+    #[prost(message, optional, tag="3")]
+    pub parent_range: ::core::option::Option<RangeSpec>,
+    /// Future left-hand child RangeSpec.
+    #[prost(message, optional, tag="4")]
+    pub lhs_range: ::core::option::Option<RangeSpec>,
+    /// Future Right-hand child RangeSpec.
+    #[prost(message, optional, tag="5")]
+    pub rhs_range: ::core::option::Option<RangeSpec>,
+}
 /// CatalogTask is a self-contained, long lived specification executed
 /// by the Flow runtime. Tasks have stable names which coexist in a shared
 /// global namespace, with a specification that evolves over time.
@@ -617,8 +649,6 @@ pub struct CatalogCommons {
     #[prost(string, tag="14")]
     pub typescript_package_url: ::prost::alloc::string::String,
 }
-/// Schema API takes SchemaBundle as its request message with code 1,
-/// and sends back instances of BuiltIndex with code 1.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaApi {
 }
@@ -628,6 +658,14 @@ pub mod schema_api {
     pub struct BuiltIndex {
         #[prost(fixed64, tag="1")]
         pub schema_index_memptr: u64,
+    }
+    /// Code labels message codes passed over the CGO bridge.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Code {
+        Invalid = 0,
+        /// Take a request SchemaBundle and respond with a BuiltIndex. (Go <-> Rust).
+        BuildIndex = 1,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
