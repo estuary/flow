@@ -1,6 +1,9 @@
 use models::tables;
 use prost::Message;
-use protocol::{cgo, flow};
+use protocol::{
+    cgo,
+    flow::{self, schema_api::Code},
+};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -13,8 +16,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("Protobuf decoding error")]
     ProtoDecode(#[from] prost::DecodeError),
-    #[error("Invalid state code {0} for schema API")]
-    InvalidState(u32),
+    #[error("protocol error (invalid state or invocation)")]
+    InvalidState,
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
 }
@@ -35,8 +38,14 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
+        let code = match Code::from_i32(code as i32) {
+            Some(c) => c,
+            None => return Err(Error::InvalidState),
+        };
+        tracing::trace!(?code, "invoke");
+
         match code {
-            1 => {
+            Code::BuildIndex => {
                 // Parse bundle into SchemaDocs table.
                 let flow::SchemaBundle { bundle } = flow::SchemaBundle::decode(data)?;
 
@@ -55,7 +64,7 @@ impl cgo::Service for API {
 
                 Ok(())
             }
-            _ => return Err(Error::InvalidState(code)),
+            _ => return Err(Error::InvalidState),
         }
     }
 }
@@ -64,7 +73,10 @@ impl cgo::Service for API {
 pub mod test {
     use super::API;
     use prost::Message;
-    use protocol::{cgo::Service, flow};
+    use protocol::{
+        cgo::Service,
+        flow::{self, schema_api::Code},
+    };
 
     #[test]
     fn test_schema_api() {
@@ -74,7 +86,7 @@ pub mod test {
         let mut out = Vec::new();
 
         svc.invoke_message(
-            1,
+            Code::BuildIndex as u32,
             flow::SchemaBundle {
                 bundle: vec![("https://example".to_string(), "true".to_string())]
                     .into_iter()
