@@ -173,19 +173,19 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 
 func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
 	for _, spec := range built.Derivations {
-		var name = spec.Collection.Collection.String()
-		var id = pc.ShardID(fmt.Sprintf("derivation/%s/%s-%s",
-			name, flowLabels.KeyBeginMin, flowLabels.RClockBeginMin))
-
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, name,
+			flowLabels.TaskName, spec.Collection.Collection.String(),
 			flowLabels.TaskType, flowLabels.TaskTypeDerivation,
 			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
 			flowLabels.KeyEnd, flowLabels.KeyEndMax,
 			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
 			flowLabels.RClockEnd, flowLabels.RClockEndMax,
 		)
+		var id, err = flowLabels.BuildShardID(labels)
+		if err != nil {
+			return fmt.Errorf("building shard ID: %w", err)
+		}
 
 		var changes = []pc.ApplyRequest_Change{{
 			Upsert: &pc.ShardSpec{
@@ -202,7 +202,7 @@ func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClie
 			ExpectModRevision: 0, // Apply fails if it exists.
 		}}
 
-		var _, err = consumer.ApplyShards(context.Background(),
+		_, err = consumer.ApplyShards(context.Background(),
 			shards, &pc.ApplyRequest{Changes: changes})
 
 		if err == nil {
@@ -218,19 +218,19 @@ func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClie
 
 func applyMaterializationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
 	for _, spec := range built.Materializations {
-		var name = spec.Materialization
-		var id = pc.ShardID(fmt.Sprintf("materialize/%s/%s-%s",
-			name, flowLabels.KeyBeginMin, flowLabels.RClockBeginMin))
-
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, name,
+			flowLabels.TaskName, spec.Materialization,
 			flowLabels.TaskType, flowLabels.TaskTypeMaterialization,
 			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
 			flowLabels.KeyEnd, flowLabels.KeyEndMax,
 			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
 			flowLabels.RClockEnd, flowLabels.RClockEndMax,
 		)
+		var id, err = flowLabels.BuildShardID(labels)
+		if err != nil {
+			return fmt.Errorf("building shard ID: %w", err)
+		}
 
 		var changes = []pc.ApplyRequest_Change{{
 			Upsert: &pc.ShardSpec{
@@ -247,7 +247,7 @@ func applyMaterializationShardsTODO(built *bindings.BuiltCatalog, shards pc.Shar
 			ExpectModRevision: 0, // Apply fails if it exists.
 		}}
 
-		var _, err = consumer.ApplyShards(context.Background(), shards,
+		_, err = consumer.ApplyShards(context.Background(), shards,
 			&pc.ApplyRequest{Changes: changes})
 
 		if err == nil {

@@ -98,3 +98,44 @@ func TestRoundTripRangeSpecToLabels(t *testing.T) {
 
 	require.Equal(t, range_, recovered)
 }
+
+func TestShardIDs(t *testing.T) {
+	var labels = pb.MustLabelSet(
+		TaskName, "some/thing",
+		TaskType, TaskTypeMaterialization,
+	)
+	labels = EncodeRange(pf.RangeSpec{
+		KeyBegin:    0,
+		KeyEnd:      123456,
+		RClockBegin: 0,
+		RClockEnd:   78910,
+	}, labels)
+
+	var id, err = BuildShardID(labels)
+	require.NoError(t, err)
+	require.Equal(t, "materialize/some/thing/00000000-00000000", id.String())
+
+	labels = pb.MustLabelSet(
+		TaskName, "other/thing",
+		TaskType, TaskTypeDerivation,
+	)
+	labels = EncodeRange(pf.RangeSpec{
+		KeyBegin:    0x123,
+		KeyEnd:      0x456,
+		RClockBegin: 0x789,
+		RClockEnd:   0x1011,
+	}, labels)
+
+	id, err = BuildShardID(labels)
+	require.NoError(t, err)
+	require.Equal(t, "derivation/other/thing/00000123-00000789", id.String())
+
+	// Error cases:
+	labels.SetValue(TaskType, "other")
+	_, err = BuildShardID(labels)
+	require.EqualError(t, err, "unexpected estuary.dev/task-type: other")
+
+	labels.Remove(KeyBegin)
+	_, err = BuildShardID(labels)
+	require.EqualError(t, err, "expected one estuary.dev/key-begin: []")
+}

@@ -6,6 +6,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // JournalSpec & ShardSpec labels.
@@ -51,15 +52,20 @@ const (
 	RClockEnd = "estuary.dev/rclock-end"
 	// RClockEndMax is the maximum possible RClock.
 	RClockEndMax = KeyEndMax
+
+	// SplitTarget is the shard ID into which this shard is currently splitting.
+	SplitTarget = "estuary.dev/split-target"
+	// SplitSource is the shard ID from which this shard is currently splitting.
+	SplitSource = "estuary.dev/split-source"
 )
 
 // EncodeRange encodes the RangeSpec into the given LabelSet,
 // which is then returned.
 func EncodeRange(range_ pf.RangeSpec, set pb.LabelSet) pb.LabelSet {
-	set.AddValue(KeyBegin, fmt.Sprintf("%08x", range_.KeyBegin))
-	set.AddValue(KeyEnd, fmt.Sprintf("%08x", range_.KeyEnd))
-	set.AddValue(RClockBegin, fmt.Sprintf("%08x", range_.RClockBegin))
-	set.AddValue(RClockEnd, fmt.Sprintf("%08x", range_.RClockEnd))
+	set.SetValue(KeyBegin, fmt.Sprintf("%08x", range_.KeyBegin))
+	set.SetValue(KeyEnd, fmt.Sprintf("%08x", range_.KeyEnd))
+	set.SetValue(RClockBegin, fmt.Sprintf("%08x", range_.RClockBegin))
+	set.SetValue(RClockEnd, fmt.Sprintf("%08x", range_.RClockEnd))
 	return set
 }
 
@@ -104,5 +110,43 @@ func ParseHexU32Label(name string, set pb.LabelSet) (uint32, error) {
 		return 0, fmt.Errorf("decoding hex-encoded label %s: %w", name, err)
 	} else {
 		return uint32(b), nil
+	}
+}
+
+// BuildShardID builds the ShardID that's implied by the LabelSet.
+func BuildShardID(set pb.LabelSet) (pc.ShardID, error) {
+	// Pluck singleton label values we expect to exist.
+	var (
+		type_, err1       = valueOf(set, TaskType)
+		name, err2        = valueOf(set, TaskName)
+		keyBegin, err3    = valueOf(set, KeyBegin)
+		rclockBegin, err4 = valueOf(set, RClockBegin)
+	)
+	for _, err := range []error{err1, err2, err3, err4} {
+		if err != nil {
+			return "", err
+		}
+	}
+
+	switch type_ {
+	case TaskTypeDerivation:
+		type_ = "derivation"
+	case TaskTypeMaterialization:
+		type_ = "materialize"
+	default:
+		return "", fmt.Errorf("unexpected %s: %s", TaskType, type_)
+	}
+
+	return pc.ShardID(
+		fmt.Sprintf("%s/%s/%s-%s", type_, name, keyBegin, rclockBegin),
+	), nil
+}
+
+func valueOf(set pb.LabelSet, name string) (string, error) {
+	var v = set.ValuesOf(name)
+	if len(v) != 1 {
+		return "", fmt.Errorf("expected one %s: %v", name, v)
+	} else {
+		return v[0], nil
 	}
 }
