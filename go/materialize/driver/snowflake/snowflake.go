@@ -48,6 +48,11 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			var configCopy = parsed.Config
 			// client_session_keep_alive causes the driver to issue a periodic keepalive request.
 			// Without this, the authentication token will expire after 4 hours of inactivity.
+			// The Params map will not have been initialized if the endpoint config didn't specify
+			// it, so we check and initialize here if needed.
+			if configCopy.Params == nil {
+				configCopy.Params = make(map[string]*string)
+			}
 			configCopy.Params["client_session_keep_alive"] = &trueString
 			dsn, err := sf.DSN(&configCopy)
 			if err != nil {
