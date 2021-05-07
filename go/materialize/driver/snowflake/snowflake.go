@@ -29,6 +29,9 @@ type snowflakeConfig struct {
 	tempdir      string
 }
 
+// The Snowflake driver Params map uses string pointers as values, which is what this is used for.
+var trueString = "true"
+
 // NewDriver creates a new Driver for Snowflake.
 func NewDriver(tempdir string) *sqlDriver.Driver {
 	return &sqlDriver.Driver{
@@ -43,6 +46,9 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 
 			// Build a DSN connection string. DSN() mutates the Config, so pass a copy.
 			var configCopy = parsed.Config
+			// client_session_keep_alive causes the driver to issue a periodic keepalive request.
+			// Without this, the authentication token will expire after 4 hours of inactivity.
+			configCopy.Params["client_session_keep_alive"] = &trueString
 			dsn, err := sf.DSN(&configCopy)
 			if err != nil {
 				return nil, fmt.Errorf("building Snowflake DSN: %w", err)
