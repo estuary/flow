@@ -55,6 +55,10 @@ type Shard interface {
 	// triggers a raw append to a journal, Gazette can guarantee that append will
 	// occur at-least-once no matter how this Shard or brokers may fail.
 	JournalClient() client.AsyncJournalClient
+	// RecoveredHints returns the GetHintsResponse which was used in the
+	// recovery of this Shard from its recovery log.
+	// If the Shard doesn't use a recovery log, RecoveredHints is nil.
+	RecoveredHints() *pc.GetHintsResponse
 	// Progress of the Shard as-of its most recent completed transaction.
 	// readThrough is offsets of source journals which have been read
 	// through. publishAt is journals and offsets this Shard has published

@@ -46,6 +46,7 @@ type shard struct {
 	// recovery of the shard from its log (if applicable).
 	recovery struct {
 		log      pb.Journal            // Point-in-time snapshot of ShardSpec.RecoveryLog().
+		hints    *pc.GetHintsResponse  // Fetched hints used for recovery of the shard.
 		player   *recoverylog.Player   // Player of shard's recovery log, if used.
 		recorder *recoverylog.Recorder // Recorder of shard's recovery log.
 	}
@@ -119,6 +120,10 @@ func (s *shard) Progress() (readThrough, publishAt pb.Offsets) {
 	s.progress.Lock()
 	defer s.progress.Unlock()
 	return s.progress.readThrough.Copy(), s.progress.publishAt.Copy()
+}
+
+func (s *shard) RecoveredHints() *pc.GetHintsResponse {
+	return s.recovery.hints
 }
 
 // transition is called by Resolver with the current ShardSpec and allocator

@@ -196,18 +196,20 @@ func storeRecoveredHints(s *shard, hints recoverylog.FSMHints) error {
 
 // beginRecovery fetches FSMHints and recovers them into a temporary directory.
 func beginRecovery(s *shard) error {
+	var err error
 	var spec = s.Spec()
-	var allHints, err = s.svc.GetHints(s.ctx, &pc.GetHintsRequest{
+
+	s.recovery.hints, err = s.svc.GetHints(s.ctx, &pc.GetHintsRequest{
 		Shard: spec.Id,
 	})
 
-	if err == nil && allHints.Status != pc.Status_OK {
-		err = fmt.Errorf(allHints.Status.String())
+	if err == nil && s.recovery.hints.Status != pc.Status_OK {
+		err = fmt.Errorf(s.recovery.hints.Status.String())
 	}
 	if err != nil {
 		return fmt.Errorf("GetHints: %w", err)
 	}
-	var pickedHints = pickFirstHints(allHints, s.recovery.log)
+	var pickedHints = pickFirstHints(s.recovery.hints, s.recovery.log)
 
 	// Verify the |pickedHints| recovery log exists, and is of the correct Content-Type.
 	if logSpec, err := client.GetJournal(s.ctx, s.ajc, pickedHints.Log); err != nil {
