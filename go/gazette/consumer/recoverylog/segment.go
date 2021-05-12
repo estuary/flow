@@ -145,6 +145,8 @@ func reduceSegment(a, b Segment) (Segment, error) {
 		return a, fmt.Errorf("expected preceding Segment to also include LastOffset: %#v vs %#v", a, b)
 
 	case a.LastOffset == 0 && a.Log != b.Log:
+		// This cases isn't strictly required, but it's true of the intended
+		// usages of recovery log forks and is therefor included as a sanity check.
 		return a, fmt.Errorf("Segment cannot use a different log where preceding Segment.LastOffset is zero: %#v vs %#v", a, b)
 
 	case a.LastSeqNo <= b.LastSeqNo && a.Log == b.Log && nonZeroAndLess(b.LastOffset, a.LastOffset):

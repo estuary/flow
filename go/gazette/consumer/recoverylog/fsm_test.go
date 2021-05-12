@@ -31,6 +31,7 @@ func (s *FSMSuite) TestInitFromSeqNoZero(c *gc.C) {
 
 	c.Check(s.fsm.NextChecksum, gc.Equals, uint32(0x7355c460))
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(3))
+	c.Check(s.fsm.LastLog, gc.Equals, aRecoveryLog)
 }
 
 func (s *FSMSuite) TestFlatteningLiveLogSegments(c *gc.C) {
@@ -94,6 +95,7 @@ func (s *FSMSuite) TestInitializationFromHints(c *gc.C) {
 
 	c.Check(s.fsm.NextChecksum, gc.Equals, uint32(0xfeedbeef))
 	c.Check(s.fsm.NextSeqNo, gc.Equals, int64(42))
+	c.Check(s.fsm.LastLog, gc.Equals, aRecoveryLog)
 	c.Check(s.fsm.Properties, gc.DeepEquals,
 		map[string]string{"/IDENTITY": "foo-bar-baz"})
 

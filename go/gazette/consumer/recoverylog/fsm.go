@@ -71,6 +71,8 @@ type FSM struct {
 	// Expected sequence number and checksum of next operation.
 	NextSeqNo    int64
 	NextChecksum uint32
+	// Log of the last sequenced operation.
+	LastLog pb.Journal
 
 	// Target paths and contents of small files which are managed outside of
 	// regular Fnode tracking. Property updates are triggered upon rename of
@@ -135,6 +137,7 @@ func NewFSM(hints FSMHints) (*FSM, error) {
 	var fsm = &FSM{
 		NextSeqNo:    1,
 		NextChecksum: 0,
+		LastLog:      hints.Log,
 		Properties:   make(map[string]string),
 		LiveNodes:    make(map[Fnode]*fnodeState),
 		Links:        make(map[string]Fnode),
@@ -201,6 +204,7 @@ func (m *FSM) Apply(op *RecordedOp, frame []byte) error {
 	// Step the FSM to the next state.
 	m.NextSeqNo++
 	m.NextChecksum = crc32.Update(m.NextChecksum, crcTable, frame)
+	m.LastLog = op.Log
 
 	// If we've exhausted the current hinted Segment, pop and skip to the next.
 	if len(m.hintedSegments) != 0 && m.hintedSegments[0].LastSeqNo < m.NextSeqNo {

@@ -11,6 +11,7 @@ import (
 	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/message"
 )
 
@@ -384,6 +385,46 @@ func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {
 	c.Check(NewRandomAuthor(), gc.Not(gc.Equals), Author(0))         // Zero is never returned.
 }
 
+func (s *RecorderSuite) TestUpdatingRecordedLog(c *gc.C) {
+	var (
+		broker, cleanup = newBrokerAndLog(c)
+		rjc             = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+		ajc             = client.NewAppendService(context.Background(), rjc)
+	)
+	defer func() {
+		broker.Tasks.Cancel()
+		cleanup()
+	}()
+
+	// Initial recorder populates a fixture in first log.
+	var fsm, _ = NewFSM(FSMHints{Log: aRecoveryLog})
+	var rec = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
+	rec.RecordCreate("/strip/file1")
+	<-rec.Barrier(nil).Done()
+
+	brokertest.CreateJournals(c, broker,
+		brokertest.Journal(pb.JournalSpec{Name: otherLog}))
+
+	// Second recorder uses a different log log.
+	var rec2 = NewRecorder(otherLog, rec.fsm, otherAuthor, "/strip", ajc)
+	rec2.RecordCreate("/strip/file2")
+	<-rec2.Barrier(nil).Done()
+
+	var hints, err = rec2.BuildHints()
+	c.Check(err, gc.IsNil)
+
+	c.Check(hints, gc.DeepEquals, FSMHints{
+		Log: otherLog,
+		LiveNodes: []FnodeSegments{
+			{Fnode: 1, Segments: []Segment{
+				{Author: anAuthor, FirstSeqNo: 1, FirstOffset: 0, FirstChecksum: 0x00000000, LastSeqNo: 1, Log: aRecoveryLog}}},
+			// Operation 2 is a sequenced no-op.
+			{Fnode: 3, Segments: []Segment{
+				{Author: otherAuthor, FirstSeqNo: 3, FirstOffset: 0, FirstChecksum: 0x61669370, LastSeqNo: 3}}},
+		},
+	})
+}
+
 func (s *RecorderSuite) parseOp(c *gc.C, br *bufio.Reader) RecordedOp {
 	var frame, err = message.UnpackFixedFrame(br)
 	c.Assert(err, gc.IsNil)
@@ -428,7 +469,9 @@ func newBrokerLogAndReader(c *gc.C) (client.AsyncJournalClient, *client.Reader, 
 
 const (
 	aRecoveryLog pb.Journal = "examples/integration-tests/recovery-log"
+	otherLog     pb.Journal = "examples/integration-tests/other-recovery-log"
 	anAuthor     Author     = 1234
+	otherAuthor  Author     = 5678
 )
 
 var _ = gc.Suite(&RecorderSuite{})

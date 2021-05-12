@@ -334,7 +334,6 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 		select {
 		case err = <-reader.peek():
 			reader.pendingPeek = false
-			break
 
 		case handoff = <-handoffCh:
 			// We've been signaled to complete playback and exit when we're able.

@@ -45,7 +45,7 @@ func TestSimpleStopAndStart(t *testing.T) {
 	defer replica2.teardown()
 
 	replica2.startReading(hints)
-	replica2.makeLive()
+	replica2.makeLive("")
 
 	replica2.expectValues(map[string]string{
 		"key1": "value one",
@@ -91,7 +91,7 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	require.NoError(t, replica1.db.Flush(fo))
 
 	// Make |replica2| live. Expect |replica1|'s content to be present.
-	replica2.makeLive()
+	replica2.makeLive("")
 	replica2.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
@@ -104,7 +104,7 @@ func TestWarmStandbyHandoff(t *testing.T) {
 	replica2.put("raced", "and wins")
 	require.NoError(t, replica2.db.Flush(fo))
 
-	replica3.makeLive()
+	replica3.makeLive("")
 	replica3.expectValues(map[string]string{
 		"key foo": "baz",
 		"key bar": "bing",
@@ -137,7 +137,7 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 	replica1.put("key one", "value one")
 
 	// |replica2| now becomes live. |replica1| and |replica2| intersperse writes.
-	replica2.makeLive()
+	replica2.makeLive("")
 	replica1.put("rep1 foo", "value foo")
 	replica2.put("rep2 bar", "value bar")
 	replica1.put("rep1 baz", "value baz")
@@ -158,11 +158,11 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 
 	hints, _ = replica1.recorder.BuildHints()
 	replica3.startReading(hints)
-	replica3.makeLive()
+	replica3.makeLive("")
 
 	hints, _ = replica2.recorder.BuildHints()
 	replica4.startReading(hints)
-	replica4.makeLive()
+	replica4.makeLive("")
 
 	// Expect |replica3| recovered |replica1| history.
 	replica3.expectValues(map[string]string{
@@ -175,6 +175,40 @@ func TestResolutionOfConflictingWriters(t *testing.T) {
 		"key one":   "value one",
 		"rep2 bar":  "value bar",
 		"rep2 bing": "value bing",
+	})
+}
+
+func TestStopAndStartWithLogChange(t *testing.T) {
+	var bk, cleanup = newBrokerAndLog(t)
+	defer cleanup()
+
+	var replica1 = newTestReplica(t, bk)
+	defer replica1.teardown()
+
+	replica1.startWriting(aRecoveryLog)
+	replica1.put("key1", "one")
+	var hints, _ = replica1.recorder.BuildHints()
+	replica1.put("key2", "two")
+
+	var replica2 = newTestReplica(t, bk)
+	defer replica2.teardown()
+
+	replica2.startReading(hints)
+	replica2.makeLive(otherRecoveryLog)
+	replica2.put("key3", "three")
+
+	hints, _ = replica2.recorder.BuildHints()
+
+	var replica3 = newTestReplica(t, bk)
+	defer replica3.teardown()
+
+	replica3.startReading(hints)
+	replica3.makeLive("")
+
+	replica3.expectValues(map[string]string{
+		"key1": "one",
+		"key2": "two",
+		"key3": "three",
 	})
 }
 
@@ -263,12 +297,16 @@ func (r *testReplica) startWriting(log pb.Journal) {
 }
 
 // Finish playback, build a new recorder, and open an observed database.
-func (r *testReplica) makeLive() {
+func (r *testReplica) makeLive(log pb.Journal) {
 	r.player.InjectHandoff(r.author)
 	<-r.player.Done()
 
 	require.NotNil(r.t, r.player.Resolved.FSM)
-	r.initDB(r.player.Resolved.Log, r.player.Resolved.FSM)
+
+	if log == "" {
+		log = r.player.Resolved.Log
+	}
+	r.initDB(log, r.player.Resolved.FSM)
 }
 
 func (r *testReplica) initDB(log pb.Journal, fsm *recoverylog.FSM) {
@@ -325,7 +363,9 @@ func newBrokerAndLog(t require.TestingT) (client.AsyncJournalClient, func()) {
 	var etcd = etcdtest.TestClient()
 	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
 
-	brokertest.CreateJournals(t, broker, brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}))
+	brokertest.CreateJournals(t, broker,
+		brokertest.Journal(pb.JournalSpec{Name: aRecoveryLog}),
+		brokertest.Journal(pb.JournalSpec{Name: otherRecoveryLog}))
 
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	var as = client.NewAppendService(context.Background(), rjc)
@@ -338,5 +378,6 @@ func newBrokerAndLog(t require.TestingT) (client.AsyncJournalClient, func()) {
 }
 
 const aRecoveryLog pb.Journal = "test/store-rocksdb/recovery-log"
+const otherRecoveryLog pb.Journal = "test/store-rocksdb/other-recovery-log"
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

@@ -93,12 +93,30 @@ func NewRecorder(journal pb.Journal, fsm *FSM, author Author, dir string, ajc cl
 		author:         author,
 		dir:            dir,
 		client:         ajc,
-		checkRegisters: &pb.LabelSelector{Include: *author.Fence()},
+		checkRegisters: nil,
 	}
 
 	// Issue a write barrier to determine the current write head, which will
 	// lower-bound the offset for all subsequent recorded operations.
 	<-r.Barrier(nil).Done()
+
+	if r.log != fsm.LastLog {
+		// We're recording to a different log than we recovered from.
+		// Issue a no-op but non-empty write to the log which is properly
+		// sequenced with respect to the FSM, and which fences
+		// the log to this Recorder's author.
+		var txn = r.client.StartAppend(pb.AppendRequest{
+			Journal:        r.log,
+			UnionRegisters: author.Fence(),
+		}, nil)
+
+		r.process(RecordedOp{}, txn.Writer())
+		r.unlockAndReleaseTxn(txn)
+	}
+
+	// From here on, require that our author register is present.
+	r.checkRegisters = &pb.LabelSelector{Include: *author.Fence()}
+
 	return r
 }
 
