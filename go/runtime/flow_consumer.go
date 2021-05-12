@@ -119,6 +119,8 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 		return NewDeriveApp(f, shard, rec)
 	case labels.TaskTypeMaterialization:
 		return NewMaterializeApp(f, shard, rec)
+	case labels.TaskTypeCapture:
+		return NewCaptureApp(f, shard, rec)
 	default:
 		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
 	}

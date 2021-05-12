@@ -311,6 +311,8 @@ pub enum EndpointDef {
     Snowflake(SnowflakeConfig),
     /// # A Webhook.
     Webhook(WebhookConfig),
+    /// # A Kinesis Stream
+    Kinesis(KinesisConfig),
 }
 
 impl EndpointDef {
@@ -325,8 +327,29 @@ impl EndpointDef {
             EndpointDef::Sqlite(_) => EndpointType::Sqlite,
             EndpointDef::Snowflake(_) => EndpointType::Snowflake,
             EndpointDef::Webhook(_) => EndpointType::Webhook,
+            EndpointDef::Kinesis(_) => EndpointType::Kinesis,
         }
     }
+}
+
+/// Kinesis endpoint configuration.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct KinesisConfig {
+    /// # Name of the Kinesis data stream
+    pub stream: String,
+    /// # AWS region of the Kinesis data stream
+    pub region: String,
+    /// # AWS access key id to use when connecting to Kinesis
+    #[serde(rename = "awsAccessKeyId")]
+    pub aws_access_key_id: String,
+    /// # AWS secret access key to use when connecting to Kinesis
+    #[serde(rename = "awsSecretAccessKey")]
+    pub aws_secret_key: String,
+
+    /// Preserve and pass-through all configuration.
+    /// Some fields are explicit above, to benefit from JSON-Schema generation.
+    #[serde(flatten)]
+    pub extra: names::Object,
 }
 
 /// PostgreSQL endpoint configuration.

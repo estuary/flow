@@ -118,6 +118,10 @@ func (cmd cmdApply) Execute(_ []string) error {
 	}).Debug("applied catalog to Etcd")
 
 	if !cmd.DryRun {
+		// Apply capture shard specs.
+		if err = applyCaptureShardsTODO(built, shards); err != nil {
+			return fmt.Errorf("applying capture shards: %w", err)
+		}
 		// Apply derivation shard specs.
 		if err = applyDerivationShardsTODO(built, shards); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
@@ -169,6 +173,48 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 		path = path[len(dir)+len("file://")+1:]
 	}
 	return path, ptr
+}
+
+func applyCaptureShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+	for _, spec := range built.Captures {
+		var name = spec.Capture
+		var id = pc.ShardID(fmt.Sprintf("capture/%s/%s-%s",
+			name, flowLabels.KeyBeginMin, flowLabels.KeyEndMax))
+
+		var labels = pb.MustLabelSet(
+			labels.ManagedBy, flowLabels.ManagedByFlow,
+			flowLabels.TaskName, name,
+			flowLabels.TaskType, flowLabels.TaskTypeCapture,
+			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
+			flowLabels.KeyEnd, flowLabels.KeyEndMax,
+		)
+		var changes = []pc.ApplyRequest_Change{{
+			Upsert: &pc.ShardSpec{
+				Id:                id,
+				Sources:           nil,
+				RecoveryLogPrefix: "recovery",
+				HintPrefix:        "/estuary/flow/hints",
+				HintBackups:       2,
+				MaxTxnDuration:    time.Minute,
+				MinTxnDuration:    0,
+				HotStandbys:       0,
+				LabelSet:          labels,
+			},
+			ExpectModRevision: 0, // Apply fails if it exists.
+		}}
+
+		var _, err = consumer.ApplyShards(context.Background(),
+			shards, &pc.ApplyRequest{Changes: changes})
+
+		if err == nil {
+			log.WithField("id", id).Debug("created capture shard")
+		} else if err.Error() == pc.Status_ETCD_TRANSACTION_FAILED.String() {
+			log.WithField("id", id).Debug("capture shard exists")
+		} else {
+			return fmt.Errorf("applying shard %q: %w", changes[0].Upsert.Id, err)
+		}
+	}
+	return nil
 }
 
 func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {

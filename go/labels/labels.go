@@ -41,6 +41,8 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
+	// TaskTypeCapture is a "capture" TaskType
+	TaskTypeCapture = "capture"
 	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"

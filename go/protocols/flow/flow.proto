@@ -258,6 +258,7 @@ enum EndpointType {
     GS = 4;
     SNOWFLAKE = 5;
     WEBHOOK = 6;
+    KINESIS = 7;
 }
 
 // FieldSelection is a selection of a collection's projection fields.

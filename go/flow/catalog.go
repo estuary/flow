@@ -202,11 +202,13 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 	}
 	var tasks []pf.CatalogTask
 
+	var captures = make(map[pf.Collection]struct{})
 	for i := range build.Captures {
 		tasks = append(tasks, pf.CatalogTask{
 			CommonsId: commons.CommonsId,
 			Capture:   &build.Captures[i],
 		})
+		captures[build.Captures[i].Collection.Collection] = struct{}{}
 	}
 	var derivations = make(map[pf.Collection]struct{})
 	for i := range build.Derivations {
@@ -216,9 +218,13 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 		})
 		derivations[build.Derivations[i].Collection.Collection] = struct{}{}
 	}
-	// Non-derivation collections are ingestion tasks.
+	// TODO: should captures tasks also be ingestions?
+	// Collections that are not derivations or captures can be ingestion tasks
 	for i := range build.Collections {
 		if _, ok := derivations[build.Collections[i].Collection]; ok {
+			continue
+		}
+		if _, ok := captures[build.Collections[i].Collection]; ok {
 			continue
 		}
 		tasks = append(tasks, pf.CatalogTask{

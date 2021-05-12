@@ -133,6 +133,10 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	if err = applyMaterializationsTODO(built, false); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
+	// Apply capture shard specs
+	if err = applyCaptureShardsTODO(built, cluster.Shards); err != nil {
+		return fmt.Errorf("applying captures: %w", err)
+	}
 	// Apply derivation shard specs.
 	if err = applyDerivationShardsTODO(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)

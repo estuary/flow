@@ -696,6 +696,7 @@ impl<F: Fetcher> Loader<F> {
                     None // We reported a join() error.
                 }
             }
+            specs::EndpointDef::Kinesis(cfg) => Some(serde_json::to_value(cfg).unwrap()),
         }
     }
 
