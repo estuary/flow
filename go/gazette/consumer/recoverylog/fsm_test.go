@@ -36,16 +36,16 @@ func (s *FSMSuite) TestInitFromSeqNoZero(c *gc.C) {
 
 func (s *FSMSuite) TestFlatteningLiveLogSegments(c *gc.C) {
 	var hints = FSMHints{
-		Log: aRecoveryLog,
+		Log: "other/log",
 		LiveNodes: []FnodeSegments{
 			{Fnode: 2, Segments: []Segment{
-				{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 700, FirstChecksum: 0x22},
+				{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 700, FirstChecksum: 0x22, Log: aRecoveryLog},
 			}},
 			{Fnode: 4, Segments: []Segment{
-				{Author: 0x1, FirstSeqNo: 4, LastSeqNo: 9, FirstOffset: 400, LastOffset: 901, FirstChecksum: 0x44},
+				{Author: 0x1, FirstSeqNo: 4, LastSeqNo: 9, FirstOffset: 400, LastOffset: 901, FirstChecksum: 0x44, Log: aRecoveryLog},
 			}},
 			{Fnode: 10, Segments: []Segment{
-				{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10, Log: "other"},
+				{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10},
 			}},
 		},
 	}
@@ -55,10 +55,15 @@ func (s *FSMSuite) TestFlatteningLiveLogSegments(c *gc.C) {
 	c.Check(fnodes, gc.DeepEquals, []Fnode{2, 4, 10})
 	c.Check(set, gc.DeepEquals, SegmentSet{
 		{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 200, LastOffset: 901, FirstChecksum: 0x22, Log: aRecoveryLog},
-		{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10, Log: "other"},
+		{Author: 0x2, FirstSeqNo: 10, LastSeqNo: 10, FirstOffset: 1000, LastOffset: 1001, FirstChecksum: 0x10, Log: "other/log"},
 	})
 
-	// Expect it complains if Fnode != FirstSeqNo.
+	// Expect it complains if the last flattened segment differs from the FSMHints.Log.
+	hints.LiveNodes[2].Segments[0].Log = "whoops"
+	_, _, err = hints.LiveLogSegments()
+	c.Check(err, gc.ErrorMatches, "expected hints.Log other/log to equal the last Segment Log whoops")
+
+	// Or if Fnode != FirstSeqNo.
 	hints.LiveNodes = append(hints.LiveNodes, FnodeSegments{Fnode: 13, Segments: []Segment{{FirstSeqNo: 14}}})
 	_, _, err = hints.LiveLogSegments()
 	c.Check(err, gc.ErrorMatches, "expected Fnode to match Segment FirstSeqNo: .*")

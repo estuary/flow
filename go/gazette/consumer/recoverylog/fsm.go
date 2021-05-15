@@ -120,6 +120,12 @@ func (m FSMHints) LiveLogSegments() ([]Fnode, SegmentSet, error) {
 			}
 		}
 	}
+
+	if l := len(set); l != 0 && set[l-1].Log != m.Log {
+		return nil, nil, fmt.Errorf("expected hints.Log %s to equal the last Segment Log %s",
+			m.Log, set[l-1].Log)
+	}
+
 	return fnodes, set, nil
 }
 

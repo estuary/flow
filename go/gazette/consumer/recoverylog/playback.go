@@ -140,7 +140,7 @@ func newPlayerReader(ctx context.Context, name pb.Journal, ajc client.AsyncJourn
 // peek begins a background Peek, if one is not underway, and returns a channel
 // which will select with its result.
 func (pr *playerReader) peek() <-chan error {
-	if pr.pendingPeek == false {
+	if !pr.pendingPeek {
 		pr.pendingPeek = true
 		pr.peekReqCh <- struct{}{}
 	}
@@ -312,12 +312,17 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 					readLog, offset, readThrough)
 				return
 			}
-		} else if readLog != hints.Log {
-			// All hints are consumed, but we haven't started a read of the primary hints.Log.
-			// That Log has no hinted segments, but it may still have operations to recover.
+		} else if readLog == "" {
+			// There were no hinted segments. Read the log from byte zero.
 			readLog = hints.Log
 			offset = reader.seek(hints.Log, 0)
 			readThrough = barriers[hints.Log].Response().Commit.End
+		} else if readLog != hints.Log {
+			// There were hinted segments, but the final segment read a different
+			// log than the top-level log of the FSM hints.
+			// FSMHints.LiveLogHints() checks for and errors against this case.
+			panic(fmt.Sprintf("reading %s but expected to be reading %s after consuming all hints",
+				readLog, hints.Log))
 		}
 
 		switch state {
@@ -686,6 +691,15 @@ func makeLive(dir string, fsm *FSM, files fnodeFileMap) error {
 	if fsm.hasRemainingHints() {
 		panic("fsm.hasRemainingHints")
 	}
+
+	log.WithFields(log.Fields{
+		"dir":          dir,
+		"files":        len(files),
+		"nextSeqNo":    fsm.NextSeqNo,
+		"nextChecksum": fsm.NextChecksum,
+		"lastLog":      fsm.LastLog,
+	}).Info("completed playback")
+
 	for fnode, liveNode := range fsm.LiveNodes {
 		var file = files[fnode]
 		delete(files, fnode)
