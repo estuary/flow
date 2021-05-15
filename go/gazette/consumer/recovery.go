@@ -269,7 +269,7 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		// primary to do so. Snapshot our recovered hints. We'll sanity-check that
 		// we can open the recovered store & restore its Checkpoint, and only then
 		// persist these |recoveredHints|.
-		recoveredHints = recovered.FSM.BuildHints(s.recovery.log)
+		recoveredHints = recovered.FSM.BuildHints(recovered.FSM.LastLog)
 
 		// Initialize a *Recorder around the recovered file-system. Recorder
 		// fences its append operations around |author| so that another process
@@ -284,7 +284,12 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		return cp, errors.WithMessage(err, "store.RestoreCheckpoint")
 	}
 
-	if s.recovery.log != "" {
+	// Store |recoveredHints| as a backup.
+	// For some workflows, the recoveredHints.Log may not equal our own log,
+	// in which case we omit this step.
+	// For example, Flow's shard split workflow instruments GetHints to
+	// return hints of the LHS split source which are recovered here.
+	if s.recovery.log != "" && s.recovery.log == recoveredHints.Log {
 		for attempt := 0; true; attempt++ {
 			if err = storeRecoveredHints(s, recoveredHints); err == nil {
 				break
