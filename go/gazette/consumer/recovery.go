@@ -3,13 +3,13 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"io/ioutil"
 	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
-	"go.etcd.io/etcd/etcdserver/api/v3rpc/rpctypes"
+	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"

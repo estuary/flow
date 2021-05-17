@@ -1,7 +1,7 @@
 package ext
 
 import (
-	epb "go.etcd.io/etcd/etcdserver/etcdserverpb"
+	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 )

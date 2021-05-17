@@ -62,7 +62,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	cc.created = nil
 
 	// Case: Default connection transitions to Ready. Expect it's now returned.
-	disp.HandleSubConnStateChange(mockSubConn("default.addr"), connectivity.Ready)
+	disp.UpdateSubConnState(mockSubConn("default.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
 
 	result, err := disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
@@ -78,7 +78,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	c.Check(cc.created, gc.DeepEquals, []mockSubConn{"remote.addr"})
 	cc.created = nil
 
-	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.Ready)
+	disp.UpdateSubConnState(mockSubConn("remote.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
 
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
@@ -93,7 +93,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	c.Check(cc.created, gc.DeepEquals, []mockSubConn{"local.addr"})
 	cc.created = nil
 
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Ready)
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
 
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
@@ -101,14 +101,14 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	c.Check(result.SubConn, gc.Equals, mockSubConn("local.addr"))
 
 	// Case: One local addr is marked as failed. Another is dialed.
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.TransientFailure)
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.TransientFailure})
 
 	_, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.Equals, balancer.ErrNoSubConnAvailable)
 	c.Check(cc.created, gc.DeepEquals, []mockSubConn{"local.otherAddr"})
 	cc.created = nil
 
-	disp.HandleSubConnStateChange(mockSubConn("local.otherAddr"), connectivity.Ready)
+	disp.UpdateSubConnState(mockSubConn("local.otherAddr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
 
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.IsNil)
@@ -119,14 +119,14 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	// rather than dispatch to remote addr. (Eg we prefer to wait for a
 	// local replica to recover or the route to change, vs using a remote
 	// endpoint which incurs more networking cost).
-	disp.HandleSubConnStateChange(mockSubConn("local.otherAddr"), connectivity.TransientFailure)
+	disp.UpdateSubConnState(mockSubConn("local.otherAddr"), balancer.SubConnState{ConnectivityState: connectivity.TransientFailure})
 
 	_, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.Equals, balancer.ErrTransientFailure)
 
 	// Case: local.addr is Ready again. However, primary is required and has failed.
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Ready)
-	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.TransientFailure)
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
+	disp.UpdateSubConnState(mockSubConn("remote.addr"), balancer.SubConnState{ConnectivityState: connectivity.TransientFailure})
 
 	ctx = WithDispatchRoute(context.Background(),
 		buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
@@ -180,8 +180,8 @@ func (s *DispatcherSuite) TestDispatchMarkAndSweep(c *gc.C) {
 	c.Check(cc.created, gc.DeepEquals, []mockSubConn{"remote.addr", "local.addr"})
 	cc.created = nil
 
-	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.Ready)
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Connecting)
+	disp.UpdateSubConnState(mockSubConn("remote.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.Connecting})
 
 	disp.sweep()
 	c.Check(cc.removed, gc.IsNil)
@@ -207,12 +207,12 @@ func (s *DispatcherSuite) TestDispatchMarkAndSweep(c *gc.C) {
 	disp.sweep()
 	c.Check(cc.removed, gc.DeepEquals, []mockSubConn{"local.addr"})
 	cc.removed = nil
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Shutdown)
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.Shutdown})
 
 	disp.sweep() // Now remote.addr is swept.
 	c.Check(cc.removed, gc.DeepEquals, []mockSubConn{"remote.addr"})
 	cc.removed = nil
-	disp.HandleSubConnStateChange(mockSubConn("remote.addr"), connectivity.Shutdown)
+	disp.UpdateSubConnState(mockSubConn("remote.addr"), balancer.SubConnState{ConnectivityState: connectivity.Shutdown})
 
 	// No connections remain.
 	c.Check(disp.idConn, gc.HasLen, 0)
@@ -226,7 +226,7 @@ func (s *DispatcherSuite) TestDispatchMarkAndSweep(c *gc.C) {
 	c.Check(cc.created, gc.DeepEquals, []mockSubConn{"local.addr"})
 	cc.created = nil
 
-	disp.HandleSubConnStateChange(mockSubConn("local.addr"), connectivity.Ready)
+	disp.UpdateSubConnState(mockSubConn("local.addr"), balancer.SubConnState{ConnectivityState: connectivity.Ready})
 	_, err = disp.Pick(balancer.PickInfo{Ctx: localCtx})
 	c.Check(err, gc.IsNil)
 }

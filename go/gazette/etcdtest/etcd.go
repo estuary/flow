@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/client/v3"
 )
 
 // TestClient returns a client of the embedded Etcd test server. It asserts that

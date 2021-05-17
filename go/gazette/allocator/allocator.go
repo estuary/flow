@@ -8,8 +8,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
-	"go.etcd.io/etcd/etcdserver/etcdserverpb"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator/push_relabel"
 	"go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/keyspace"

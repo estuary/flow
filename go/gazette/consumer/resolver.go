@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
@@ -364,7 +364,6 @@ func (r *Resolver) watch(ctx context.Context, etcd *clientv3.Client) error {
 	}
 	return err
 }
-
 
 // Describe implements prometheus.Collector
 func (r *Resolver) Describe(ch chan<- *prometheus.Desc) {

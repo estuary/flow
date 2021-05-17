@@ -6,7 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"go.etcd.io/etcd/mvcc/mvccpb"
+	"go.etcd.io/etcd/api/v3/mvccpb"
+
 	"go.gazette.dev/core/keyspace"
 )
 

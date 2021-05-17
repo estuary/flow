@@ -94,6 +94,53 @@ type dispatcher struct {
 	mu sync.Mutex
 }
 
+// UpdateClientConnState is called by gRPC when the state of the ClientConn
+// changes. We don't actually care about these, instead using the
+// dialed service address directly when a dispatched Route isn't available. If
+// that address is, for example, a headless DNS balancer, the `net` package
+// implements its own resolution and selection of an appropriate A record.
+func (d *dispatcher) UpdateClientConnState(_ balancer.ClientConnState) error {
+	return nil
+}
+
+// ResolverError is called by gRPC when the name resolver reports an error.
+// We don't actually care about these, instead using the
+// dialed service address directly when a dispatched Route isn't available. If
+// that address is, for example, a headless DNS balancer, the `net` package
+// implements its own resolution and selection of an appropriate A record.
+func (d *dispatcher) ResolverError(_ error) {}
+
+func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
+	d.mu.Lock()
+	var id, ok = d.connID[sc]
+	if !ok {
+		panic("unexpected SubConn")
+	}
+
+	if state.ConnectivityState == connectivity.Connecting && d.connState[sc] == connectivity.TransientFailure {
+		// gRPC will quickly transition failed connections back into a Connecting
+		// state. In many cases, such as a remote-initiated close from a
+		// shutting-down server, the SubConn may never return. Until we see a
+		// successful re-connect, continue to consider the SubConn as broken
+		// (and trigger invalidations of cached Routes which use it).
+	} else {
+		d.connState[sc] = state.ConnectivityState
+	}
+
+	if state.ConnectivityState == connectivity.Shutdown {
+		delete(d.idConn, id)
+		delete(d.connID, sc)
+		delete(d.connState, sc)
+	}
+	d.mu.Unlock()
+
+	// Notify gRPC that block requests may now be able to proceed.
+	d.cc.UpdateState(balancer.State{
+		ConnectivityState: connectivity.Ready,
+		Picker:            d,
+	})
+}
+
 // markedSubConn tracks the last mark associated with a SubConn.
 // SubConns not used for a complete sweep interval are closed.
 type markedSubConn struct {
@@ -181,45 +228,6 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		panic(state) // Unexpected connectivity.State.
 	}
 }
-
-// HandleSubConnStateChange is notified by gRPC to track SubConn connectivity states.
-func (d *dispatcher) HandleSubConnStateChange(sc balancer.SubConn, state connectivity.State) {
-	d.mu.Lock()
-	var id, ok = d.connID[sc]
-	if !ok {
-		panic("unexpected SubConn")
-	}
-
-	if state == connectivity.Connecting && d.connState[sc] == connectivity.TransientFailure {
-		// gRPC will quickly transition failed connections back into a Connecting
-		// state. In many cases, such as a remote-initiated close from a
-		// shutting-down server, the SubConn may never return. Until we see a
-		// successful re-connect, continue to consider the SubConn as broken
-		// (and trigger invalidations of cached Routes which use it).
-	} else {
-		d.connState[sc] = state
-	}
-
-	if state == connectivity.Shutdown {
-		delete(d.idConn, id)
-		delete(d.connID, sc)
-		delete(d.connState, sc)
-	}
-	d.mu.Unlock()
-
-	// Notify gRPC that block requests may now be able to proceed.
-	d.cc.UpdateState(balancer.State{
-		ConnectivityState: connectivity.Ready,
-		Picker:            d,
-	})
-}
-
-// HandleResolvedAddrs is notified by gRPC of changes in the DNS resolution of
-// the service address. We don't actually care about these, instead using the
-// dialed service address directly when a dispatched Route isn't available. If
-// that address is, for example, a headless DNS balancer, the `net` package
-// implements its own resolution and selection of an appropriate A record.
-func (d *dispatcher) HandleResolvedAddrs(addrs []resolver.Address, err error) {}
 
 // Close is notified by gRPC of a parent grpc.ClientConn closure,
 // and terminates the period sweep channel.

@@ -3,12 +3,12 @@ package fragment
 import (
 	"context"
 	"errors"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 	"sync"
 	"testing"
 	"time"
 
 	gc "github.com/go-check/check"
-	"go.etcd.io/etcd/mvcc/mvccpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/etcdtest"
