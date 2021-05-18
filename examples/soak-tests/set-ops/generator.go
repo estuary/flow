@@ -82,7 +82,7 @@ func clear(m map[string]int) {
 // json without any newline characters or anything at the end.
 func generateOps(ctx context.Context, cfg cmdGenerate, dest chan<- json.RawMessage) {
 	var author = cfg.Author
-	var limiter = rate.NewLimiter(rate.Every(time.Second), cfg.OpsPerSecond)
+	var limiter = rate.NewLimiter(rate.Limit(cfg.OpsPerSecond), cfg.OpsPerSecond)
 	var streams = make([]Stream, cfg.Streams)
 
 	for s := range streams {

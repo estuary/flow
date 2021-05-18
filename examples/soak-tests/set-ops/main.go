@@ -26,7 +26,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 	cmd.cmdGenerate.resolveAuthor()
 	var period, err = time.ParseDuration(cmd.VerifyPeriod)
 	if err != nil {
-		return fmt.Errorf("failed to parse verify-period: %w", err)
+		return fmt.Errorf("parsing verify-period: %w", err)
 	}
 
 	// Ensure we can connect to postgres and the ingester before starting up the background
@@ -35,7 +35,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 	defer cancelFunc()
 	pgConn, err := pgx.Connect(ctx, cmd.PostgresURI)
 	if err != nil {
-		return fmt.Errorf("Failed to connect to postgres: %w", err)
+		return fmt.Errorf("connecting to postgres: %w", err)
 	}
 
 	var dialer = websocket.Dialer{
@@ -45,7 +45,7 @@ func (cmd cmdTest) Execute(_ []string) error {
 	var ingesterURI = cmd.IngesterAddr + "/ingest/soak/set-ops/operations"
 	wsConn, errResp, err := dialer.DialContext(ctx, ingesterURI, http.Header{})
 	if err != nil {
-		return fmt.Errorf("Failed to dial ingester: %w, errResp: %v", err, errResp)
+		return fmt.Errorf("dialing ingester: %w, errResp: %v", err, errResp)
 	}
 
 	// Start up goroutines to ingest and verify
@@ -128,7 +128,7 @@ func verify(ctx context.Context, pgConn *pgx.Conn, author int, nStreams int, per
 				if err != nil {
 					return fmt.Errorf("reading an error result for %s: %w", k, err)
 				}
-				return fmt.Errorf("Failed: collection: %s, lastVerify: %s: %s", k, lastVerify, naughtyDoc)
+				return fmt.Errorf("collection %s: lastVerify: %s: %s", k, lastVerify, naughtyDoc)
 			}
 			rows.Close()
 		}
@@ -141,7 +141,7 @@ func verify(ctx context.Context, pgConn *pgx.Conn, author int, nStreams int, per
 				return fmt.Errorf("querying row count for %s: %w", k, err)
 			}
 			if count != nStreams {
-				return fmt.Errorf("Failed: collection: %s, expected %d sets updated since %s, but was: %d", k, nStreams, lastVerify, count)
+				return fmt.Errorf("collection %s: expected %d sets updated since %s, but was: %d", k, nStreams, lastVerify, count)
 			}
 		}
 
@@ -155,6 +155,17 @@ func doIngest(ctx context.Context, conf cmdGenerate, wsConn *websocket.Conn) <-c
 	go func() {
 		var err = ingestOps(ctx, conf, wsConn)
 		errCh <- err
+	}()
+	// We must read progress updates or the sender will time
+	// us out. Write them to stdout.
+	go func() {
+		for {
+			var out json.RawMessage
+			if err := wsConn.ReadJSON(&out); err != nil {
+				errCh <- err
+				return
+			}
+		}
 	}()
 	return errCh
 }
