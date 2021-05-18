@@ -7,7 +7,7 @@ import:
 endpoints:
   examples/example_database:
     postgres:
-      host: postgres.flow.svc.cluster.local
+      host: postgres
       password: admin
       dbname: postgres
       user: postgres
@@ -20,7 +20,6 @@ endpoints:
     #  user: jgraettinger
     #  warehouse: COMPUTE_WH
     #  password: XYZ
-
 
 journalRules:
   00_fragment_store:
