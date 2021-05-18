@@ -32,5 +32,5 @@ func TestBuildingPartition(t *testing.T) {
 	var partition = BuildPartitionSpec(collection, tuple.Tuple{"value", 123}, rules)
 	var log = BuildRecoveryLogSpec(shard, rules)
 
-	cupaloy.SnapshotT(t, []pb.JournalSpec{partition, log})
+	cupaloy.SnapshotT(t, []pb.JournalSpec{partition, *log})
 }

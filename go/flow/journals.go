@@ -27,6 +27,20 @@ type Journals struct {
 	*keyspace.KeySpace
 }
 
+// GetJournal returns the named JournalSpec and its current Etcd ModRevision.
+// If |name| is not a journal, it returns nil and revision zero.
+// TODO(johnny): Unify error handling w.r.t. Catalog.GetTask / GetCommons.
+func (j Journals) GetJournal(name pb.Journal) (_ *pb.JournalSpec, revision int64) {
+	j.Mu.RLock()
+	defer j.Mu.RUnlock()
+
+	var ind, found = j.Search(path.Join(j.Root + "/" + name.String()))
+	if found {
+		return j.KeyValues[ind].Decoded.(*pb.JournalSpec), j.KeyValues[ind].Raw.ModRevision
+	}
+	return nil, 0
+}
+
 // NewJournalsKeySpace builds a KeySpace over all JournalSpecs managed by the
 // broker cluster utilizing the |brokerRoot| Etcd prefix.
 func NewJournalsKeySpace(ctx context.Context, etcd *clientv3.Client, root string) (Journals, error) {
@@ -105,8 +119,8 @@ func BuildPartitionSpec(collection *pf.CollectionSpec, partitions tuple.Tuple, r
 }
 
 // BuildRecoveryLogSpec returns a JournalSpec for the given collection, partition fields, and journal rules.
-func BuildRecoveryLogSpec(shard *pc.ShardSpec, rules []pf.JournalRules_Rule) pb.JournalSpec {
-	var journal = pb.JournalSpec{
+func BuildRecoveryLogSpec(shard *pc.ShardSpec, rules []pf.JournalRules_Rule) *pb.JournalSpec {
+	var journal = &pb.JournalSpec{
 		Replication: 3,
 		Fragment: pb.JournalSpec_Fragment{
 			Length:           1 << 28, // 256.
@@ -119,7 +133,7 @@ func BuildRecoveryLogSpec(shard *pc.ShardSpec, rules []pf.JournalRules_Rule) pb.
 
 	for _, rule := range rules {
 		if rule.Selector.Matches(journal.LabelSet) {
-			journal = pb.UnionJournalSpecs(rule.Template, journal)
+			*journal = pb.UnionJournalSpecs(rule.Template, *journal)
 		}
 	}
 
