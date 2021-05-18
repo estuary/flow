@@ -147,6 +147,10 @@ func (r *ring) onSubscribe(sub subscriber) {
 		"subscribers": len(r.subscribers),
 	}).Debug("adding shuffle ring subscriber")
 
+	// Prune before adding to ensure we remove a now-cancelled
+	// parent range before adding a replacement child range.
+	r.subscribers.prune()
+
 	var rr = r.subscribers.add(sub)
 	if rr == nil {
 		return // This subscriber doesn't require starting a new read.
