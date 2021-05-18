@@ -46,6 +46,9 @@ export class Server {
         });
 
         req.on('end', () => {
+            if (req.aborted) {
+                return;
+            }
             // Join input chunks and parse into an array of invocation rows.
             const [sources, registers] = JSON.parse(chunks.join('')) as [Document[], Document[][] | undefined];
 
