@@ -12,6 +12,7 @@ cm_temp="${TMPDIR}/soak-set-ops-config.yaml"
 dir=examples/soak-tests/set-ops
 
 kubectl create configmap set-ops-sources --dry-run=client \
+    --namespace flow \
     --from-file $dir/entrypoint.sh \
     --from-file go.mod \
     --from-file $dir/main.go \
