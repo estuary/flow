@@ -282,6 +282,8 @@ github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe h1:OOI2QZgGwc
 github.com/jgraettinger/gazette v0.0.0-20210323182341-afd20bd8a2fe/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346 h1:+x314ZKe8kDaWoCVR8KtonrKvqHXsn4CBkaIEA/NfGA=
 github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
+github.com/jgraettinger/gazette v0.0.0-20210515015702-acb7934f3083 h1:Y/nizpp7X2daZ6ZgqNWRL4mJaHTwvJDmrD2ZUBx8wnI=
+github.com/jgraettinger/gazette v0.0.0-20210515015702-acb7934f3083/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=

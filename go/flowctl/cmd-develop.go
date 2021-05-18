@@ -130,15 +130,15 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	}
 
 	// Apply materializations to drivers.
-	if err = applyMaterializationsTODO(built, false); err != nil {
+	if err = applyMaterializations(built, false); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 	// Apply derivation shard specs.
-	if err = applyDerivationShardsTODO(built, cluster.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 	// Apply materialization shards.
-	if err = applyMaterializationShardsTODO(built, cluster.Shards); err != nil {
+	if err = applyMaterializationShards(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying materialization shards: %w", err)
 	}
 

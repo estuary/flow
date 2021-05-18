@@ -260,4 +260,4 @@ docker-push-quay-dev:
 
 .PHONY: develop
 develop: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/all.flow.yaml --port 8080
+	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/local-sqlite.flow.yaml --log.level info
