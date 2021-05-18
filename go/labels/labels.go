@@ -62,10 +62,10 @@ const (
 // EncodeRange encodes the RangeSpec into the given LabelSet,
 // which is then returned.
 func EncodeRange(range_ pf.RangeSpec, set pb.LabelSet) pb.LabelSet {
-	set.SetValue(KeyBegin, fmt.Sprintf("%08x", range_.KeyBegin))
-	set.SetValue(KeyEnd, fmt.Sprintf("%08x", range_.KeyEnd))
-	set.SetValue(RClockBegin, fmt.Sprintf("%08x", range_.RClockBegin))
-	set.SetValue(RClockEnd, fmt.Sprintf("%08x", range_.RClockEnd))
+	EncodeHexU32Label(KeyBegin, range_.KeyBegin, &set)
+	EncodeHexU32Label(KeyEnd, range_.KeyEnd, &set)
+	EncodeHexU32Label(RClockBegin, range_.RClockBegin, &set)
+	EncodeHexU32Label(RClockEnd, range_.RClockEnd, &set)
 	return set
 }
 
@@ -97,6 +97,12 @@ func MustParseRangeSpec(set pb.LabelSet) pf.RangeSpec {
 	} else {
 		return s
 	}
+}
+
+// EncodeHexU32Label encodes label |name| as a hex-encoded uint32
+// |value| into the provided |LabelSet|, which is returned.
+func EncodeHexU32Label(name string, value uint32, set *pb.LabelSet) {
+	set.SetValue(name, fmt.Sprintf("%08x", value))
 }
 
 // ParseHexU32Label parses label |name|, a hex-encoded uint32, from the LabelSet.

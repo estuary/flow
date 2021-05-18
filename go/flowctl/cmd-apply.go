@@ -84,7 +84,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	// Apply all database materializations first, before we create
 	// catalog entities that reference the applied tables / topics / targets.
-	if err := applyMaterializationsTODO(built, cmd.DryRun); err != nil {
+	if err := applyMaterializations(built, cmd.DryRun); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 
@@ -119,11 +119,11 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	if !cmd.DryRun {
 		// Apply derivation shard specs.
-		if err = applyDerivationShardsTODO(built, shards); err != nil {
+		if err = applyDerivationShards(built, shards); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
 		}
 		// Apply materialization shards.
-		if err = applyMaterializationShardsTODO(built, shards); err != nil {
+		if err = applyMaterializationShards(built, shards); err != nil {
 			return fmt.Errorf("applying materialization shards: %w", err)
 		}
 		fmt.Println("Applied.")
@@ -171,7 +171,9 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	return path, ptr
 }
 
-func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+func applyDerivationShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+	var changes []pc.ApplyRequest_Change
+
 	for _, spec := range built.Derivations {
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
@@ -187,36 +189,40 @@ func applyDerivationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClie
 			return fmt.Errorf("building shard ID: %w", err)
 		}
 
-		var changes = []pc.ApplyRequest_Change{{
-			Upsert: &pc.ShardSpec{
-				Id:                id,
-				Sources:           nil,
-				RecoveryLogPrefix: "recovery",
-				HintPrefix:        "/estuary/flow/hints",
-				HintBackups:       2,
-				MaxTxnDuration:    time.Minute,
-				MinTxnDuration:    0,
-				HotStandbys:       0,
-				LabelSet:          labels,
-			},
-			ExpectModRevision: 0, // Apply fails if it exists.
-		}}
+		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
+		})
+		if err != nil {
+			return fmt.Errorf("listing shard %s: %w", id, err)
+		}
 
-		_, err = consumer.ApplyShards(context.Background(),
-			shards, &pc.ApplyRequest{Changes: changes})
-
-		if err == nil {
-			log.WithField("id", id).Debug("created derivation shard")
-		} else if err.Error() == pc.Status_ETCD_TRANSACTION_FAILED.String() {
-			log.WithField("id", id).Debug("derivation shard exists")
-		} else {
-			return fmt.Errorf("applying shard %q: %w", changes[0].Upsert.Id, err)
+		if len(resp.Shards) == 0 {
+			log.WithField("id", id).Debug("will create derivation shard")
+			changes = append(changes, pc.ApplyRequest_Change{
+				Upsert: &pc.ShardSpec{
+					Id:                id,
+					Sources:           nil,
+					RecoveryLogPrefix: "recovery",
+					HintPrefix:        "/estuary/flow/hints",
+					HintBackups:       2,
+					MaxTxnDuration:    time.Minute,
+					MinTxnDuration:    0,
+					HotStandbys:       0,
+					LabelSet:          labels,
+				},
+				ExpectModRevision: 0, // Apply fails if it exists.
+			})
 		}
 	}
-	return nil
+
+	var _, err = consumer.ApplyShards(context.Background(),
+		shards, &pc.ApplyRequest{Changes: changes})
+	return err
 }
 
-func applyMaterializationShardsTODO(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+func applyMaterializationShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+	var changes []pc.ApplyRequest_Change
+
 	for _, spec := range built.Materializations {
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
@@ -232,36 +238,39 @@ func applyMaterializationShardsTODO(built *bindings.BuiltCatalog, shards pc.Shar
 			return fmt.Errorf("building shard ID: %w", err)
 		}
 
-		var changes = []pc.ApplyRequest_Change{{
-			Upsert: &pc.ShardSpec{
-				Id:                id,
-				Sources:           nil,
-				RecoveryLogPrefix: "recovery",
-				HintPrefix:        "/estuary/flow/hints",
-				HintBackups:       2,
-				MaxTxnDuration:    time.Minute,
-				MinTxnDuration:    0,
-				HotStandbys:       0,
-				LabelSet:          labels,
-			},
-			ExpectModRevision: 0, // Apply fails if it exists.
-		}}
+		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
+		})
+		if err != nil {
+			return fmt.Errorf("listing shard %s: %w", id, err)
+		}
 
-		_, err = consumer.ApplyShards(context.Background(), shards,
-			&pc.ApplyRequest{Changes: changes})
+		if len(resp.Shards) == 0 {
+			log.WithField("id", id).Debug("will create materialization shard")
 
-		if err == nil {
-			log.WithField("id", id).Debug("created materialization shard")
-		} else if err.Error() == pc.Status_ETCD_TRANSACTION_FAILED.String() {
-			log.WithField("id", id).Debug("materialization shard exists")
-		} else {
-			return fmt.Errorf("applying shard %q: %w", changes[0].Upsert.Id, err)
+			changes = append(changes, pc.ApplyRequest_Change{
+				Upsert: &pc.ShardSpec{
+					Id:                id,
+					Sources:           nil,
+					RecoveryLogPrefix: "recovery",
+					HintPrefix:        "/estuary/flow/hints",
+					HintBackups:       2,
+					MaxTxnDuration:    time.Minute,
+					MinTxnDuration:    0,
+					HotStandbys:       0,
+					LabelSet:          labels,
+				},
+				ExpectModRevision: 0, // Apply fails if it exists.
+			})
 		}
 	}
-	return nil
+
+	var _, err = consumer.ApplyShards(context.Background(),
+		shards, &pc.ApplyRequest{Changes: changes})
+	return err
 }
 
-func applyMaterializationsTODO(built *bindings.BuiltCatalog, dryRun bool) error {
+func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 	for _, spec := range built.Materializations {
 		driver, err := driver.NewDriver(context.Background(),
 			spec.EndpointType, json.RawMessage(spec.EndpointConfigJson), "")

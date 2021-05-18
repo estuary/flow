@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"path"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -60,60 +60,18 @@ type FlowConsumer struct {
 
 var _ consumer.Application = (*FlowConsumer)(nil)
 var _ consumer.BeginFinisher = (*FlowConsumer)(nil)
-var _ consumer.BeginRecoverer = (*FlowConsumer)(nil)
 var _ consumer.MessageProducer = (*FlowConsumer)(nil)
 var _ runconsumer.Application = (*FlowConsumer)(nil)
-
-// BeginRecovery implements the BeginRecoverer interface, and creates a recovery log
-// for the Shard if one doesn't already exists.
-func (f *FlowConsumer) BeginRecovery(shard consumer.Shard) (pc.ShardID, error) {
-	var shardSpec = shard.Spec()
-
-	// Does the shard's recovery log already exist?
-	var itemKey = path.Join(f.Journals.Root, shardSpec.RecoveryLog().String())
-	f.Journals.Mu.RLock()
-	var _, exists = f.Journals.Search(itemKey)
-	f.Journals.Mu.RUnlock()
-
-	if exists {
-		return shardSpec.Id, nil // Nothing to do.
-	}
-	// We must attempt to create the recovery log.
-
-	// Grab labeled catalog task, and its journal rules.
-	var name = shardSpec.LabelSet.ValueOf(labels.TaskName)
-	var _, commons, _, err = f.Catalog.GetTask(name)
-	if err != nil {
-		return "", fmt.Errorf("looking up catalog task %q: %w", name, err)
-	}
-
-	// Construct the desired recovery log spec.
-	var desired = flow.BuildRecoveryLogSpec(shardSpec, commons.JournalRules.Rules)
-	_, err = client.ApplyJournals(shard.Context(), shard.JournalClient(), &pb.ApplyRequest{
-		Changes: []pb.ApplyRequest_Change{
-			{
-				Upsert:            &desired,
-				ExpectModRevision: 0,
-			},
-		},
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to create recovery log %q: %w", desired.Name, err)
-	}
-
-	log.WithFields(log.Fields{
-		"name":  desired.Name,
-		"shard": shardSpec.Id,
-	}).Info("created recovery log")
-
-	return shardSpec.Id, nil
-}
+var _ pf.SplitterServer = (*FlowConsumer)(nil)
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
+	var err = CompleteSplit(f.Service, shard, rec)
+	if err != nil {
+		return nil, fmt.Errorf("completing shard split: %w", err)
+	}
 
+	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
 	case labels.TaskTypeDerivation:
 		return NewDeriveApp(f, shard, rec)
@@ -248,7 +206,14 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	})
 
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	pf.RegisterSplitterServer(args.Server.GRPCServer, f)
 
+	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+		return shardGetHints(c, s, ghr)
+	}
+	args.Service.ShardAPI.Apply = func(c context.Context, s *consumer.Service, ar *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+		return shardApply(c, s, ar, f.Journals, f.Catalog)
+	}
 	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
 	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
 		return flow.ShardStat(ctx, svc, req, journals)
@@ -273,4 +238,103 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	return nil
+}
+
+// shardApply delegates to consumer.ShardApply, but creates recovery logs as needed.
+func shardApply(ctx context.Context, svc *consumer.Service,
+	req *pc.ApplyRequest, journals flow.Journals,
+	catalog flow.Catalog) (*pc.ApplyResponse, error) {
+
+	var journalChanges []pb.ApplyRequest_Change
+
+	for _, change := range req.Changes {
+		var shardID = change.Delete
+		if change.Upsert != nil {
+			shardID = change.Upsert.Id
+		}
+		var nextSpec = change.Upsert
+
+		// Fetch out the current specification of this shard (if any).
+		var prevSpec *pc.ShardSpec
+		var prevRevision int64
+
+		svc.State.KS.Mu.RLock()
+		_ = svc.State.KS.WaitForRevision(ctx, change.ExpectModRevision)
+
+		var ind, ok = svc.State.Items.Search(allocator.ItemKey(svc.State.KS, shardID.String()))
+		if ok {
+			prevSpec = svc.State.Items[ind].Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+			prevRevision = svc.State.Items[ind].Raw.ModRevision
+		} else {
+			prevRevision = 0
+		}
+		svc.State.KS.Mu.RUnlock()
+
+		// Fetch out the current specification of the shard's recovery log (if any).
+		var shardLog pb.Journal
+		if prevSpec != nil {
+			shardLog = prevSpec.RecoveryLog()
+		} else {
+			shardLog = nextSpec.RecoveryLog()
+		}
+		var logSpec, logRevision = journals.GetJournal(shardLog)
+
+		// Revisions of the request must match our view of ShardSpecs.
+		if change.ExpectModRevision != -1 && change.ExpectModRevision != prevRevision {
+			return nil, fmt.Errorf("request expects shard %s revision @%d, but its @%d",
+				shardID, change.ExpectModRevision, prevRevision)
+		}
+		// Disallow changing the recovery log of an existing shard.
+		if prevSpec != nil && nextSpec != nil && prevSpec.RecoveryLog() != nextSpec.RecoveryLog() {
+			return nil, fmt.Errorf("cannot change recovery log of shard %s", shardID)
+		}
+
+		// Does a recovery log not exist, but should?
+		if nextSpec != nil && logSpec == nil {
+			// Grab labeled catalog task and its journal rules.
+			var name = nextSpec.LabelSet.ValueOf(labels.TaskName)
+			var _, commons, _, err = catalog.GetTask(name)
+			if err != nil {
+				return nil, fmt.Errorf("looking up catalog task %q: %w", name, err)
+			}
+
+			// Construct the desired recovery log spec.
+			journalChanges = append(journalChanges, pb.ApplyRequest_Change{
+				Upsert: flow.BuildRecoveryLogSpec(nextSpec, commons.JournalRules.Rules)})
+
+			log.WithFields(log.Fields{
+				"shard": shardID,
+				"log":   shardLog,
+			}).Info("recovery log will be created")
+		}
+
+		// Does a recovery log exist, and shouldn't?
+		if nextSpec == nil && logSpec != nil {
+			journalChanges = append(journalChanges,
+				pb.ApplyRequest_Change{Delete: shardLog, ExpectModRevision: logRevision})
+
+			log.WithFields(log.Fields{
+				"shard": shardID,
+				"log":   shardLog,
+			}).Info("recovery log will be deleted")
+		}
+	}
+
+	if len(journalChanges) != 0 {
+		var _, err = client.ApplyJournals(ctx, svc.Journals,
+			&pb.ApplyRequest{Changes: journalChanges})
+		if err != nil {
+			return nil, fmt.Errorf("applying recovery logs (before applying shard specs): %w", err)
+		}
+
+		log.WithFields(log.Fields{
+			"changes": len(journalChanges),
+		}).Info("applied recovery log updates")
+	}
+
+	return consumer.ShardApply(ctx, svc, req)
+}
+
+func (f *FlowConsumer) Split(ctx context.Context, req *pf.SplitRequest) (*pf.SplitResponse, error) {
+	return StartSplit(ctx, f.Service, req)
 }

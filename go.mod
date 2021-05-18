@@ -32,4 +32,4 @@ require (
 	google.golang.org/grpc v1.28.0
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210407015256-f5e0b8fb3346
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210515015702-acb7934f3083

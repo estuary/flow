@@ -140,7 +140,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 
 	// Apply derivation shard specs.
-	if err = applyDerivationShardsTODO(built, cluster.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 
