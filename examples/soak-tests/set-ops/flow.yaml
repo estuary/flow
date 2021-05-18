@@ -85,7 +85,8 @@ tests:
               "op": 1,
               "type": "add",
               "values": { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
-              "expectValues": { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
+              "expectValues":
+                { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
             }
           - {
               "author": 17369,
@@ -95,7 +96,19 @@ tests:
               "op": 2,
               "type": "add",
               "values": { "a": 1, "c": 1, "f": 1, "l": 1, "u": 1 },
-              "expectValues": { "a": 1, "c": 1, "f": 1, "l": 1, "h": 1, "k": 1, "m": 1, "q": 1, "u": 2, "v": 1 },
+              "expectValues":
+                {
+                  "a": 1,
+                  "c": 1,
+                  "f": 1,
+                  "l": 1,
+                  "h": 1,
+                  "k": 1,
+                  "m": 1,
+                  "q": 1,
+                  "u": 2,
+                  "v": 1,
+                },
             }
           - {
               "author": 17369,
@@ -126,8 +139,7 @@ tests:
               "type": "remove",
               "values":
                 { "a": 1, "d": 1, "f": 1, "h": 1, "k": 1, "o": 1, "p": 1 },
-              "expectValues":
-                { "t": 1 },
+              "expectValues": { "t": 1 },
             }
 
     - verify:
@@ -216,4 +228,3 @@ materializations:
       include:
         derivedValues: {}
         expectValues: {}
-
