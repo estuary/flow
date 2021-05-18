@@ -307,7 +307,7 @@ func (g *governor) onTick() error {
 func (g *governor) onConverge(ctx context.Context) error {
 	var added, drain, err = g.rb.buildReads(g.active, g.idle)
 	if err != nil {
-		return fmt.Errorf("failed to build reads: %w", err)
+		return fmt.Errorf("buildReads: %w", err)
 	}
 
 	for _, r := range added {

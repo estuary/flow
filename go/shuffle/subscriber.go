@@ -230,6 +230,22 @@ func (s *subscribers) minOffset() (offset pb.Offset, ok bool) {
 	return offset, ok
 }
 
+// prune subscribers which have failed contexts.
+func (s *subscribers) prune() {
+	var index = 0
+
+	for index != len(*s) {
+		var sub = &(*s)[index]
+
+		if err := sub.ctx.Err(); err != nil {
+			_ = sub.callback(nil, err)
+			*s = append((*s)[:index], (*s)[index+1:]...)
+		} else {
+			index++
+		}
+	}
+}
+
 // newStagedResponse builds an empty ShuffleResponse with pre-allocated
 // slice memory, according to provided estimates of arena & docs utilization.
 // It differse from newReadResponse in that it also pre-allocates extracted fields.

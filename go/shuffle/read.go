@@ -554,19 +554,23 @@ type shuffleMember struct {
 func newShuffleMembers(specs []*pc.ShardSpec) ([]shuffleMember, error) {
 	var out = make([]shuffleMember, 0, len(specs))
 
-	for i, spec := range specs {
+	for _, spec := range specs {
+		if len(spec.LabelSet.ValuesOf(labels.SplitSource)) != 0 {
+			continue // Ignore shards which are splitting from parents.
+		}
+
 		var range_, err = labels.ParseRangeSpec(spec.LabelSet)
 		if err != nil {
 			return nil, fmt.Errorf("shard %s: %w", spec.Id, err)
 		}
 
 		// We expect |specs| to be strictly ordered on ascending RangeSpec.
-		if i != 0 && !out[i-1].range_.Less(&range_) {
+		if l := len(out); l != 0 && !out[l-1].range_.Less(&range_) {
 			return nil, fmt.Errorf("shard %s range %s is not less-than shard %s range %s",
 				spec.Id,
 				range_,
-				out[i-1].spec.Id,
-				out[i-1].range_)
+				out[l-1].spec.Id,
+				out[l-1].range_)
 		}
 
 		out = append(out, shuffleMember{

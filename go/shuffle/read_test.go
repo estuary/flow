@@ -410,7 +410,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 	}
 
 	// Add an extra shard which is not strictly greater than it's left-hand sibling.
-	_, err = newShuffleMembers(append(shards, &pc.ShardSpec{
+	var withSplit = append(shards, &pc.ShardSpec{
 		Id: "shard/3", LabelSet: pb.MustLabelSet(
 			labels.KeyBegin, "cccccccc",
 			labels.KeyEnd, "ffffffff",
@@ -418,10 +418,17 @@ func TestShuffleMemberOrdering(t *testing.T) {
 			labels.RClockBegin, "11111111",
 			labels.RClockEnd, "99999999",
 		)},
-	))
+	)
+	_, err = newShuffleMembers(withSplit)
 	require.EqualError(t, err,
 		"shard shard/3 range key:cccccccc-ffffffff;r-clock:11111111-99999999 is not "+
 			"less-than shard shard/2 range key:cccccccc-ffffffff;r-clock:00000000-88888888")
+
+	// Now add a split-source label. Expect the shard is ignored.
+	withSplit[len(withSplit)-1].LabelSet.AddValue(labels.SplitSource, "foobar")
+	members2, err := newShuffleMembers(withSplit)
+	require.NoError(t, err)
+	require.Len(t, members2, len(members))
 
 	// Add an extra shard which doesn't have a valid RangeSpec.
 	_, err = newShuffleMembers(append(shards, &pc.ShardSpec{
