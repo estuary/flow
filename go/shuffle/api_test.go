@@ -161,7 +161,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			EndOffset: app.Response.Commit.End,
 		},
 	}
-	replayRead.start(backgroundCtx, mockResolveFn, shuffler, nil)
+	replayRead.start(backgroundCtx, 0, mockResolveFn, shuffler, nil)
 
 	// Read from |replayRead| until EOF.
 	var replayDocs int
@@ -210,7 +210,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			EndOffset: app.Response.Commit.End,
 		},
 	}
-	badRead.start(backgroundCtx, mockResolveFn, shuffler, nil)
+	badRead.start(backgroundCtx, 0, mockResolveFn, shuffler, nil)
 
 	// Expect we read an error, and that TerminalError is set.
 	_, err = badRead.next()
