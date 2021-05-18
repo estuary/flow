@@ -243,10 +243,17 @@ func (rb *ReadBuilder) buildReads(
 
 func (r *read) start(
 	ctx context.Context,
+	attempt int,
 	resolveFn resolveFn,
 	shuffler pf.ShufflerClient,
 	wakeCh chan<- struct{},
 ) {
+	// Wait for a back-off timer, or context cancellation.
+	select {
+	case <-ctx.Done(): // Fall through to error.
+	case <-time.After(backoff(attempt)):
+	}
+
 	r.log().Debug("starting shuffled journal read")
 	r.ctx, r.cancel = context.WithCancel(ctx)
 	r.ch = make(chan readResult, readChannelCapacity)
@@ -605,3 +612,22 @@ func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
 // readChannelCapacity is sized so that sendReadResult will overflow and
 // cancel the read after ~8 seconds of no progress (1 << (14 - 1) millis).
 var readChannelCapacity = 15
+
+func backoff(attempt int) time.Duration {
+	// The choices of backoff time reflect that we're usually waiting for the
+	// cluster to converge on a shared understanding of ownership, and that
+	// involves a couple of Nagle-like read delays (~30ms) as Etcd watch
+	// updates are applied by participants.
+	switch attempt {
+	case 0:
+		return 0
+	case 1:
+		return time.Millisecond * 50
+	case 2, 3:
+		return time.Millisecond * 100
+	case 4, 5:
+		return time.Second
+	default:
+		return 5 * time.Second
+	}
+}

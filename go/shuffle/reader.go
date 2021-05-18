@@ -38,6 +38,8 @@ type governor struct {
 	active map[pb.Journal]*read
 	// Offsets of journals which are not actively being read.
 	idle map[pb.Journal]pb.Offset
+	// Number of started reads since the last read document.
+	attempts map[pb.Journal]int
 	// Channel signaled by readers when a new ShuffleResponse has
 	// been sent on the *read's channel. Used to wake poll() when
 	// blocking for more data.
@@ -58,6 +60,7 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 		pending:     make(map[*read]struct{}),
 		active:      make(map[pb.Journal]*read),
 		idle:        offsets,
+		attempts:    make(map[pb.Journal]int),
 		readReadyCh: make(chan struct{}, 1),
 	}
 	g.wallTime.Update(time.Now())
@@ -98,7 +101,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			} else if r, err = rb.buildReplayRead(journal, begin, end); err != nil {
 				return message.Envelope{}, err
 			} else {
-				r.start(ctx, rb.service.Resolver.Resolve,
+				r.start(ctx, attempt, rb.service.Resolver.Resolve,
 					pf.NewShufflerClient(rb.service.Loopback), nil)
 			}
 
@@ -117,12 +120,6 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 				"err":     err,
 				"attempt": attempt,
 			}).Warn("failed to receive shuffled replay read (will retry)")
-
-			switch attempt {
-			case 0, 1: // Don't wait.
-			default:
-				time.Sleep(5 * time.Second)
-			}
 			attempt++
 
 			begin, r = r.req.Offset, nil
@@ -260,6 +257,7 @@ func (g *governor) poll(ctx context.Context) error {
 		} else {
 			// Successful read. Queue it for consumption.
 			delete(g.pending, r)
+			delete(g.attempts, r.spec.Name)
 			heap.Push(&g.queued, r)
 		}
 	}
@@ -313,9 +311,11 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range added {
-		r.start(ctx, g.rb.service.Resolver.Resolve,
+		var attempts = g.attempts[r.spec.Name]
+		r.start(ctx, attempts, g.rb.service.Resolver.Resolve,
 			pf.NewShufflerClient(g.rb.service.Loopback), g.readReadyCh)
 
+		g.attempts[r.spec.Name] = g.attempts[r.spec.Name] + 1
 		g.active[r.spec.Name] = r
 		delete(g.idle, r.spec.Name)
 
