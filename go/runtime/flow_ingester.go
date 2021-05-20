@@ -6,7 +6,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/ingest"
-	"go.etcd.io/etcd/clientv3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/server"
