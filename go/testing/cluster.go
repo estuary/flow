@@ -10,7 +10,7 @@ import (
 	"github.com/estuary/flow/go/ingest"
 	"github.com/estuary/flow/go/runtime"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker"
 	"go.gazette.dev/core/broker/client"
