@@ -19,7 +19,7 @@ import (
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/runtime"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"

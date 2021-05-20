@@ -12,7 +12,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/clientv3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"golang.org/x/net/http2"
 )
 
