@@ -326,7 +326,11 @@ func TestAPIHintsCases(t *testing.T) {
 
 	// Case: Hint key has not yet been written to
 	require.NoError(t, storeRecordedHints(shard, mkHints(111)))
-	tf.resolver.shards[shardA].resolved.spec.HintBackups = tf.resolver.shards[shardA].resolved.spec.HintBackups + 1
+	{
+		tf.ks.Mu.RLock()
+		tf.resolver.shards[shardA].resolved.spec.HintBackups = tf.resolver.shards[shardA].resolved.spec.HintBackups + 1
+		tf.ks.Mu.RUnlock()
+	}
 	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
@@ -337,7 +341,11 @@ func TestAPIHintsCases(t *testing.T) {
 	}, resp)
 
 	// Case: No backup hints
-	tf.resolver.shards[shardA].resolved.spec.HintBackups = 0
+	{
+		tf.ks.Mu.RLock()
+		tf.resolver.shards[shardA].resolved.spec.HintBackups = 0
+		tf.ks.Mu.RUnlock()
+	}
 	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
