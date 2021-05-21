@@ -1,21 +1,26 @@
-package kinesis
+package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/kinesis"
+	"github.com/estuary/flow/go/captures"
+	log "github.com/sirupsen/logrus"
 )
 
 // Config represents the fully merged endpoint configuration for Kinesis.
 // It matches the `KinesisConfig` struct in `crates/sources/src/specs.rs`
 type Config struct {
-	Stream             string
-	Region             string
-	AWSAccessKeyID     string
-	AWSSecretAccessKey string
+	PartitionRange     *captures.PartitionRange `json:"partitionRange"`
+	Stream             string                   `json:"stream"`
+	Region             string                   `json:"region"`
+	AWSAccessKeyID     string                   `json:"awsAccessKeyId"`
+	AWSSecretAccessKey string                   `json:"awsSecretAccessKey"`
 }
 
 func connect(config *Config) (*kinesis.Kinesis, error) {
@@ -27,4 +32,84 @@ func connect(config *Config) (*kinesis.Kinesis, error) {
 		return nil, fmt.Errorf("creating aws config: %w", err)
 	}
 	return kinesis.New(awsSession), nil
+}
+
+func listAllStreams(ctx context.Context, client *kinesis.Kinesis) ([]string, error) {
+	var streams []string
+	var lastStream *string = nil
+	var limit = int64(100)
+	var errBackoff = backoff{
+		initialMillis: 200,
+		maxMillis:     1000,
+		multiplier:    1.5,
+	}
+	var reqNum int
+	for {
+		reqNum++
+		log.WithField("requestNumber", reqNum).Debug("sending ListStreams request")
+		var req = kinesis.ListStreamsInput{
+			Limit:                    &limit,
+			ExclusiveStartStreamName: lastStream,
+		}
+		resp, err := client.ListStreamsWithContext(ctx, &req)
+		if err != nil {
+			if isRetryable(err) {
+				log.WithField("error", err).Warn("error while listing streams (will retry)")
+				select {
+				case <-errBackoff.nextBackoff():
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			} else {
+				return nil, err
+			}
+		} else {
+			log.WithField("responseStreamCount", len(resp.StreamNames)).Debug("got ListStreams response")
+			for _, name := range resp.StreamNames {
+				streams = append(streams, *name)
+			}
+			if resp.HasMoreStreams != nil && *resp.HasMoreStreams {
+				lastStream = resp.StreamNames[len(resp.StreamNames)-1]
+			} else {
+				break
+			}
+		}
+	}
+	log.WithField("streamCount", len(streams)).Debug("finished listing streams successfully")
+	return streams, nil
+}
+
+type backoff struct {
+	initialMillis int64
+	maxMillis     int64
+	multiplier    float64
+	currentMillis int64
+}
+
+func (b *backoff) nextBackoff() <-chan time.Time {
+	if b.currentMillis == 0 {
+		b.reset()
+	}
+	var ch = time.After(time.Duration(b.currentMillis) * time.Millisecond)
+	var nextMillis = int64(float64(b.currentMillis) * b.multiplier)
+	if nextMillis > b.maxMillis {
+		nextMillis = b.maxMillis
+	}
+	b.currentMillis = nextMillis
+	return ch
+}
+func (b *backoff) reset() {
+	b.currentMillis = b.initialMillis
+}
+
+func isRetryable(err error) bool {
+	// TODO: determin if this is a network error and return true
+	switch err.(type) {
+	case *kinesis.ProvisionedThroughputExceededException:
+		return true
+	case *kinesis.InternalFailureException:
+		return true
+	default:
+		return false
+	}
 }

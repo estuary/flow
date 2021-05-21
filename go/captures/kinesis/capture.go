@@ -1,39 +1,23 @@
-package kinesis
+package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go/service/kinesis"
-	"github.com/estuary/flow/go/captures"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/consumer"
-	"go.gazette.dev/core/message"
 )
-
-type kinesisRecord struct {
-	document   []byte
-	shardID    string
-	sequenceID string
-	endOfShard bool
-	err        error
-}
 
 type kinesisCapture struct {
 	client             *kinesis.Kinesis
+	ctx                context.Context
+	stream             string
 	config             Config
-	controlCh          chan<- consumer.EnvelopeOrError
-	dataCh             chan captures.DataMessage
-	buffer             []captures.DataMessage
-	nAvailable         int
-	bufferMutex        sync.Mutex
-	term               captures.CaptureTerm
+	dataCh             chan<- readResult
 	readingShards      map[string]bool
 	readingShardsMutex sync.Mutex
-	producerID         message.ProducerID
-
 	// shardSequences is a copy of the capture state, which just tracks the sequenceID for each
 	// kinesis shard. We keep this as a struct field so that we can ensure that all reads will use
 	// the same state, regardless of whether they're triggered by the initial shard listing or
@@ -41,43 +25,51 @@ type kinesisCapture struct {
 	shardSequences map[string]string
 }
 
-// Start begins reading data from Kinesis and sends the data on the returned channel. The channel is
-// buffered to allow making subsequent kinesis read requests while in-flight records are processed.
-// Returns an error immediately if listing streams fails, since that indicates a condition that's
-// likely not recoverable (invalid configuration or insufficient permissions).
-func Start(term captures.CaptureTerm, state map[string]string, controlCh chan<- consumer.EnvelopeOrError) (<-chan captures.DataMessage, error) {
-	var config Config
-	err := json.Unmarshal([]byte(term.Spec.EndpointConfigJson), &config)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshalling endpoing config: %w", err)
-	}
+type kinesisSource struct {
+	stream  string
+	shardID string
+}
 
-	client, err := connect(&config)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to kinesis: %w", err)
-	}
-	// Use a buffered channel here to allow for sending the next read request before all data is
-	// processed. It might be useful to change the size of this buffer depending on the size of
-	// records and the append rate, but that's being left for the future.
-	var dataCh = make(chan captures.DataMessage, 128)
+type readResult struct {
+	Source         *kinesisSource
+	Error          error
+	Records        []map[string]interface{}
+	SequenceNumber string
+}
 
+func readStream(ctx context.Context, config Config, client *kinesis.Kinesis, stream string, state map[string]string, dataCh chan<- readResult) {
 	var kc = &kinesisCapture{
-		client:        client,
-		config:        config,
-		controlCh:     controlCh,
-		dataCh:        dataCh,
-		term:          term,
-		readingShards: make(map[string]bool),
-		producerID:    message.NewProducerID(),
-
+		client:         client,
+		ctx:            ctx,
+		stream:         stream,
+		config:         config,
+		dataCh:         dataCh,
+		readingShards:  make(map[string]bool),
 		shardSequences: state,
 	}
+	var err = kc.startReadindStream()
+	if err != nil {
+		select {
+		case dataCh <- readResult{
+			Source: &kinesisSource{
+				stream: stream,
+			},
+			Error: err,
+		}:
+		case <-ctx.Done():
+		}
+	} else {
+		log.WithField("stream", stream).Infof("Started reading kinesis stream")
+	}
+}
+
+func (kc *kinesisCapture) startReadindStream() error {
 	allShardIds, err := kc.listShards()
 	if err != nil {
-		return nil, fmt.Errorf("listing kinesis shards: %w", err)
+		return fmt.Errorf("listing kinesis shards: %w", err)
 	} else if len(allShardIds) == 0 {
 		// TODO: Verify if it's even possible for a kinesis stream to have 0 shards
-		return nil, fmt.Errorf("No kinesis shards found for the given stream")
+		return fmt.Errorf("No kinesis shards found for the given stream")
 	}
 	// Start the background goroutine that will buffer data and send control messages to notify the
 	// Flow consumer when data is available.
@@ -87,14 +79,13 @@ func Start(term captures.CaptureTerm, state map[string]string, controlCh chan<- 
 	for _, kinesisShardID := range allShardIds {
 		go kc.startReadingShard(kinesisShardID)
 	}
-	// TODO: Compare new shards listing with state and see what can be pruned
-	// We can't prune state for shards when the reader reaches the end because the shard will still
-	// exist until the retention period expires, and we need to know that we've already read it so
-	// we don't read it again.
-
-	return kc.dataCh, nil
+	return nil
 }
 
+// TODO: we may not want to return _all_ shards here, but only the oldest parent shards, since child
+// shards will be read automatically after reaching the end of the parents. If we start reading
+// child shards immediately, then people may see events ingested out of order if they've merged or
+// split shards recently.
 func (kc *kinesisCapture) listShards() ([]string, error) {
 	var shards []string
 
@@ -106,7 +97,7 @@ func (kc *kinesisCapture) listShards() ([]string, error) {
 		} else {
 			listShardsReq.StreamName = &kc.config.Stream
 		}
-		listShardsResp, err := kc.client.ListShardsWithContext(kc.term.Ctx, &listShardsReq)
+		listShardsResp, err := kc.client.ListShardsWithContext(kc.ctx, &listShardsReq)
 		if err != nil {
 			return nil, fmt.Errorf("listing shards: %w", err)
 		}
@@ -128,10 +119,10 @@ func (kc *kinesisCapture) listShards() ([]string, error) {
 // check whether the shard is already being read and return early if so.
 func (kc *kinesisCapture) startReadingShard(shardID string) {
 	var logEntry = log.WithFields(log.Fields{
+		"kinesisStream":  kc.stream,
 		"kinesisShardId": shardID,
-		"capture":        kc.term.Spec.Capture,
 	})
-	if !kc.term.Range.Includes([]byte(shardID)) {
+	if !kc.config.PartitionRange.Includes([]byte(shardID)) {
 		logEntry.Debug("Ignoring kinesis shard because it is outside the assigned range of this flow consumer shard")
 		return
 	}
@@ -152,145 +143,223 @@ func (kc *kinesisCapture) startReadingShard(shardID string) {
 		logEntry.Debug("A read for this kinesis shard is already in progress")
 		return
 	}
+	var source = &kinesisSource{
+		stream:  kc.stream,
+		shardID: shardID,
+	}
+	var shardReader = kinesisShardReader{
+		parent:         kc,
+		source:         source,
+		lastSequenceID: kc.shardSequences[shardID],
+		noDataBackoff: backoff{
+			initialMillis: 200,
+			maxMillis:     1000,
+			multiplier:    1.5,
+		},
+		errorBackoff: backoff{
+			initialMillis: 200,
+			maxMillis:     5000,
+			multiplier:    1.5,
+		},
+		// The maximum number of records to return in a single GetRecords request. We start with the
+		// maximum allowed by kinesis, which is also their default. But this will be decreased if we
+		// start seeing shardIterators expiring, since that indicates that it's taking more than 5
+		// minutes to process all the records that were returned.
+		limitPerReq: 10000,
+		logEntry:    logEntry,
+	}
 
-	var nextSeqID = kc.shardSequences[shardID]
 	var err error
+	var shardIter string
 	for {
-		nextSeqID, err = kc.readShard(shardID, nextSeqID)
+		shardIter, err = kc.getShardIterator(shardID, shardReader.lastSequenceID)
 		if err != nil {
-			logEntry.WithField("error", err).Warn("reading kinesis shard failed")
-			var message = consumer.EnvelopeOrError{
-				Error: fmt.Errorf("Failed reading kinesis shard: '%s': %w", shardID, err),
-			}
-			select {
-			case kc.controlCh <- message:
-				return
-			case <-kc.term.Ctx.Done():
-				// TODO: maybe log something different?
-				return
+			if isRetryable(err) {
+				select {
+				case <-shardReader.errorBackoff.nextBackoff():
+					err = nil
+					// loop around and try again
+				case <-kc.ctx.Done():
+					err = kc.ctx.Err()
+					break
+				}
+			} else if isMissingResource(err) {
+				// This means that the shard fell off the end of the kinesis retention period
+				// sometime after we started trying to read it. This is probably not indicative of
+				// any problem, but rather just peculiar timing where we start reading the shard
+				// right before the last record in the shard expires. This should only really be
+				// possible
+				logEntry.Info("Stopping read of kinesis shard because it has been deleted")
+				break
+			} else {
+				// oh well, we tried. Time to call it a day
+				logEntry.WithField("error", err).Error("reading kinesis shard failed")
+				var message = readResult{
+					Error:  err,
+					Source: source,
+				}
+				select {
+				case kc.dataCh <- message:
+					break
+				case <-kc.ctx.Done():
+					break
+				}
 			}
 		} else {
-			// nil error means that we've reached the end of the kinesis shard.
-			logEntry.Info("Reached the end of kinesis shard")
-			return
+			err = shardReader.readShardIterator(shardIter)
+			if err != nil {
+				logEntry.WithField("error", err).Warn("reading kinesis shardIterator returned error (will retry)")
+				switch err.(type) {
+				case *kinesis.ExpiredIteratorException:
+
+				}
+			}
 		}
+	}
+	logEntry.Info("Finished reading kinesis shard")
+}
+
+func isMissingResource(err error) bool {
+	switch err.(type) {
+	case *kinesis.ResourceNotFoundException:
+		return true
+	default:
+		return false
 	}
 }
 
-// Perform a single read of a shard, which continuously loops and reads records until it encounters
-// an error that requires acquisition of a new shardIterator.
-func (kc *kinesisCapture) readShard(shardID, sequenceID string) (string, error) {
-	var nextSeqID = sequenceID
+type kinesisShardReader struct {
+	parent         *kinesisCapture
+	source         *kinesisSource
+	lastSequenceID string
+	noDataBackoff  backoff
+	errorBackoff   backoff
+	limitPerReq    int64
+	logEntry       *log.Entry
+}
 
-	var shardIterReq = kinesis.GetShardIteratorInput{
-		StreamName: &kc.config.Stream,
-		ShardId:    &shardID,
-	}
-	if nextSeqID != "" {
-		shardIterReq.StartingSequenceNumber = &nextSeqID
-		shardIterReq.ShardIteratorType = &START_AFTER_SEQ
-	} else {
-		shardIterReq.ShardIteratorType = &START_AT_BEGINNING
-	}
+// Continuously loops and reads records until it encounters an error that requires acquisition of a new shardIterator.
+func (r *kinesisShardReader) readShardIterator(iteratorID string) (err error) {
+	var shardIter = &iteratorID
 
-	shardIterResp, err := kc.client.GetShardIteratorWithContext(kc.term.Ctx, &shardIterReq)
-	if err != nil {
-		return nextSeqID, err
+	var errorBackoff = backoff{
+		initialMillis: 250,
+		maxMillis:     5000,
+		multiplier:    2.0,
 	}
-
-	var shardIter = shardIterResp.ShardIterator
+	// This separate backoff is used only for cases where GetRecords returns no data.
+	// The initialMillis is set to match the 5 TPS rate limit of the api.
+	var noDataBackoff = backoff{
+		initialMillis: 200,
+		maxMillis:     1000,
+		multiplier:    1.5,
+	}
 	// GetRecords will immediately return a response without any records if there are none available
 	// immediately. This means that this loop is executed very frequently, even when there is no
 	// data available.
 	for shardIter != nil && (*shardIter) != "" {
 		var getRecordsReq = kinesis.GetRecordsInput{
 			ShardIterator: shardIter,
-			// TODO: determine a good value for Limit. This needs to be small enough to allow all
-			// the records that are returned to come in under 10MiB total, or else we'll start
-			// getting ProvisionedThroughputExceededException. Still looking into the specifics of
-			// how this should work.
+			Limit:         &r.limitPerReq,
 		}
-		getRecordsResp, err := kc.client.GetRecordsWithContext(kc.term.Ctx, &getRecordsReq)
-		// TODO: check if the err is retry-able and retry. For example, handle
-		// ProvisionedThroughputExceededException, which indicates that we would exceed the 2MiB/S
-		// throughput limit, by re-trying after a backoff.
+		var getRecordsResp *kinesis.GetRecordsOutput
+		getRecordsResp, err = r.parent.client.GetRecordsWithContext(r.parent.ctx, &getRecordsReq)
 		if err != nil {
-			return nextSeqID, err
+			if isRetryable(err) {
+				r.logEntry.WithField("error", err).Warn("got kinesis error (will retry)")
+				err = nil
+				select {
+				case <-errorBackoff.nextBackoff():
+				case <-r.parent.ctx.Done():
+					err = r.parent.ctx.Err()
+					return
+				}
+			} else {
+				r.logEntry.WithField("error", err).Warn("reading kinesis shard iterator failed")
+				return
+			}
+		} else {
+			errorBackoff.reset()
 		}
 
 		// If the response includes ChildShards, then this means that we've reached the end of the
 		// shard because it has been either split or merged, so we need to start new reads of the
 		// child shards.
 		for _, childShard := range getRecordsResp.ChildShards {
-			go kc.startReadingShard(*childShard.ShardId)
+			go r.parent.startReadingShard(*childShard.ShardId)
 		}
 
-		// TODO: handle the case where there's no records by delaying with a backoff
 		if len(getRecordsResp.Records) > 0 {
-			// send the records on the data channel. This could potentially take a while if our
-			// batch of records is large and there's a lot of other shards competing to stuff the
-			// same channel. If this takes over 5 minutes, then our shardIterator will expire,
-			// requiring us to acquire a new one. But that's OK, because it means that the
-			// backpressure is working as intended.
-			nextSeqID = kc.stuffDataCh(shardID, getRecordsResp.Records)
+			noDataBackoff.reset()
+			var parsed []map[string]interface{}
+			parsed, err = r.parseRecords(getRecordsResp.Records)
+			var lastSequenceID = *getRecordsResp.Records[len(getRecordsResp.Records)-1].SequenceNumber
+			var msg = readResult{
+				Source:         r.source,
+				Records:        parsed,
+				Error:          err,
+				SequenceNumber: lastSequenceID,
+			}
+			select {
+			case r.parent.dataCh <- msg:
+				r.lastSequenceID = lastSequenceID
+			case <-r.parent.ctx.Done():
+				err = r.parent.ctx.Err()
+				return
+			}
+		} else {
+			// If there were no records in the response then we'll wait at least a while before
+			// making another request. The amount of time we wait depends on whether we're caught up
+			// or not. If the response indicates that there is more data in the shard, then we'll
+			// wait the minimum amount of time so that we don't overflow the 5 TPS rate limit on
+			// GetRecords. If we're caught up, then we'll increase the backoff a bit.
+			if getRecordsResp.MillisBehindLatest != nil && *getRecordsResp.MillisBehindLatest > 0 {
+				noDataBackoff.reset()
+			}
+			<-noDataBackoff.nextBackoff()
 		}
 
 		// A new ShardIterator will be returned even when there's no records returned. We need to
-		// pass this value in the next GetRecords call
+		// pass this value in the next GetRecords call. If we've reached the end of a shard, then
+		// NextShardIterator will be empty, causing us to exit this loop and finish the read.
 		shardIter = getRecordsResp.NextShardIterator
-
 	}
-	return nextSeqID, nil
+	return nil
 }
 
-func (kc *kinesisCapture) stuffDataCh(shardID string, records []*kinesis.Record) (lastSequenceID string) {
-	var lastI, i int
-	for i < len(records) {
-		// Wait for at least one record to be sent on the channel
-		select {
-		case kc.dataCh <- toDataMessage(shardID, records[i]):
-			lastSequenceID = *records[i].SequenceNumber
-			i++
-		case <-kc.term.Ctx.Done():
-			log.WithFields(log.Fields{
-				"kinesisShardId": shardID,
-				"capture":        kc.term.Spec.Capture,
-			}).Info("Stopped reading kinesis shard due to context cancellation")
-			return
+// Currently this expects all kinesis records to just be json, but we may add configuration options
+// to allow for parsing other formats.
+func (r *kinesisShardReader) parseRecords(records []*kinesis.Record) ([]map[string]interface{}, error) {
+	// TODO: It may be worth recycling readResults so that we can alleviate some pressure on the GC
+	var results = make([]map[string]interface{}, len(records))
+	for i, record := range records {
+		var doc = make(map[string]interface{})
+		var err = json.Unmarshal(record.Data, &doc)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing kinesis record with sequenceNumber '%s': %w", *record.SequenceNumber, err)
 		}
-
-		// Send whatever messages the channel has room for at the moment without blocking
-		for i < len(records) {
-			select {
-			case kc.dataCh <- toDataMessage(shardID, records[i]):
-				lastSequenceID = *records[i].SequenceNumber
-				i++
-			default:
-				break
-			}
-		}
-
-		// Send a ControlMessage informing the runtime that there is data available
-		kc.controlCh <- consumer.EnvelopeOrError{
-			Envelope: message.Envelope{
-				Journal: &pb.JournalSpec{
-					Name:  pb.Journal(kc.term.Spec.Capture),
-					Flags: pb.JournalSpec_O_RDONLY,
-				},
-				Message: captures.NewControlMessage(kc.producerID, i-lastI, kc.term.Revision),
-			},
-		}
-		lastI = i
+		results[i] = doc
 	}
-	return
+	return results, nil
 }
 
-func toDataMessage(kinesisShardID string, record *kinesis.Record) captures.DataMessage {
-	return captures.DataMessage{
-		Document: record.Data,
-		Stream:   kinesisShardID,
-		Offset:   *record.SequenceNumber,
+func (kc *kinesisCapture) getShardIterator(shardID, sequenceID string) (string, error) {
+	var shardIterReq = kinesis.GetShardIteratorInput{
+		StreamName: &kc.config.Stream,
+		ShardId:    &shardID,
 	}
+	if sequenceID != "" {
+		shardIterReq.StartingSequenceNumber = &sequenceID
+		shardIterReq.ShardIteratorType = &START_AFTER_SEQ
+	} else {
+		shardIterReq.ShardIteratorType = &START_AT_BEGINNING
+	}
+
+	shardIterResp, err := kc.client.GetShardIteratorWithContext(kc.ctx, &shardIterReq)
+	if err != nil {
+		return "", err
+	}
+	return *shardIterResp.ShardIterator, nil
 }
 
 var (
