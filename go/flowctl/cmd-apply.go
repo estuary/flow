@@ -59,6 +59,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
+		SourceType:        pf.ContentType_CATALOG_SPEC,
 		TypescriptPackage: true,
 	})
 	if err != nil {

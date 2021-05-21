@@ -28,12 +28,29 @@ pub struct Ref<'a> {
 
 impl<'a> Ref<'a> {
     pub fn from_tables(
+        resources: &'a [tables::Resource],
         named_schemas: &'a [tables::NamedSchema],
         collections: &'a [tables::Collection],
         derivations: &'a [tables::Derivation],
         transforms: &'a [tables::Transform],
     ) -> Vec<Ref<'a>> {
         let mut refs = Vec::new();
+
+        // If the root resource is a JSON schema then treat it as an implicit reference.
+        match resources.first() {
+            Some(tables::Resource {
+                content_type: protocol::flow::ContentType::JsonSchema,
+                resource,
+                ..
+            }) => {
+                refs.push(Ref {
+                    scope: resource,
+                    schema: resource,
+                    collection: None,
+                });
+            }
+            _ => (),
+        };
 
         for n in named_schemas {
             refs.push(Ref {

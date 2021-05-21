@@ -776,21 +776,23 @@ message BuildAPI {
     // Root catalog source specification. This may be either a local path
     // relative to the current working directory, or an absolute URL.
     string source = 2;
+    // Content type of the source.
+    ContentType source_type = 3;
     // Path of the catalog database to write.
-    string catalog_path = 3;
+    string catalog_path = 4;
     // Optional supplemental journal rules to add, beyond those already in the catalog.
     // This is used to add development & testing overrides.
-    JournalRules extra_journal_rules = 4;
+    JournalRules extra_journal_rules = 5;
     // Optional supplemental shard rules to add, beyond those already in the catalog.
     // This is used to add development & testing overrides.
-    ShardRules extra_shard_rules = 5;
+    ShardRules extra_shard_rules = 6;
     // Should the TypeScript package be generated?
-    bool typescript_generate = 6;
+    bool typescript_generate = 7;
     // Should the TypeScript package be built? Implies generation.
-    bool typescript_compile = 7;
+    bool typescript_compile = 8;
     // Should the TypeScript package be packaged into the catalog?
     // Implies generation and compilation.
-    bool typescript_package = 8;
+    bool typescript_package = 9;
   }
 
   message Fetch {

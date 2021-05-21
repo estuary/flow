@@ -1,0 +1,20 @@
+(*bindings.BuiltCatalog)({
+  Config: (flow.BuildAPI_Config) directory:"testdata" source:"file:///b.schema.yaml" source_type:JSON_SCHEMA catalog_path:"/stable/path" ,
+  Errors: ([]bindings.BuildError) <nil>,
+  Captures: ([]flow.CaptureSpec) <nil>,
+  Collections: ([]flow.CollectionSpec) <nil>,
+  Derivations: ([]flow.DerivationSpec) <nil>,
+  JournalRules: (flow.JournalRules) ,
+  Locations: ([]bindings.SchemaLocation) (len=1) {
+    (bindings.SchemaLocation) {
+      Schema: (string) (len=21) "file:///b.schema.yaml",
+      Location: (string) "",
+      Spec: (flow.Inference) types:"string" must_exist:true string:<format:"email" > title:"A title" description:"An email description" 
+    }
+  },
+  Materializations: ([]flow.MaterializationSpec) <nil>,
+  NPMPackage: ([]uint8) <nil>,
+  Schemas: (flow.SchemaBundle) bundle:<key:"file:///a.schema.yaml" value:"{\"$defs\":{\"foo\":{\"description\":\"An email description\",\"format\":\"email\",\"type\":\"string\"}}}" > bundle:<key:"file:///b.schema.yaml" value:"{\"$ref\":\"a.schema.yaml#/$defs/foo\",\"title\":\"A title\"}" > ,
+  ShardRules: (flow.ShardRules) ,
+  Tests: ([]flow.TestSpec) <nil>
+})

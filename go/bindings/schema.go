@@ -43,3 +43,14 @@ func newSchemaService() *service {
 		func(ch *C.Channel) { C.schema_drop(ch) },
 	)
 }
+
+// SchemaLocation is static inference of a location within a schema document.
+type SchemaLocation struct {
+	// URL of the schema which is inferred, inclusive of any fragment pointer.
+	Schema string
+	// A location within a document verified by this schema,
+	// relative to the schema's root.
+	Location string
+	// Inference at this schema location.
+	Spec pf.Inference
+}

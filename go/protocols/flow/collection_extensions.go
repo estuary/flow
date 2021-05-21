@@ -117,3 +117,8 @@ func (projection *Projection) IsSingleScalarType() bool {
 	}
 	return isScalar && nTypes == 1
 }
+
+// Validate returns an error if the Inference is invalid.
+func (m *Inference) Validate() error {
+	return nil
+}
