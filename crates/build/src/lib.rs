@@ -35,6 +35,12 @@ where
         }
     };
 
+    let root_spec = match flow::ContentType::from_i32(config.source_type) {
+        Some(flow::ContentType::CatalogSpec) => flow::ContentType::CatalogSpec,
+        Some(flow::ContentType::JsonSchema) => flow::ContentType::JsonSchema,
+        _ => anyhow::bail!("unexpected content type (must be CatalogSpec or JsonSchema)"),
+    };
+
     // Ensure the build directory exists and is canonical.
     std::fs::create_dir_all(&config.directory).context("failed to create build directory")?;
     let directory = std::fs::canonicalize(&config.directory)
@@ -42,7 +48,7 @@ where
     // Create or truncate the database at |path|.
     std::fs::write(&config.catalog_path, &[]).context("failed to create catalog database")?;
 
-    let mut all_tables = load_and_validate(root_url, fetcher, drivers).await;
+    let mut all_tables = load_and_validate(root_url, root_spec, fetcher, drivers).await;
 
     // Apply any extra journal rules of the configuration.
     for (index, rule) in config
@@ -100,18 +106,19 @@ where
     Ok(all_tables)
 }
 
-pub async fn load_and_validate<F, D>(root: Url, fetcher: F, drivers: D) -> tables::All
+pub async fn load_and_validate<F, D>(
+    root: Url,
+    root_type: flow::ContentType,
+    fetcher: F,
+    drivers: D,
+) -> tables::All
 where
     F: sources::Fetcher,
     D: validation::Drivers,
 {
     let loader = sources::Loader::new(sources::Tables::default(), fetcher);
     loader
-        .load_resource(
-            sources::Scope::new(&root),
-            &root,
-            flow::ContentType::CatalogSpec,
-        )
+        .load_resource(sources::Scope::new(&root), &root, root_type)
         .await;
 
     let sources::Tables {
@@ -209,14 +216,4 @@ pub fn generate_typescript_package(tables: &tables::All, dir: &Path) -> Result<(
     )?;
     nodejs::write_package(&dir, write_intents)?;
     Ok(())
-}
-
-// TODO remove with Rust flowctl.
-pub fn compile_typescript_package(dir: &Path) -> Result<(), anyhow::Error> {
-    nodejs::compile_package(dir)
-}
-
-// TODO remove with Rust flowctl.
-pub fn pack_typescript_package(dir: &Path) -> Result<tables::Resources, anyhow::Error> {
-    Ok(nodejs::pack_package(&dir)?)
 }

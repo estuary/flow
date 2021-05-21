@@ -59,7 +59,11 @@ pub async fn validate<D: Drivers>(
     transforms: &[tables::Transform],
 ) -> Tables {
     let mut errors = tables::Errors::new();
-    let root_scope = &resources[0].resource;
+
+    let mut root_scope = &url::Url::parse("root://").unwrap();
+    if let Some(r) = resources.first() {
+        root_scope = &r.resource;
+    }
 
     // Index for future binary searches of the import graph.
     let imports = imports
@@ -79,7 +83,13 @@ pub async fn validate<D: Drivers>(
     };
     let schema_index = schema::index_compiled_schemas(&compiled_schemas, root_scope, &mut errors);
 
-    let schema_refs = schema::Ref::from_tables(named_schemas, collections, derivations, transforms);
+    let schema_refs = schema::Ref::from_tables(
+        resources,
+        named_schemas,
+        collections,
+        derivations,
+        transforms,
+    );
 
     let (schema_shapes, inferences) =
         schema::walk_all_schema_refs(&schema_index, projections, &schema_refs, &mut errors);

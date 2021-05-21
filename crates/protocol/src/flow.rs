@@ -885,26 +885,29 @@ pub mod build_api {
         /// relative to the current working directory, or an absolute URL.
         #[prost(string, tag="2")]
         pub source: ::prost::alloc::string::String,
+        /// Content type of the source.
+        #[prost(enumeration="super::ContentType", tag="3")]
+        pub source_type: i32,
         /// Path of the catalog database to write.
-        #[prost(string, tag="3")]
+        #[prost(string, tag="4")]
         pub catalog_path: ::prost::alloc::string::String,
         /// Optional supplemental journal rules to add, beyond those already in the catalog.
         /// This is used to add development & testing overrides.
-        #[prost(message, optional, tag="4")]
+        #[prost(message, optional, tag="5")]
         pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
         /// Optional supplemental shard rules to add, beyond those already in the catalog.
         /// This is used to add development & testing overrides.
-        #[prost(message, optional, tag="5")]
+        #[prost(message, optional, tag="6")]
         pub extra_shard_rules: ::core::option::Option<super::ShardRules>,
         /// Should the TypeScript package be generated?
-        #[prost(bool, tag="6")]
+        #[prost(bool, tag="7")]
         pub typescript_generate: bool,
         /// Should the TypeScript package be built? Implies generation.
-        #[prost(bool, tag="7")]
+        #[prost(bool, tag="8")]
         pub typescript_compile: bool,
         /// Should the TypeScript package be packaged into the catalog?
         /// Implies generation and compilation.
-        #[prost(bool, tag="8")]
+        #[prost(bool, tag="9")]
         pub typescript_package: bool,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]

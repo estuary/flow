@@ -1,0 +1,5 @@
+$defs:
+  foo:
+    type: string
+    format: email
+    description: "An email description"
