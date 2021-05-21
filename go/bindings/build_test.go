@@ -12,7 +12,7 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
-func TestBuildCatalogNew(t *testing.T) {
+func TestBuildCatalog(t *testing.T) {
 	var tempdir = t.TempDir()
 	built, err := BuildCatalog(BuildArgs{
 		FileRoot:            "./testdata",
@@ -20,6 +20,7 @@ func TestBuildCatalogNew(t *testing.T) {
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
 			Source:      "file:///build.flow.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(tempdir, "catalog.db"),
 			ExtraJournalRules: &pf.JournalRules{
 				Rules: []pf.JournalRules_Rule{
@@ -37,6 +38,24 @@ func TestBuildCatalogNew(t *testing.T) {
 					},
 				},
 			},
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
+	cupaloy.SnapshotT(t, built)
+}
+
+func TestBuildSchema(t *testing.T) {
+	var tempdir = t.TempDir()
+	built, err := BuildCatalog(BuildArgs{
+		FileRoot:            "./testdata",
+		MaterializeDriverFn: nil, // Not needed.
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///b.schema.yaml",
+			SourceType:  pf.ContentType_JSON_SCHEMA,
+			CatalogPath: filepath.Join(tempdir, "catalog.db"),
 		}})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)

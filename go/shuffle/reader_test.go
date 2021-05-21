@@ -34,6 +34,7 @@ func TestConsumerIntegration(t *testing.T) {
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
 			Source:      "file:///ab.flow.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
 			ExtraJournalRules: &pf.JournalRules{
 				Rules: []pf.JournalRules_Rule{

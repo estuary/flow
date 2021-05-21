@@ -17,6 +17,7 @@ func TestCombineBindings(t *testing.T) {
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
 			Source:      "file:///int-strings.flow.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
 		}})
 	require.NoError(t, err)

@@ -25,6 +25,7 @@ type BuiltCatalog struct {
 	Collections      []pf.CollectionSpec
 	Derivations      []pf.DerivationSpec
 	JournalRules     pf.JournalRules
+	Locations        []SchemaLocation
 	Materializations []pf.MaterializationSpec
 	NPMPackage       []byte
 	Schemas          pf.SchemaBundle
@@ -93,6 +94,23 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 		},
 	); err != nil {
 		return nil, fmt.Errorf("loading journal rules: %w", err)
+	}
+
+	if err := loadRows(db,
+		`SELECT schema, location, spec FROM inferences ORDER BY schema, location ASC;`,
+		func() []interface{} { return []interface{}{new(string), new(string), new([]byte)} },
+		func(l []interface{}) {
+			var loc = SchemaLocation{
+				Schema:   *l[0].(*string),
+				Location: *l[1].(*string),
+			}
+			if err := loc.Spec.Unmarshal(*l[2].(*[]byte)); err != nil {
+				panic(err) // TODO plumb this better.
+			}
+			out.Locations = append(out.Locations, loc)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("loading schema locations: %w", err)
 	}
 
 	if err := loadSpecs(db,

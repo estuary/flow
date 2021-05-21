@@ -26,6 +26,8 @@ pub enum LoadError {
     SchemaBuild(#[from] json::schema::BuildError),
     #[error("failed to index JSON schema")]
     SchemaIndex(#[from] json::schema::index::Error),
+    #[error("resources cannot have fragments")]
+    ResourceWithFragment,
 }
 
 #[derive(Default, Debug)]
@@ -88,6 +90,17 @@ impl<F: Fetcher> Loader<F> {
         resource: &'a Url,
         content_type: ContentType,
     ) {
+        if resource.fragment().is_some() {
+            self.tables.borrow_mut().errors.push_row(
+                &scope.flatten(),
+                anyhow::anyhow!(LoadError::Fetch {
+                    uri: resource.to_string(),
+                    detail: LoadError::ResourceWithFragment.into(),
+                }),
+            );
+            return;
+        }
+
         // Mark as visited, so that recursively-loaded imports don't re-visit.
         self.tables.borrow_mut().fetches.push_row(resource);
 

@@ -63,6 +63,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		CatalogPath:       filepath.Join(runDir, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
+		SourceType:        pf.ContentType_CATALOG_SPEC,
 		TypescriptCompile: true,
 		TypescriptPackage: false,
 
