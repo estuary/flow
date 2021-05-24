@@ -64,31 +64,36 @@ func readStream(ctx context.Context, config Config, client *kinesis.Kinesis, str
 }
 
 func (kc *kinesisCapture) startReadindStream() error {
-	allShardIds, err := kc.listShards()
+	initialShardIDs, err := kc.listInitialShards()
 	if err != nil {
 		return fmt.Errorf("listing kinesis shards: %w", err)
-	} else if len(allShardIds) == 0 {
-		// TODO: Verify if it's even possible for a kinesis stream to have 0 shards
+	} else if len(initialShardIDs) == 0 {
 		return fmt.Errorf("No kinesis shards found for the given stream")
 	}
+	log.WithFields(log.Fields{
+		"kinesisStream":        kc.stream,
+		"initialKinesisShards": initialShardIDs,
+	}).Infof("Will start reading from %d kinesis shards", len(initialShardIDs))
 	// Start the background goroutine that will buffer data and send control messages to notify the
 	// Flow consumer when data is available.
 	//go kc.startMessagePump()
 
 	// Start reading from all the known shards.
-	for _, kinesisShardID := range allShardIds {
+	for _, kinesisShardID := range initialShardIDs {
 		go kc.startReadingShard(kinesisShardID)
 	}
 	return nil
 }
 
-// TODO: we may not want to return _all_ shards here, but only the oldest parent shards, since child
-// shards will be read automatically after reaching the end of the parents. If we start reading
-// child shards immediately, then people may see events ingested out of order if they've merged or
-// split shards recently.
-func (kc *kinesisCapture) listShards() ([]string, error) {
-	var shards []string
-
+// We don't return _all_ shards here, but only the oldest parent shards. This is because child
+// shards will be read automatically after reaching the end of the parents, so if we start reading
+// child shards immediately then people may see events ingested out of order if they've merged or
+// split shards recently. This function will only return the set of shards that should be read
+// initially. It will omit shards that meet *all* of the following conditions:
+// - Has a parent id
+// - The parent shard still has data that is within the retention period.
+func (kc *kinesisCapture) listInitialShards() ([]string, error) {
+	var shardsToParents = make(map[string]*string)
 	var nextToken = ""
 	for {
 		var listShardsReq = kinesis.ListShardsInput{}
@@ -102,7 +107,7 @@ func (kc *kinesisCapture) listShards() ([]string, error) {
 			return nil, fmt.Errorf("listing shards: %w", err)
 		}
 		for _, shard := range listShardsResp.Shards {
-			shards = append(shards, *shard.ShardId)
+			shardsToParents[*shard.ShardId] = shard.ParentShardId
 		}
 
 		if listShardsResp.NextToken != nil && (*listShardsResp.NextToken) != "" {
@@ -112,6 +117,29 @@ func (kc *kinesisCapture) listShards() ([]string, error) {
 		}
 	}
 
+	// Now iterate the map and return all shards in the oldest generation.
+	// Reading those shards will yield the child shards once we reach the end of each parent.
+	var shards []string
+	for shardID, parentID := range shardsToParents {
+		// Does the shard have a parent
+		if parentID != nil {
+			// Was the parent included in the ListShards output, meaning it still contains data that
+			// falls inside the retention period.
+			if _, parentIsListed := shardsToParents[*parentID]; parentIsListed {
+				// And finally, have we already started reading from this shard? If so, then we'll
+				// want to continue reading from it, even if it might otherwise be excluded.
+				if _, ok := kc.shardSequences[shardID]; !ok {
+					log.WithFields(log.Fields{
+						"kinesisStream":        kc.stream,
+						"kinesisShardId":       shardID,
+						"kinesisParentShardId": *parentID,
+					}).Info("Skipping shard for now since we will start reading a parent of this shard")
+					continue
+				}
+			}
+		}
+		shards = append(shards, shardID)
+	}
 	return shards, nil
 }
 
@@ -162,9 +190,7 @@ func (kc *kinesisCapture) startReadingShard(shardID string) {
 			multiplier:    1.5,
 		},
 		// The maximum number of records to return in a single GetRecords request. We start with the
-		// maximum allowed by kinesis, which is also their default. But this will be decreased if we
-		// start seeing shardIterators expiring, since that indicates that it's taking more than 5
-		// minutes to process all the records that were returned.
+		// maximum allowed by kinesis, which is also their default.
 		limitPerReq: 10000,
 		logEntry:    logEntry,
 	}
@@ -207,11 +233,22 @@ func (kc *kinesisCapture) startReadingShard(shardID string) {
 			}
 		} else {
 			err = shardReader.readShardIterator(shardIter)
-			if err != nil {
+			// If err is nil, then it means we've read through the end of the shard. Otherwise,
+			// we'll loop around and try again
+			if err == nil {
+				break
+			} else {
+				// Don't wait before retrying, since the previous failure was from GetRecords and
+				// the next call will be to GetShardIterator, which have separate rate limits.
 				logEntry.WithField("error", err).Warn("reading kinesis shardIterator returned error (will retry)")
-				switch err.(type) {
-				case *kinesis.ExpiredIteratorException:
 
+				// If we're seeing ExpiredIteratorExceptions then the likely cause is that we're
+				// taking too long to process the records before we request more. We'll lower the
+				// limit
+				if _, ok := err.(*kinesis.ExpiredIteratorException); ok && shardReader.limitPerReq > 500 {
+					var newLimit = shardReader.limitPerReq / 2
+					logEntry.Infof("lowering the limit of records per request from %d to %d", shardReader.limitPerReq, newLimit)
+					shardReader.limitPerReq = newLimit
 				}
 			}
 		}
@@ -236,6 +273,8 @@ type kinesisShardReader struct {
 	errorBackoff   backoff
 	limitPerReq    int64
 	logEntry       *log.Entry
+	totalBytes     int64
+	totalRecords   int64
 }
 
 // Continuously loops and reads records until it encounters an error that requires acquisition of a new shardIterator.
@@ -291,6 +330,8 @@ func (r *kinesisShardReader) readShardIterator(iteratorID string) (err error) {
 
 		if len(getRecordsResp.Records) > 0 {
 			noDataBackoff.reset()
+			r.updateRecordLimit(getRecordsResp)
+
 			var parsed []map[string]interface{}
 			parsed, err = r.parseRecords(getRecordsResp.Records)
 			var lastSequenceID = *getRecordsResp.Records[len(getRecordsResp.Records)-1].SequenceNumber
@@ -325,6 +366,33 @@ func (r *kinesisShardReader) readShardIterator(iteratorID string) (err error) {
 		shardIter = getRecordsResp.NextShardIterator
 	}
 	return nil
+}
+
+// Updates the Limit used for GetRecords requests. The goal is to always set the limit such that we
+// can get about 2MiB of data returned on each request, which matches the 2MiB/S read rate limit.
+// This function will adjust the limit slowly so we don't end up going back and forth rapidly
+// between wildly different limits.
+func (r *kinesisShardReader) updateRecordLimit(resp *kinesis.GetRecordsOutput) {
+	// update some stats, which we'll use to determine the Limit used in GetRecords requests
+	var totalBytes int
+	for _, rec := range resp.Records {
+		totalBytes += len(rec.Data)
+	}
+	var avg int = totalBytes / len(resp.Records)
+	var desiredLimit = (2 * 1024 * 1024) / avg
+	var diff = int64(desiredLimit) - r.limitPerReq
+
+	// Only move a fraction of the distance toward the desiredLimit. This helps even out big jumps
+	// in average data size from request to request. If the average is fairly consistent, then we'll
+	// still converge on the desiredLimit pretty quickly. The worst-case scenario where the average
+	// record size approaches the 1MiB limit still converges (from 5000 to 2) in 20 iterations.
+	var newLimit = r.limitPerReq + (diff / 3)
+	if newLimit < 100 {
+		newLimit = 100
+	} else if newLimit > 10000 {
+		newLimit = 10000
+	}
+	r.limitPerReq = newLimit
 }
 
 // Currently this expects all kinesis records to just be json, but we may add configuration options

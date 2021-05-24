@@ -13,68 +13,15 @@ import (
 )
 
 func main() {
-	var args = captures.ParseArgsOrExit()
-	args.Run(spec, doCheck, doDiscover, doRead)
+	//var args = captures.ParseArgsOrExit()
+	captures.RunMain(spec, doCheck, doDiscover, doRead)
 }
 
 // TODO: update docs link to kinesis connector-specific docs after they are written
 var spec = captures.Spec{
 	SupportsIncremental:           true,
 	SupportedDestinationSyncModes: captures.AllDestinationSyncModes,
-	ConnectionSpecification: map[string]interface{}{
-		"$schema": "http://json-schema.org/draft-07/schema#",
-		"title":   "Kinesis Source Spec",
-		"type":    "object",
-		"required": []string{
-			"stream",
-			"region",
-			"awsAccessKeyId",
-			"awsSecretAccessKey",
-		},
-		"properties": map[string]interface{}{
-			"stream": map[string]interface{}{
-				"type":        "string",
-				"title":       "Kinesis Stream",
-				"description": "The name of the Kinesis stream",
-				"default":     "example-stream-name",
-			},
-			"region": map[string]interface{}{
-				"type":        "string",
-				"title":       "AWS Region",
-				"description": "The name of the AWS region where the Kinesis stream is located",
-				"default":     "us-east-1",
-			},
-			"awsAccessKeyId": map[string]interface{}{
-				"type":        "string",
-				"title":       "AWS Access Key ID",
-				"description": "Part of the AWS credentials that will be used to connect to Kinesis",
-				"default":     "example-aws-access-key-id",
-			},
-			"awsSecretAccessKey": map[string]interface{}{
-				"type":        "string",
-				"title":       "AWS Secret Access Key",
-				"description": "Part of the AWS credentials that will be used to connect to Kinesis",
-				"default":     "example-aws-secret-access-key",
-			},
-			"partitionRange": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"end": map[string]interface{}{
-						"type":        "string",
-						"pattern":     "^[0-9a-fA-F]{8}$",
-						"title":       "Partition range begin",
-						"description": "Unsigned 32 bit integer represented as a hexidecimal string, which is used to determine which partitions this instance will be responsible for",
-					},
-					"begin": map[string]interface{}{
-						"type":        "string",
-						"pattern":     "^[0-9a-fA-F]{8}$",
-						"title":       "Partition range begin",
-						"description": "Unsigned 32 bit integer represented as a hexidecimal string, which is used to determine which partitions this instance will be responsible for",
-					},
-				},
-			},
-		},
-	},
+	ConnectionSpecification:       configJSONSchema,
 }
 
 func doCheck(args captures.CheckCmd) error {
@@ -122,8 +69,9 @@ func doDiscover(args captures.DiscoverCmd) error {
 			SourceDefinedCursor: true,
 		}
 	}
+	log.Infof("Discover completed with %d streams", len(streamNames))
 
-	var encoder = json.NewEncoder(os.Stdout)
+	var encoder = captures.NewStdoutEncoder()
 	return encoder.Encode(&catalog)
 }
 
@@ -137,19 +85,23 @@ func put(state *captures.State, source *kinesisSource, sequenceNumber string) {
 }
 
 func copyStreamState(state *captures.Message, stream string) (map[string]string, error) {
-	if ss, ok := state.State.Data[stream].(map[string]interface{}); ok {
-		var dest = make(map[string]string)
-		for k, v := range ss {
-			if vstr, ok := v.(string); ok {
-				dest[k] = vstr
-			} else {
-				return nil, fmt.Errorf("found a non-string value in state map")
+	var dest = make(map[string]string)
+	// Is there an entry for this stream
+	if ss, ok := state.State.Data[stream]; ok {
+		// Does the entry for this stream have the right type
+		if typedSS, ok := ss.(map[string]interface{}); ok {
+			for k, v := range typedSS {
+				if vstr, ok := v.(string); ok {
+					dest[k] = vstr
+				} else {
+					return nil, fmt.Errorf("found a non-string value in state map for stream: '%s'", stream)
+				}
 			}
+		} else {
+			return nil, fmt.Errorf("invalid state for stream '%s', expected values to be maps of string to string", stream)
 		}
-		return dest, nil
-	} else {
-		return nil, fmt.Errorf("invalid state object, expected values to be maps of string to string")
 	}
+	return dest, nil
 }
 
 func doRead(args captures.ReadCmd) error {

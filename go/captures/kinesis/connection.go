@@ -23,6 +23,61 @@ type Config struct {
 	AWSSecretAccessKey string                   `json:"awsSecretAccessKey"`
 }
 
+var configJSONSchema = map[string]interface{}{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title":   "Kinesis Source Spec",
+	"type":    "object",
+	"required": []string{
+		"stream",
+		"region",
+		"awsAccessKeyId",
+		"awsSecretAccessKey",
+	},
+	"properties": map[string]interface{}{
+		"stream": map[string]interface{}{
+			"type":        "string",
+			"title":       "Kinesis Stream",
+			"description": "The name of the Kinesis stream",
+			"default":     "example-stream-name",
+		},
+		"region": map[string]interface{}{
+			"type":        "string",
+			"title":       "AWS Region",
+			"description": "The name of the AWS region where the Kinesis stream is located",
+			"default":     "us-east-1",
+		},
+		"awsAccessKeyId": map[string]interface{}{
+			"type":        "string",
+			"title":       "AWS Access Key ID",
+			"description": "Part of the AWS credentials that will be used to connect to Kinesis",
+			"default":     "example-aws-access-key-id",
+		},
+		"awsSecretAccessKey": map[string]interface{}{
+			"type":        "string",
+			"title":       "AWS Secret Access Key",
+			"description": "Part of the AWS credentials that will be used to connect to Kinesis",
+			"default":     "example-aws-secret-access-key",
+		},
+		"partitionRange": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"end": map[string]interface{}{
+					"type":        "string",
+					"pattern":     "^[0-9a-fA-F]{8}$",
+					"title":       "Partition range begin",
+					"description": "Unsigned 32 bit integer represented as a hexidecimal string, which is used to determine which partitions this instance will be responsible for",
+				},
+				"begin": map[string]interface{}{
+					"type":        "string",
+					"pattern":     "^[0-9a-fA-F]{8}$",
+					"title":       "Partition range begin",
+					"description": "Unsigned 32 bit integer represented as a hexidecimal string, which is used to determine which partitions this instance will be responsible for",
+				},
+			},
+		},
+	},
+}
+
 func connect(config *Config) (*kinesis.Kinesis, error) {
 	var creds = credentials.NewStaticCredentials(config.AWSAccessKeyID, config.AWSSecretAccessKey, "")
 	var c = aws.NewConfig().WithCredentials(creds).WithRegion(config.Region)
@@ -102,14 +157,15 @@ func (b *backoff) reset() {
 	b.currentMillis = b.initialMillis
 }
 
+// Returns true if this error represents something that ought to be retried.
+// Basically, this is any error except those that we're sure are terminal.
 func isRetryable(err error) bool {
-	// TODO: determin if this is a network error and return true
 	switch err.(type) {
-	case *kinesis.ProvisionedThroughputExceededException:
-		return true
-	case *kinesis.InternalFailureException:
-		return true
-	default:
+	case *kinesis.ResourceNotFoundException:
 		return false
+	case *kinesis.InvalidArgumentException:
+		return false // This is basically a 400 status, which is likely due to a bug
+	default:
+		return true
 	}
 }
