@@ -169,6 +169,9 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	if u.Scheme == "file" && strings.HasPrefix(u.Path, dir) {
 		path = path[len(dir)+len("file://")+1:]
 	}
+	if ptr == "" {
+		ptr = "<root>"
+	}
 	return path, ptr
 }
 

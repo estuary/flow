@@ -547,7 +547,8 @@ impl Shape {
         // Does this schema have any keywords which directly affect its validation
         // or annotation result? We give a special pass to `title` and `description`.
         if !schema.kw.iter().all(|kw| {
-            matches!(kw,
+            matches!(
+                kw,
                 Keyword::Application(Application::Ref(_), _)
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
@@ -604,6 +605,10 @@ impl Shape {
                     }
                     Annotation::Core(CoreAnnotation::Description(d)) => {
                         shape.description = Some(d.clone());
+                    }
+                    Annotation::Secret => {
+                        // TODO: secret is currently a no-op,
+                        // but we'll want to plumb this through into inference.
                     }
 
                     // String constraints.
