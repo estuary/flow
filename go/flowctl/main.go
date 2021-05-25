@@ -27,6 +27,10 @@ Locally develop a Flow catalog.
 Split a Flow processing shard into two, either on shuffled key or rotated clock.
 `, &cmdSplit{})
 
+	addCmd(parser, "discover", "Discover available captures of an endpoint", `
+Discover available captures of an endpoint
+`, &cmdDiscover{})
+
 	addCmd(parser, "json-schema", "Print the catalog JSON schema", `
 Print the JSON schema specification of Flow catalogs, as understood by this
 specific build of Flow. This JSON schema can be used to enable IDE support
