@@ -9,6 +9,8 @@ pub enum Annotation {
     Core(schema::CoreAnnotation),
     /// "reduce" annotation keyword.
     Reduce(reduce::Strategy),
+    /// "airbyte_secret" annotation keyword.
+    Secret,
 }
 
 impl schema::Annotation for Annotation {
@@ -22,10 +24,9 @@ impl schema::Annotation for Annotation {
 
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
-        if keyword == "reduce" {
-            true
-        } else {
-            schema::CoreAnnotation::uses_keyword(keyword)
+        match keyword {
+            "reduce" | "airbyte_secret" => true,
+            _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
 
@@ -36,13 +37,13 @@ impl schema::build::AnnotationBuilder for Annotation {
         use schema::BuildError::AnnotationErr;
         use schema::CoreAnnotation as Core;
 
-        if keyword == "reduce" {
-            match reduce::Strategy::try_from(value) {
+        match keyword {
+            "reduce" => match reduce::Strategy::try_from(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(r) => Ok(Annotation::Reduce(r)),
-            }
-        } else {
-            Ok(Annotation::Core(Core::from_keyword(keyword, value)?))
+            },
+            "airbyte_secret" => Ok(Self::Secret),
+            _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
     }
 }
