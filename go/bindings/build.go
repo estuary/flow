@@ -37,7 +37,7 @@ func CatalogJSONSchema() string {
 type MaterializeDriverFn func(
 	ctx context.Context,
 	endpointType pf.EndpointType,
-	config json.RawMessage,
+	endpointSpec json.RawMessage,
 	tempdir string,
 ) (pm.DriverClient, error)
 
@@ -107,7 +107,7 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 				log.WithField("request", request).Debug("materialize validation requested")
 
 				var driver, err = args.MaterializeDriverFn(ctx, request.EndpointType,
-					json.RawMessage(request.EndpointConfigJson), "")
+					json.RawMessage(request.EndpointSpecJson), "")
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}

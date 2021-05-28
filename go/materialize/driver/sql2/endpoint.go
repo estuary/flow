@@ -27,15 +27,19 @@ type Endpoint struct {
 	// document deltas of the current transaction only.
 	DeltaUpdates bool
 	// Fully qualified name of the table, as '.'-separated components.
-	// TODO(johnny): Unify with Tables.TargetName.
 	TablePath []string
 	// Generator of SQL for this endpoint.
 	Generator Generator
 	Tables    struct {
-		TargetName  string // Table to which we materialize.
 		Checkpoints *Table // Table of Gazette checkpoints.
 		Specs       *Table // Table of MaterializationSpecs.
 	}
+}
+
+// TargetName returns the final component of the endpoint's TablePath,
+// which is the non-qualified bare table name.
+func (e *Endpoint) TargetName() string {
+	return e.TablePath[len(e.TablePath)-1]
 }
 
 // LoadSpec loads the MaterializationSpec for this Endpoint. If |mustExist|,
@@ -58,7 +62,7 @@ func (e *Endpoint) LoadSpec(mustExist bool) (*pf.MaterializationSpec, error) {
 			e.Tables.Specs.Identifier,
 			e.Generator.Placeholder(0),
 		),
-		e.Tables.TargetName,
+		e.TargetName(),
 	).Scan(&specB64)
 
 	if err != nil && !mustExist {

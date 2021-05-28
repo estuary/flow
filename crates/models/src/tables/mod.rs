@@ -121,8 +121,8 @@ tables!(
         endpoint: names::Endpoint,
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
-        // JSON object which partially configures the endpoint.
-        base_config: serde_json::Value,
+        // JSON object which partially specifies the endpoint.
+        base_spec: serde_json::Value,
     }
 
     table Captures (row Capture, sql "captures") {
@@ -131,9 +131,9 @@ tables!(
         collection: names::Collection,
         // Endpoint from which documents are to be captured.
         endpoint: names::Endpoint,
-        // JSON object which merges into the endpoint's base_config,
-        // to fully configure this capture with respect to the endpoint driver.
-        patch_config: serde_json::Value,
+        // JSON object which merges into the endpoint's base_spec,
+        // to fully specify this capture with respect to the endpoint driver.
+        endpoint_patch_spec: serde_json::Value,
     }
 
     table Materializations (row Materialization, sql "materializations") {
@@ -142,6 +142,10 @@ tables!(
         collection: names::Collection,
         // Endpoint into which documents are materialized.
         endpoint: names::Endpoint,
+        // JSON object which merges into the endpoint's base_spec,
+        // to fully specify this materialization with respect to the
+        // endpoint driver.
+        endpoint_patch_spec: serde_json::Value,
         // Fields which must not be included in the materialization.
         fields_exclude: Vec<String>,
         // Fields which must be included in the materialization,
@@ -149,10 +153,6 @@ tables!(
         fields_include: BTreeMap<String, names::Object>,
         // Should recommended fields be selected ?
         fields_recommended: bool,
-        // JSON object which merges into the endpoint's base_config,
-        // to fully configure this materialization with respect to the
-        // endpoint driver.
-        patch_config: serde_json::Value,
         // Selector over logical partitions of the source collection.
         source_partitions: Option<names::PartitionSelector>,
     }
@@ -218,10 +218,6 @@ tables!(
         scope: url::Url,
         // Name of this materialization.
         materialization: String,
-        // Collection from which documents are materialized.
-        collection: names::Collection,
-        // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: protocol::flow::EndpointType,
         // Built specification for this materialization.
         spec: protocol::flow::MaterializationSpec,
     }

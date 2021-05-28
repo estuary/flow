@@ -26,9 +26,11 @@ collections:
 
 endpoints:
   my/s3:
-    s3:
-      bucket: bucket
-      prefix: prefix
+    airbyteSource:
+      image: estuary/s3
+      config:
+        bucket: bucket
+        prefix: prefix
 
   my/db:
     sqlite:
@@ -45,7 +47,7 @@ materializations:
       name: a/derivation
     endpoint:
       name: my/db
-      config:
+      spec:
         table: a_table
 
 tests:

@@ -1,9 +1,11 @@
 test://example/catalog.yaml:
   endpoints:
     "my bucket":
-      s3:
-        bucket: foobar
-        prefix: path/prefix
+      airbyteSource:
+        image: an/image
+        config:
+          bucket: foobar
+          prefix: path/prefix
 
     "my Postgres":
       postgres:
@@ -18,12 +20,14 @@ test://example/catalog.yaml:
   captures:
     - target:
         name: a/collection
-      endpoint: { name: my bucket }
+      endpoint:
+        name: my bucket
+        spec: { stream: "contents" }
     - target:
         name: other/collection
       endpoint:
         name: my DB
-        config: { extra: "stuff" }
+        spec: { extra: "stuff" }
 
   materializations:
     # No partition selector and default fields behavior.
@@ -31,7 +35,7 @@ test://example/catalog.yaml:
         name: source/collection
       endpoint:
         name: my DB
-        config: { table: "table_one" }
+        spec: { table: "table_one" }
     # Explicit selector and fields.
     - source:
         name: source/collection
@@ -40,7 +44,7 @@ test://example/catalog.yaml:
           exclude: { "other": [42] }
       endpoint:
         name: my DB
-        config: { table: "table_two" }
+        spec: { table: "table_two" }
       fields:
         include:
           add: {}

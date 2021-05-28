@@ -83,7 +83,6 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				TablePath:    []string{parsed.Table},
 				Generator:    sqlDriver.SQLiteSQLGenerator(),
 			}
-			endpoint.Tables.TargetName = parsed.Table
 			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
 			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
@@ -91,7 +90,7 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 		},
 		NewTransactor: func(ep *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) (lifecycle.Transactor, error) {
 			var err error
-			var target = sqlDriver.TableForMaterialization(ep.Tables.TargetName, "", &ep.Generator.IdentifierQuotes, spec)
+			var target = sqlDriver.TableForMaterialization(ep.TargetName(), "", &ep.Generator.IdentifierQuotes, spec)
 			var d = &transactor{ctx: ep.Context}
 
 			// Build all SQL statements and parameter converters.

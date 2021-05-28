@@ -404,7 +404,7 @@ impl<F: Fetcher> Loader<F> {
             let scope = scope.push_prop(name.as_ref());
             let endpoint_type = endpoint.endpoint_type();
 
-            if let Some(base_config) = self.load_endpoint_config(scope, endpoint) {
+            if let Some(base_config) = self.load_endpoint_specification(scope, endpoint) {
                 self.tables.borrow_mut().endpoints.push_row(
                     scope.flatten(),
                     name,
@@ -423,7 +423,7 @@ impl<F: Fetcher> Loader<F> {
                 endpoint:
                     specs::EndpointRef {
                         name: endpoint,
-                        config: patch_config,
+                        spec: patch_spec,
                     },
             } = capture;
 
@@ -431,7 +431,7 @@ impl<F: Fetcher> Loader<F> {
                 scope,
                 collection,
                 endpoint,
-                serde_json::Value::Object(patch_config),
+                serde_json::Value::Object(patch_spec),
             );
         }
 
@@ -451,7 +451,7 @@ impl<F: Fetcher> Loader<F> {
                 endpoint:
                     specs::EndpointRef {
                         name: endpoint,
-                        config: patch_config,
+                        spec: patch_spec,
                     },
                 fields:
                     specs::MaterializationFields {
@@ -465,10 +465,10 @@ impl<F: Fetcher> Loader<F> {
                 scope,
                 collection,
                 endpoint,
+                serde_json::Value::Object(patch_spec),
                 fields_exclude,
                 fields_include,
                 fields_recommended,
-                serde_json::Value::Object(patch_config),
                 source_partitions,
             );
         }
@@ -684,27 +684,28 @@ impl<F: Fetcher> Loader<F> {
         );
     }
 
-    fn load_endpoint_config<'s>(
+    fn load_endpoint_specification<'s>(
         &'s self,
         scope: Scope<'s>,
         endpoint: specs::EndpointDef,
     ) -> Option<serde_json::Value> {
         match endpoint {
-            specs::EndpointDef::GS(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::Postgres(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::Remote(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::S3(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::Snowflake(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::Webhook(cfg) => Some(serde_json::to_value(cfg).unwrap()),
-            specs::EndpointDef::Sqlite(mut cfg) => {
-                if cfg.path.starts_with(":memory:") {
-                    Some(serde_json::to_value(cfg).unwrap()) // Already absolute.
+            specs::EndpointDef::AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::GS(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::Postgres(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::S3(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::Snowflake(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::Webhook(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::Sqlite(mut spec) => {
+                if spec.path.starts_with(":memory:") {
+                    Some(serde_json::to_value(spec).unwrap()) // Already absolute.
                 } else if let Some(path) =
-                    self.fallible(scope, scope.resource().join(cfg.path.as_ref()))
+                    self.fallible(scope, scope.resource().join(spec.path.as_ref()))
                 {
                     // Resolve relative database path relative to current scope.
-                    cfg.path = specs::RelativeUrl(path.to_string());
-                    Some(serde_json::to_value(cfg).unwrap())
+                    spec.path = specs::RelativeUrl(path.to_string());
+                    Some(serde_json::to_value(spec).unwrap())
                 } else {
                     None // We reported a join() error.
                 }

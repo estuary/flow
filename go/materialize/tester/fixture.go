@@ -160,9 +160,9 @@ func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.T
 
 func (f *Fixture) Validate() (*pm.ValidateResponse, error) {
 	var validateRequest = pm.ValidateRequest{
-		EndpointType:       f.materialization.EndpointType,
-		EndpointConfigJson: f.materialization.EndpointConfigJson,
-		Collection:         &f.materialization.Collection,
+		EndpointType:     f.materialization.EndpointType,
+		EndpointSpecJson: f.materialization.EndpointSpecJson,
+		Collection:       &f.materialization.Collection,
 	}
 	return f.Driver.Validate(f.Ctx, &validateRequest)
 }
@@ -194,7 +194,7 @@ func newCheckpoint(id int64) pc.Checkpoint {
 
 // NewMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
 // materialization that includes a field of each type.
-func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string) *pf.MaterializationSpec {
+func NewMaterialization(endpointType pf.EndpointType, endpointSpecJSON string) *pf.MaterializationSpec {
 	var inf = func(mustExist bool, types ...string) pf.Inference {
 		return pf.Inference{
 			Types:     types,
@@ -253,8 +253,8 @@ func NewMaterialization(endpointType pf.EndpointType, endpointConfigJson string)
 			SourceSchemaUri:  "http://test.test/schema.json",
 			UsesSourceSchema: true,
 		},
-		EndpointType:       endpointType,
-		EndpointConfigJson: endpointConfigJson,
+		EndpointType:     endpointType,
+		EndpointSpecJson: endpointSpecJSON,
 	}
 }
 

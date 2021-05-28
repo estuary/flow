@@ -136,16 +136,18 @@ test://example/catalog.yaml:
 test://example/more-endpoints:
   endpoints:
     good: &spec
-      s3:
-        bucket: a-bucket
-        prefix: and-prefix
+      airbyteSource:
+        image: an/image
+        config:
+          bucket: a-bucket
+          prefix: and-prefix
 
     "": *spec
     inv alid: *spec
     inv!alid: *spec
 
     # Illegal duplicates under collation.
-    CAPtURePUllEndpoINT: *spec
+    CAPtUReOtherEndpoINT: *spec
     Materializeendpoint: *spec
 "#,
     );
@@ -177,9 +179,9 @@ fn test_capture_target_not_found() {
 test://example/int-string-capture:
   captures:
     - target: { name: testiNg/int-strinK }
-      endpoint: { name: capturePullEndpoint }
+      endpoint: { name: captureEndpoint }
     - target: { name: wildly/off/name }
-      endpoint: { name: capturePushEndpoint }
+      endpoint: { name: captureOtherEndpoint }
 "#,
     );
 }
@@ -192,7 +194,7 @@ fn test_capture_endpoint_not_found() {
 test://example/int-string-capture:
   captures:
     - target: { name: testing/int-string }
-      endpoint: { name: CapturePullEndpoit }
+      endpoint: { name: CaptureEndpoit }
     - target: { name: testing/int-string }
       endpoint: { name: wildlyOffName }
 "#,
@@ -208,9 +210,9 @@ test://example/int-string-capture:
   import: null
   captures:
     - target: { name: testing/int-reverse }
-      endpoint: { name: capturePullEndpoint }
+      endpoint: { name: captureEndpoint }
     - target: { name: testing/int-string }
-      endpoint: { name: capturePushEndpoint }
+      endpoint: { name: captureOtherEndpoint }
 "#,
     );
 }
@@ -223,7 +225,7 @@ fn test_capture_duplicates() {
 test://example/catalog.yaml:
   captures:
     - target: { name: testing/int-string }
-      endpoint: { name: capturePullEndpoint }
+      endpoint: { name: captureEndpoint }
 "#,
     );
 }
@@ -239,7 +241,7 @@ test://example/catalog.yaml:
         name: testing/int-halve
       endpoint:
         name: materializeEndpoint
-        config: { fixture: two }
+        spec: { fixture: two }
 "#,
     );
 }
@@ -267,7 +269,7 @@ test://example/int-string-materialization:
         name: testing/int-string
       endpoint:
         name: s3WithoutImport
-        config: { fixture: one }
+        spec: { fixture: one }
 "#,
     );
 }
@@ -538,7 +540,7 @@ test://example/int-halve-materialization:
     - source: { name: testing/int-halve }
       endpoint:
         name: materializeEndpoint
-        config: { fixture: two }
+        spec: { fixture: two }
       fields:
         include:
           int: {} # Include and exclude.
@@ -591,7 +593,7 @@ test://example/int-string-materialization:
     - source: { name: testing/int-string }
       endpoint:
         name: materializeEndpoint
-        config: { fixture: one }
+        spec: { fixture: one }
       fields:
         include:
           str: {}
@@ -708,7 +710,7 @@ test://example/int-string-materialization:
             AlsoUnknown: ["whoops"]
       endpoint:
         name: materializeEndpoint
-        config: { fixture: one }
+        spec: { fixture: one }
 "#,
     );
 }
@@ -771,7 +773,7 @@ struct MockDriverCalls {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockMaterializationValidateCall {
     endpoint: flow::EndpointType,
-    config: serde_json::Value,
+    spec: serde_json::Value,
     #[serde(default)]
     constraints: HashMap<String, materialize::Constraint>,
     #[serde(default)]
@@ -786,12 +788,11 @@ impl validation::Drivers for MockDriverCalls {
         request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
         async move {
-            let endpoint_config: serde_json::Value =
-                serde_json::from_str(&request.endpoint_config_json)?;
+            let endpoint_spec: serde_json::Value =
+                serde_json::from_str(&request.endpoint_spec_json)?;
 
             for (_key, call) in &self.materializations {
-                if (call.endpoint as i32, &call.config) != (request.endpoint_type, &endpoint_config)
-                {
+                if (call.endpoint as i32, &call.spec) != (request.endpoint_type, &endpoint_spec) {
                     continue;
                 }
 

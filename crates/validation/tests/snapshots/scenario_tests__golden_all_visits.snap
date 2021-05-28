@@ -7,9 +7,9 @@ All {
     built_captures: [
         BuiltCapture {
             scope: test://example/int-string-capture#/captures/0,
-            capture: capturePullEndpoint/placeholder/testing/int-string,
+            capture: captureEndpoint/placeholder/testing/int-string,
             spec: CaptureSpec {
-                capture: "capturePullEndpoint/placeholder/testing/int-string",
+                capture: "captureEndpoint/placeholder/testing/int-string",
                 collection: Some(
                     CollectionSpec {
                         collection: "testing/int-string",
@@ -123,9 +123,9 @@ All {
                         ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                     },
                 ),
-                endpoint_name: "capturePullEndpoint",
-                endpoint_type: S3,
-                endpoint_config_json: "{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"}",
+                endpoint_name: "captureEndpoint",
+                endpoint_type: AirbyteSource,
+                endpoint_spec_json: "{\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"},\"image\":\"s3\",\"namespace\":\"\",\"stream\":\"a-stream\"}",
                 endpoint_resource_path: [
                     "placeholder",
                     "testing/int-string",
@@ -134,9 +134,9 @@ All {
         },
         BuiltCapture {
             scope: test://example/int-string-capture#/captures/1,
-            capture: capturePushEndpoint/placeholder/testing/int-string,
+            capture: captureOtherEndpoint/placeholder/testing/int-string,
             spec: CaptureSpec {
-                capture: "capturePushEndpoint/placeholder/testing/int-string",
+                capture: "captureOtherEndpoint/placeholder/testing/int-string",
                 collection: Some(
                     CollectionSpec {
                         collection: "testing/int-string",
@@ -250,9 +250,9 @@ All {
                         ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                     },
                 ),
-                endpoint_name: "capturePushEndpoint",
-                endpoint_type: Webhook,
-                endpoint_config_json: "{\"endpoint\":\"/a/path\"}",
+                endpoint_name: "captureOtherEndpoint",
+                endpoint_type: AirbyteSource,
+                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\",\"namespace\":\"and namespace\",\"stream\":\"a-stream\"}",
                 endpoint_resource_path: [
                     "placeholder",
                     "testing/int-string",
@@ -1154,8 +1154,6 @@ All {
         BuiltMaterialization {
             scope: test://example/int-string-materialization#/materializations/0,
             materialization: materializeEndpoint/table/The%20One,
-            collection: testing/int-string,
-            endpoint_type: "S3",
             spec: MaterializationSpec {
                 materialization: "materializeEndpoint/table/The%20One",
                 collection: Some(
@@ -1273,7 +1271,7 @@ All {
                 ),
                 endpoint_name: "materializeEndpoint",
                 endpoint_type: S3,
-                endpoint_config_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
+                endpoint_spec_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
                 endpoint_resource_path: [
                     "table",
                     "The One",
@@ -1338,8 +1336,6 @@ All {
         BuiltMaterialization {
             scope: test://example/int-halve-materialization#/materializations/0,
             materialization: materializeEndpoint/tab%21e/two,
-            collection: testing/int-halve,
-            endpoint_type: "S3",
             spec: MaterializationSpec {
                 materialization: "materializeEndpoint/tab%21e/two",
                 collection: Some(
@@ -1547,7 +1543,7 @@ All {
                 ),
                 endpoint_name: "materializeEndpoint",
                 endpoint_type: S3,
-                endpoint_config_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
+                endpoint_spec_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
                 endpoint_resource_path: [
                     "tab!e",
                     "two",
@@ -1687,14 +1683,14 @@ All {
         Capture {
             scope: test://example/int-string-capture#/captures/0,
             collection: testing/int-string,
-            endpoint: capturePullEndpoint,
-            patch_config: {},
+            endpoint: captureEndpoint,
+            endpoint_patch_spec: {"stream":"a-stream"},
         },
         Capture {
             scope: test://example/int-string-capture#/captures/1,
             collection: testing/int-string,
-            endpoint: capturePushEndpoint,
-            patch_config: {},
+            endpoint: captureOtherEndpoint,
+            endpoint_patch_spec: {"namespace":"and namespace","stream":"a-stream"},
         },
     ],
     collections: [
@@ -1733,22 +1729,22 @@ All {
     ],
     endpoints: [
         Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/capturePullEndpoint,
-            endpoint: capturePullEndpoint,
-            endpoint_type: "S3",
-            base_config: {"bucket":"a-bucket","prefix":"and-prefix"},
+            scope: test://example/catalog.yaml#/endpoints/captureEndpoint,
+            endpoint: captureEndpoint,
+            endpoint_type: "AirbyteSource",
+            base_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3","namespace":"","stream":""},
         },
         Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/capturePushEndpoint,
-            endpoint: capturePushEndpoint,
-            endpoint_type: "Webhook",
-            base_config: {"endpoint":"/a/path"},
+            scope: test://example/catalog.yaml#/endpoints/captureOtherEndpoint,
+            endpoint: captureOtherEndpoint,
+            endpoint_type: "AirbyteSource",
+            base_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database","namespace":"","stream":""},
         },
         Endpoint {
             scope: test://example/catalog.yaml#/endpoints/materializeEndpoint,
             endpoint: materializeEndpoint,
             endpoint_type: "S3",
-            base_config: {"bucket":"a-bucket","prefix":"and-prefix"},
+            base_spec: {"bucket":"a-bucket","prefix":"and-prefix"},
         },
     ],
     errors: [],
@@ -2332,20 +2328,20 @@ All {
             scope: test://example/int-string-materialization#/materializations/0,
             collection: testing/int-string,
             endpoint: materializeEndpoint,
+            endpoint_patch_spec: {"fixture":"one"},
             fields_exclude: ["bit"],
             fields_include: {"str":{"pass":"through"}},
             fields_recommended: 1,
-            patch_config: {"fixture":"one"},
             source_partitions: {"include":{"bit":[true]},"exclude":{}},
         },
         Materialization {
             scope: test://example/int-halve-materialization#/materializations/0,
             collection: testing/int-halve,
             endpoint: materializeEndpoint,
+            endpoint_patch_spec: {"fixture":"two"},
             fields_exclude: [],
             fields_include: {"Len":{}},
             fields_recommended: 0,
-            patch_config: {"fixture":"two"},
             source_partitions: NULL,
         },
     ],

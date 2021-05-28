@@ -29,8 +29,8 @@ pub struct UuidParts {
 /// LambdaSpec describes a Flow transformation lambda and how to invoke it.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LambdaSpec {
-    /// If non-empty, this is a TypeScript lambda and the field is its invocation path.
-    /// E.x. 'some/derivation/andTransform/Update'.
+    /// If non-empty, this is a TypeScript lambda and the field is its invocation
+    /// path. E.x. 'some/derivation/andTransform/Update'.
     #[prost(string, tag="1")]
     pub typescript: ::prost::alloc::string::String,
     /// If non-empty, this is a remote lambda and the field is its invocation URL.
@@ -94,11 +94,13 @@ pub struct Shuffle {
     pub uses_source_schema: bool,
     /// Validate the schema of documents at time of shuffled read.
     /// We always validate documents, but there's a choice whether we validate
-    /// within the shuffle server (true) or later within the shuffle client (false).
+    /// within the shuffle server (true) or later within the shuffle client
+    /// (false).
     /// - Derivations: true, as the derivation runtime can then by-pass
     ///   a round of JSON parsing and validation.
     /// - Materializations: false, as the materialization runtime immediately
-    ///   combines over the document --  which requires parsing & validation anyway.
+    ///   combines over the document --  which requires parsing & validation
+    ///   anyway.
     #[prost(bool, tag="10")]
     pub validate_schema_at_read: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
@@ -178,7 +180,8 @@ pub struct Projection {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Inference {
     /// The possible types for this location.
-    /// Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+    /// Subset of ["null", "boolean", "object", "array", "integer", "numeric",
+    /// "string"].
     #[prost(string, repeated, tag="1")]
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Whether the projection must always exist (either as a location within)
@@ -205,10 +208,12 @@ pub mod inference {
         /// Annotated format when the projection is of "string" type.
         #[prost(string, tag="4")]
         pub format: ::prost::alloc::string::String,
-        /// Whether the value is base64-encoded when the projection is of "string" type.
+        /// Whether the value is base64-encoded when the projection is of "string"
+        /// type.
         #[prost(bool, tag="5")]
         pub is_base64: bool,
-        /// Maximum length when the projection is of "string" type. Zero for no limit.
+        /// Maximum length when the projection is of "string" type. Zero for no
+        /// limit.
         #[prost(uint32, tag="6")]
         pub max_length: u32,
     }
@@ -290,8 +295,8 @@ pub struct FieldSelection {
     /// Field having a document pointer located at the document root.
     #[prost(string, tag="3")]
     pub document: ::prost::alloc::string::String,
-    /// Additional configuration, keyed by fields included in |keys|, |values|, or |document|.
-    /// Values are arbitrary JSON-encoded objects.
+    /// Additional configuration, keyed by fields included in |keys|, |values|, or
+    /// |document|. Values are arbitrary JSON-encoded objects.
     #[prost(map="string, string", tag="4")]
     pub field_config: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
@@ -301,28 +306,35 @@ pub struct FieldSelection {
 /// captures more broadly.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
-    /// Name of this capture, derived from the endpoint name and the
-    /// driver-provided endpoint resource path.
+    /// Name of this capture, derived from
+    /// "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
+    /// For example, {
+    ///    endpoint_name: "company/team/database",
+    ///    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
+    /// } would have materialization name:
+    /// "company/team/database/logical-db/and-schema/tab%21e"
     #[prost(string, tag="1")]
     pub capture: ::prost::alloc::string::String,
     /// Collection to be captured into.
     #[prost(message, optional, tag="2")]
     pub collection: ::core::option::Option<CollectionSpec>,
-    /// Endpoint to which we materialize.
+    /// Endpoint from which we capture.
     #[prost(string, tag="3")]
     pub endpoint_name: ::prost::alloc::string::String,
-    /// Type of the materialization's endpoint.
+    /// Type of the captures's endpoint.
     #[prost(enumeration="EndpointType", tag="4")]
     pub endpoint_type: i32,
-    /// JSON-encoded object which configures this materialization with
+    /// JSON-encoded object which specifies this capture with
     /// respect to the endpoint type driver.
     #[prost(string, tag="5")]
-    pub endpoint_config_json: ::prost::alloc::string::String,
-    /// Endpoint path components which fully qualify the subresource being materialized.
+    pub endpoint_spec_json: ::prost::alloc::string::String,
+    /// Endpoint path components which fully qualify the subresource being
+    /// captured.
     #[prost(string, repeated, tag="6")]
     pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-/// MaterializationSpec describes a collection and its materialization to an endpoint.
+/// MaterializationSpec describes a collection and its materialization to an
+/// endpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
     /// Name of this materialization, derived from
@@ -343,11 +355,12 @@ pub struct MaterializationSpec {
     /// Type of the materialization's endpoint.
     #[prost(enumeration="EndpointType", tag="4")]
     pub endpoint_type: i32,
-    /// JSON-encoded object which configures this materialization with
+    /// JSON-encoded object which specifies this materialization with
     /// respect to the endpoint type driver.
     #[prost(string, tag="5")]
-    pub endpoint_config_json: ::prost::alloc::string::String,
-    /// Endpoint path components which fully qualify the subresource being materialized.
+    pub endpoint_spec_json: ::prost::alloc::string::String,
+    /// Endpoint path components which fully qualify the subresource being
+    /// materialized.
     #[prost(string, repeated, tag="6")]
     pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Resolved fields selected for materialization.
@@ -547,7 +560,8 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag="7")]
     pub docs_json: ::prost::alloc::vec::Vec<Slice>,
     /// The journal offsets of each document within the requested journal.
-    /// For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1] ).
+    /// For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
+    /// ).
     #[prost(int64, repeated, packed="false", tag="8")]
     pub offsets: ::prost::alloc::vec::Vec<i64>,
     /// UUIDParts of each document.
@@ -635,17 +649,19 @@ pub struct CatalogCommons {
     /// Shard rules applied to create and update ShardSpecs.
     #[prost(message, optional, tag="11")]
     pub shard_rules: ::core::option::Option<ShardRules>,
-    /// Schema definitions, against which registers and sourced or derived documents are validated.
+    /// Schema definitions, against which registers and sourced or derived
+    /// documents are validated.
     #[prost(message, optional, tag="12")]
     pub schemas: ::core::option::Option<SchemaBundle>,
-    /// Unix domain socket on which a local TypeScript runtime is already listening.
-    /// This is set by `flowctl test` and `flowctl develop`, and is empty otherwise.
+    /// Unix domain socket on which a local TypeScript runtime is already
+    /// listening. This is set by `flowctl test` and `flowctl develop`, and is
+    /// empty otherwise.
     #[prost(string, tag="13")]
     pub typescript_local_socket: ::prost::alloc::string::String,
-    /// TypeScript NPM package, as a stand-alone gzipped tarball with bundled dependencies.
-    /// At present we expect only etcd:// schemes with no host, and map paths to fetched
-    /// Etcd values. This is a handy short term representation that will evolve over time.
-    /// Empty if |typescript_local_socket| is set.
+    /// TypeScript NPM package, as a stand-alone gzipped tarball with bundled
+    /// dependencies. At present we expect only etcd:// schemes with no host, and
+    /// map paths to fetched Etcd values. This is a handy short term representation
+    /// that will evolve over time. Empty if |typescript_local_socket| is set.
     #[prost(string, tag="14")]
     pub typescript_package_url: ::prost::alloc::string::String,
 }
@@ -686,7 +702,8 @@ pub mod extract_api {
         /// the remainder of this API's usage.
         #[prost(fixed64, tag="3")]
         pub schema_index_memptr: u64,
-        /// Field JSON pointers to extract from documents and return as packed tuples.
+        /// Field JSON pointers to extract from documents and return as packed
+        /// tuples.
         #[prost(string, repeated, tag="4")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
@@ -760,7 +777,8 @@ pub mod combine_api {
         DrainedFields = 8,
     }
 }
-/// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
+/// DeriveAPI is a meta-message which name spaces messages of the Derive API
+/// bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveApi {
 }
@@ -777,7 +795,8 @@ pub mod derive_api {
         #[prost(string, tag="2")]
         pub local_dir: ::prost::alloc::string::String,
     }
-    /// Config configures the derived DerivationSpec and its associated schema index.
+    /// Config configures the derived DerivationSpec and its associated schema
+    /// index.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
         /// Derivation to derive.
@@ -805,7 +824,8 @@ pub mod derive_api {
     /// Invoke a lambda, using Rust-owned memory buffers of invocation content.
     /// Memory will remain pinned until the trampoline task completion.
     /// |sources_length| will never be zero. If |registers_length| is zero,
-    /// this invocation is of the update lambda. Otherwise, it's the publish lambda.
+    /// this invocation is of the update lambda. Otherwise, it's the publish
+    /// lambda.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Invoke {
         /// Index of the transformation to be invoked within DerivationSpec.
@@ -870,7 +890,8 @@ pub mod derive_api {
         ClearRegisters = 15,
     }
 }
-/// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
+/// BuildAPI is a meta-message which name spaces messages of the Build API
+/// bridge.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BuildApi {
 }
@@ -891,12 +912,12 @@ pub mod build_api {
         /// Path of the catalog database to write.
         #[prost(string, tag="4")]
         pub catalog_path: ::prost::alloc::string::String,
-        /// Optional supplemental journal rules to add, beyond those already in the catalog.
-        /// This is used to add development & testing overrides.
+        /// Optional supplemental journal rules to add, beyond those already in the
+        /// catalog. This is used to add development & testing overrides.
         #[prost(message, optional, tag="5")]
         pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
-        /// Optional supplemental shard rules to add, beyond those already in the catalog.
-        /// This is used to add development & testing overrides.
+        /// Optional supplemental shard rules to add, beyond those already in the
+        /// catalog. This is used to add development & testing overrides.
         #[prost(message, optional, tag="6")]
         pub extra_shard_rules: ::core::option::Option<super::ShardRules>,
         /// Should the TypeScript package be generated?
@@ -923,7 +944,8 @@ pub mod build_api {
     pub enum Code {
         /// Begin a build with a Config (Go -> Rust).
         Begin = 0,
-        /// Poll the build after completing one or more trampoline tasks (Go -> Rust).
+        /// Poll the build after completing one or more trampoline tasks (Go ->
+        /// Rust).
         Poll = 1,
         /// Trampoline task start or completion (Rust <-> Go).
         Trampoline = 2,
@@ -982,6 +1004,7 @@ pub enum EndpointType {
     Gs = 4,
     Snowflake = 5,
     Webhook = 6,
+    AirbyteSource = 7,
 }
 /// ContentType enumerates the content types understood by Flow.
 #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]

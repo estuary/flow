@@ -69,23 +69,23 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.Empty(t, built.Errors)
 
 	// Config fixture which matches schema of ParseConfig.
-	var cfg = struct {
+	var spec = struct {
 		Path  string
 		Table string
 	}{
 		Path:  "file://" + path.Join(t.TempDir(), "target.db"),
 		Table: "test_target",
 	}
-	var cfgJSON, _ = json.Marshal(cfg)
+	var specJSON, _ = json.Marshal(spec)
 
 	collection := &built.Collections[0]
 
 	// Validate should return constraints for a non-existant materialization
 	var validateReq = pm.ValidateRequest{
-		EndpointName:       "an/endpoint",
-		EndpointType:       pf.EndpointType_SQLITE,
-		EndpointConfigJson: string(cfgJSON),
-		Collection:         collection,
+		EndpointName:     "an/endpoint",
+		EndpointType:     pf.EndpointType_SQLITE,
+		EndpointSpecJson: string(specJSON),
+		Collection:       collection,
 	}
 
 	var ctx = context.Background()
@@ -118,7 +118,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 			Collection:           *collection,
 			EndpointName:         "an/endpoint",
 			EndpointType:         pf.EndpointType_SQLITE,
-			EndpointConfigJson:   string(cfgJSON),
+			EndpointSpecJson:     string(specJSON),
 			EndpointResourcePath: []string{"test_target"},
 			FieldSelection:       fields,
 		},
@@ -354,12 +354,12 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 
 	// Last thing is to snapshot the database tables we care about
 	var quotes = sqlDriver.DoubleQuotes()
-	var tab = sqlDriver.TableForMaterialization(cfg.Table, "", &quotes,
+	var tab = sqlDriver.TableForMaterialization(spec.Table, "", &quotes,
 		&pf.MaterializationSpec{
 			Collection:     *collection,
 			FieldSelection: fields,
 		})
-	var dump = dumpTables(t, cfg.Path, tab)
+	var dump = dumpTables(t, spec.Path, tab)
 	cupaloy.SnapshotT(t, dump)
 }
 
