@@ -149,7 +149,7 @@ impl EndpointRef {
     pub fn example() -> Self {
         Self {
             name: names::Endpoint::example(),
-            config: vec![("table".to_string(), json!("a_sql_table"))]
+            spec: vec![("table".to_string(), json!("a_sql_table"))]
                 .into_iter()
                 .collect(),
         }

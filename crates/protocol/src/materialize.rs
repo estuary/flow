@@ -19,7 +19,8 @@ pub mod constraint {
         FieldRequired = 0,
         /// At least one projection with this location pointer must be present.
         LocationRequired = 1,
-        /// A projection with this location is recommended, and should be included by default.
+        /// A projection with this location is recommended, and should be included by
+        /// default.
         LocationRecommended = 2,
         /// This projection may be included, but should be omitted by default.
         FieldOptional = 3,
@@ -39,9 +40,9 @@ pub struct ValidateRequest {
     /// Endpoint type addressed by this request.
     #[prost(enumeration="super::flow::EndpointType", tag="2")]
     pub endpoint_type: i32,
-    /// Driver-specific configuration, as an encoded JSON object.
+    /// Driver specification, as an encoded JSON object.
     #[prost(string, tag="3")]
-    pub endpoint_config_json: ::prost::alloc::string::String,
+    pub endpoint_spec_json: ::prost::alloc::string::String,
     /// Collection to be materialized.
     #[prost(message, optional, tag="4")]
     pub collection: ::core::option::Option<super::flow::CollectionSpec>,
@@ -82,13 +83,15 @@ pub struct ApplyRequest {
 /// ApplyResponse is the response type of the Apply RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyResponse {
-    /// Human-readable description of the action that the Driver took (or, if dry_run, would have taken).
-    /// If empty, this Apply is to be considered a "no-op".
+    /// Human-readable description of the action that the Driver took (or, if
+    /// dry_run, would have taken). If empty, this Apply is to be considered a
+    /// "no-op".
     #[prost(string, tag="1")]
     pub action_description: ::prost::alloc::string::String,
 }
 /// TransactionRequest is the request type of a Transaction RPC.
-/// It will have exactly one top-level field set, which represents its message type.
+/// It will have exactly one top-level field set, which represents its message
+/// type.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionRequest {
     #[prost(message, optional, tag="1")]
@@ -173,7 +176,8 @@ pub mod transaction_request {
     }
 }
 /// TransactionResponse is the response type of a Transaction RPC.
-/// It will have exactly one top-level field set, which represents its message type.
+/// It will have exactly one top-level field set, which represents its message
+/// type.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionResponse {
     #[prost(message, optional, tag="1")]
@@ -192,9 +196,9 @@ pub mod transaction_response {
     pub struct Opened {
         /// Flow checkpoint which was previously committed with this |shard_fqn|.
         /// May be nil if the Driver is not stateful, in which case the Flow runtime
-        /// will use its most-recent internal checkpoint. Note this internal checkpoint
-        /// is at-least-once (at most one following transaction may have been partially
-        /// or even fully committed since it was recorded).
+        /// will use its most-recent internal checkpoint. Note this internal
+        /// checkpoint is at-least-once (at most one following transaction may have
+        /// been partially or even fully committed since it was recorded).
         ///
         /// A driver may also send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
         /// to instruct the Flow runtime to disregard its internal checkpoint and
@@ -202,14 +206,17 @@ pub mod transaction_response {
         /// trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
         #[prost(bytes="vec", tag="1")]
         pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
-        /// Materialize combined delta updates of documents rather than full reductions.
+        /// Materialize combined delta updates of documents rather than full
+        /// reductions.
         ///
         /// When set, the Flow runtime will not attempt to load documents via
         /// TransactionRequest.Load, and also disables re-use of cached documents
-        /// stored in prior transactions. Each stored document is exclusively combined
-        /// from updates processed by the runtime within the current transaction only.
+        /// stored in prior transactions. Each stored document is exclusively
+        /// combined from updates processed by the runtime within the current
+        /// transaction only.
         ///
-        /// This is appropriate for drivers over streams, WebHooks, and append-only files.
+        /// This is appropriate for drivers over streams, WebHooks, and append-only
+        /// files.
         ///
         /// For example, given a collection which reduces a sum count for each key,
         /// its materialization will produce a stream of delta updates to the count,

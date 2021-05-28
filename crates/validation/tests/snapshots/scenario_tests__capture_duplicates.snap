@@ -6,6 +6,6 @@ expression: errors
 [
     Error {
         scope: test://example/catalog.yaml#/captures/0,
-        error: capture capturePullEndpoint/placeholder/testing/int-string has a duplicated definition at test://example/int-string-capture#/captures/0,
+        error: capture captureEndpoint/placeholder/testing/int-string has a duplicated definition at test://example/int-string-capture#/captures/0,
     },
 ]

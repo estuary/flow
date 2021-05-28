@@ -194,17 +194,17 @@ mod test {
         // "/missing" maps to Null, which is the wrong type.
         match extract_uuid_parts(&v, &Pointer::from("/missing")) {
             None => {}
-            p @ _ => panic!(p),
+            p @ _ => panic!("{:?}", p),
         }
         // "/foo" maps to "bar", also not a UUID.
         match extract_uuid_parts(&v, &Pointer::from("/foo")) {
             None => {}
-            p @ _ => panic!(p),
+            p @ _ => panic!("{:?}", p),
         }
         // "/tru" maps to true, of the wrong type.
         match extract_uuid_parts(&v, &Pointer::from("/tru")) {
             None => {}
-            p @ _ => panic!(p),
+            p @ _ => panic!("{:?}", p),
         }
     }
 

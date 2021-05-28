@@ -17,8 +17,8 @@ expression: errors
         error: inv!alid cannot be used as name for endpoint ("!alid" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/endpoints/capturePullEndpoint,
-        error: endpoint capturePullEndpoint has a duplicated definition at test://example/more-endpoints#/endpoints/CAPtURePUllEndpoINT,
+        scope: test://example/catalog.yaml#/endpoints/captureOtherEndpoint,
+        error: endpoint captureOtherEndpoint has a duplicated definition at test://example/more-endpoints#/endpoints/CAPtUReOtherEndpoINT,
     },
     Error {
         scope: test://example/catalog.yaml#/endpoints/materializeEndpoint,

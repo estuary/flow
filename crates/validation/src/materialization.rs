@@ -56,7 +56,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                 let materialize::ValidateRequest {
                     endpoint_type,
                     endpoint_name,
-                    endpoint_config_json,
+                    endpoint_spec_json,
                     ..
                 } = request;
 
@@ -69,7 +69,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                     resource_path,
                 } = response;
 
-                let resolved_name = build::materialization_name(&endpoint_name, &resource_path);
+                let resolved_name = build::endpoint_shard_id_suffix(&endpoint_name, &resource_path);
 
                 let fields = walk_materialization_response(
                     built_collection,
@@ -84,18 +84,12 @@ pub async fn walk_all_materializations<D: Drivers>(
                     built_collection,
                     &resolved_name,
                     endpoint_type,
-                    endpoint_config_json,
+                    endpoint_spec_json,
                     resource_path,
                     fields,
                 );
 
-                built_materializations.push_row(
-                    &materialization.scope,
-                    resolved_name,
-                    &materialization.collection,
-                    endpoint_type,
-                    spec,
-                );
+                built_materializations.push_row(&materialization.scope, resolved_name, spec);
             }
             Err(err) => {
                 Error::MaterializationDriver {
@@ -136,10 +130,10 @@ fn walk_materialization_request<'a>(
         scope,
         collection: source,
         endpoint,
+        endpoint_patch_spec,
         fields_exclude,
         fields_include,
         fields_recommended: _,
-        patch_config,
         source_partitions,
     } = materialization;
 
@@ -180,8 +174,8 @@ fn walk_materialization_request<'a>(
         collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
     }
 
-    let mut endpoint_config = endpoint.base_config.clone();
-    json_patch::merge(&mut endpoint_config, &patch_config);
+    let mut endpoint_spec = endpoint.base_spec.clone();
+    json_patch::merge(&mut endpoint_spec, &endpoint_patch_spec);
 
     let field_config = walk_materialization_fields(
         scope,
@@ -194,7 +188,7 @@ fn walk_materialization_request<'a>(
     let request = materialize::ValidateRequest {
         endpoint_name: endpoint.endpoint.to_string(),
         endpoint_type: endpoint.endpoint_type as i32,
-        endpoint_config_json: endpoint_config.to_string(),
+        endpoint_spec_json: endpoint_spec.to_string(),
         collection: Some(built_collection.spec.clone()),
         field_config_json: field_config.into_iter().collect(),
     };

@@ -34,8 +34,8 @@ func (m *MaterializationSpec) Validate() error {
 		return pb.NewValidationError("missing EndpointName")
 	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
 		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	} else if m.EndpointConfigJson == "" {
-		return pb.NewValidationError("missing EndpointConfigJson")
+	} else if m.EndpointSpecJson == "" {
+		return pb.NewValidationError("missing EndpointSpecJson")
 	} else if err = m.FieldSelection.Validate(); err != nil {
 		return pb.ExtendContext(err, "FieldSelection")
 	}

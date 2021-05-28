@@ -50,7 +50,7 @@ fn walk_capture(
         scope,
         collection: target,
         endpoint,
-        patch_config,
+        endpoint_patch_spec,
     } = capture;
 
     let target = reference::walk_reference(
@@ -97,20 +97,20 @@ fn walk_capture(
         .find(|c| c.collection == target.collection)
         .unwrap();
 
-    let mut endpoint_config = endpoint.base_config.clone();
-    json_patch::merge(&mut endpoint_config, &patch_config);
+    let mut endpoint_spec = endpoint.base_spec.clone();
+    json_patch::merge(&mut endpoint_spec, &endpoint_patch_spec);
 
     // TODO - this should use the endpoint-provided resource path,
     // rather than the ingested collection name as a placeholder.
     let resource_path = vec!["placeholder".to_owned(), target.collection.to_string()];
-    let resolved_name = build::materialization_name(&endpoint.endpoint, &resource_path);
+    let resolved_name = build::endpoint_shard_id_suffix(&endpoint.endpoint, &resource_path);
 
     Some(build::capture_spec(
         capture,
         built_collection,
         &resolved_name,
         endpoint.endpoint_type,
-        endpoint_config.to_string(),
+        endpoint_spec.to_string(),
         resource_path,
     ))
 }
