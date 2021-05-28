@@ -277,7 +277,7 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, shards pc.ShardCli
 func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 	for _, spec := range built.Materializations {
 		driver, err := driver.NewDriver(context.Background(),
-			spec.EndpointType, json.RawMessage(spec.EndpointConfigJson), "")
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
 		if err != nil {
 			return fmt.Errorf("building driver for materialization: %w", err)
 		}

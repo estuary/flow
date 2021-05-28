@@ -8,14 +8,19 @@ test://example/catalog.yaml:
     - test://example/int-halve-materialization
     - test://example/int-string-tests
   endpoints:
-    capturePullEndpoint:
-      s3:
-        bucket: a-bucket
-        prefix: and-prefix
+    captureEndpoint:
+      airbyteSource:
+        image: s3
+        config:
+          bucket: a-bucket
+          prefix: and-prefix
 
-    capturePushEndpoint:
-      webhook:
-        endpoint: /a/path
+    captureOtherEndpoint:
+      airbyteSource:
+        image: database
+        config:
+          host: a.host.name
+          user: a-user
 
     materializeEndpoint:
       s3:
@@ -53,11 +58,18 @@ test://example/int-string-capture:
   captures:
     - target:
         name: testing/int-string
-      endpoint: { name: capturePullEndpoint }
+      endpoint:
+        name: captureEndpoint
+        spec:
+          stream: a-stream
 
     - target:
         name: testing/int-string
-      endpoint: { name: capturePushEndpoint }
+      endpoint:
+        name: captureOtherEndpoint
+        spec:
+          stream: a-stream
+          namespace: and namespace
 
 test://example/int-string-materialization:
   import:
@@ -70,7 +82,7 @@ test://example/int-string-materialization:
             bit: [true]
       endpoint:
         name: materializeEndpoint
-        config: { fixture: one }
+        spec: { fixture: one }
       fields:
         include:
           str: { pass: through }
@@ -167,7 +179,7 @@ test://example/int-halve-materialization:
         name: testing/int-halve
       endpoint:
         name: materializeEndpoint
-        config: { fixture: two }
+        spec: { fixture: two }
       fields:
         include:
           Len: {}
@@ -214,7 +226,7 @@ driver:
   materializations:
     one:
       endpoint: S3
-      config:
+      spec:
         bucket: a-bucket
         prefix: and-prefix
         fixture: one
@@ -231,7 +243,7 @@ driver:
 
     two:
       endpoint: S3
-      config:
+      spec:
         bucket: a-bucket
         prefix: and-prefix
         fixture: two

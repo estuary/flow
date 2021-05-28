@@ -6,7 +6,7 @@ expression: errors
 [
     Error {
         scope: test://example/int-string-capture#/captures/0,
-        error: endpoint CapturePullEndpoit, referenced by capture, is not defined; did you mean capturePullEndpoint defined at test://example/catalog.yaml#/endpoints/capturePullEndpoint?,
+        error: endpoint CaptureEndpoit, referenced by capture, is not defined; did you mean captureEndpoint defined at test://example/catalog.yaml#/endpoints/captureEndpoint?,
     },
     Error {
         scope: test://example/int-string-capture#/captures/1,

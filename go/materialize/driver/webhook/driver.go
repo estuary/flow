@@ -37,7 +37,7 @@ func (driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Valida
 
 	if err := req.Collection.Validate(); err != nil {
 		return nil, fmt.Errorf("validating collection: %w", err)
-	} else if err = json.Unmarshal([]byte(req.EndpointConfigJson), &cfg); err != nil {
+	} else if err = json.Unmarshal([]byte(req.EndpointSpecJson), &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	} else if err = cfg.Validate(); err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 
 	var cfg config
 
-	err = json.Unmarshal([]byte(open.Open.Materialization.EndpointConfigJson), &cfg)
+	err = json.Unmarshal([]byte(open.Open.Materialization.EndpointSpecJson), &cfg)
 	if err != nil {
 		return fmt.Errorf("parsing config: %w", err)
 	} else if err = cfg.Validate(); err != nil {

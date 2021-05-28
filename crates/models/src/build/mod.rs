@@ -114,7 +114,7 @@ pub fn capture_spec(
     target: &tables::BuiltCollection,
     name: &str,
     endpoint_type: flow::EndpointType,
-    endpoint_config_json: String,
+    endpoint_spec_json: String,
     endpoint_resource_path: Vec<String>,
 ) -> flow::CaptureSpec {
     flow::CaptureSpec {
@@ -122,7 +122,7 @@ pub fn capture_spec(
         collection: Some(target.spec.clone()),
         endpoint_name: capture.endpoint.to_string(),
         endpoint_type: endpoint_type as i32,
-        endpoint_config_json,
+        endpoint_spec_json,
         endpoint_resource_path,
     }
 }
@@ -224,15 +224,17 @@ pub fn derivation_spec(
     }
 }
 
-pub fn materialization_name(
+// endpoint_shard_id_suffix maps an endpoint and resource path into a name which
+// is suitable for use as a shard ID suffix. Shard IDs are restricted to
+// unicode letters and numbers, plus the symbols `-_+/.=%`.
+// All other runes are percent-encoded.
+pub fn endpoint_shard_id_suffix(
     endpoint_name: &str,
     endpoint_resource_path: &[impl AsRef<str>],
 ) -> String {
     let mut parts = vec![endpoint_name];
     parts.extend(endpoint_resource_path.iter().map(AsRef::as_ref));
 
-    // We must produce a name for this materialization which is suitable for use as a shard ID.
-    // That restricts us to unicode letters and numbers, plus the symbols `-_+/.=%`.
     let mut name = String::new();
 
     for c in parts.join("/").chars() {
@@ -252,11 +254,11 @@ pub fn materialization_name(
 
 #[cfg(test)]
 mod test {
-    use super::materialization_name;
+    use super::endpoint_shard_id_suffix;
 
     #[test]
     fn test_name_escapes() {
-        let out = materialization_name(
+        let out = endpoint_shard_id_suffix(
             "endpoint name",
             &vec![
                 "he!lo৬".to_string(),
@@ -273,7 +275,7 @@ pub fn materialization_spec(
     source: &tables::BuiltCollection,
     name: &str,
     endpoint_type: flow::EndpointType,
-    endpoint_config_json: String,
+    endpoint_spec_json: String,
     endpoint_resource_path: Vec<String>,
     fields: flow::FieldSelection,
 ) -> flow::MaterializationSpec {
@@ -282,7 +284,7 @@ pub fn materialization_spec(
         collection: Some(source.spec.clone()),
         endpoint_name: materialization.endpoint.to_string(),
         endpoint_type: endpoint_type as i32,
-        endpoint_config_json,
+        endpoint_spec_json,
         endpoint_resource_path,
         field_selection: Some(fields),
         shuffle: Some(flow::Shuffle {

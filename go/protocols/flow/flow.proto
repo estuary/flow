@@ -50,8 +50,8 @@ message UUIDParts {
 message LambdaSpec {
   option (gogoproto.equal) = true;
 
-  // If non-empty, this is a TypeScript lambda and the field is its invocation path.
-  // E.x. 'some/derivation/andTransform/Update'.
+  // If non-empty, this is a TypeScript lambda and the field is its invocation
+  // path. E.x. 'some/derivation/andTransform/Update'.
   string typescript = 1;
   // If non-empty, this is a remote lambda and the field is its invocation URL.
   // E.x. 'https://my/external/api'.
@@ -106,11 +106,13 @@ message Shuffle {
   bool uses_source_schema = 9;
   // Validate the schema of documents at time of shuffled read.
   // We always validate documents, but there's a choice whether we validate
-  // within the shuffle server (true) or later within the shuffle client (false).
+  // within the shuffle server (true) or later within the shuffle client
+  // (false).
   // - Derivations: true, as the derivation runtime can then by-pass
   //   a round of JSON parsing and validation.
   // - Materializations: false, as the materialization runtime immediately
-  //   combines over the document --  which requires parsing & validation anyway.
+  //   combines over the document --  which requires parsing & validation
+  //   anyway.
   bool validate_schema_at_read = 10;
   // filter_r_clocks is true if the shuffle coordinator should filter documents
   // sent to each subscriber based on its covered r-clock ranges and the
@@ -179,7 +181,8 @@ message Projection {
 // about a given document location.
 message Inference {
   // The possible types for this location.
-  // Subset of ["null", "boolean", "object", "array", "integer", "numeric", "string"].
+  // Subset of ["null", "boolean", "object", "array", "integer", "numeric",
+  // "string"].
   repeated string types = 1;
   // Whether the projection must always exist (either as a location within)
   // the source document, or as a null-able column in the database.
@@ -190,9 +193,11 @@ message Inference {
     string content_type = 3;
     // Annotated format when the projection is of "string" type.
     string format = 4;
-    // Whether the value is base64-encoded when the projection is of "string" type.
+    // Whether the value is base64-encoded when the projection is of "string"
+    // type.
     bool is_base64 = 5;
-    // Maximum length when the projection is of "string" type. Zero for no limit.
+    // Maximum length when the projection is of "string" type. Zero for no
+    // limit.
     uint32 max_length = 6;
   }
   String string = 3;
@@ -250,14 +255,15 @@ message DerivationSpec {
 
 // EndpointType enumerates the endpoint types understood by Flow.
 enum EndpointType {
-    // Remote is an arbitrary gRPC materialization protocol server.
-    REMOTE = 0;
-    POSTGRESQL = 1;
-    SQLITE = 2;
-    S3 = 3;
-    GS = 4;
-    SNOWFLAKE = 5;
-    WEBHOOK = 6;
+  // Remote is an arbitrary gRPC materialization protocol server.
+  REMOTE = 0;
+  POSTGRESQL = 1;
+  SQLITE = 2;
+  S3 = 3;
+  GS = 4;
+  SNOWFLAKE = 5;
+  WEBHOOK = 6;
+  AIRBYTE_SOURCE = 7;
 }
 
 // FieldSelection is a selection of a collection's projection fields.
@@ -273,8 +279,8 @@ message FieldSelection {
   repeated string values = 2;
   // Field having a document pointer located at the document root.
   string document = 3;
-  // Additional configuration, keyed by fields included in |keys|, |values|, or |document|.
-  // Values are arbitrary JSON-encoded objects.
+  // Additional configuration, keyed by fields included in |keys|, |values|, or
+  // |document|. Values are arbitrary JSON-encoded objects.
   map<string, string> field_config = 4;
 }
 
@@ -283,23 +289,30 @@ message FieldSelection {
 // This spec is a bit of a working placeholder until we can tackle
 // captures more broadly.
 message CaptureSpec {
-  // Name of this capture, derived from the endpoint name and the
-  // driver-provided endpoint resource path.
+  // Name of this capture, derived from
+  // "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
+  // For example, {
+  //    endpoint_name: "company/team/database",
+  //    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
+  // } would have materialization name:
+  // "company/team/database/logical-db/and-schema/tab%21e"
   string capture = 1;
   // Collection to be captured into.
   CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
-  // Endpoint to which we materialize.
+  // Endpoint from which we capture.
   string endpoint_name = 3;
-  // Type of the materialization's endpoint.
+  // Type of the captures's endpoint.
   EndpointType endpoint_type = 4;
-  // JSON-encoded object which configures this materialization with
+  // JSON-encoded object which specifies this capture with
   // respect to the endpoint type driver.
-  string endpoint_config_json = 5;
-  // Endpoint path components which fully qualify the subresource being materialized.
+  string endpoint_spec_json = 5;
+  // Endpoint path components which fully qualify the subresource being
+  // captured.
   repeated string endpoint_resource_path = 6;
 }
 
-// MaterializationSpec describes a collection and its materialization to an endpoint.
+// MaterializationSpec describes a collection and its materialization to an
+// endpoint.
 message MaterializationSpec {
   // Name of this materialization, derived from
   // "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
@@ -315,10 +328,11 @@ message MaterializationSpec {
   string endpoint_name = 3;
   // Type of the materialization's endpoint.
   EndpointType endpoint_type = 4;
-  // JSON-encoded object which configures this materialization with
+  // JSON-encoded object which specifies this materialization with
   // respect to the endpoint type driver.
-  string endpoint_config_json = 5;
-  // Endpoint path components which fully qualify the subresource being materialized.
+  string endpoint_spec_json = 5;
+  // Endpoint path components which fully qualify the subresource being
+  // materialized.
   repeated string endpoint_resource_path = 6;
   // Resolved fields selected for materialization.
   FieldSelection field_selection = 7 [ (gogoproto.nullable) = false ];
@@ -334,8 +348,8 @@ message TestSpec {
   message Step {
     // Type of this step.
     enum Type {
-        INGEST = 0;
-        VERIFY = 1;
+      INGEST = 0;
+      VERIFY = 1;
     }
     Type step_type = 1;
     // Index of this step within the test.
@@ -468,7 +482,8 @@ message ShuffleResponse {
   // media-type.
   repeated Slice docs_json = 7 [ (gogoproto.nullable) = false ];
   // The journal offsets of each document within the requested journal.
-  // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1] ).
+  // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
+  // ).
   repeated int64 offsets = 8
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
   // UUIDParts of each document.
@@ -485,7 +500,8 @@ service Shuffler {
 // SplitRequest is the request message of a Split RPC.
 message SplitRequest {
   // Shard to split.
-  string shard = 1 [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  string shard = 1 [ (gogoproto.casttype) =
+                         "go.gazette.dev/core/consumer/protocol.ShardID" ];
   // Split on key.
   bool split_on_key = 2;
   // Split on r-clock.
@@ -506,9 +522,7 @@ message SplitResponse {
   RangeSpec rhs_range = 5;
 }
 
-service Splitter {
-  rpc Split(SplitRequest) returns (SplitResponse);
-}
+service Splitter { rpc Split(SplitRequest) returns (SplitResponse); }
 
 // CatalogTask is a self-contained, long lived specification executed
 // by the Flow runtime. Tasks have stable names which coexist in a shared
@@ -547,15 +561,17 @@ message CatalogCommons {
   JournalRules journal_rules = 10 [ (gogoproto.nullable) = false ];
   // Shard rules applied to create and update ShardSpecs.
   ShardRules shard_rules = 11 [ (gogoproto.nullable) = false ];
-  // Schema definitions, against which registers and sourced or derived documents are validated.
-  SchemaBundle schemas = 12 [ (gogoproto.nullable) = false];
-  // Unix domain socket on which a local TypeScript runtime is already listening.
-  // This is set by `flowctl test` and `flowctl develop`, and is empty otherwise.
+  // Schema definitions, against which registers and sourced or derived
+  // documents are validated.
+  SchemaBundle schemas = 12 [ (gogoproto.nullable) = false ];
+  // Unix domain socket on which a local TypeScript runtime is already
+  // listening. This is set by `flowctl test` and `flowctl develop`, and is
+  // empty otherwise.
   string typescript_local_socket = 13;
-  // TypeScript NPM package, as a stand-alone gzipped tarball with bundled dependencies.
-  // At present we expect only etcd:// schemes with no host, and map paths to fetched
-  // Etcd values. This is a handy short term representation that will evolve over time.
-  // Empty if |typescript_local_socket| is set.
+  // TypeScript NPM package, as a stand-alone gzipped tarball with bundled
+  // dependencies. At present we expect only etcd:// schemes with no host, and
+  // map paths to fetched Etcd values. This is a handy short term representation
+  // that will evolve over time. Empty if |typescript_local_socket| is set.
   string typescript_package_url = 14;
 }
 
@@ -567,9 +583,7 @@ message SchemaAPI {
     BUILD_INDEX = 1;
   }
 
-  message BuiltIndex {
-    fixed64 schema_index_memptr = 1;
-  }
+  message BuiltIndex { fixed64 schema_index_memptr = 1; }
 }
 
 message ExtractAPI {
@@ -595,7 +609,8 @@ message ExtractAPI {
     // Memory address of the accosiated SchemaIndex, which must exist for
     // the remainder of this API's usage.
     fixed64 schema_index_memptr = 3;
-    // Field JSON pointers to extract from documents and return as packed tuples.
+    // Field JSON pointers to extract from documents and return as packed
+    // tuples.
     repeated string field_ptrs = 4;
   };
 };
@@ -645,7 +660,8 @@ message CombineAPI {
   };
 };
 
-// DeriveAPI is a meta-message which name spaces messages of the Derive API bridge.
+// DeriveAPI is a meta-message which name spaces messages of the Derive API
+// bridge.
 message DeriveAPI {
   // Codes passed over the CGO bridge.
   enum Code {
@@ -697,7 +713,8 @@ message DeriveAPI {
     string local_dir = 2;
   }
 
-  // Config configures the derived DerivationSpec and its associated schema index.
+  // Config configures the derived DerivationSpec and its associated schema
+  // index.
   message Config {
     // Derivation to derive.
     DerivationSpec derivation = 1;
@@ -720,7 +737,8 @@ message DeriveAPI {
   // Invoke a lambda, using Rust-owned memory buffers of invocation content.
   // Memory will remain pinned until the trampoline task completion.
   // |sources_length| will never be zero. If |registers_length| is zero,
-  // this invocation is of the update lambda. Otherwise, it's the publish lambda.
+  // this invocation is of the update lambda. Otherwise, it's the publish
+  // lambda.
   message Invoke {
     // Index of the transformation to be invoked within DerivationSpec.
     uint32 transform_index = 1;
@@ -742,19 +760,21 @@ message DeriveAPI {
 
 // ContentType enumerates the content types understood by Flow.
 enum ContentType {
-    CATALOG_SPEC = 0;
-    JSON_SCHEMA = 1;
-    TYPESCRIPT_MODULE = 2;
-    NPM_PACKAGE = 3;
+  CATALOG_SPEC = 0;
+  JSON_SCHEMA = 1;
+  TYPESCRIPT_MODULE = 2;
+  NPM_PACKAGE = 3;
 }
 
-// BuildAPI is a meta-message which name spaces messages of the Build API bridge.
+// BuildAPI is a meta-message which name spaces messages of the Build API
+// bridge.
 message BuildAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
     // Begin a build with a Config (Go -> Rust).
     BEGIN = 0;
-    // Poll the build after completing one or more trampoline tasks (Go -> Rust).
+    // Poll the build after completing one or more trampoline tasks (Go ->
+    // Rust).
     POLL = 1;
     // Trampoline task start or completion (Rust <-> Go).
     TRAMPOLINE = 2;
@@ -780,11 +800,11 @@ message BuildAPI {
     ContentType source_type = 3;
     // Path of the catalog database to write.
     string catalog_path = 4;
-    // Optional supplemental journal rules to add, beyond those already in the catalog.
-    // This is used to add development & testing overrides.
+    // Optional supplemental journal rules to add, beyond those already in the
+    // catalog. This is used to add development & testing overrides.
     JournalRules extra_journal_rules = 5;
-    // Optional supplemental shard rules to add, beyond those already in the catalog.
-    // This is used to add development & testing overrides.
+    // Optional supplemental shard rules to add, beyond those already in the
+    // catalog. This is used to add development & testing overrides.
     ShardRules extra_shard_rules = 6;
     // Should the TypeScript package be generated?
     bool typescript_generate = 7;

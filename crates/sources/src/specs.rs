@@ -297,6 +297,8 @@ pub enum Schema {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum EndpointDef {
+    /// # An Airbyte source connector.
+    AirbyteSource(AirbyteSourceConfig),
     /// # A GCS bucket and prefix.
     GS(BucketConfig),
     /// # A PostgreSQL database.
@@ -318,6 +320,7 @@ impl EndpointDef {
         use protocol::flow::EndpointType;
 
         match self {
+            EndpointDef::AirbyteSource(_) => EndpointType::AirbyteSource,
             EndpointDef::GS(_) => EndpointType::Gs,
             EndpointDef::Postgres(_) => EndpointType::Postgresql,
             EndpointDef::Remote(_) => EndpointType::Remote,
@@ -327,6 +330,21 @@ impl EndpointDef {
             EndpointDef::Webhook(_) => EndpointType::Webhook,
         }
     }
+}
+
+/// Airbyte source connector specification.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct AirbyteSourceConfig {
+    /// # Image of the connector.
+    pub image: String,
+    /// # Configuration of the connector.
+    pub config: names::Object,
+    /// # Selected stream of the source connector.
+    #[serde(default)]
+    pub stream: String,
+    /// # Namespace of the source connector.
+    #[serde(default)]
+    pub namespace: String,
 }
 
 /// PostgreSQL endpoint configuration.
@@ -478,10 +496,11 @@ impl Default for MaterializationFields {
 pub struct EndpointRef {
     /// # Name of the endpoint to use.
     pub name: names::Endpoint,
-    /// # Additional endpoint configuration.
-    /// Configuration is merged into that of the endpoint.
+    /// # Additional endpoint specification.
+    /// This specification is merged into that of the endpoint.
     #[serde(default)]
-    pub config: names::Object,
+    #[serde(alias = "config")] // Legacy name of this field.
+    pub spec: names::Object,
 }
 
 /// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
@@ -493,7 +512,7 @@ pub struct EndpointRef {
 pub struct CaptureDef {
     /// # Target collection to capture into.
     pub target: CaptureTarget,
-    /// # Endpoint to materialize into.
+    /// # Endpoint connector to capture from.
     pub endpoint: EndpointRef,
 }
 
