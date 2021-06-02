@@ -61,7 +61,7 @@ type Materialize struct {
 var _ Application = (*Materialize)(nil)
 
 type storeState struct {
-	DriverCheckpoint []byte
+	DriverCheckpoint json.RawMessage
 }
 
 // NewMaterializeApp returns a new Materialize, which implements Application
@@ -199,8 +199,8 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 			}
 		} else if next.Prepared != nil {
 			// Stage a provided driver checkpoint to commit with this transaction.
-			if next.Prepared.DriverCheckpoint != nil {
-				m.store.State.(*storeState).DriverCheckpoint = next.Prepared.DriverCheckpoint
+			if next.Prepared.DriverCheckpointJson != nil {
+				m.store.State.(*storeState).DriverCheckpoint = next.Prepared.DriverCheckpointJson
 			}
 			break // All done.
 		} else {

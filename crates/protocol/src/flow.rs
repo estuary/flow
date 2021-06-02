@@ -298,7 +298,7 @@ pub struct FieldSelection {
     /// Additional configuration, keyed by fields included in |keys|, |values|, or
     /// |document|. Values are arbitrary JSON-encoded objects.
     #[prost(map="string, string", tag="4")]
-    pub field_config: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// CaptureSpec describes a collection and its capture from an endpoint.
 /// At the moment, we don't build or do anything with these.

@@ -1285,7 +1285,7 @@ All {
                             "str",
                         ],
                         document: "flow_document",
-                        field_config: {
+                        field_config_json: {
                             "str": "{\"pass\":\"through\"}",
                         },
                     },
@@ -1558,7 +1558,7 @@ All {
                             "Len",
                         ],
                         document: "Root",
-                        field_config: {
+                        field_config_json: {
                             "Len": "{}",
                         },
                     },

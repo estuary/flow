@@ -223,7 +223,9 @@ message CollectionSpec {
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  string ack_json_template = 7;
+  string ack_json_template = 7 [
+    (gogoproto.casttype) = "encoding/json.RawMessage"
+  ];
 }
 
 // TransformSpec describes a specific transform of a derivation.
@@ -248,7 +250,10 @@ message DerivationSpec {
   // and which provides reduction annotations.
   string register_schema_uri = 2;
   // JSON-encoded initial value of novel document registers.
-  string register_initial_json = 3;
+  string register_initial_json = 3 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "registerInitial"
+  ];
   // Transforms of this derivation.
   repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
 }
@@ -268,8 +273,6 @@ enum EndpointType {
 
 // FieldSelection is a selection of a collection's projection fields.
 message FieldSelection {
-  option (gogoproto.equal) = true;
-
   // Fields for each key component of the collection. Included key fields appear
   // in the collection's key component order, and a given key pointer will be
   // included at most once.
@@ -281,7 +284,10 @@ message FieldSelection {
   string document = 3;
   // Additional configuration, keyed by fields included in |keys|, |values|, or
   // |document|. Values are arbitrary JSON-encoded objects.
-  map<string, string> field_config = 4;
+  map<string, string> field_config_json = 4 [
+    (gogoproto.castvalue) = "encoding/json.RawMessage",
+    json_name = "fieldConfig"
+  ];
 }
 
 // CaptureSpec describes a collection and its capture from an endpoint.
@@ -305,7 +311,10 @@ message CaptureSpec {
   EndpointType endpoint_type = 4;
   // JSON-encoded object which specifies this capture with
   // respect to the endpoint type driver.
-  string endpoint_spec_json = 5;
+  string endpoint_spec_json = 5 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointSpec"
+  ];
   // Endpoint path components which fully qualify the subresource being
   // captured.
   repeated string endpoint_resource_path = 6;
@@ -330,7 +339,10 @@ message MaterializationSpec {
   EndpointType endpoint_type = 4;
   // JSON-encoded object which specifies this materialization with
   // respect to the endpoint type driver.
-  string endpoint_spec_json = 5;
+  string endpoint_spec_json = 5 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointSpec"
+  ];
   // Endpoint path components which fully qualify the subresource being
   // materialized.
   repeated string endpoint_resource_path = 6;
