@@ -26,7 +26,7 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 	endpoint, err := d.NewEndpoint(
 		ctx,
 		req.EndpointName,
-		json.RawMessage(req.EndpointSpecJson),
+		req.EndpointSpecJson,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint: %w", err)
@@ -57,7 +57,7 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 	endpoint, err := d.NewEndpoint(
 		ctx,
 		req.Materialization.EndpointName,
-		json.RawMessage(req.Materialization.EndpointSpecJson),
+		req.Materialization.EndpointSpecJson,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint: %w", err)
@@ -85,7 +85,7 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 	// We don't handle any form of schema migrations, so we require that the list of
 	// fields in the request is identical to the current fields. doValidate doesn't handle that
 	// because the list of fields isn't known until Apply is called.
-	if current != nil && !req.Materialization.FieldSelection.Equal(current.FieldSelection) {
+	if current != nil && !req.Materialization.FieldSelection.Equal(&current.FieldSelection) {
 		return nil, fmt.Errorf(
 			"the set of fields in the request differs from the existing fields,"+
 				"which is disallowed because this driver does not perform schema migrations. "+
@@ -139,7 +139,7 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	endpoint, err := d.NewEndpoint(
 		stream.Context(),
 		open.Open.Materialization.EndpointName,
-		json.RawMessage(open.Open.Materialization.EndpointSpecJson),
+		open.Open.Materialization.EndpointSpecJson,
 	)
 	if err != nil {
 		return fmt.Errorf("building endpoint: %w", err)

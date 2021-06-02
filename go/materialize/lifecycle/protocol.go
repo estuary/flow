@@ -19,7 +19,7 @@ func WriteOpen(
 	request **pm.TransactionRequest,
 	spec *pf.MaterializationSpec,
 	shardFQN string,
-	driverCheckpoint []byte,
+	driverCheckpoint json.RawMessage,
 ) error {
 	if *request != nil {
 		panic("expected nil request")
@@ -27,9 +27,9 @@ func WriteOpen(
 
 	if err := stream.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
-			Materialization:  spec,
-			ShardFqn:         shardFQN,
-			DriverCheckpoint: driverCheckpoint,
+			Materialization:      spec,
+			ShardFqn:             shardFQN,
+			DriverCheckpointJson: driverCheckpoint,
 		},
 	}); err != nil {
 		return fmt.Errorf("sending Open request: %w", err)

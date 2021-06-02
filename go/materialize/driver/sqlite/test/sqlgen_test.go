@@ -12,7 +12,7 @@ import (
 
 func TestSQLGeneration(t *testing.T) {
 	var gen = sqlDriver.SQLiteSQLGenerator()
-	var spec = tester.NewMaterialization(pf.EndpointType_POSTGRESQL, "")
+	var spec = tester.NewMaterialization(pf.EndpointType_POSTGRESQL, nil)
 	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec)
 
 	var attach, keyCreate, keyInsert, keyJoin, keyTruncate, err = sqlite.BuildSQL(&gen, table, spec.FieldSelection)

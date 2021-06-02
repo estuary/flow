@@ -84,7 +84,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	var validateReq = pm.ValidateRequest{
 		EndpointName:     "an/endpoint",
 		EndpointType:     pf.EndpointType_SQLITE,
-		EndpointSpecJson: string(specJSON),
+		EndpointSpecJson: json.RawMessage(specJSON),
 		Collection:       collection,
 	}
 
@@ -118,7 +118,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 			Collection:           *collection,
 			EndpointName:         "an/endpoint",
 			EndpointType:         pf.EndpointType_SQLITE,
-			EndpointSpecJson:     string(specJSON),
+			EndpointSpecJson:     json.RawMessage(specJSON),
 			EndpointResourcePath: []string{"test_target"},
 			FieldSelection:       fields,
 		},
@@ -159,9 +159,9 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// Send open.
 	err = transaction.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
-			Materialization:  applyReq.Materialization,
-			DriverCheckpoint: nil,
-			ShardFqn:         "canary",
+			Materialization:      applyReq.Materialization,
+			DriverCheckpointJson: nil,
+			ShardFqn:             "canary",
 		},
 	})
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	prepared, err := transaction.Recv()
 	require.NoError(t, err)
 	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
-	require.Empty(t, prepared.Prepared.DriverCheckpoint)
+	require.Empty(t, prepared.Prepared.DriverCheckpointJson)
 
 	// Test Store to add those keys
 	require.NoError(t, err)

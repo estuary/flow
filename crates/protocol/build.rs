@@ -32,12 +32,6 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
         type_attrs: SERDE_ATTR,
         field_attrs: &[],
     },
-    // Shuffle.Hash is a JSON-encoded column of models::tables::Transform.
-    TypeAttrs {
-        path: "flow.Shuffle.Hash",
-        type_attrs: SERDE_ATTR,
-        field_attrs: &[],
-    },
     // TestSpec.Step.Type is a JSON-encoded column of models::tables::TestSteps.
     TypeAttrs {
         path: "flow.TestSpec.Step.Type",

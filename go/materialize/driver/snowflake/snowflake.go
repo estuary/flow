@@ -256,7 +256,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 	d.store.mustMerge = false
 
 	return &pm.TransactionResponse_Prepared{
-		DriverCheckpoint: nil, // Not used.
+		DriverCheckpointJson: nil, // Not used.
 	}, nil
 }
 
