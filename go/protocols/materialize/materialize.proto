@@ -91,12 +91,18 @@ message ValidateRequest {
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 2;
   // Driver specification, as an encoded JSON object.
-  string endpoint_spec_json = 3;
+  string endpoint_spec_json = 3 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointSpec"
+  ];
   // Collection to be materialized.
   flow.CollectionSpec collection = 4;
   // Projection configuration, keyed by the projection field name,
   // with JSON-encoded and driver-defined configuration objects.
-  map<string, string> field_config_json = 5;
+  map<string, string> field_config_json = 5 [
+    (gogoproto.castvalue) = "encoding/json.RawMessage",
+    json_name = "fieldConfig"
+  ];
 }
 
 // ValidateResponse is the response type of the Validate RPC.
@@ -155,7 +161,10 @@ message TransactionRequest {
     string shard_fqn = 2;
     // Last-persisted driver checkpoint from a previous transaction stream.
     // Or empty, if the driver hasn't returned a checkpoint.
-    bytes driver_checkpoint = 3;
+    bytes driver_checkpoint_json = 3 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "driverCheckpoint"
+    ];
   }
   Open open = 1;
 
@@ -242,8 +251,9 @@ message TransactionResponse {
   // key MUST be sent at most one time in a Transaction.
   message Loaded {
     // Byte arena of the request.
-    bytes arena = 1 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 1 [
+      (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena"
+    ];
     // Loaded JSON documents.
     repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
   }
@@ -255,7 +265,10 @@ message TransactionResponse {
     // Optional driver checkpoint of this transaction.
     // If provided, the most recent checkpoint will be persisted by the
     // Flow runtime and returned in a future Fence request.
-    bytes driver_checkpoint = 1;
+    bytes driver_checkpoint_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "driverCheckpoint"
+    ];
   }
   Prepared prepared = 3;
 

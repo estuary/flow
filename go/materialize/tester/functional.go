@@ -18,7 +18,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	var testDocs = fixture.generator.generateDocs(3)
 	prepared, err := fixture.LoadDocuments(stream, &request, 1, testDocs)
 	require.NoError(t, err, "loading initial documents")
-	log.WithField("driverCheckpoint", prepared.DriverCheckpoint).Debug("verified first loads")
+	log.WithField("driverCheckpoint", prepared.DriverCheckpointJson).Debug("verified first loads")
 
 	err = fixture.StoreDocuments(stream, &request, testDocs)
 	require.NoError(t, err, "storing initial documents")
@@ -29,7 +29,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	}
 	prepared, err = fixture.LoadDocuments(stream, &request, 2, testDocs)
 	require.NoError(t, err, "loading second set of documents")
-	log.WithField("driverCheckpoint", prepared.DriverCheckpoint).Debug("verified second loads")
+	log.WithField("driverCheckpoint", prepared.DriverCheckpointJson).Debug("verified second loads")
 
 	for _, doc := range testDocs[:3] {
 		fixture.generator.updateValues(doc)
@@ -39,7 +39,7 @@ func RunFunctionalTest(t *testing.T, fixture *Fixture) {
 	err = stream.CloseSend()
 	require.NoError(t, err, "closing stream send")
 
-	stream, opened, err := fixture.OpenTransactions(&request, prepared.DriverCheckpoint)
+	stream, opened, err := fixture.OpenTransactions(&request, prepared.DriverCheckpointJson)
 	// Assert that the Opened message contains the most recently stored Flow Checkpoint value
 	require.Equal(t, flowCheckpointBytes(2), opened.FlowCheckpoint)
 

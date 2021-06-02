@@ -13,7 +13,7 @@ import (
 
 func TestQueryGeneration(t *testing.T) {
 	var gen = snowflake.SQLGenerator()
-	var spec = tester.NewMaterialization(pf.EndpointType_SNOWFLAKE, "")
+	var spec = tester.NewMaterialization(pf.EndpointType_SNOWFLAKE, nil)
 	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec)
 
 	var loadUUID = uuid.UUID{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}

@@ -29,10 +29,10 @@ type Fixture struct {
 }
 
 // NewFixture creates a new fixture for a given endpoint and endpoint configuration.
-func NewFixture(endpointType pf.EndpointType, endpointConfig string) (*Fixture, error) {
+func NewFixture(endpointType pf.EndpointType, endpointSpec json.RawMessage) (*Fixture, error) {
 	var ctx = context.Background()
-	var spec = NewMaterialization(endpointType, endpointConfig)
-	driverClient, err := driver.NewDriver(ctx, endpointType, json.RawMessage(endpointConfig), "")
+	var spec = NewMaterialization(endpointType, endpointSpec)
+	driverClient, err := driver.NewDriver(ctx, endpointType, endpointSpec, "")
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
 	}
@@ -194,7 +194,7 @@ func newCheckpoint(id int64) pc.Checkpoint {
 
 // NewMaterialization returns a MaterializationSpec for use by tests. This is a hard coded
 // materialization that includes a field of each type.
-func NewMaterialization(endpointType pf.EndpointType, endpointSpecJSON string) *pf.MaterializationSpec {
+func NewMaterialization(endpointType pf.EndpointType, endpointSpec json.RawMessage) *pf.MaterializationSpec {
 	var inf = func(mustExist bool, types ...string) pf.Inference {
 		return pf.Inference{
 			Types:     types,
@@ -254,7 +254,7 @@ func NewMaterialization(endpointType pf.EndpointType, endpointSpecJSON string) *
 			UsesSourceSchema: true,
 		},
 		EndpointType:     endpointType,
-		EndpointSpecJson: endpointSpecJSON,
+		EndpointSpecJson: endpointSpec,
 	}
 }
 

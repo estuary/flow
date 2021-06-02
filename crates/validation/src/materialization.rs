@@ -428,6 +428,6 @@ fn walk_materialization_response(
         keys: keys.into_iter().filter_map(|k| k).collect(),
         values,
         document,
-        field_config,
+        field_config_json: field_config,
     }
 }

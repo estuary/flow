@@ -70,7 +70,7 @@ func (m *DerivationSpec) Validate() error {
 	if m.RegisterSchemaUri == "" {
 		return pb.NewValidationError("missing RegisterSchemaUri")
 	}
-	if m.RegisterInitialJson == "" {
+	if len(m.RegisterInitialJson) == 0 {
 		return pb.NewValidationError("missing RegisterInitialJson")
 	}
 	for i, tf := range m.Transforms {

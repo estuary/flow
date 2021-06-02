@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"bytes"
 	"sort"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -24,6 +25,42 @@ func (fields *FieldSelection) Validate() error {
 	return nil
 }
 
+// Equal returns true if this FieldSelection is deeply equal to the other.
+func (fields *FieldSelection) Equal(other *FieldSelection) bool {
+	if other == nil {
+		return fields == nil
+	}
+
+	if len(fields.Keys) != len(other.Keys) {
+		return false
+	}
+	for i := range fields.Keys {
+		if fields.Keys[i] != other.Keys[i] {
+			return false
+		}
+	}
+	if len(fields.Values) != len(other.Values) {
+		return false
+	}
+	for i := range fields.Values {
+		if fields.Values[i] != other.Values[i] {
+			return false
+		}
+	}
+	if fields.Document != other.Document {
+		return false
+	}
+	if len(fields.FieldConfigJson) != len(other.FieldConfigJson) {
+		return false
+	}
+	for key := range fields.FieldConfigJson {
+		if string(fields.FieldConfigJson[key]) != string(other.FieldConfigJson[key]) {
+			return false
+		}
+	}
+	return bytes.Equal(fields.XXX_unrecognized, other.XXX_unrecognized)
+}
+
 // Validate returns an error if the MaterializationSpec is malformed.
 func (m *MaterializationSpec) Validate() error {
 	if m.Materialization == "" {
@@ -34,7 +71,7 @@ func (m *MaterializationSpec) Validate() error {
 		return pb.NewValidationError("missing EndpointName")
 	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
 		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	} else if m.EndpointSpecJson == "" {
+	} else if len(m.EndpointSpecJson) == 0 {
 		return pb.NewValidationError("missing EndpointSpecJson")
 	} else if err = m.FieldSelection.Validate(); err != nil {
 		return pb.ExtendContext(err, "FieldSelection")
