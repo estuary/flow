@@ -691,6 +691,7 @@ impl<F: Fetcher> Loader<F> {
     ) -> Option<serde_json::Value> {
         match endpoint {
             specs::EndpointDef::AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
+            specs::EndpointDef::FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
             specs::EndpointDef::GS(spec) => Some(serde_json::to_value(spec).unwrap()),
             specs::EndpointDef::Postgres(spec) => Some(serde_json::to_value(spec).unwrap()),
             specs::EndpointDef::Remote(spec) => Some(serde_json::to_value(spec).unwrap()),

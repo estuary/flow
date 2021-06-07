@@ -313,6 +313,8 @@ pub enum EndpointDef {
     Snowflake(SnowflakeConfig),
     /// # A Webhook.
     Webhook(WebhookConfig),
+    /// # A Flow sink.
+    FlowSink(FlowSinkConfig),
 }
 
 impl EndpointDef {
@@ -328,6 +330,7 @@ impl EndpointDef {
             EndpointDef::Sqlite(_) => EndpointType::Sqlite,
             EndpointDef::Snowflake(_) => EndpointType::Snowflake,
             EndpointDef::Webhook(_) => EndpointType::Webhook,
+            EndpointDef::FlowSink(_) => EndpointType::FlowSink,
         }
     }
 }
@@ -345,6 +348,15 @@ pub struct AirbyteSourceConfig {
     /// # Namespace of the source connector.
     #[serde(default)]
     pub namespace: String,
+}
+
+/// Flow sink connector specification.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct FlowSinkConfig {
+    /// # Image of the connector.
+    pub image: String,
+    /// # Configuration of the connector.
+    pub config: names::Object,
 }
 
 /// PostgreSQL endpoint configuration.

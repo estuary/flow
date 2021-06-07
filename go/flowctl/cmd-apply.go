@@ -279,7 +279,7 @@ func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 		driver, err := driver.NewDriver(context.Background(),
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
 		if err != nil {
-			return fmt.Errorf("building driver for materialization: %w", err)
+			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}
 
 		response, err := driver.Apply(context.Background(), &pm.ApplyRequest{
@@ -287,7 +287,7 @@ func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 			DryRun:          dryRun,
 		})
 		if err != nil {
-			return fmt.Errorf("applying materialization: %w", err)
+			return fmt.Errorf("applying materialization %q: %w", spec.Materialization, err)
 		}
 
 		if response.ActionDescription != "" {

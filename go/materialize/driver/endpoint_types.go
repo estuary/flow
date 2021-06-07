@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/estuary/flow/go/materialize/driver/jsonimage"
 	"github.com/estuary/flow/go/materialize/driver/postgres"
 	"github.com/estuary/flow/go/materialize/driver/snowflake"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
@@ -19,7 +20,7 @@ import (
 func NewDriver(
 	ctx context.Context,
 	endpointType pf.EndpointType,
-	config json.RawMessage,
+	endpointSpec json.RawMessage,
 	tempdir string,
 ) (pm.DriverClient, error) {
 
@@ -32,11 +33,13 @@ func NewDriver(
 		return adapter{snowflake.NewDriver(tempdir)}, nil
 	case pf.EndpointType_WEBHOOK:
 		return adapter{webhook.NewDriver()}, nil
+	case pf.EndpointType_FLOW_SINK:
+		return adapter{jsonimage.NewDriver()}, nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
 			Endpoint protocol.Endpoint
 		}
-		if err := json.Unmarshal(config, &cfg); err != nil {
+		if err := json.Unmarshal(endpointSpec, &cfg); err != nil {
 			return nil, fmt.Errorf("parsing config: %w", err)
 		} else if err = cfg.Endpoint.Validate(); err != nil {
 			return nil, err
