@@ -1005,6 +1005,7 @@ pub enum EndpointType {
     Snowflake = 5,
     Webhook = 6,
     AirbyteSource = 7,
+    FlowSink = 8,
 }
 /// ContentType enumerates the content types understood by Flow.
 #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]

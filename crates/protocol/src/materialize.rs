@@ -130,7 +130,7 @@ pub mod transaction_request {
         /// Last-persisted driver checkpoint from a previous transaction stream.
         /// Or empty, if the driver hasn't returned a checkpoint.
         #[prost(bytes="vec", tag="3")]
-        pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
+        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
     /// Load one or more documents identified by key.
     /// Keys may included documents which have never before been stored,
@@ -246,7 +246,7 @@ pub mod transaction_response {
         /// If provided, the most recent checkpoint will be persisted by the
         /// Flow runtime and returned in a future Fence request.
         #[prost(bytes="vec", tag="1")]
-        pub driver_checkpoint: ::prost::alloc::vec::Vec<u8>,
+        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
     /// Acknowledge the transaction as committed.
     #[derive(Clone, PartialEq, ::prost::Message)]

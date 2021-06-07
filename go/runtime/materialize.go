@@ -126,7 +126,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	// Establish driver connection and start Transactions RPC.
 	conn, err := driver.NewDriver(shard.Context(),
 		m.task.Materialization.EndpointType,
-		json.RawMessage(m.task.Materialization.EndpointSpecJson),
+		m.task.Materialization.EndpointSpecJson,
 		m.localDir,
 	)
 	if err != nil {
