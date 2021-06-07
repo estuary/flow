@@ -354,6 +354,12 @@ func (it *LoadIterator) Err() error {
 	return nil
 }
 
+// Prepare returns a TransactionRequest_Prepare which caused this LoadIterator
+// to terminate. It's valid only after Next returns false and Err is nil.
+func (it *LoadIterator) Prepare() *pm.TransactionRequest_Prepare {
+	return it.req.Prepare
+}
+
 // StoreIterator is an iterator over Store requests.
 type StoreIterator struct {
 	Key     tuple.Tuple     // Key of the next document to store.
@@ -436,6 +442,12 @@ func (it *StoreIterator) Next() bool {
 // Err returns an encountered error.
 func (it *StoreIterator) Err() error {
 	return it.err
+}
+
+// Commit returns a TransactionRequest_Commit which caused this StoreIterator
+// to terminate. It's valid only after Next returns false and Err is nil.
+func (it *StoreIterator) Commit() *pm.TransactionRequest_Commit {
+	return it.req.Commit
 }
 
 // Transactor is a store-agnostic interface for a materialization driver

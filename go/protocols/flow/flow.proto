@@ -269,6 +269,7 @@ enum EndpointType {
   SNOWFLAKE = 5;
   WEBHOOK = 6;
   AIRBYTE_SOURCE = 7;
+  FLOW_SINK = 8;
 }
 
 // FieldSelection is a selection of a collection's projection fields.

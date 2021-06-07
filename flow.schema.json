@@ -136,6 +136,35 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "AirbyteSourceConfig": {
+      "description": "Airbyte source connector specification.",
+      "type": "object",
+      "required": [
+        "config",
+        "image"
+      ],
+      "properties": {
+        "config": {
+          "title": "Configuration of the connector.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "image": {
+          "title": "Image of the connector.",
+          "type": "string"
+        },
+        "namespace": {
+          "title": "Namespace of the source connector.",
+          "default": "",
+          "type": "string"
+        },
+        "stream": {
+          "title": "Selected stream of the source connector.",
+          "default": "",
+          "type": "string"
+        }
+      }
+    },
     "BucketConfig": {
       "type": "object",
       "required": [
@@ -163,7 +192,7 @@
       ],
       "properties": {
         "endpoint": {
-          "title": "Endpoint to materialize into.",
+          "title": "Endpoint connector to capture from.",
           "allOf": [
             {
               "$ref": "#/definitions/EndpointRef"
@@ -371,6 +400,18 @@
       "description": "An Endpoint is an external system from which a Flow collection may be captured, or to which a Flow collection may be materialized.",
       "anyOf": [
         {
+          "title": "An Airbyte source connector.",
+          "type": "object",
+          "required": [
+            "airbyteSource"
+          ],
+          "properties": {
+            "airbyteSource": {
+              "$ref": "#/definitions/AirbyteSourceConfig"
+            }
+          }
+        },
+        {
           "title": "A GCS bucket and prefix.",
           "type": "object",
           "required": [
@@ -453,6 +494,18 @@
               "$ref": "#/definitions/WebhookConfig"
             }
           }
+        },
+        {
+          "title": "A Flow sink.",
+          "type": "object",
+          "required": [
+            "flowSink"
+          ],
+          "properties": {
+            "flowSink": {
+              "$ref": "#/definitions/FlowSinkConfig"
+            }
+          }
         }
       ]
     },
@@ -460,10 +513,10 @@
       "description": "A reference to an endpoint, with optional additional configuration.",
       "examples": [
         {
-          "config": {
+          "name": "an endpoint",
+          "spec": {
             "table": "a_sql_table"
-          },
-          "name": "an endpoint"
+          }
         }
       ],
       "type": "object",
@@ -471,13 +524,6 @@
         "name"
       ],
       "properties": {
-        "config": {
-          "title": "Additional endpoint configuration.",
-          "description": "Configuration is merged into that of the endpoint.",
-          "default": {},
-          "type": "object",
-          "additionalProperties": true
-        },
         "name": {
           "title": "Name of the endpoint to use.",
           "allOf": [
@@ -485,9 +531,35 @@
               "$ref": "#/definitions/Endpoint"
             }
           ]
+        },
+        "spec": {
+          "title": "Additional endpoint specification.",
+          "description": "This specification is merged into that of the endpoint.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": true
         }
       },
       "additionalProperties": false
+    },
+    "FlowSinkConfig": {
+      "description": "Flow sink connector specification.",
+      "type": "object",
+      "required": [
+        "config",
+        "image"
+      ],
+      "properties": {
+        "config": {
+          "title": "Configuration of the connector.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "image": {
+          "title": "Image of the connector.",
+          "type": "string"
+        }
+      }
     },
     "JournalRule": {
       "examples": [
