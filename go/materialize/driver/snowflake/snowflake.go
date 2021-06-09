@@ -89,7 +89,7 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				TablePath:    []string{parsed.Database, parsed.Schema, parsed.Table},
 				Generator:    SQLGenerator(),
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
 			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil

@@ -69,9 +69,8 @@ func NewPostgresDriver() *sqlDriver.Driver {
 
 			if err := json.Unmarshal(config, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Postgresql configuration: %w", err)
-			}
-			if err := parsed.Validate(); err != nil {
-				return nil, fmt.Errorf("Postgres configuration is invalid: %w", err)
+			} else if err = parsed.Validate(); err != nil {
+				return nil, fmt.Errorf("configuration is invalid: %w", err)
 			}
 
 			db, err := sql.Open("pgx", parsed.ToURI())
@@ -88,7 +87,7 @@ func NewPostgresDriver() *sqlDriver.Driver {
 				TablePath:    []string{parsed.DBName, parsed.User, parsed.Table},
 				Generator:    sqlDriver.PostgresSQLGenerator(),
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
 			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil

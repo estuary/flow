@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 
@@ -21,8 +22,12 @@ type Fence struct {
 	// fence is the current value of the monotonically increasing integer used to identify unique
 	// instances of transactions rpcs.
 	fence int64
-	// shardFQN is the fully qualified id of the materialization shard.
-	shardFQN  string
+	// Full name of the fenced materialization.
+	materialization string
+	// [keyBegin, keyEnd) identify the range of keys covered by this Fence.
+	keyBegin uint32
+	keyEnd   uint32
+
 	ctx       context.Context
 	updateSQL string
 }
@@ -30,14 +35,16 @@ type Fence struct {
 // LogEntry returns a log.Entry with pre-set fields that identify the Shard ID and Fence
 func (f *Fence) LogEntry() *log.Entry {
 	return log.WithFields(log.Fields{
-		"fqn":   f.shardFQN,
-		"fence": f.fence,
+		"materialization": f.materialization,
+		"keyBegin":        f.keyBegin,
+		"keyEnd":          f.keyEnd,
+		"fence":           f.fence,
 	})
 }
 
 // NewFence installs and returns a new *Fence. On return, all older fences of
 // this |shardFqn| have been fenced off from committing further transactions.
-func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
+func (e *Endpoint) NewFence(materialization string, keyBegin, keyEnd uint32) (*Fence, error) {
 	var txn, err = e.DB.BeginTx(e.Context, nil)
 	if err != nil {
 		return nil, fmt.Errorf("db.BeginTx: %w", err)
@@ -49,52 +56,85 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 		}
 	}()
 
-	// Attempt to increment the fence value.
-	var rowsAffected int64
-	if result, err := txn.Exec(
-		fmt.Sprintf(
-			"UPDATE %s SET fence=fence+1 WHERE shard_fqn=%s;",
-			e.Tables.Checkpoints.Identifier,
-			e.Generator.Placeholder(0),
-		),
-		shardFqn,
-	); err != nil {
-		return nil, fmt.Errorf("incrementing fence: %w", err)
-	} else if rowsAffected, err = result.RowsAffected(); err != nil {
-		return nil, fmt.Errorf("result.RowsAffected: %w", err)
-	}
-
-	// If the fence doesn't exist, insert it now.
-	if rowsAffected != 0 {
-		// Exists; no-op.
-	} else if _, err = txn.Exec(
-		fmt.Sprintf(
-			"INSERT INTO %s (shard_fqn, checkpoint, fence) VALUES (%s, %s, 1);",
+	// Increment the fence value of _any_ checkpoint which overlaps our key range.
+	if _, err = txn.Exec(
+		fmt.Sprintf(`
+			UPDATE %s
+				SET fence=fence+1
+				WHERE materialization=%s
+				AND key_end>=%s
+				AND key_begin<=%s
+			;
+			`,
 			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
 			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(2),
 		),
-		shardFqn,
-		// Initialize a checkpoint such that the materialization starts from
-		// scratch, regardless of the runtime's internal checkpoint.
-		base64.StdEncoding.EncodeToString(pm.ExplicitZeroCheckpoint),
+		materialization,
+		keyBegin,
+		keyEnd,
 	); err != nil {
-		return nil, fmt.Errorf("inserting fence: %w", err)
+		return nil, fmt.Errorf("incrementing fence: %w", err)
 	}
 
-	// Read the just-incremented fence value, and the last-committed checkpoint.
+	// Read the checkpoint with the narrowest [key_begin, key_end]
+	// which fully overlaps our range.
 	var fence int64
+	var readBegin, readEnd uint32
 	var checkpointB64 string
 
 	if err = txn.QueryRow(
-		fmt.Sprintf(
-			"SELECT fence, checkpoint FROM %s WHERE shard_fqn=%s;",
+		fmt.Sprintf(`
+			SELECT fence, key_begin, key_end, checkpoint
+				FROM %s
+				WHERE materialization=%s
+				AND key_begin<=%s
+				AND key_end>=%s
+				ORDER BY key_end - key_begin ASC
+				LIMIT 1
+			;
+			`,
 			e.Tables.Checkpoints.Identifier,
 			e.Generator.Placeholder(0),
+			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(2),
 		),
-		shardFqn,
-	).Scan(&fence, &checkpointB64); err != nil {
+		materialization,
+		keyBegin,
+		keyEnd,
+	).Scan(&fence, &readBegin, &readEnd, &checkpointB64); err == sql.ErrNoRows {
+		// A checkpoint doesn't exist. Use an implicit checkpoint value.
+		fence = 1
+		// Initialize a checkpoint such that the materialization starts from
+		// scratch, regardless of the runtime's internal checkpoint.
+		checkpointB64 = base64.StdEncoding.EncodeToString(pm.ExplicitZeroCheckpoint)
+		// Set an invalid range, which compares as unequal to trigger an insertion below.
+		readBegin, readEnd = 1, 0
+	} else if err != nil {
 		return nil, fmt.Errorf("scanning fence and checkpoint: %w", err)
+	}
+
+	// If a checkpoint for this exact range doesn't exist, insert it now.
+	if readBegin == keyBegin && readEnd == keyEnd {
+		// Exists; no-op.
+	} else if _, err = txn.Exec(
+		fmt.Sprintf(
+			"INSERT INTO %s (materialization, key_begin, key_end, checkpoint, fence) VALUES (%s, %s, %s, %s, %s);",
+			e.Tables.Checkpoints.Identifier,
+			e.Generator.Placeholder(0),
+			e.Generator.Placeholder(1),
+			e.Generator.Placeholder(2),
+			e.Generator.Placeholder(3),
+			e.Generator.Placeholder(4),
+		),
+		materialization,
+		keyBegin,
+		keyEnd,
+		checkpointB64,
+		fence,
+	); err != nil {
+		return nil, fmt.Errorf("inserting fence: %w", err)
 	}
 
 	checkpoint, err := base64.StdEncoding.DecodeString(checkpointB64)
@@ -111,19 +151,23 @@ func (e *Endpoint) NewFence(shardFqn string) (*Fence, error) {
 
 	// Craft SQL which is used for future commits under this fence.
 	var updateSQL = fmt.Sprintf(
-		"UPDATE %s SET checkpoint=%s WHERE shard_fqn=%s AND fence=%s;",
+		"UPDATE %s SET checkpoint=%s WHERE materialization=%s AND key_begin=%s AND key_end=%s AND fence=%s;",
 		e.Tables.Checkpoints.Identifier,
 		e.Generator.Placeholder(0),
 		e.Generator.Placeholder(1),
 		e.Generator.Placeholder(2),
+		e.Generator.Placeholder(3),
+		e.Generator.Placeholder(4),
 	)
 
 	return &Fence{
-		Checkpoint: checkpoint,
-		ctx:        e.Context,
-		fence:      fence,
-		shardFQN:   shardFqn,
-		updateSQL:  updateSQL,
+		Checkpoint:      checkpoint,
+		ctx:             e.Context,
+		fence:           fence,
+		materialization: materialization,
+		keyBegin:        keyBegin,
+		keyEnd:          keyEnd,
+		updateSQL:       updateSQL,
 	}, nil
 }
 
@@ -136,7 +180,9 @@ func (f *Fence) Update(execFn ExecFn) error {
 		f.ctx,
 		f.updateSQL,
 		base64.StdEncoding.EncodeToString(f.Checkpoint),
-		f.shardFQN,
+		f.materialization,
+		f.keyBegin,
+		f.keyEnd,
 		f.fence,
 	)
 	if err == nil && rowsAffected == 0 {

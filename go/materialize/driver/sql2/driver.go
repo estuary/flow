@@ -149,7 +149,11 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	if err != nil {
 		return fmt.Errorf("loading materialization spec: %w", err)
 	}
-	fence, err := endpoint.NewFence(open.Open.ShardFqn)
+	fence, err := endpoint.NewFence(
+		open.Open.Materialization.Materialization,
+		open.Open.KeyBegin,
+		open.Open.KeyEnd,
+	)
 	if err != nil {
 		return fmt.Errorf("installing fence: %w", err)
 	}
