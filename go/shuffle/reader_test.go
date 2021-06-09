@@ -174,7 +174,7 @@ func TestConsumerIntegration(t *testing.T) {
 			MaxTxnDuration:    time.Second,
 			LabelSet: flowLabels.EncodeRange(pf.RangeSpec{
 				KeyBegin:    uint32((math.MaxUint32 / len(shards)) * i),
-				KeyEnd:      uint32((math.MaxUint32 / len(shards)) * (i + 1)),
+				KeyEnd:      uint32((math.MaxUint32/len(shards))*(i+1) - 1),
 				RClockBegin: 0,
 				RClockEnd:   math.MaxUint32,
 			}, pb.LabelSet{}),
