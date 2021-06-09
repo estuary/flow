@@ -60,7 +60,7 @@ func TestShuffleRequest(t *testing.T) {
 		Range: RangeSpec{
 			KeyBegin:    42,
 			KeyEnd:      32,
-			RClockBegin: 0,
+			RClockBegin: 1,
 			RClockEnd:   0,
 		},
 		Offset:    -1,
@@ -71,9 +71,9 @@ func TestShuffleRequest(t *testing.T) {
 	m.Resolution.Etcd.ClusterId = 1234
 	require.EqualError(t, m.Validate(), "Shuffle.Coordinator: not a valid token (bad coordinator)")
 	m.Shuffle.Coordinator = "a-coordinator"
-	require.EqualError(t, m.Validate(), "Range: expected KeyBegin < KeyEnd (0000002a vs 00000020)")
+	require.EqualError(t, m.Validate(), "Range: expected KeyBegin <= KeyEnd (0000002a vs 00000020)")
 	m.Range.KeyEnd = 52
-	require.EqualError(t, m.Validate(), "Range: expected RClockBegin < RClockEnd (00000000 vs 00000000)")
+	require.EqualError(t, m.Validate(), "Range: expected RClockBegin <= RClockEnd (00000001 vs 00000000)")
 	m.Range.RClockEnd = 12345
 	require.EqualError(t, m.Validate(), "invalid Offset (-1; expected 0 <= Offset <= MaxInt64)")
 	m.Offset = 200
@@ -119,7 +119,7 @@ func TestRangeSpecOrdering(t *testing.T) {
 	require.False(t, other.Equal(&model))
 
 	// |model| and |other| are continuous r-clock ranges, but non-overlapping.
-	other.RClockBegin = 0xd0
+	other.RClockBegin = 0xd1
 	require.True(t, model.Less(&other))
 	require.False(t, other.Less(&model))
 	require.False(t, other.Equal(&model))
@@ -131,7 +131,7 @@ func TestRangeSpecOrdering(t *testing.T) {
 
 	// |model| and |other| cover discontinuous chunks of key range.
 	// They continue to cover overlapping r-clock range.
-	model.KeyEnd = 0xa0
+	model.KeyEnd = 0x9f
 	other.KeyBegin = 0xaa
 	require.True(t, model.Less(&other))
 	require.False(t, other.Less(&model))
