@@ -15,6 +15,12 @@ endpoints:
     webhook:
       endpoint: http://localhost:9000
 
+  examples/flow-connector:
+    flowSink:
+      image: python3 test_redis_driver.py
+      config:
+        the: configuration
+
 journalRules:
   00_fragment_store:
     template:

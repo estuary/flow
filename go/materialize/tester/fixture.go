@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize/driver"
@@ -18,9 +19,9 @@ import (
 // Fixture encapsulates the data that's needed to test materializations, along with common
 // functionality for executing tests.
 type Fixture struct {
-	ShardId string
-	Ctx     context.Context
-	Driver  pm.DriverClient
+	Range  pf.RangeSpec
+	Ctx    context.Context
+	Driver pm.DriverClient
 
 	materialization *pf.MaterializationSpec
 	keyExtractor    *bindings.Extractor
@@ -46,7 +47,12 @@ func NewFixture(endpointType pf.EndpointType, endpointSpec json.RawMessage) (*Fi
 		return nil, fmt.Errorf("creating test document generator: %w", err)
 	}
 	return &Fixture{
-		ShardId:         "materialization-test",
+		Range: pf.RangeSpec{
+			KeyBegin:    0,
+			KeyEnd:      math.MaxUint32 / 4,
+			RClockBegin: 0,
+			RClockEnd:   math.MaxUint32,
+		},
 		Ctx:             ctx,
 		Driver:          driverClient,
 		materialization: spec,
@@ -60,7 +66,7 @@ func (f *Fixture) OpenTransactions(req **pm.TransactionRequest, driverCheckpoint
 	if err != nil {
 		return nil, nil, fmt.Errorf("starting transactions rpc: %w", err)
 	}
-	err = lifecycle.WriteOpen(stream, req, f.materialization, f.ShardId, driverCheckpoint)
+	err = lifecycle.WriteOpen(stream, req, f.materialization, &f.Range, driverCheckpoint)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening transactions: %w", err)
 	}
