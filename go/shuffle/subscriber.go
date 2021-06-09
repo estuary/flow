@@ -65,9 +65,9 @@ type subscribers []subscriber
 
 // keySpan locates the span of indices having ranges which cover the given key.
 func (s subscribers) keySpan(key uint32) (start, stop int) {
-	// Find the index of the first subscriber having |key| < KeyEnd.
+	// Find the index of the first subscriber having |key| <= KeyEnd.
 	start = sort.Search(len(s), func(i int) bool {
-		return key < s[i].Range.KeyEnd
+		return key <= s[i].Range.KeyEnd
 	})
 	// Walk forwards while KeyBegin <= |key|.
 	for stop = start; stop != len(s) && s[stop].Range.KeyBegin <= key; stop++ {

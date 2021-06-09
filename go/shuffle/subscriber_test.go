@@ -89,11 +89,11 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 		mk(10, 100),  // 0
 		mk(10, 100),  // 1
 		mk(10, 100),  // 2
-		mk(200, 300), // 3
-		mk(300, 400), // 4
-		mk(300, 400), // 5
-		mk(600, 700), // 6
-		mk(600, 700), // 7
+		mk(200, 299), // 3
+		mk(300, 399), // 4
+		mk(300, 399), // 5
+		mk(600, 699), // 6
+		mk(600, 699), // 7
 		mk(900, 999), // 8
 	}
 	// Perturb fixtures randomly; we should not depend on order.
@@ -114,7 +114,7 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 		{0, 0, 0},
 		{10, 0, 3},
 		{50, 0, 3},
-		{100, 3, 3},
+		{100, 0, 3},
 		{111, 3, 3},
 		{200, 3, 4},
 		{350, 4, 6},
@@ -125,12 +125,12 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 		{690, 6, 8},
 		{899, 8, 8},
 		{950, 8, 9},
-		{999, 9, 9},
+		{999, 8, 9},
 		{10000, 9, 9},
 	} {
 		var start, stop = s.keySpan(tc.k)
-		require.Equal(t, tc.start, start)
-		require.Equal(t, tc.stop, stop)
+		require.Equalf(t, tc.start, start, "tc: %#v, actualStart: %v", tc, start)
+		require.Equalf(t, tc.stop, stop, "tc: %#v, actualStop: %v", tc, stop)
 	}
 
 	for _, tc := range []struct {
@@ -139,14 +139,14 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 	}{
 		// Repetitions of key-ranges are fine.
 		{10, 100, 3},
-		{300, 400, 6},
+		{300, 399, 6},
 		// As are insertions into list middle.
-		{100, 200, 3},
+		{101, 199, 3},
 		{450, 460, 6},
 		// Or begining.
-		{0, 10, 0},
+		{0, 9, 0},
 		// Or end.
-		{999, 1000, 9},
+		{1000, 1001, 9},
 
 		// Overlaps are not a okay, at beginning.
 		{0, 11, -1},
@@ -163,10 +163,10 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 			RClockEnd: math.MaxUint32,
 		})
 		if tc.index != -1 {
-			require.NoError(t, err)
+			require.NoErrorf(t, err, "tc: %#v", tc)
 			require.Equal(t, tc.index, ind)
 		} else {
-			require.Error(t, err)
+			require.Errorf(t, err, "tc: %#v, index: %v", tc, ind)
 		}
 	}
 }
@@ -211,16 +211,16 @@ func TestSubscriberResponseStaging(t *testing.T) {
 			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
 				KeyBegin:    0,
-				KeyEnd:      1 << 31,
+				KeyEnd:      1<<31 - 1,
 				RClockBegin: 0,
-				RClockEnd:   1 << 31,
+				RClockEnd:   1<<31 - 1,
 			},
 		},
 		{ // Sees first half of keyspace, and second half of clocks.
 			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
 			Range: pf.RangeSpec{
 				KeyBegin:    0x00000000,
-				KeyEnd:      1 << 31,
+				KeyEnd:      1<<31 - 1,
 				RClockBegin: 1 << 31,
 				RClockEnd:   1<<32 - 1,
 			},

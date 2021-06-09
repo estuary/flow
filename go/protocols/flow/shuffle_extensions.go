@@ -47,10 +47,10 @@ func (m *JournalShuffle) Validate() error {
 
 // Validate returns a validation error of the RangeSpec.
 func (m *RangeSpec) Validate() error {
-	if m.KeyBegin >= m.KeyEnd {
-		return pb.NewValidationError("expected KeyBegin < KeyEnd (%08x vs %08x)", m.KeyBegin, m.KeyEnd)
-	} else if m.RClockBegin >= m.RClockEnd {
-		return pb.NewValidationError("expected RClockBegin < RClockEnd (%08x vs %08x)", m.RClockBegin, m.RClockEnd)
+	if m.KeyBegin > m.KeyEnd {
+		return pb.NewValidationError("expected KeyBegin <= KeyEnd (%08x vs %08x)", m.KeyBegin, m.KeyEnd)
+	} else if m.RClockBegin > m.RClockEnd {
+		return pb.NewValidationError("expected RClockBegin <= RClockEnd (%08x vs %08x)", m.RClockBegin, m.RClockEnd)
 	}
 	return nil
 }
@@ -62,11 +62,11 @@ func (m *RangeSpec) Less(r *RangeSpec) bool {
 	// If lhs & rhs share the exact same key range, then they order
 	// with respect to their RClock range.
 	if m.KeyBegin == r.KeyBegin && m.KeyEnd == r.KeyEnd {
-		if m.RClockBegin < r.RClockBegin && m.RClockEnd <= r.RClockBegin {
+		if m.RClockBegin < r.RClockBegin && m.RClockEnd < r.RClockBegin {
 			return true
 		}
 	}
-	return m.KeyBegin < r.KeyBegin && m.KeyEnd <= r.KeyBegin
+	return m.KeyBegin < r.KeyBegin && m.KeyEnd < r.KeyBegin
 }
 
 // Equal returns true if this RangeSpec exactly equals the other.

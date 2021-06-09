@@ -378,7 +378,7 @@ message RangeSpec {
   // RangeSpec implements a custom Go String().
   option (gogoproto.goproto_stringer) = false;
 
-  // [begin, end) exclusive range of keys to be shuffled to this reader.
+  // [begin, end] inclusive range of keys to be shuffled to this reader.
   // Ranges are with respect to a 32-bit hash of a packed document key.
   //
   // The choice of hash function is important: while it need not be
@@ -392,7 +392,7 @@ message RangeSpec {
   // checksum, using a fixed 32-byte key.
   fixed32 key_begin = 2;
   fixed32 key_end = 3;
-  // Rotated [begin, end) exclusive ranges of Clocks.
+  // Rotated [begin, end] inclusive ranges of Clocks.
   fixed32 r_clock_begin = 4;
   fixed32 r_clock_end = 5;
 }
