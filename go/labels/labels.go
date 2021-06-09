@@ -22,7 +22,7 @@ const (
 	KeyBegin = "estuary.dev/key-begin"
 	// KeyBeginMin is the minimum possible key.
 	KeyBeginMin = "00000000"
-	// KeyEnd is a hexadecimal encoding of the ending key range (exclusive)
+	// KeyEnd is a hexadecimal encoding of the ending key range (inclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyEnd = "estuary.dev/key-end"
 	// KeyEndMax is the maximum possible key.
@@ -42,13 +42,13 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
-	// RClockBegin is a uint64 in big-endian 16-char hexadecimal notation,
+	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
 	// RClockBeginMin is the minimum possible RClock.
 	RClockBeginMin = KeyBeginMin
-	// RClockEnd is a uint64 in big-endian 16-char hexadecimal notation,
-	// which is the ending rotated clock range (exclusive) managed by this shard.
+	// RClockEnd is a uint32 in big-endian 8-char hexadecimal notation,
+	// which is the ending rotated clock range (inclusive) managed by this shard.
 	RClockEnd = "estuary.dev/rclock-end"
 	// RClockEndMax is the maximum possible RClock.
 	RClockEndMax = KeyEndMax
