@@ -67,13 +67,13 @@ func TestRangeSpecParsingCases(t *testing.T) {
 		KeyEnd, KeyBeginMin,
 		RClockBegin, RClockBeginMin,
 		RClockEnd, RClockEndMax))
-	require.EqualError(t, err, "expected KeyBegin < KeyEnd (ffffffff vs 00000000)")
+	require.EqualError(t, err, "expected KeyBegin <= KeyEnd (ffffffff vs 00000000)")
 	_, err = ParseRangeSpec(pb.MustLabelSet(
 		KeyBegin, KeyBeginMin,
 		KeyEnd, KeyEndMax,
 		RClockBegin, RClockEndMax,
 		RClockEnd, RClockBeginMin))
-	require.EqualError(t, err, "expected RClockBegin < RClockEnd (ffffffff vs 00000000)")
+	require.EqualError(t, err, "expected RClockBegin <= RClockEnd (ffffffff vs 00000000)")
 }
 
 func TestRoundTripRangeSpecToLabels(t *testing.T) {

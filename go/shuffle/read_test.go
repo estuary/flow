@@ -395,7 +395,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 		start, stop int
 	}{
 		// Exact matches of ranges.
-		{0xaaaaaaaa, 0xbbbbbbbb, 0, 1},
+		{0xaaaaaaaa, 0xbbbbbbba, 0, 1},
 		{0xbbbbbbbb, 0xffffffff, 1, 3},
 		// Partial overlap of single entry at list begin & end.
 		{0xa0000000, 0xb0000000, 0, 1},
@@ -452,9 +452,9 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 		part  int
 	}{
 		{"1", "abc", "cccccccc", "ffffffff", 0}, // foo/bar=1/baz=abc/part=00
-		{"1", "abc", "bbbbbbbb", "cccccccc", 1}, // foo/bar=1/baz=abc/part=01
-		{"1", "def", "aaaaaaaa", "bbbbbbbb", 0}, // foo/bar=1/baz=def/part=00
-		{"2", "def", "aaaaaaaa", "bbbbbbbb", 0}, // foo/bar=2/baz=def/part=00
+		{"1", "abc", "bbbbbbbb", "cccccccb", 1}, // foo/bar=1/baz=abc/part=01
+		{"1", "def", "aaaaaaaa", "bbbbbbba", 0}, // foo/bar=1/baz=def/part=00
+		{"2", "def", "aaaaaaaa", "bbbbbbba", 0}, // foo/bar=2/baz=def/part=00
 		{"2", "def", "bbbbbbbb", "ffffffff", 1}, // foo/bar=2/baz=def/part=01
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
@@ -478,12 +478,12 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 	var shards = []*pc.ShardSpec{
 		{Id: "shard/0", LabelSet: pb.MustLabelSet(
 			labels.KeyBegin, "aaaaaaaa",
-			labels.KeyEnd, "bbbbbbbb",
+			labels.KeyEnd, "bbbbbbba",
 			labels.RClockBegin, "00000000",
 			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/1", LabelSet: pb.MustLabelSet(
 			labels.KeyBegin, "bbbbbbbb",
-			labels.KeyEnd, "cccccccc",
+			labels.KeyEnd, "cccccccb",
 			labels.RClockBegin, "00000000",
 			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/2", LabelSet: pb.MustLabelSet(

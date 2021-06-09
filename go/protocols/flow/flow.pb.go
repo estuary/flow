@@ -1296,7 +1296,7 @@ var xxx_messageInfo_TestSpec_Step proto.InternalMessageInfo
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 // is responsible for.
 type RangeSpec struct {
-	// [begin, end) exclusive range of keys to be shuffled to this reader.
+	// [begin, end] inclusive range of keys to be shuffled to this reader.
 	// Ranges are with respect to a 32-bit hash of a packed document key.
 	//
 	// The choice of hash function is important: while it need not be
@@ -1310,7 +1310,7 @@ type RangeSpec struct {
 	// checksum, using a fixed 32-byte key.
 	KeyBegin uint32 `protobuf:"fixed32,2,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
 	KeyEnd   uint32 `protobuf:"fixed32,3,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
-	// Rotated [begin, end) exclusive ranges of Clocks.
+	// Rotated [begin, end] inclusive ranges of Clocks.
 	RClockBegin          uint32   `protobuf:"fixed32,4,opt,name=r_clock_begin,json=rClockBegin,proto3" json:"r_clock_begin,omitempty"`
 	RClockEnd            uint32   `protobuf:"fixed32,5,opt,name=r_clock_end,json=rClockEnd,proto3" json:"r_clock_end,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`

@@ -586,12 +586,12 @@ func newShuffleMembers(specs []*pc.ShardSpec) ([]shuffleMember, error) {
 // rangeSpan locates the span of []shuffleMember having owned key ranges
 // which overlap the given range.
 func rangeSpan(s []shuffleMember, begin, end uint32) (start, stop int) {
-	// Find the index of the first subscriber having |begin| < |keyEnd|.
+	// Find the index of the first subscriber having |begin| <= |keyEnd|.
 	start = sort.Search(len(s), func(i int) bool {
-		return begin < s[i].range_.KeyEnd
+		return begin <= s[i].range_.KeyEnd
 	})
 	// Walk forwards while |keyBegin| < |end|.
-	for stop = start; stop != len(s) && s[stop].range_.KeyBegin < end; stop++ {
+	for stop = start; stop != len(s) && s[stop].range_.KeyBegin <= end; stop++ {
 	}
 	return
 }

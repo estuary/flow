@@ -192,11 +192,11 @@ func StartSplit(ctx context.Context, svc *consumer.Service, req *pf.SplitRequest
 	var lhsRange, rhsRange = parentRange, parentRange
 
 	if req.SplitOnKey {
-		var pivot = (parentRange.KeyBegin / 2) + (parentRange.KeyEnd / 2)
-		lhsRange.KeyEnd, rhsRange.KeyBegin = pivot, pivot
+		var pivot = uint32((uint64(parentRange.KeyBegin) + uint64(parentRange.KeyEnd) - 1) / 2)
+		lhsRange.KeyEnd, rhsRange.KeyBegin = pivot, pivot+1
 	} else {
-		var pivot = (parentRange.RClockBegin / 2) + (parentRange.RClockEnd / 2)
-		lhsRange.RClockEnd, rhsRange.RClockBegin = pivot, pivot
+		var pivot = uint32((uint64(parentRange.RClockBegin) + uint64(parentRange.RClockEnd) - 1) / 2)
+		lhsRange.RClockEnd, rhsRange.RClockBegin = pivot, pivot+1
 	}
 	rhsSpec.LabelSet = labels.EncodeRange(rhsRange, rhsSpec.LabelSet)
 
