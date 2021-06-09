@@ -144,7 +144,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		m.driverTx,
 		&m.request,
 		m.task.Materialization,
-		shard.FQN(),
+		&m.range_,
 		m.store.State.(*storeState).DriverCheckpoint,
 	); err != nil {
 		return pc.Checkpoint{}, err

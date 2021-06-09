@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/sirupsen/logrus"
@@ -18,17 +18,20 @@ func WriteOpen(
 	stream pm.Driver_TransactionsClient,
 	request **pm.TransactionRequest,
 	spec *pf.MaterializationSpec,
-	shardFQN string,
+	range_ *pf.RangeSpec,
 	driverCheckpoint json.RawMessage,
 ) error {
 	if *request != nil {
 		panic("expected nil request")
+	} else if range_.RClockBegin != 0 || range_.RClockEnd != math.MaxUint32 {
+		panic("materialization shards cannot split on r-clock: " + range_.String())
 	}
 
 	if err := stream.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
 			Materialization:      spec,
-			ShardFqn:             shardFQN,
+			KeyBegin:             range_.KeyBegin,
+			KeyEnd:               range_.KeyEnd,
 			DriverCheckpointJson: driverCheckpoint,
 		},
 	}); err != nil {
@@ -85,8 +88,8 @@ func StageLoad(
 	if *request == nil {
 		*request = &pm.TransactionRequest{
 			Load: &pm.TransactionRequest_Load{
-				Arena:      make(flow.Arena, 0, arenaSize),
-				PackedKeys: make([]flow.Slice, 0, sliceSize),
+				Arena:      make(pf.Arena, 0, arenaSize),
+				PackedKeys: make([]pf.Slice, 0, sliceSize),
 			},
 		}
 	}
@@ -121,8 +124,8 @@ func StageLoaded(
 	if *response == nil {
 		*response = &pm.TransactionResponse{
 			Loaded: &pm.TransactionResponse_Loaded{
-				Arena:    make(flow.Arena, 0, arenaSize),
-				DocsJson: make([]flow.Slice, 0, sliceSize),
+				Arena:    make(pf.Arena, 0, arenaSize),
+				DocsJson: make([]pf.Slice, 0, sliceSize),
 			},
 		}
 	}
@@ -215,10 +218,10 @@ func StageStore(
 	if *request == nil {
 		*request = &pm.TransactionRequest{
 			Store: &pm.TransactionRequest_Store{
-				Arena:        make(flow.Arena, 0, arenaSize),
-				PackedKeys:   make([]flow.Slice, 0, sliceSize),
-				PackedValues: make([]flow.Slice, 0, sliceSize),
-				DocsJson:     make([]flow.Slice, 0, sliceSize),
+				Arena:        make(pf.Arena, 0, arenaSize),
+				PackedKeys:   make([]pf.Slice, 0, sliceSize),
+				PackedValues: make([]pf.Slice, 0, sliceSize),
+				DocsJson:     make([]pf.Slice, 0, sliceSize),
 			},
 		}
 	}
