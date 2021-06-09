@@ -21,6 +21,8 @@ import (
 type taskTerm struct {
 	// Commons of the current task.
 	commons *flow.Commons
+	// Processing range owned by this shard.
+	range_ pf.RangeSpec
 	// Builder of reads under the current task configuration.
 	readBuilder *shuffle.ReadBuilder
 	// readThroughMu guards an update of readBuilder from a
@@ -38,7 +40,13 @@ type taskTerm struct {
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	var err error
-	var taskName = shard.Spec().LabelSet.ValueOf(labels.TaskName)
+	var spec = shard.Spec()
+
+	t.range_, err = labels.ParseRangeSpec(spec.LabelSet)
+	if err != nil {
+		return fmt.Errorf("parsing shard range: %w", err)
+	}
+	var taskName = spec.LabelSet.ValueOf(labels.TaskName)
 
 	var lastRevision = t.revision
 	t.task, t.commons, t.revision, err = host.Catalog.GetTask(taskName)
@@ -59,7 +67,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	t.readBuilder, err = shuffle.NewReadBuilder(
 		host.Service,
 		host.Journals,
-		shard.Spec().Id,
+		spec.Id,
 		t.shuffles,
 		t.commons.CommonsId,
 		t.revision,
@@ -74,7 +82,8 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 
 	log.WithFields(log.Fields{
 		"task":         t.task.Name(),
-		"shard":        shard.Spec().Id,
+		"shard":        spec.Id,
+		"range":        t.range_.String(),
 		"revision":     t.revision,
 		"lastRevision": lastRevision,
 	}).Info("initialized catalog task term")

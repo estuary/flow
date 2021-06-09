@@ -143,25 +143,28 @@ message ApplyResponse {
 // type.
 message TransactionRequest {
   // Open a transaction stream and, where supported, fence off other
-  // streams having this same |shard_fqn| from issuing further commits.
+  // streams of this materialization that overlap the provide
+  // [key_begin, key_end) range, such that those streams cannot
+  // issue further commits.
   //
   // Fencing semantics are optional, but required for exactly-once semantics.
   // Non-transactional stores can ignore this aspect and achieve at-least-once.
   //
   // Where implemented, servers must guarantee that no other streams of this
-  // |shard_fqn| (now "zombie" streams) can commit transactions, and must then
-  // return the final checkpoint committed by this |shard_fqn| in its response.
+  // materialization which overlap the provided [key_begin, key_end)
+  // (now "zombie" streams) can commit transactions, and must then
+  // return the final checkpoint committed by this stream in its response.
   message Open {
     // Materialization to be transacted, which is the MaterializationSpec
     // last provided to a successful Apply RPC.
     flow.MaterializationSpec materialization = 1;
-    // Stable ID to which transactions are fenced. The Flow runtime uses
-    // fully-qualified shard names to provide stable identifiers.
-    // Driver implementations may treat these as opaque values.
-    string shard_fqn = 2;
+    // [begin, end] inclusive range of keys processed by this transaction stream.
+    // Ranges are with respect to a 32-bit hash of a packed document key.
+    fixed32 key_begin = 2;
+    fixed32 key_end = 3;
     // Last-persisted driver checkpoint from a previous transaction stream.
     // Or empty, if the driver hasn't returned a checkpoint.
-    bytes driver_checkpoint_json = 3 [
+    bytes driver_checkpoint_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];

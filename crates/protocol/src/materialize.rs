@@ -108,28 +108,32 @@ pub struct TransactionRequest {
 /// Nested message and enum types in `TransactionRequest`.
 pub mod transaction_request {
     /// Open a transaction stream and, where supported, fence off other
-    /// streams having this same |shard_fqn| from issuing further commits.
+    /// streams of this materialization that overlap the provide
+    /// [key_begin, key_end) range, such that those streams cannot
+    /// issue further commits.
     ///
     /// Fencing semantics are optional, but required for exactly-once semantics.
     /// Non-transactional stores can ignore this aspect and achieve at-least-once.
     ///
     /// Where implemented, servers must guarantee that no other streams of this
-    /// |shard_fqn| (now "zombie" streams) can commit transactions, and must then
-    /// return the final checkpoint committed by this |shard_fqn| in its response.
+    /// materialization which overlap the provided [key_begin, key_end)
+    /// (now "zombie" streams) can commit transactions, and must then
+    /// return the final checkpoint committed by this stream in its response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Materialization to be transacted, which is the MaterializationSpec
         /// last provided to a successful Apply RPC.
         #[prost(message, optional, tag="1")]
         pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
-        /// Stable ID to which transactions are fenced. The Flow runtime uses
-        /// fully-qualified shard names to provide stable identifiers.
-        /// Driver implementations may treat these as opaque values.
-        #[prost(string, tag="2")]
-        pub shard_fqn: ::prost::alloc::string::String,
+        /// [begin, end] inclusive range of keys processed by this transaction stream.
+        /// Ranges are with respect to a 32-bit hash of a packed document key.
+        #[prost(fixed32, tag="2")]
+        pub key_begin: u32,
+        #[prost(fixed32, tag="3")]
+        pub key_end: u32,
         /// Last-persisted driver checkpoint from a previous transaction stream.
         /// Or empty, if the driver hasn't returned a checkpoint.
-        #[prost(bytes="vec", tag="3")]
+        #[prost(bytes="vec", tag="4")]
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
     /// Load one or more documents identified by key.

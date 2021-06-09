@@ -83,7 +83,7 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				TablePath:    []string{parsed.Table},
 				Generator:    sqlDriver.SQLiteSQLGenerator(),
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.GazetteCheckpointsTable(sqlDriver.DefaultGazetteCheckpoints)
+			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
 			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil

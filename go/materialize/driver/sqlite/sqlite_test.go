@@ -1,62 +1,35 @@
-package sqlite
+package sqlite_test
 
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
+	"math"
 	"path"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
+	"github.com/estuary/flow/go/materialize/driver"
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
+	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
 	var ctx = context.Background()
-	const bufSize = 1024 * 1024
+	var driver = driver.AdaptServerToClient(sqlite.NewSQLiteDriver())
 
-	var lis *bufconn.Listener
-	var bufDialer = func(context.Context, string) (net.Conn, error) {
-		return lis.Dial()
-	}
-
-	lis = bufconn.Listen(bufSize)
-	s := grpc.NewServer()
-	pm.RegisterDriverServer(s, NewSQLiteDriver())
-	var done = make(chan error, 1)
-	go func() {
-		var e = s.Serve(lis)
-		done <- e
-	}()
-	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(bufDialer), grpc.WithInsecure())
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-	var client = pm.NewDriverClient(conn)
-
-	doTestSQLite(t, client)
-	s.GracefulStop()
-	err = <-done
-	require.NoError(t, err)
-}
-
-func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
@@ -78,9 +51,8 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	}
 	var specJSON, _ = json.Marshal(spec)
 
-	collection := &built.Collections[0]
-
 	// Validate should return constraints for a non-existant materialization
+	var collection = &built.Collections[0]
 	var validateReq = pm.ValidateRequest{
 		EndpointName:     "an/endpoint",
 		EndpointType:     pf.EndpointType_SQLITE,
@@ -88,7 +60,6 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 		Collection:       collection,
 	}
 
-	var ctx = context.Background()
 	validateResp, err := driver.Validate(ctx, &validateReq)
 	require.NoError(t, err)
 	// There should be a constraint for every projection
@@ -153,6 +124,25 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	// was applied.
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, validateResp.Constraints["number"].Type)
 
+	// Insert a fixture into the `flow_checkpoints` table which we'll fence
+	// and draw a checkpoint from, and then insert a more-specific checkpoint
+	// that reflects our transaction request range fixture.
+	{
+		var db, err = sql.Open("sqlite3", spec.Path)
+		require.NoError(t, err)
+
+		_, err = db.Exec(`INSERT INTO flow_checkpoints
+			(materialization, key_begin, key_end, fence, checkpoint)
+			VALUES (?, 0, ?, 5, ?)
+		;`,
+			applyReq.Materialization.Materialization,
+			math.MaxUint32,
+			base64.StdEncoding.EncodeToString([]byte("initial checkpoint fixture")),
+		)
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+	}
+
 	transaction, err := driver.Transactions(ctx)
 	require.NoError(t, err)
 
@@ -160,8 +150,9 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	err = transaction.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
 			Materialization:      applyReq.Materialization,
+			KeyBegin:             100,
+			KeyEnd:               200,
 			DriverCheckpointJson: nil,
-			ShardFqn:             "canary",
 		},
 	})
 	require.NoError(t, err)
@@ -171,21 +162,19 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.NoError(t, err)
 	require.Equal(t, &pm.TransactionResponse_Opened{
 		DeltaUpdates:   false,
-		FlowCheckpoint: pm.ExplicitZeroCheckpoint,
+		FlowCheckpoint: []byte("initial checkpoint fixture"),
 	}, opened.Opened)
 
 	// Test Load with keys that don't exist yet
 	var key1 = tuple.Tuple{"key1Value"}
 	var key2 = tuple.Tuple{"key2Value"}
-	var loadReq = newLoadReq(key1.Pack(), key2.Pack())
 	err = transaction.Send(&pm.TransactionRequest{
-		Load: &loadReq,
+		Load: newLoadReq(key1.Pack(), key2.Pack()),
 	})
 	require.NoError(t, err)
 	var key3 = tuple.Tuple{"key3Value"}
-	loadReq = newLoadReq(key3.Pack())
 	err = transaction.Send(&pm.TransactionRequest{
-		Load: &loadReq,
+		Load: newLoadReq(key3.Pack()),
 	})
 	require.NoError(t, err)
 
@@ -244,10 +233,8 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.NotNil(t, committed.Committed)
 
 	// Next transaction.
-
-	loadReq = newLoadReq(key1.Pack(), key2.Pack(), key3.Pack())
 	err = transaction.Send(&pm.TransactionRequest{
-		Load: &loadReq,
+		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack()),
 	})
 	require.NoError(t, err)
 
@@ -305,10 +292,8 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	require.NotNil(t, committed.Committed)
 
 	// One more transaction just to verify the updated documents
-
-	loadReq = newLoadReq(key1.Pack(), key2.Pack(), key3.Pack(), key4.Pack())
 	err = transaction.Send(&pm.TransactionRequest{
-		Load: &loadReq,
+		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack(), key4.Pack()),
 	})
 	require.NoError(t, err)
 
@@ -352,31 +337,16 @@ func doTestSQLite(t *testing.T, driver pm.DriverClient) {
 	_, err = transaction.Recv()
 	require.Equal(t, io.EOF, err)
 
-	// Last thing is to snapshot the database tables we care about
+	// Last thing is to snapshot the database tables we care about.
 	var quotes = sqlDriver.DoubleQuotes()
 	var tab = sqlDriver.TableForMaterialization(spec.Table, "", &quotes,
 		&pf.MaterializationSpec{
 			Collection:     *collection,
 			FieldSelection: fields,
 		})
-	var dump = dumpTables(t, spec.Path, tab)
+	var dump = dumpTables(t, spec.Path, tab,
+		sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints))
 	cupaloy.SnapshotT(t, dump)
-}
-
-type AnyCol string
-
-func (col *AnyCol) Scan(i interface{}) error {
-	var sval string
-	if b, ok := i.([]byte); ok {
-		sval = string(b)
-	} else {
-		sval = fmt.Sprint(i)
-	}
-	*col = AnyCol(sval)
-	return nil
-}
-func (col AnyCol) String() string {
-	return string(col)
 }
 
 func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {
@@ -385,52 +355,16 @@ func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {
 	require.NoError(t, err)
 	defer db.Close()
 
-	var builder strings.Builder
-	for tn, table := range tables {
-		if tn > 0 {
-			builder.WriteString("\n\n") // make it more readable
-		}
-		var colNames strings.Builder
-		for i, col := range table.Columns {
-			if i > 0 {
-				colNames.WriteString(", ")
-			}
-			colNames.WriteString(col.Identifier)
-		}
+	out, err := sqlDriver.DumpTables(db, tables...)
+	require.NoError(t, err)
 
-		var sql = fmt.Sprintf("SELECT %s FROM %s;", colNames.String(), table.Identifier)
-		rows, err := db.Query(sql)
-		require.NoError(t, err)
-		defer rows.Close()
-
-		fmt.Fprintf(&builder, "%s:\n", table.Identifier)
-		builder.WriteString(colNames.String())
-
-		for rows.Next() {
-			var data = make([]AnyCol, len(table.Columns))
-			var ptrs = make([]interface{}, len(table.Columns))
-			for i := range data {
-				ptrs[i] = &data[i]
-			}
-			err = rows.Scan(ptrs...)
-			require.NoError(t, err)
-			builder.WriteString("\n")
-			for i, v := range ptrs {
-				if i > 0 {
-					builder.WriteString(", ")
-				}
-				var val = v.(*AnyCol)
-				builder.WriteString(val.String())
-			}
-		}
-	}
-	return builder.String()
+	return out
 }
 
-func newLoadReq(keys ...[]byte) pm.TransactionRequest_Load {
+func newLoadReq(keys ...[]byte) *pm.TransactionRequest_Load {
 	var arena pf.Arena
 	var packedKeys = arena.AddAll(keys...)
-	return pm.TransactionRequest_Load{
+	return &pm.TransactionRequest_Load{
 		Arena:      arena,
 		PackedKeys: packedKeys,
 	}

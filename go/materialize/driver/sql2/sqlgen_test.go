@@ -38,9 +38,9 @@ func TestIdentifierQuoting(t *testing.T) {
 
 func TestSQLGenerator(t *testing.T) {
 	var testTable = testTable()
-	var gazetteCheckpoints = GazetteCheckpointsTable(DefaultGazetteCheckpoints)
+	var flowCheckpoints = FlowCheckpointsTable(DefaultFlowCheckpoints)
 	var flowMaterializations = FlowMaterializationsTable(DefaultFlowMaterializations)
-	var allTables = []*Table{&testTable, gazetteCheckpoints, flowMaterializations}
+	var allTables = []*Table{&testTable, flowCheckpoints, flowMaterializations}
 
 	var pgGen = PostgresSQLGenerator()
 	var sqliteGen = SQLiteSQLGenerator()

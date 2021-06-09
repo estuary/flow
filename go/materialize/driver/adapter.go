@@ -51,6 +51,11 @@ func TransactionResponseChannel(stream pm.Driver_TransactionsClient) <-chan Tran
 	return ch
 }
 
+// AdaptServerToClient wraps an in-process DriverServer to provide a DriverClient.
+func AdaptServerToClient(srv pm.DriverServer) pm.DriverClient {
+	return adapter{srv}
+}
+
 // adapter is pm.DriverClient that wraps an in-process pm.DriverServer.
 type adapter struct{ pm.DriverServer }
 

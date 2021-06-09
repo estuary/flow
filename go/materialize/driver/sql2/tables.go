@@ -1,26 +1,48 @@
 package sql
 
+import (
+	"database/sql"
+	"fmt"
+	"strings"
+)
+
 const (
-	// DefaultGazetteCheckpoints is the default table for checkpoints.
-	DefaultGazetteCheckpoints = "gazette_checkpoints"
+	// DefaultFlowCheckpoints is the default table for checkpoints.
+	DefaultFlowCheckpoints = "flow_checkpoints"
 	// DefaultFlowMaterializations is the default table for materialization specs.
 	DefaultFlowMaterializations = "flow_materializations"
 )
 
-// GazetteCheckpointsTable returns the Table description for the table that holds the checkpoint
+// FlowCheckpointsTable returns the Table description for the table that holds the checkpoint
 // and nonce values for each materialization shard.
-func GazetteCheckpointsTable(name string) *Table {
+func FlowCheckpointsTable(name string) *Table {
 	return &Table{
 		Identifier:  name,
 		IfNotExists: true,
-		Comment:     "This table holds journal checkpoints, which Flow manages in order to ensure exactly-once updates for materializations",
+		Comment:     "This table holds Flow processing checkpoints used for exactly-once processing of materializations",
 		Columns: []Column{
 			{
-				Name:       "shard_fqn",
-				Identifier: "shard_fqn",
-				Comment:    "The id of the consumer shard. Note that a single collection may have multiple consumer shards materializing it, and each will have a separate checkpoint.",
+				Name:       "materialization",
+				Identifier: "materialization",
+				Comment:    "The name of the materialization.",
 				PrimaryKey: true,
 				Type:       STRING,
+				NotNull:    true,
+			},
+			{
+				Name:       "key_begin",
+				Identifier: "key_begin",
+				Comment:    "The inclusive lower-bound key hash covered by this checkpoint.",
+				PrimaryKey: true,
+				Type:       INTEGER,
+				NotNull:    true,
+			},
+			{
+				Name:       "key_end",
+				Identifier: "key_end",
+				Comment:    "The inclusive upper-bound key hash covered by this checkpoint.",
+				PrimaryKey: true,
+				Type:       INTEGER,
 				NotNull:    true,
 			},
 			{
@@ -66,4 +88,68 @@ func FlowMaterializationsTable(name string) *Table {
 			},
 		},
 	}
+}
+
+// DumpTables is a convenience for testing which dumps the contents
+// of the given tables into a debug string suitable for snapshotting.
+func DumpTables(db *sql.DB, tables ...*Table) (string, error) {
+	var b strings.Builder
+	for tn, table := range tables {
+		if tn > 0 {
+			b.WriteString("\n\n") // make it more readable
+		}
+		var colNames strings.Builder
+		for i, col := range table.Columns {
+			if i > 0 {
+				colNames.WriteString(", ")
+			}
+			colNames.WriteString(col.Identifier)
+		}
+
+		var sql = fmt.Sprintf("SELECT %s FROM %s;", colNames.String(), table.Identifier)
+		rows, err := db.Query(sql)
+		if err != nil {
+			return "", err
+		}
+		defer rows.Close()
+
+		fmt.Fprintf(&b, "%s:\n", table.Identifier)
+		b.WriteString(colNames.String())
+
+		for rows.Next() {
+			var data = make([]anyColumn, len(table.Columns))
+			var ptrs = make([]interface{}, len(table.Columns))
+			for i := range data {
+				ptrs[i] = &data[i]
+			}
+			if err = rows.Scan(ptrs...); err != nil {
+				return "", err
+			}
+			b.WriteString("\n")
+			for i, v := range ptrs {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				var val = v.(*anyColumn)
+				b.WriteString(val.String())
+			}
+		}
+	}
+	return b.String(), nil
+}
+
+type anyColumn string
+
+func (col *anyColumn) Scan(i interface{}) error {
+	var sval string
+	if b, ok := i.([]byte); ok {
+		sval = string(b)
+	} else {
+		sval = fmt.Sprint(i)
+	}
+	*col = anyColumn(sval)
+	return nil
+}
+func (col anyColumn) String() string {
+	return string(col)
 }

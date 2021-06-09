@@ -26,15 +26,15 @@ func NewDriver(
 
 	switch endpointType {
 	case pf.EndpointType_SQLITE:
-		return adapter{sqlite.NewSQLiteDriver()}, nil
+		return AdaptServerToClient(sqlite.NewSQLiteDriver()), nil
 	case pf.EndpointType_POSTGRESQL:
-		return adapter{postgres.NewPostgresDriver()}, nil
+		return AdaptServerToClient(postgres.NewPostgresDriver()), nil
 	case pf.EndpointType_SNOWFLAKE:
-		return adapter{snowflake.NewDriver(tempdir)}, nil
+		return AdaptServerToClient(snowflake.NewDriver(tempdir)), nil
 	case pf.EndpointType_WEBHOOK:
-		return adapter{webhook.NewDriver()}, nil
+		return AdaptServerToClient(webhook.NewDriver()), nil
 	case pf.EndpointType_FLOW_SINK:
-		return adapter{jsonimage.NewDriver()}, nil
+		return AdaptServerToClient(jsonimage.NewDriver()), nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
 			Endpoint protocol.Endpoint
