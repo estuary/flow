@@ -60,15 +60,14 @@ test://example/int-string-capture:
         name: testing/int-string
       endpoint:
         name: captureEndpoint
-        spec:
-          stream: a-stream
+        spec: { stream: a-stream }
 
     - target:
         name: testing/int-string
       endpoint:
         name: captureOtherEndpoint
         spec:
-          stream: a-stream
+          stream: other-stream
           namespace: and namespace
 
 test://example/int-string-materialization:
@@ -255,3 +254,26 @@ driver:
         Extra: { type: 1, reason: "location required" }
         Len: { type: 3, reason: "optional" }
       resourcePath: [tab!e, two]
+
+  captures:
+    one:
+      endpoint: AirbyteSource
+      spec:
+        image: s3
+        stream: a-stream
+        namespace: ""
+        config:
+          bucket: a-bucket
+          prefix: and-prefix
+      resourcePath: [bucke+, pr@fix]
+
+    two:
+      endpoint: AirbyteSource
+      spec:
+        image: database
+        stream: other-stream
+        namespace: and namespace
+        config:
+          host: a.host.name
+          user: a-user
+      resourcePath: [schema, table]

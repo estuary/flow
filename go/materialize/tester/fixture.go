@@ -7,7 +7,7 @@ import (
 	"math"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/materialize/driver"
+	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -33,7 +33,7 @@ type Fixture struct {
 func NewFixture(endpointType pf.EndpointType, endpointSpec json.RawMessage) (*Fixture, error) {
 	var ctx = context.Background()
 	var spec = NewMaterialization(endpointType, endpointSpec)
-	driverClient, err := driver.NewDriver(ctx, endpointType, endpointSpec, "")
+	driverClient, err := materialize.NewDriver(ctx, endpointType, endpointSpec, "")
 	if err != nil {
 		return nil, fmt.Errorf("creating driver client: %w", err)
 	}
@@ -75,7 +75,7 @@ func (f *Fixture) OpenTransactions(req **pm.TransactionRequest, driverCheckpoint
 		return nil, nil, fmt.Errorf("reading Opened message: %w", err)
 	}
 	if resp.Opened == nil {
-		return nil, nil, fmt.Errorf("Expected Opened message, got: %+v", resp)
+		return nil, nil, fmt.Errorf("expected Opened message, got: %+v", resp)
 	}
 	f.deltaUpdates = resp.Opened.DeltaUpdates
 	return stream, resp.Opened, nil
@@ -118,7 +118,7 @@ func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.Tr
 			for i, loadedKey := range loadedKeys {
 				var expectedDoc = expected[string(loadedKey)]
 				if expectedDoc == nil {
-					return nil, fmt.Errorf("Unexpected document with key: '%s', expected: %v", string(loadedKey), expected)
+					return nil, fmt.Errorf("unexpected document with key: '%s', expected: %v", string(loadedKey), expected)
 				}
 				delete(expected, string(loadedKey))
 				var actualDoc = response.Loaded.Arena.Bytes(response.Loaded.DocsJson[i])
@@ -129,11 +129,11 @@ func (f *Fixture) LoadDocuments(stream pm.Driver_TransactionsClient, req **pm.Tr
 		} else if response.Prepared != nil {
 			break
 		} else {
-			return nil, fmt.Errorf("Expected a Loaded or Prepared message, got: %+v", *response)
+			return nil, fmt.Errorf("expected a Loaded or Prepared message, got: %+v", *response)
 		}
 	}
 	if len(expected) > 0 {
-		return nil, fmt.Errorf("Load responses missing expected documents: %v", expected)
+		return nil, fmt.Errorf("load responses missing expected documents: %v", expected)
 	}
 	return response.Prepared, nil
 }
@@ -154,7 +154,7 @@ func (f *Fixture) StoreDocuments(stream pm.Driver_TransactionsClient, req **pm.T
 		return fmt.Errorf("receiving commit response: %w", err)
 	}
 	if response.Committed == nil {
-		return fmt.Errorf("Expected Committed, got: %+v", response)
+		return fmt.Errorf("expected Committed, got: %+v", response)
 	}
 	// Now that we've confirmed that the documents have been stored, set Exists to true so we handle
 	// future Loads and Stores correctly.

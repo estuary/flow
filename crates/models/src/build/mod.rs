@@ -224,11 +224,11 @@ pub fn derivation_spec(
     }
 }
 
-// endpoint_shard_id_suffix maps an endpoint and resource path into a name which
-// is suitable for use as a shard ID suffix. Shard IDs are restricted to
+// encode_endpoint_path encodes an endpoint and resource path into a string which
+// is suitable for use within a shard ID. Shard IDs are restricted to
 // unicode letters and numbers, plus the symbols `-_+/.=%`.
 // All other runes are percent-encoded.
-pub fn endpoint_shard_id_suffix(
+pub fn encode_endpoint_path(
     endpoint_name: &str,
     endpoint_resource_path: &[impl AsRef<str>],
 ) -> String {
@@ -254,11 +254,11 @@ pub fn endpoint_shard_id_suffix(
 
 #[cfg(test)]
 mod test {
-    use super::endpoint_shard_id_suffix;
+    use super::encode_endpoint_path;
 
     #[test]
     fn test_name_escapes() {
-        let out = endpoint_shard_id_suffix(
+        let out = encode_endpoint_path(
             "endpoint name",
             &vec![
                 "he!lo৬".to_string(),

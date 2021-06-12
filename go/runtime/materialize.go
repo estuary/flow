@@ -6,7 +6,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/materialize/driver"
+	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -40,7 +40,7 @@ type Materialize struct {
 	deltaUpdates bool
 	// Driver responses, pumped through a concurrent read loop.
 	// Updated in RestoreCheckpoint.
-	driverRx <-chan driver.TransactionResponse
+	driverRx <-chan materialize.TransactionResponse
 	// Driver requests.
 	// Updated in RestoreCheckpoint.
 	driverTx pm.Driver_TransactionsClient
@@ -124,7 +124,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	}
 
 	// Establish driver connection and start Transactions RPC.
-	conn, err := driver.NewDriver(shard.Context(),
+	conn, err := materialize.NewDriver(shard.Context(),
 		m.task.Materialization.EndpointType,
 		m.task.Materialization.EndpointSpecJson,
 		m.localDir,
@@ -136,7 +136,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	if err != nil {
 		return pc.Checkpoint{}, fmt.Errorf("driver.Transactions: %w", err)
 	}
-	m.driverRx = driver.TransactionResponseChannel(m.driverTx)
+	m.driverRx = materialize.TransactionResponseChannel(m.driverTx)
 	m.flighted = make(map[string]json.RawMessage)
 
 	// Write Open request with locally persisted DriverCheckpoint.
@@ -290,7 +290,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	return m.store.StartCommit(shard, checkpoint, consumer.OpFutures{m.committed: struct{}{}})
 }
 
-func awaitCommitted(driverRx <-chan driver.TransactionResponse, result *client.AsyncOperation) {
+func awaitCommitted(driverRx <-chan materialize.TransactionResponse, result *client.AsyncOperation) {
 	var m = <-driverRx
 
 	if m.Error != nil {
@@ -327,7 +327,7 @@ func (m *Materialize) BeginTxn(shard consumer.Shard) error {
 // pollLoaded selects and processes Loaded responses which can be read without blocking.
 func (m *Materialize) pollLoaded() error {
 	for {
-		var resp driver.TransactionResponse
+		var resp materialize.TransactionResponse
 		select {
 		case resp = <-m.driverRx:
 		default:

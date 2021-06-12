@@ -7,9 +7,9 @@ All {
     built_captures: [
         BuiltCapture {
             scope: test://example/int-string-capture#/captures/0,
-            capture: captureEndpoint/placeholder/testing/int-string,
+            capture: testing/int-string__captureEndpoint/bucke+/pr%40fix,
             spec: CaptureSpec {
-                capture: "captureEndpoint/placeholder/testing/int-string",
+                capture: "testing/int-string__captureEndpoint/bucke+/pr%40fix",
                 collection: Some(
                     CollectionSpec {
                         collection: "testing/int-string",
@@ -127,16 +127,16 @@ All {
                 endpoint_type: AirbyteSource,
                 endpoint_spec_json: "{\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"},\"image\":\"s3\",\"namespace\":\"\",\"stream\":\"a-stream\"}",
                 endpoint_resource_path: [
-                    "placeholder",
-                    "testing/int-string",
+                    "bucke+",
+                    "pr@fix",
                 ],
             },
         },
         BuiltCapture {
             scope: test://example/int-string-capture#/captures/1,
-            capture: captureOtherEndpoint/placeholder/testing/int-string,
+            capture: testing/int-string__captureOtherEndpoint/schema/table,
             spec: CaptureSpec {
-                capture: "captureOtherEndpoint/placeholder/testing/int-string",
+                capture: "testing/int-string__captureOtherEndpoint/schema/table",
                 collection: Some(
                     CollectionSpec {
                         collection: "testing/int-string",
@@ -252,10 +252,10 @@ All {
                 ),
                 endpoint_name: "captureOtherEndpoint",
                 endpoint_type: AirbyteSource,
-                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\",\"namespace\":\"and namespace\",\"stream\":\"a-stream\"}",
+                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\",\"namespace\":\"and namespace\",\"stream\":\"other-stream\"}",
                 endpoint_resource_path: [
-                    "placeholder",
-                    "testing/int-string",
+                    "schema",
+                    "table",
                 ],
             },
         },
@@ -1690,7 +1690,7 @@ All {
             scope: test://example/int-string-capture#/captures/1,
             collection: testing/int-string,
             endpoint: captureOtherEndpoint,
-            endpoint_patch_spec: {"namespace":"and namespace","stream":"a-stream"},
+            endpoint_patch_spec: {"namespace":"and namespace","stream":"other-stream"},
         },
     ],
     collections: [

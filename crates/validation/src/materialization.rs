@@ -69,7 +69,11 @@ pub async fn walk_all_materializations<D: Drivers>(
                     resource_path,
                 } = response;
 
-                let resolved_name = build::endpoint_shard_id_suffix(&endpoint_name, &resource_path);
+                // Materialization tasks are named by the fully qualified
+                // endpoint resource path into which they materialize.
+                // This imposes a uniqueness constraint that a endpoint
+                // resource may have at most one materialization task.
+                let resolved_name = build::encode_endpoint_path(&endpoint_name, &resource_path);
 
                 let fields = walk_materialization_response(
                     built_collection,

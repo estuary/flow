@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod cgo;
 pub mod consumer;
 pub mod flow;

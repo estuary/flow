@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+
+---
+[
+    Error {
+        scope: test://example/int-string-capture#/captures/0,
+        error: driver error while validating capture captureEndpoint
+        
+        Caused by:
+            A driver error!,
+    },
+]

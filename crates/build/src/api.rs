@@ -3,7 +3,7 @@ use futures::{channel::oneshot, FutureExt};
 use models::tables;
 use prost::Message;
 use protocol::{
-    cgo, flow,
+    capture, cgo, flow,
     flow::build_api::{self, Code},
     materialize,
 };
@@ -67,6 +67,24 @@ impl validation::Drivers for Drivers {
                 let result = result.and_then(|data| {
                     materialize::ValidateResponse::decode(data).map_err(Into::into)
                 });
+                tx.send(result).unwrap();
+            },
+        );
+        rx.map(|r| r.unwrap()).boxed_local()
+    }
+
+    fn validate_capture<'a>(
+        &'a self,
+        request: protocol::capture::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<protocol::capture::ValidateResponse, anyhow::Error>> {
+        let (tx, rx) = oneshot::channel();
+
+        self.0.start_task(
+            build_api::Code::TrampolineValidateCapture as u32,
+            move |arena: &mut Vec<u8>| request.encode_raw(arena),
+            move |result: Result<&[u8], anyhow::Error>| {
+                let result = result
+                    .and_then(|data| capture::ValidateResponse::decode(data).map_err(Into::into));
                 tx.send(result).unwrap();
             },
         );

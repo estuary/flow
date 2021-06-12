@@ -5,7 +5,8 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/materialize/driver"
+	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -16,7 +17,8 @@ func TestBuildCatalog(t *testing.T) {
 	var tempdir = t.TempDir()
 	built, err := BuildCatalog(BuildArgs{
 		FileRoot:            "./testdata",
-		MaterializeDriverFn: driver.NewDriver,
+		CaptureDriverFn:     capture.NewDriver,
+		MaterializeDriverFn: materialize.NewDriver,
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
 			Source:      "file:///build.flow.yaml",
@@ -50,6 +52,7 @@ func TestBuildSchema(t *testing.T) {
 	var tempdir = t.TempDir()
 	built, err := BuildCatalog(BuildArgs{
 		FileRoot:            "./testdata",
+		CaptureDriverFn:     nil, // Not needed.
 		MaterializeDriverFn: nil, // Not needed.
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",

@@ -115,6 +115,12 @@ pub enum Error {
     NoUpdateOrPublish { transform: String },
     #[error("cannot capture into derived collection {derivation}")]
     CaptureOfDerivation { derivation: String },
+    #[error("driver error while validating capture {name}")]
+    CaptureDriver {
+        name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
     #[error("driver error while validating materialization {name}")]
     MaterializationDriver {
         name: String,

@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/materialize/driver"
+	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/runtime"
@@ -139,7 +140,8 @@ func buildCatalog(config pf.BuildAPI_Config) (*bindings.BuiltCatalog, error) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
 		BuildAPI_Config:     config,
 		FileRoot:            "/",
-		MaterializeDriverFn: driver.NewDriver,
+		CaptureDriverFn:     capture.NewDriver,
+		MaterializeDriverFn: materialize.NewDriver,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("building catalog: %w", err)
@@ -276,7 +278,7 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, shards pc.ShardCli
 
 func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 	for _, spec := range built.Materializations {
-		driver, err := driver.NewDriver(context.Background(),
+		driver, err := materialize.NewDriver(context.Background(),
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
