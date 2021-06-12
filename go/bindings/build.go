@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -32,8 +33,17 @@ func CatalogJSONSchema() string {
 	return string(svc.arenaSlice(out[0]))
 }
 
+// CaptureDriverFn maps an endpoint type and config into a suitable DriverClient.
+// Typically this is capture.NewDriver.
+type CaptureDriverFn func(
+	ctx context.Context,
+	endpointType pf.EndpointType,
+	endpointSpec json.RawMessage,
+	tempdir string,
+) (pc.DriverClient, error)
+
 // MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
-// Typically this is driver.NewDriver.
+// Typically this is materialize.NewDriver.
 type MaterializeDriverFn func(
 	ctx context.Context,
 	endpointType pf.EndpointType,
@@ -46,6 +56,8 @@ type BuildArgs struct {
 	pf.BuildAPI_Config
 	// Directory which roots fetched file:// resolutions.
 	FileRoot string
+	// Builder of capture DriverClients
+	CaptureDriverFn CaptureDriverFn
 	// Builder of materialization DriverClients
 	MaterializeDriverFn MaterializeDriverFn
 }
@@ -96,11 +108,42 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 			},
 		},
 		trampolineHandler{
+			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_CAPTURE),
+			decode: func(request []byte) (interface{}, error) {
+				var m = new(pc.ValidateRequest)
+				var err = m.Unmarshal(request)
+				return m, err
+			},
+			exec: func(ctx context.Context, i interface{}) ([]byte, error) {
+				var request = i.(*pc.ValidateRequest)
+				log.WithField("request", request).Debug("capture validation requested")
+
+				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
+					json.RawMessage(request.EndpointSpecJson), "")
+				if err != nil {
+					return nil, fmt.Errorf("driver.NewDriver: %w", err)
+				}
+
+				response, err := driver.Validate(ctx, request)
+				if err != nil {
+					return nil, fmt.Errorf("driver.Validate: %w", err)
+				}
+				log.WithField("response", response).Debug("capture validation response")
+
+				// Return marshaled response with a |taskResponseHeader| prefix.
+				var out = make([]byte, taskResponseHeader+response.ProtoSize())
+				if _, err = response.MarshalTo(out[taskResponseHeader:]); err != nil {
+					return nil, fmt.Errorf("marshal response: %w", err)
+				}
+				return out, err
+			},
+		},
+		trampolineHandler{
 			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_MATERIALIZATION),
 			decode: func(request []byte) (interface{}, error) {
-				var fetch = new(pm.ValidateRequest)
-				var err = fetch.Unmarshal(request)
-				return fetch, err
+				var m = new(pm.ValidateRequest)
+				var err = m.Unmarshal(request)
+				return m, err
 			},
 			exec: func(ctx context.Context, i interface{}) ([]byte, error) {
 				var request = i.(*pm.ValidateRequest)

@@ -15,7 +15,7 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/materialize/driver"
+	"github.com/estuary/flow/go/materialize"
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -28,7 +28,7 @@ func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
 	var ctx = context.Background()
-	var driver = driver.AdaptServerToClient(sqlite.NewSQLiteDriver())
+	var driver = materialize.AdaptServerToClient(sqlite.NewSQLiteDriver())
 
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
 		FileRoot: "./testdata",

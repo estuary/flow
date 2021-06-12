@@ -76,6 +76,7 @@ fn main() {
         proto_include[0].join("broker/protocol/protocol.proto"),
         proto_include[0].join("consumer/protocol/protocol.proto"),
         proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
+        proto_include[3].join("go/protocols/capture/capture.proto"),
         proto_include[3].join("go/protocols/flow/flow.proto"),
         proto_include[3].join("go/protocols/materialize/materialize.proto"),
     ];
