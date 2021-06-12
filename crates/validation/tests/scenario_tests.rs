@@ -1,7 +1,7 @@
 use futures::{future::LocalBoxFuture, FutureExt};
 use lazy_static::lazy_static;
 use models::tables;
-use protocol::{flow, materialize};
+use protocol::{capture, flow, materialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -210,9 +210,15 @@ test://example/int-string-capture:
   import: null
   captures:
     - target: { name: testing/int-reverse }
-      endpoint: { name: captureEndpoint }
+      endpoint:
+        name: captureEndpoint
+        spec: { stream: a-stream }
     - target: { name: testing/int-string }
-      endpoint: { name: captureOtherEndpoint }
+      endpoint:
+        name: captureOtherEndpoint
+        spec:
+          stream: other-stream
+          namespace: and namespace
 "#,
     );
 }
@@ -225,7 +231,9 @@ fn test_capture_duplicates() {
 test://example/catalog.yaml:
   captures:
     - target: { name: testing/int-string }
-      endpoint: { name: captureEndpoint }
+      endpoint:
+        name: captureEndpoint
+        spec: { stream: a-stream }
 "#,
     );
 }
@@ -556,6 +564,19 @@ test://example/int-halve-materialization:
 }
 
 #[test]
+fn test_capture_driver_returns_error() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+driver:
+  captures:
+    one:
+      error: "A driver error!"
+"#,
+    );
+}
+
+#[test]
 fn test_materialization_driver_returns_error() {
     run_test_errors(
         &GOLDEN,
@@ -767,6 +788,18 @@ test://example/int-string:
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {
     materializations: HashMap<String, MockMaterializationValidateCall>,
+    captures: HashMap<String, MockCaptureValidateCall>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MockCaptureValidateCall {
+    endpoint: flow::EndpointType,
+    spec: serde_json::Value,
+    #[serde(default)]
+    resource_path: Vec<String>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -806,6 +839,32 @@ impl validation::Drivers for MockDriverCalls {
                 }
             }
             return Err(anyhow::anyhow!("driver fixture not found"));
+        }
+        .boxed_local()
+    }
+
+    fn validate_capture<'a>(
+        &'a self,
+        request: capture::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<capture::ValidateResponse, anyhow::Error>> {
+        async move {
+            let endpoint_spec: serde_json::Value =
+                serde_json::from_str(&request.endpoint_spec_json)?;
+
+            for (_key, call) in &self.captures {
+                if (call.endpoint as i32, &call.spec) != (request.endpoint_type, &endpoint_spec) {
+                    continue;
+                }
+
+                if let Some(err) = &call.error {
+                    return Err(anyhow::anyhow!("{}", err));
+                } else {
+                    return Ok(capture::ValidateResponse {
+                        resource_path: call.resource_path.clone(),
+                    });
+                }
+            }
+            return Err(anyhow::anyhow!("driver fixture not found",));
         }
         .boxed_local()
     }
