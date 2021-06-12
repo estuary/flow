@@ -951,12 +951,14 @@ pub mod build_api {
         Trampoline = 2,
         /// Trampoline sub-type: Start fetch of a resource.
         TrampolineFetch = 3,
+        /// Trampoline sub-type: Start validation of a capture.
+        TrampolineValidateCapture = 4,
         /// Trampoline sub-type: Start validation of a materialization.
-        TrampolineValidateMaterialization = 4,
+        TrampolineValidateMaterialization = 5,
         /// Build completed successfully (Rust -> Go).
-        Done = 5,
+        Done = 6,
         /// Build completed with errors (Rust -> Go).
-        DoneWithErrors = 6,
+        DoneWithErrors = 7,
         /// Generate catalog specification JSON schema (Go <-> Rust)
         CatalogSchema = 100,
     }

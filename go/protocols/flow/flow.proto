@@ -793,12 +793,14 @@ message BuildAPI {
     TRAMPOLINE = 2;
     // Trampoline sub-type: Start fetch of a resource.
     TRAMPOLINE_FETCH = 3;
+    // Trampoline sub-type: Start validation of a capture.
+    TRAMPOLINE_VALIDATE_CAPTURE = 4;
     // Trampoline sub-type: Start validation of a materialization.
-    TRAMPOLINE_VALIDATE_MATERIALIZATION = 4;
+    TRAMPOLINE_VALIDATE_MATERIALIZATION = 5;
     // Build completed successfully (Rust -> Go).
-    DONE = 5;
+    DONE = 6;
     // Build completed with errors (Rust -> Go).
-    DONE_WITH_ERRORS = 6;
+    DONE_WITH_ERRORS = 7;
     // Generate catalog specification JSON schema (Go <-> Rust)
     CATALOG_SCHEMA = 100;
   };

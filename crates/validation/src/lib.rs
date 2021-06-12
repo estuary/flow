@@ -1,7 +1,7 @@
 use futures::future::LocalBoxFuture;
 use itertools::Itertools;
 use models::tables;
-use protocol::materialize;
+use protocol;
 
 mod capture;
 mod collate;
@@ -23,8 +23,13 @@ use errors::Error;
 pub trait Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        request: materialize::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>>;
+        request: protocol::materialize::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<protocol::materialize::ValidateResponse, anyhow::Error>>;
+
+    fn validate_capture<'a>(
+        &'a self,
+        request: protocol::capture::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<protocol::capture::ValidateResponse, anyhow::Error>>;
 }
 
 /// Tables produced by validate.
@@ -116,6 +121,7 @@ pub async fn validate<D: Drivers>(
     endpoint::walk_all_endpoints(endpoints, &mut errors);
 
     let built_captures = capture::walk_all_captures(
+        drivers,
         &built_collections,
         captures,
         collections,
@@ -125,6 +131,7 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
+    let mut tmp_errors = tables::Errors::new();
     let built_materializations = materialization::walk_all_materializations(
         drivers,
         &built_collections,
@@ -134,9 +141,13 @@ pub async fn validate<D: Drivers>(
         materializations,
         projections,
         &schema_shapes,
-        &mut errors,
-    )
-    .await;
+        &mut tmp_errors,
+    );
+
+    // Concurrently validate captures and materializations.
+    let (built_captures, built_materializations) =
+        futures::future::join(built_captures, built_materializations).await;
+    errors.extend(tmp_errors.into_iter());
 
     let built_tests = test_step::walk_all_test_steps(
         collections,
