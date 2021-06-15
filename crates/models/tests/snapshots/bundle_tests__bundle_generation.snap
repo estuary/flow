@@ -1,0 +1,68 @@
+---
+source: crates/models/tests/bundle_tests.rs
+expression: "serde_json::json!(bundle_docs)"
+
+---
+testing/five:
+  $defs:
+    __flowInline1:
+      $id: "test://example/schema.B"
+      allOf:
+        - $ref: schema.A
+    __flowInline2:
+      $id: "test://example/schema.A"
+      properties:
+        int:
+          type: integer
+      required:
+        - int
+      type: object
+    expect-this-is-merged: true
+  $id: "test://example/catalog.yaml?ptr=/collections/testing~1five/schema"
+  $ref: schema.B
+  description: hello!
+testing/four:
+  $id: "test://example/catalog.yaml?ptr=/collections/testing~1four/schema"
+  properties:
+    str:
+      type: string
+  required:
+    - str
+  type: object
+testing/one:
+  $id: "test://example/schema.A"
+  properties:
+    int:
+      type: integer
+  required:
+    - int
+  type: object
+testing/three:
+  $defs:
+    __flowInline0:
+      $id: "test://example/schema.B"
+      allOf:
+        - $ref: schema.A
+    __flowInline1:
+      $id: "test://example/schema.A"
+      properties:
+        int:
+          type: integer
+      required:
+        - int
+      type: object
+  $ref: "test://example/schema.B#/allOf/0"
+testing/two:
+  $defs:
+    __flowInline1:
+      $id: "test://example/schema.A"
+      properties:
+        int:
+          type: integer
+      required:
+        - int
+      type: object
+  $id: "test://example/schema.B"
+  allOf:
+    - $ref: schema.A
+

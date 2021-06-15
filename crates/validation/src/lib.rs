@@ -96,8 +96,14 @@ pub async fn validate<D: Drivers>(
         transforms,
     );
 
-    let (schema_shapes, inferences) =
-        schema::walk_all_schema_refs(&schema_index, projections, &schema_refs, &mut errors);
+    let (schema_shapes, inferences) = schema::walk_all_schema_refs(
+        &imports,
+        projections,
+        &schema_docs,
+        &schema_index,
+        &schema_refs,
+        &mut errors,
+    );
 
     schema::walk_all_named_schemas(named_schemas, &mut errors);
     npm_dependency::walk_all_npm_dependencies(npm_dependencies, &mut errors);

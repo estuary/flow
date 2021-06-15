@@ -218,6 +218,7 @@ pub mod inference {
         pub max_length: u32,
     }
 }
+/// Next tag: 9.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
     /// Name of this collection.
@@ -227,6 +228,11 @@ pub struct CollectionSpec {
     /// and which provides reduction annotations.
     #[prost(string, tag="2")]
     pub schema_uri: ::prost::alloc::string::String,
+    /// Schema document of the collection, in a bundled and stand-alone form.
+    /// All external references within the document have been bundled as
+    /// included internal definitions.
+    #[prost(string, tag="8")]
+    pub schema_json: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag="3")]
     pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,

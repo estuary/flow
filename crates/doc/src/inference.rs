@@ -545,11 +545,14 @@ impl Shape {
         let mut unevaluated_items: Option<Shape> = None;
 
         // Does this schema have any keywords which directly affect its validation
-        // or annotation result? We give a special pass to `title` and `description`.
+        // or annotation result? We give a special pass to `$defs`, `title`, and
+        // `description`. We would also give a pass to `$id`, but it isn't modeled
+        // as a schema keyword.
         if !schema.kw.iter().all(|kw| {
             matches!(
                 kw,
                 Keyword::Application(Application::Ref(_), _)
+                | Keyword::Application(Application::Def{ .. }, _)
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
                 // An in-place application doesn't *by itself* make this an inline
@@ -734,7 +737,13 @@ impl Shape {
                         Shape::default()
                     };
 
-                    referent.provenance = Provenance::Reference(uri.clone());
+                    // Track this |uri| as a reference, unless its resolved shape is itself
+                    // a reference to another schema. In other words, promote the bottom-most
+                    // $ref within a hierarchy of $ref's.
+                    if !matches!(referent.provenance, Provenance::Reference(_)) {
+                        referent.provenance = Provenance::Reference(uri.clone());
+                    }
+
                     shape = Shape::intersect(shape, referent);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
@@ -2175,6 +2184,12 @@ mod test {
                     a-thing-plus:
                         $ref: '#/$defs/thing'
                         minLength: 16
+                    multi:
+                        type: array
+                        items:
+                            - $ref: '#/properties/multi/items/1'
+                            - $ref: '#/properties/multi/items/2'
+                            - {type: integer}
 
                 $ref: '#/$defs/in-place'
                 "#],
@@ -2205,6 +2220,40 @@ mod test {
                                     ..Default::default()
                                 },
                                 provenance: Provenance::Inline,
+                                ..Default::default()
+                            },
+                        },
+                        ObjProperty {
+                            name: "multi".to_owned(),
+                            is_required: false,
+                            shape: Shape {
+                                type_: types::ARRAY,
+                                provenance: Provenance::Inline,
+                                array: ArrayShape {
+                                    tuple: vec![
+                                        Shape {
+                                            type_: types::INTEGER,
+                                            provenance: Provenance::Reference(
+                                                // Expect the leaf-most reference is preserved in a multi-level hierarchy.
+                                                Url::parse("http://example/schema#/properties/multi/items/2").unwrap(),
+                                            ),
+                                            ..Default::default()
+                                        },
+                                        Shape {
+                                            type_: types::INTEGER,
+                                            provenance: Provenance::Reference(
+                                                Url::parse("http://example/schema#/properties/multi/items/2").unwrap(),
+                                            ),
+                                            ..Default::default()
+                                        },
+                                        Shape {
+                                            type_: types::INTEGER,
+                                            provenance: Provenance::Inline,
+                                            ..Default::default()
+                                        },
+                                    ],
+                                    ..Default::default()
+                                },
                                 ..Default::default()
                             },
                         },
