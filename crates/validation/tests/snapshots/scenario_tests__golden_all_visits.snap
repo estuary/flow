@@ -14,6 +14,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-string",
                         schema_uri: "test://example/int-string.schema",
+                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -141,6 +142,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-string",
                         schema_uri: "test://example/int-string.schema",
+                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -267,6 +269,7 @@ All {
             spec: CollectionSpec {
                 collection: "testing/int-reverse",
                 schema_uri: "test://example/int-string.schema",
+                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -362,6 +365,7 @@ All {
             spec: CollectionSpec {
                 collection: "testing/int-string",
                 schema_uri: "test://example/int-string.schema",
+                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -477,6 +481,7 @@ All {
             spec: CollectionSpec {
                 collection: "testing/int-halve",
                 schema_uri: "test://example/int-string-len.schema",
+                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -686,6 +691,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-reverse",
                         schema_uri: "test://example/int-string.schema",
+                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -837,6 +843,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-halve",
                         schema_uri: "test://example/int-string-len.schema",
+                        schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -1160,6 +1167,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-string",
                         schema_uri: "test://example/int-string.schema",
+                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -1342,6 +1350,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-halve",
                         schema_uri: "test://example/int-string-len.schema",
+                        schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                         key_ptrs: [
                             "/int",
                         ],
