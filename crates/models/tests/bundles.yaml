@@ -1,0 +1,39 @@
+test://example/catalog.yaml:
+  collections:
+    testing/one:
+      schema: schema.A
+      key: [/int]
+
+    testing/two:
+      schema: schema.B
+      key: [/int]
+
+    testing/three:
+      schema: schema.B#/allOf/0
+      key: [/int]
+
+    testing/four:
+      schema:
+        type: object
+        properties:
+          str: { type: string }
+        required: [str]
+      key: [/str]
+
+    testing/five:
+      schema:
+        $ref: schema.B
+        $defs:
+          expect-this-is-merged: true
+        description: "hello!"
+      key: [/int]
+
+test://example/schema.A:
+  type: object
+  properties:
+    int: { type: integer }
+  required: [int]
+
+test://example/schema.B:
+  allOf:
+    - $ref: schema.A

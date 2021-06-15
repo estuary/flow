@@ -13,6 +13,8 @@ pub struct Shape {
     // Canonical field names and corresponding locations, sorted on field.
     // This combines implicit, discovered locations with explicit projected locations.
     pub fields: Vec<(String, names::JsonPointer)>,
+    // Schema document with bundled dependencies.
+    pub bundle: serde_json::Value,
 }
 
 /// Ref is a reference to a schema.
@@ -130,13 +132,21 @@ pub fn index_compiled_schemas<'a>(
 }
 
 pub fn walk_all_schema_refs(
-    index: &doc::SchemaIndex<'_>,
+    imports: &[&tables::Import],
     projections: &[tables::Projection],
+    schema_docs: &[tables::SchemaDoc],
+    schema_index: &doc::SchemaIndex<'_>,
     schema_refs: &[Ref<'_>],
     errors: &mut tables::Errors,
 ) -> (Vec<Shape>, tables::Inferences) {
     let mut schema_shapes: Vec<Shape> = Vec::new();
     let mut inferences = tables::Inferences::new();
+
+    // Index schema_docs on schema CURI.
+    let schema_docs = schema_docs
+        .iter()
+        .sorted_by_key(|d| &d.schema)
+        .collect::<Vec<_>>();
 
     // Walk schema URLs (*with* fragment pointers) with their grouped references.
     for (schema, references) in schema_refs
@@ -146,8 +156,8 @@ pub fn walk_all_schema_refs(
         .into_iter()
     {
         // Infer the schema shape, and report any inspected errors.
-        let shape = match index.fetch(schema) {
-            Some(s) => inference::Shape::infer(s, &index),
+        let shape = match schema_index.fetch(schema) {
+            Some(s) => inference::Shape::infer(s, &schema_index),
             None => {
                 for reference in references {
                     Error::NoSuchSchema {
@@ -160,6 +170,7 @@ pub fn walk_all_schema_refs(
                     schema: schema.clone(),
                     shape: Default::default(),
                     fields: Default::default(),
+                    bundle: Default::default(),
                 });
                 continue;
             }
@@ -241,6 +252,7 @@ pub fn walk_all_schema_refs(
             schema: schema.clone(),
             shape,
             fields,
+            bundle: build::bundled_schema(schema, imports, &schema_docs),
         });
     }
 

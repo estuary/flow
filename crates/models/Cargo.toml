@@ -11,10 +11,19 @@ protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
 bytes = "*"
+pathfinding = "*"
 percent-encoding = "*"
 prost = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value"] }
+superslice = "*"
 url = "*"
+
+[dev-dependencies]
+sources = { path = "../sources", version = "0.0.0" }
+
+insta = "*"
+itertools = "*"
+serde_yaml = "*"

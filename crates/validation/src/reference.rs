@@ -1,6 +1,5 @@
 use super::Error;
 use models::tables;
-use superslice::Ext;
 use url::Url;
 
 pub fn walk_reference<'a, T, F, N>(
@@ -19,7 +18,7 @@ where
 {
     if let Some(entity) = entities.iter().find(|t| entity_fn(t).0 == ref_name) {
         let ref_scope = entity_fn(entity).1;
-        if !import_path(imports, this_scope, ref_scope) {
+        if !tables::Import::path_exists(imports, this_scope, ref_scope) {
             Error::MissingImport {
                 this_thing: this_thing.to_string(),
                 ref_entity,
@@ -64,28 +63,4 @@ where
     }
 
     None
-}
-
-pub fn import_path(imports: &[&tables::Import], src_scope: &Url, tgt_scope: &Url) -> bool {
-    let edges = |from: &Url| {
-        let range = imports.equal_range_by_key(&from, |import| &import.from_resource);
-        imports[range].iter().map(|import| &import.to_resource)
-    };
-
-    // Trim any fragment suffix of each scope to obtain the base resource.
-    let (mut src, mut tgt) = (src_scope.clone(), tgt_scope.clone());
-    src.set_fragment(None);
-    tgt.set_fragment(None);
-
-    // Search forward paths.
-    if let Some(_) = pathfinding::directed::bfs::bfs(&&src, |f| edges(f), |s| s == &&tgt) {
-        true
-    } else if let Some(_) =
-        // Search backward paths.
-        pathfinding::directed::bfs::bfs(&&tgt, |f| edges(f), |s| s == &&src)
-    {
-        true
-    } else {
-        false
-    }
 }

@@ -5,6 +5,9 @@ use protocol::{flow, protocol as broker};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+mod bundle;
+pub use bundle::bundled_schema;
+
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     flow::Inference {
         types: shape.type_.to_vec(),
@@ -27,6 +30,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 pub fn collection_spec(
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
+    schema_bundle: &Value,
 ) -> flow::CollectionSpec {
     let tables::Collection {
         collection: name,
@@ -49,6 +53,7 @@ pub fn collection_spec(
     flow::CollectionSpec {
         collection: name.to_string(),
         schema_uri: schema.to_string(),
+        schema_json: schema_bundle.to_string(),
         key_ptrs: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,

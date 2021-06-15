@@ -75,7 +75,7 @@ fn walk_collection(
         implicit_projections,
     );
 
-    build::collection_spec(collection, projections)
+    build::collection_spec(collection, projections, &schema.bundle)
 }
 
 fn walk_collection_projections(
