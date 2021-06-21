@@ -1,0 +1,26 @@
+[package]
+name = "parser"
+version = "0.1.0"
+authors = ["Estaury <info@estuary.dev>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+structopt = "*"
+serde = {version = "*", features=["derive"]}
+serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
+# used to provide a display impl for enums that matches the name used by serde
+serde_with = "*"
+schemars = "*"
+url = "*"
+thiserror = "*"
+log = "*"
+env_logger = "*"
+
+# TODO: update this depedency spec once we publish the json crate to crates.io
+json = {git = "https://github.com/estuary/flow"}
+doc = {git = "https://github.com/estuary/flow"}
+
+[dev-dependencies]
+tempdir = "*"
