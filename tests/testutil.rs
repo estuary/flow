@@ -11,11 +11,6 @@ pub fn input_for_file(rel_path: &str) -> Input {
     Box::new(file)
 }
 
-pub fn input_bytes(content: impl AsRef<[u8]>) -> Input {
-    let bytes = content.as_ref().to_vec();
-    Box::new(std::io::Cursor::new(bytes))
-}
-
 pub struct CommandResult {
     pub parsed: Vec<Value>,
     pub raw_stdout: String,

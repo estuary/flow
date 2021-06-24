@@ -47,6 +47,7 @@ impl ParseError {
 /// parser may inspect the content to determine the separator character, and return a base
 /// ParseConfig including the inferred separator, which the user-provided config will be merged
 /// onto.
+#[tracing::instrument(level = "debug", skip(_content))]
 pub fn resolve_config(config: &ParseConfig, _content: Input) -> Result<ParseConfig, ParseError> {
     let format = match config.format {
         Some(f) => f,
@@ -54,7 +55,7 @@ pub fn resolve_config(config: &ParseConfig, _content: Input) -> Result<ParseConf
             let tmp_config = ParseConfig::default().override_from(config);
             let resolved =
                 determine_format(&tmp_config).ok_or_else(|| ParseError::CannotInferFormat)?;
-            log::info!("inferred format: {}", resolved);
+            tracing::info!("inferred format: {}", resolved);
             resolved
         }
     };
@@ -76,10 +77,9 @@ pub fn parse(
     content: Input,
     dest: Box<dyn io::Write>,
 ) -> Result<(), ParseError> {
-    log::debug!("using base config: {:?}", config);
     // TODO: peek at the content and remove this empty placeholder
     let config = resolve_config(config, Box::new(io::empty()))?;
-    log::debug!("resolved config: {:?}", config);
+    tracing::debug!("resolved config: {:?}", config);
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
     let output = parser.parse(&config, content)?;
@@ -112,8 +112,20 @@ pub trait Parser {
 
 /// Takes the output of a parser and writes it to the given destination, generally stdout.
 fn format_output(output: Output, mut dest: Box<dyn io::Write>) -> Result<(), ParseError> {
+    let mut record_count = 0u64;
     for result in output {
-        let value = result?;
+        let value = match result {
+            Ok(value) => value,
+            Err(e) => {
+                tracing::warn!(
+                    record_count = record_count,
+                    "parsing failed after {} records",
+                    record_count
+                );
+                return Err(e);
+            }
+        };
+        record_count += 1;
         serde_json::to_writer(&mut dest, &value)?;
         dest.write_all(&[b'\n'])?;
         // This flush is necessary in cases where the caller of the parser needs to associate lines
@@ -124,6 +136,7 @@ fn format_output(output: Output, mut dest: Box<dyn io::Write>) -> Result<(), Par
         // so we can avoid unnecessary calls to flush when possible.
         dest.flush()?;
     }
+    tracing::info!(record_count = record_count, "successfully finished parsing");
     Ok(())
 }
 

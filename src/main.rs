@@ -5,11 +5,8 @@ use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 pub struct Args {
-    #[structopt(long, global = true, default_value = "info", env = "PARSER_LOG")]
+    #[structopt(long, global = true, default_value = "warn", env = "PARSER_LOG")]
     pub log: String,
-
-    #[structopt(long, global = true, default_value = "auto", env = "PARSER_LOG_COLOR", possible_values(&["auto", "always", "never"]))]
-    pub log_color: String,
 
     #[structopt(subcommand)]
     pub command: Command,
@@ -29,16 +26,29 @@ pub struct ParseArgs {
     pub config_file: Option<String>,
 
     /// Path to a file with the data to parse. Defaults to '-', which represents stdin.
+    /// Passing a value other that '-' will default the filename in the config to the given file.
+    /// Some formats, like Excel files, can't really be parsed in a single pass. You need to be
+    /// able to seek around the file. This option enables those files to be passed as files, which
+    /// allows the parser to avoid duplicating the work of writing the stream to a temporary file.
+    /// Note that that's not actually implemented yet, but that's the intent of this option.
     #[structopt(long = "file", default_value = "-")]
     pub file: String,
 }
 
 fn main() {
     let args = Args::from_args();
-    env_logger::Builder::new()
-        .parse_filters(&args.log)
-        .parse_write_style(&args.log_color)
+
+    // Logs are written to stderr in jsonl format, which seems appropriate given that the same
+    // format is used for everythign else too.
+    tracing_subscriber::fmt()
+        .json()
+        .with_span_list(false) // excludes the "spans" array from the output
+        // causes span events to be written only after the span closes, which will include timing
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .with_writer(io::stderr)
+        .with_env_filter(args.log.as_str())
         .init();
+
     match args.command {
         Command::Parse(parse_args) => {
             do_parse(&parse_args);
@@ -47,6 +57,7 @@ fn main() {
     }
 }
 
+#[tracing::instrument]
 fn do_parse(parse_args: &ParseArgs) {
     let mut config = parse_args
         .config_file
@@ -86,11 +97,8 @@ where
         match self {
             Ok(t) => t,
             Err(e) => {
-                if log::log_enabled!(log::Level::Debug) {
-                    log::error!("{}: {:?}", message, e);
-                } else {
-                    log::error!("{}: {}", message, e);
-                }
+                tracing::debug!("Error details: {:#?}", e);
+                tracing::error!("{}: {}", message, e);
                 std::process::exit(1);
             }
         }

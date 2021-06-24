@@ -10,13 +10,11 @@ edition = "2018"
 structopt = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
-# used to provide a display impl for enums that matches the name used by serde
-serde_with = "*"
 schemars = "*"
 url = "*"
 thiserror = "*"
-log = "*"
-env_logger = "*"
+tracing = "*"
+tracing-subscriber = "*"
 
 # TODO: update this depedency spec once we publish the json crate to crates.io
 json = {git = "https://github.com/estuary/flow"}
