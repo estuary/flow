@@ -11,7 +11,7 @@ fn jsonl_content_is_parsed() {
     config
         .add_values
         .insert(JsonPointer::from("/_meta/canary"), json!(true));
-    config.add_line_number = Some(JsonPointer::from("/line"));
+    config.add_source_offset = Some(JsonPointer::from("/line"));
     config.filename = Some("valid.jsonl".to_string());
 
     let result = run_test(&config, input);

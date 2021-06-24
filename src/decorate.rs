@@ -14,7 +14,7 @@ impl Decorator {
             .iter()
             .map(|(ptr, val)| (Pointer::from_str(ptr.as_ref()), val.clone()))
             .collect();
-        let line_number_location = config.add_line_number.as_ref().map(Pointer::from);
+        let line_number_location = config.add_source_offset.as_ref().map(Pointer::from);
         Decorator {
             fields,
             line_number_location,

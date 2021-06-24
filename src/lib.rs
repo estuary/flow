@@ -109,6 +109,7 @@ impl std::str::FromStr for Format {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ParseConfig {
     /// format forces the use of the given parser and disables automatic format detection. If
     /// unspecified, then the format will be inferred from the filename, content-type, or file
@@ -125,12 +126,12 @@ pub struct ParseConfig {
     #[serde(default)]
     pub content_type: Option<String>,
 
-    #[serde(rename = "addLineNumber", default)]
+    #[serde(default)]
     /// Add the source line number to each json document at the given location.
-    pub add_line_number: Option<JsonPointer>,
+    pub add_source_offset: Option<JsonPointer>,
 
     /// Static data to add to each output JSON document.
-    #[serde(rename = "addValues", default)]
+    #[serde(default)]
     pub add_values: BTreeMap<JsonPointer, Value>,
 
     /// Projections control how tabular data like CSV gets transformed into potentially nested JSON
@@ -177,8 +178,8 @@ impl ParseConfig {
         if other.content_type.is_some() {
             self.content_type = other.content_type.clone();
         }
-        if other.add_line_number.is_some() {
-            self.add_line_number = other.add_line_number.clone();
+        if other.add_source_offset.is_some() {
+            self.add_source_offset = other.add_source_offset.clone();
         }
         self.add_values.extend(
             other
@@ -216,7 +217,7 @@ impl Default for ParseConfig {
             format: None,
             filename: None,
             content_type: None,
-            add_line_number: None,
+            add_source_offset: None,
             add_values: BTreeMap::new(),
             projections: BTreeMap::new(),
             schema: Value::Bool(true),
