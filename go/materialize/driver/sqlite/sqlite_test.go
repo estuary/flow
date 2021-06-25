@@ -24,6 +24,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSQLGeneration(t *testing.T) {
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///sql-gen.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		},
+		MaterializeDriverFn: materialize.NewDriver,
+	})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	var gen = sqlDriver.SQLiteSQLGenerator()
+	var spec = &built.Materializations[0]
+	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec.Bindings[0])
+
+	keyCreate, keyInsert, keyJoin, keyTruncate, err := sqlite.BuildSQL(
+		&gen, 123, table, spec.Bindings[0].FieldSelection)
+	require.NoError(t, err)
+
+	require.Equal(t, `
+		CREATE TABLE load.keys_123 (
+			key1 INTEGER NOT NULL, key2 BOOLEAN NOT NULL
+		);`, keyCreate)
+
+	require.Equal(t, `
+		INSERT INTO load.keys_123 (
+			key1, key2
+		) VALUES (
+			?, ?
+		);`, keyInsert)
+
+	// Note the intentional missing semicolon, as this is a subquery.
+	require.Equal(t, `
+		SELECT 123, l.flow_document
+			FROM test_table AS l
+			JOIN load.keys_123 AS r
+			ON l.key1 = r.key1 AND l.key2 = r.key2
+		`, keyJoin)
+
+	require.Equal(t, `DELETE FROM load.keys_123 ;`, keyTruncate)
+}
+
 func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
@@ -34,36 +79,41 @@ func TestSQLiteDriver(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
-			Source:      "file:///flow.yaml",
+			Source:      "file:///driver-steps.yaml",
 			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
+		},
+		MaterializeDriverFn: materialize.NewDriver,
+	})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)
 
+	// Model MaterializationSpec we'll *mostly* use, but vary slightly in this test.
+	var model = built.Materializations[0]
+
 	// Config fixture which matches schema of ParseConfig.
-	var spec = struct {
-		Path  string
-		Table string
-	}{
-		Path:  "file://" + path.Join(t.TempDir(), "target.db"),
-		Table: "test_target",
-	}
-	var specJSON, _ = json.Marshal(spec)
+	var endpointConfig = struct {
+		Path string
+	}{Path: "file://" + path.Join(t.TempDir(), "target.db")}
+	var endpointJSON, _ = json.Marshal(endpointConfig)
 
 	// Validate should return constraints for a non-existant materialization
-	var collection = &built.Collections[0]
 	var validateReq = pm.ValidateRequest{
-		EndpointName:     "an/endpoint",
+		Materialization:  built.Materializations[0].Materialization,
 		EndpointType:     pf.EndpointType_SQLITE,
-		EndpointSpecJson: json.RawMessage(specJSON),
-		Collection:       collection,
+		EndpointSpecJson: json.RawMessage(endpointJSON),
+		Bindings: []*pm.ValidateRequest_Binding{
+			{
+				Collection:       model.Bindings[0].Collection,
+				ResourceSpecJson: model.Bindings[0].ResourceSpecJson,
+			},
+		},
 	}
 
 	validateResp, err := driver.Validate(ctx, &validateReq)
 	require.NoError(t, err)
 	// There should be a constraint for every projection
-	require.Equal(t, &pm.ValidateResponse{
+	require.Equal(t, &pm.ValidateResponse_Binding{
 		Constraints: map[string]*pm.Constraint{
 			"array":         {Type: pm.Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
 			"bool":          {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
@@ -74,8 +124,9 @@ func TestSQLiteDriver(t *testing.T) {
 			"string":        {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
 			"theKey":        {Type: pm.Constraint_LOCATION_REQUIRED, Reason: "All Locations that are part of the collections key are required"},
 		},
-		ResourcePath: []string{"test_target"},
-	}, validateResp)
+		DeltaUpdates: false,
+		ResourcePath: model.Bindings[0].ResourcePath,
+	}, validateResp.Bindings[0])
 
 	// Select some fields and Apply the materialization
 	var fields = pf.FieldSelection{
@@ -85,13 +136,19 @@ func TestSQLiteDriver(t *testing.T) {
 	}
 	var applyReq = pm.ApplyRequest{
 		Materialization: &pf.MaterializationSpec{
-			Materialization:      "a/materialization",
-			Collection:           *collection,
-			EndpointName:         "an/endpoint",
-			EndpointType:         pf.EndpointType_SQLITE,
-			EndpointSpecJson:     json.RawMessage(specJSON),
-			EndpointResourcePath: []string{"test_target"},
-			FieldSelection:       fields,
+			Materialization:  built.Materializations[0].Materialization,
+			EndpointType:     pf.EndpointType_SQLITE,
+			EndpointSpecJson: json.RawMessage(endpointJSON),
+			Bindings: []*pf.MaterializationSpec_Binding{
+				{
+					Collection:       model.Bindings[0].Collection,
+					FieldSelection:   fields,
+					ResourcePath:     model.Bindings[0].ResourcePath,
+					ResourceSpecJson: model.Bindings[0].ResourceSpecJson,
+					DeltaUpdates:     false,
+					Shuffle:          model.Bindings[0].Shuffle,
+				},
+			},
 		},
 		DryRun: true,
 	}
@@ -108,9 +165,14 @@ func TestSQLiteDriver(t *testing.T) {
 	// Now that we've applied, call Validate again to ensure the existing fields are accounted for
 	validateResp, err = driver.Validate(ctx, &validateReq)
 	require.NoError(t, err)
-	require.Equal(t, len(collection.Projections), len(validateResp.Constraints))
+
+	// Expect a constraint was returned for each projection.
+	require.Equal(t,
+		len(model.Bindings[0].Collection.Projections),
+		len(validateResp.Bindings[0].Constraints))
+
 	for _, field := range fields.AllFields() {
-		var actual = validateResp.Constraints[field].Type
+		var actual = validateResp.Bindings[0].Constraints[field].Type
 		require.Equal(
 			t,
 			pm.Constraint_FIELD_REQUIRED,
@@ -122,16 +184,16 @@ func TestSQLiteDriver(t *testing.T) {
 	}
 	// The "number" field should be forbidden because it was not included in the FieldSelection that
 	// was applied.
-	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, validateResp.Constraints["number"].Type)
+	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, validateResp.Bindings[0].Constraints["number"].Type)
 
 	// Insert a fixture into the `flow_checkpoints` table which we'll fence
 	// and draw a checkpoint from, and then insert a more-specific checkpoint
 	// that reflects our transaction request range fixture.
 	{
-		var db, err = sql.Open("sqlite3", spec.Path)
+		var db, err = sql.Open("sqlite3", endpointConfig.Path)
 		require.NoError(t, err)
 
-		_, err = db.Exec(`INSERT INTO flow_checkpoints
+		_, err = db.Exec(`INSERT INTO flow_checkpoints_v1
 			(materialization, key_begin, key_end, fence, checkpoint)
 			VALUES (?, 0, ?, 5, ?)
 		;`,
@@ -161,7 +223,6 @@ func TestSQLiteDriver(t *testing.T) {
 	opened, err := transaction.Recv()
 	require.NoError(t, err)
 	require.Equal(t, &pm.TransactionResponse_Opened{
-		DeltaUpdates:   false,
 		FlowCheckpoint: []byte("initial checkpoint fixture"),
 	}, opened.Opened)
 
@@ -339,12 +400,14 @@ func TestSQLiteDriver(t *testing.T) {
 
 	// Last thing is to snapshot the database tables we care about.
 	var quotes = sqlDriver.DoubleQuotes()
-	var tab = sqlDriver.TableForMaterialization(spec.Table, "", &quotes,
-		&pf.MaterializationSpec{
-			Collection:     *collection,
+	var tab = sqlDriver.TableForMaterialization(
+		"test_target", // Matches fixture in testdata/driver-steps.yaml
+		"", &quotes,
+		&pf.MaterializationSpec_Binding{
+			Collection:     model.Bindings[0].Collection,
 			FieldSelection: fields,
 		})
-	var dump = dumpTables(t, spec.Path, tab,
+	var dump = dumpTables(t, endpointConfig.Path, tab,
 		sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints))
 	cupaloy.SnapshotT(t, dump)
 }
