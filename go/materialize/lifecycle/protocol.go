@@ -15,9 +15,12 @@ import (
 
 // WriteOpen writes an Open request into the stream.
 func WriteOpen(
-	stream pm.Driver_TransactionsClient,
+	stream interface {
+		Send(*pm.TransactionRequest) error
+	},
 	request **pm.TransactionRequest,
 	spec *pf.MaterializationSpec,
+	version string,
 	range_ *pf.RangeSpec,
 	driverCheckpoint json.RawMessage,
 ) error {
@@ -30,6 +33,7 @@ func WriteOpen(
 	if err := stream.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
 			Materialization:      spec,
+			Version:              version,
 			KeyBegin:             range_.KeyBegin,
 			KeyEnd:               range_.KeyEnd,
 			DriverCheckpointJson: driverCheckpoint,
@@ -43,20 +47,18 @@ func WriteOpen(
 
 // WriteOpened writes an Open response into the stream.
 func WriteOpened(
-	stream pm.Driver_TransactionsServer,
+	stream interface {
+		Send(*pm.TransactionResponse) error
+	},
 	response **pm.TransactionResponse,
-	flowCheckpoint []byte,
-	deltaUpdate bool,
+	opened *pm.TransactionResponse_Opened,
 ) error {
 	if *response != nil {
 		panic("expected nil response")
 	}
 
 	if err := stream.Send(&pm.TransactionResponse{
-		Opened: &pm.TransactionResponse_Opened{
-			FlowCheckpoint: flowCheckpoint,
-			DeltaUpdates:   deltaUpdate,
-		},
+		Opened: opened,
 	}); err != nil {
 		return fmt.Errorf("sending Opened response: %w", err)
 	}
@@ -67,14 +69,19 @@ func WriteOpened(
 // StageLoad potentially sends a previously staged Load into the stream,
 // and then stages its arguments into request.Load.
 func StageLoad(
-	stream pm.Driver_TransactionsClient,
+	stream interface {
+		Send(*pm.TransactionRequest) error
+	},
 	request **pm.TransactionRequest,
+	binding int,
 	packedKey []byte,
 ) error {
-	// Send current |request| if we would re-allocate.
+	// Send current |request| if it uses a different binding or would re-allocate.
 	if *request != nil {
 		var rem int
-		if l := (*request).Load; cap(l.PackedKeys) != len(l.PackedKeys) {
+		if l := (*request).Load; int(l.Binding) != binding {
+			rem = -1 // Must flush this request.
+		} else if cap(l.PackedKeys) != len(l.PackedKeys) {
 			rem = cap(l.Arena) - len(l.Arena)
 		}
 		if rem < len(packedKey) {
@@ -88,6 +95,7 @@ func StageLoad(
 	if *request == nil {
 		*request = &pm.TransactionRequest{
 			Load: &pm.TransactionRequest_Load{
+				Binding:    uint32(binding),
 				Arena:      make(pf.Arena, 0, arenaSize),
 				PackedKeys: make([]pf.Slice, 0, sliceSize),
 			},
@@ -103,14 +111,19 @@ func StageLoad(
 // StageLoaded potentially sends a previously staged Loaded into the stream,
 // and then stages its arguments into response.Loaded.
 func StageLoaded(
-	stream pm.Driver_TransactionsServer,
+	stream interface {
+		Send(*pm.TransactionResponse) error
+	},
 	response **pm.TransactionResponse,
+	binding int,
 	document json.RawMessage,
 ) error {
 	// Send current |response| if we would re-allocate.
 	if *response != nil {
 		var rem int
-		if l := (*response).Loaded; cap(l.DocsJson) != len(l.DocsJson) {
+		if l := (*response).Loaded; int(l.Binding) != binding {
+			rem = -1 // Must flush this response.
+		} else if cap(l.DocsJson) != len(l.DocsJson) {
 			rem = cap(l.Arena) - len(l.Arena)
 		}
 		if rem < len(document) {
@@ -124,6 +137,7 @@ func StageLoaded(
 	if *response == nil {
 		*response = &pm.TransactionResponse{
 			Loaded: &pm.TransactionResponse_Loaded{
+				Binding:  uint32(binding),
 				Arena:    make(pf.Arena, 0, arenaSize),
 				DocsJson: make([]pf.Slice, 0, sliceSize),
 			},
@@ -139,7 +153,9 @@ func StageLoaded(
 // WritePrepare flushes a pending Load request, and sends a Prepare request
 // with the provided Flow checkpoint.
 func WritePrepare(
-	stream pm.Driver_TransactionsClient,
+	stream interface {
+		Send(*pm.TransactionRequest) error
+	},
 	request **pm.TransactionRequest,
 	checkpoint pc.Checkpoint,
 ) error {
@@ -170,7 +186,9 @@ func WritePrepare(
 // WritePrepared flushes a pending Loaded response, and sends a Prepared response
 // with the provided driver checkpoint.
 func WritePrepared(
-	stream pm.Driver_TransactionsServer,
+	stream interface {
+		Send(*pm.TransactionResponse) error
+	},
 	response **pm.TransactionResponse,
 	prepared *pm.TransactionResponse_Prepared,
 ) error {
@@ -194,8 +212,11 @@ func WritePrepared(
 // StageStore potentially sends a previously staged Store into the stream,
 // and then stages its arguments into request.Store.
 func StageStore(
-	stream pm.Driver_TransactionsClient,
+	stream interface {
+		Send(*pm.TransactionRequest) error
+	},
 	request **pm.TransactionRequest,
+	binding int,
 	packedKey []byte,
 	packedValues []byte,
 	doc json.RawMessage,
@@ -204,7 +225,9 @@ func StageStore(
 	// Send current |request| if we would re-allocate.
 	if *request != nil {
 		var rem int
-		if s := (*request).Store; cap(s.PackedKeys) != len(s.PackedKeys) {
+		if s := (*request).Store; int(s.Binding) != binding {
+			rem = -1 // Must flush this request.
+		} else if cap(s.PackedKeys) != len(s.PackedKeys) {
 			rem = cap(s.Arena) - len(s.Arena)
 		}
 		if need := len(packedKey) + len(packedValues) + len(doc); need > rem {
@@ -218,6 +241,7 @@ func StageStore(
 	if *request == nil {
 		*request = &pm.TransactionRequest{
 			Store: &pm.TransactionRequest_Store{
+				Binding:      uint32(binding),
 				Arena:        make(pf.Arena, 0, arenaSize),
 				PackedKeys:   make([]pf.Slice, 0, sliceSize),
 				PackedValues: make([]pf.Slice, 0, sliceSize),
@@ -237,7 +261,9 @@ func StageStore(
 
 // WriteCommit flushes a pending Store request, and sends a Commit request.
 func WriteCommit(
-	stream pm.Driver_TransactionsClient,
+	stream interface {
+		Send(*pm.TransactionRequest) error
+	},
 	request **pm.TransactionRequest,
 ) error {
 	// Flush partial Store request, if required.
@@ -259,7 +285,9 @@ func WriteCommit(
 
 // WriteCommitted writes a Committed response to the stream.
 func WriteCommitted(
-	stream pm.Driver_TransactionsServer,
+	stream interface {
+		Send(*pm.TransactionResponse) error
+	},
 	response **pm.TransactionResponse,
 ) error {
 	// We must have sent Prepared prior to Committed.
@@ -278,7 +306,8 @@ func WriteCommitted(
 
 // LoadIterator is an iterator over Load requests.
 type LoadIterator struct {
-	Key tuple.Tuple // Key of the next document to load.
+	Binding int         // Binding index of this document to load.
+	Key     tuple.Tuple // Key of the next document to load.
 
 	stream interface {
 		Recv() (*pm.TransactionRequest, error)
@@ -325,6 +354,7 @@ func (it *LoadIterator) poll() bool {
 			return false
 		}
 		it.index = 0
+		it.Binding = int(it.req.Load.Binding)
 	}
 	return true
 }
@@ -336,8 +366,9 @@ func (it *LoadIterator) Next() bool {
 	if !it.poll() {
 		return false
 	}
-	var slice = it.req.Load.PackedKeys[it.index]
-	it.Key, it.err = tuple.Unpack(it.req.Load.Arena.Bytes(slice))
+
+	var l = it.req.Load
+	it.Key, it.err = tuple.Unpack(it.req.Load.Arena.Bytes(l.PackedKeys[it.index]))
 
 	if it.err != nil {
 		it.err = fmt.Errorf("unpacking Load key: %w", it.err)
@@ -365,6 +396,7 @@ func (it *LoadIterator) Prepare() *pm.TransactionRequest_Prepare {
 
 // StoreIterator is an iterator over Store requests.
 type StoreIterator struct {
+	Binding int             // Binding index of this stored document.
 	Key     tuple.Tuple     // Key of the next document to store.
 	Values  tuple.Tuple     // Values of the next document to store.
 	RawJSON json.RawMessage // Document to store.
@@ -410,6 +442,7 @@ func (it *StoreIterator) poll() bool {
 			return false
 		}
 		it.index = 0
+		it.Binding = int(it.req.Store.Binding)
 	}
 	return true
 }
@@ -471,7 +504,7 @@ type Transactor interface {
 	// stores of T+0 (a.k.a. "read committed"). The driver must therefore await
 	// either a Prepare or |commitCh| before reading from the store to ensure
 	// this contract is met.
-	Load(_ *LoadIterator, commitCh <-chan struct{}, loaded func(json.RawMessage) error) error
+	Load(_ *LoadIterator, commitCh <-chan struct{}, loaded func(binding int, doc json.RawMessage) error) error
 	// Prepare begins the transaction "store" phase.
 	Prepare(*pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error)
 	// Store consumes Store requests from the StoreIterator.
@@ -536,12 +569,12 @@ func RunTransactions(
 			}
 
 			// Process all Load requests until Prepare is read.
-			return transactor.Load(loadIt, commitCh, func(document json.RawMessage) error {
+			return transactor.Load(loadIt, commitCh, func(binding int, doc json.RawMessage) error {
 				// If a buggy driver implementation calls Loaded before |commitCh| is ready,
 				// it's detectable by runtime.Materialize, which will observe / fail on a
 				// Loaded response received before an expected Committed response.
 				loaded++
-				return StageLoaded(stream, &response, document)
+				return StageLoaded(stream, &response, binding, doc)
 			})
 		}(commitCh)
 

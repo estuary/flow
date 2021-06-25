@@ -21,8 +21,8 @@ import (
 
 // Materialize is the high-level runtime of the materialization consumer workflow.
 type Materialize struct {
-	// Combiner that's re-used for the life of the materialization.
-	combiner *bindings.Combine
+	// Combiners of the materialization, one for each current binding.
+	combiners []*bindings.Combine
 	// Operation started on each transaction StartCommit, which signals on
 	// receipt of Committed from |driverRx|. It's used to sequence recovery log
 	// commits, which it gates, while still allowing for optimistic pipelining.
@@ -33,21 +33,16 @@ type Materialize struct {
 	host *FlowConsumer
 	// Directory used for local processing files.
 	localDir string
-	// If |deltaUpdates|, we materialize combined delta-update documents of
-	// keys, and not full reductions. We don't issue loads, and don't retain
-	// a cache of documents across transactions.
-	// Updated in RestoreCheckpoint.
-	deltaUpdates bool
 	// Driver responses, pumped through a concurrent read loop.
 	// Updated in RestoreCheckpoint.
 	driverRx <-chan materialize.TransactionResponse
 	// Driver requests.
 	// Updated in RestoreCheckpoint.
 	driverTx pm.Driver_TransactionsClient
-	// Flighted keys of the current transaction, plus a bounded number of
+	// Flighted keys of the current transaction for each binding, plus a bounded number of
 	// retained fully-reduced documents of the last transaction.
 	// Updated in RestoreCheckpoint.
-	flighted map[string]json.RawMessage
+	flighted []map[string]json.RawMessage
 	// Request is incrementally built and periodically sent by transaction
 	// lifecycle functions.
 	request *pm.TransactionRequest
@@ -77,18 +72,17 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	committed.Resolve(nil)
 
 	return &Materialize{
-		combiner:     bindings.NewCombine(shard.FQN()),
-		committed:    committed,
-		coordinator:  coordinator,
-		host:         host,
-		localDir:     recorder.Dir(),
-		deltaUpdates: false,
-		driverRx:     nil,
-		driverTx:     nil,
-		flighted:     nil,
-		request:      nil,
-		store:        store,
-		taskTerm:     taskTerm{},
+		combiners:   nil,
+		committed:   committed,
+		coordinator: coordinator,
+		host:        host,
+		localDir:    recorder.Dir(),
+		driverRx:    nil,
+		driverTx:    nil,
+		flighted:    nil,
+		request:     nil,
+		store:       store,
+		taskTerm:    taskTerm{},
 	}, nil
 }
 
@@ -113,16 +107,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		return cp, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
 	}
 
-	if err = m.combiner.Configure(
-		m.schemaIndex,
-		m.task.Materialization.Collection.SchemaUri,
-		m.task.Materialization.Collection.KeyPtrs,
-		m.task.Materialization.FieldValuePtrs(),
-		"", // Don't generate UUID placeholders.
-	); err != nil {
-		return cp, fmt.Errorf("building combiner: %w", err)
-	}
-
 	// Establish driver connection and start Transactions RPC.
 	conn, err := materialize.NewDriver(shard.Context(),
 		m.task.Materialization.EndpointType,
@@ -137,26 +121,51 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		return pc.Checkpoint{}, fmt.Errorf("driver.Transactions: %w", err)
 	}
 	m.driverRx = materialize.TransactionResponseChannel(m.driverTx)
-	m.flighted = make(map[string]json.RawMessage)
 
 	// Write Open request with locally persisted DriverCheckpoint.
 	if err = lifecycle.WriteOpen(
 		m.driverTx,
 		&m.request,
 		m.task.Materialization,
+		m.task.CommonsId,
 		&m.range_,
 		m.store.State.(*storeState).DriverCheckpoint,
 	); err != nil {
 		return pc.Checkpoint{}, err
 	}
 
-	// Read Opened response, with driver's Checkpoint.
+	// Read Opened response with driver's Checkpoint.
 	var opened = <-m.driverRx
 	if opened.Error != nil {
 		return pc.Checkpoint{}, fmt.Errorf("reading Opened: %w", opened.Error)
 	} else if opened.Opened == nil {
 		return pc.Checkpoint{}, fmt.Errorf("expected Opened, got %#v",
 			opened.TransactionResponse.String())
+	}
+
+	// Release left-over Combiners (if any), then initialize combiners and
+	// "flighted" maps for each binding.
+	for _, c := range m.combiners {
+		c.Destroy()
+	}
+	m.combiners = m.combiners[:0]
+	m.flighted = m.flighted[:0]
+
+	for i, b := range m.task.Materialization.Bindings {
+		m.combiners = append(m.combiners, bindings.NewCombine())
+		m.flighted = append(m.flighted, make(map[string]json.RawMessage))
+
+		if err = m.combiners[i].Configure(
+			shard.FQN(),
+			m.schemaIndex,
+			b.Collection.Collection,
+			b.Collection.SchemaUri,
+			"", // Don't generate UUID placeholders.
+			b.Collection.KeyPtrs,
+			b.FieldValuePtrs(),
+		); err != nil {
+			return cp, fmt.Errorf("building combiner: %w", err)
+		}
 	}
 
 	// If the store provided a Flow checkpoint, prefer that over
@@ -171,7 +180,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 			return pc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 		}
 	}
-	m.deltaUpdates = opened.Opened.DeltaUpdates
 
 	return cp, nil
 }
@@ -184,18 +192,15 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 		return client.FinishedOperation(fmt.Errorf("sending Prepare: %w", err))
 	}
 
-	// Drain remaining Loaded responses into the *Combiner, until we read Prepared.
+	// Drain remaining Loaded responses, until we read Prepared.
 	for {
 		var next = <-m.driverRx
 		if next.Error != nil {
 			return client.FinishedOperation(fmt.Errorf(
 				"reading Loaded or Prepared: %w", next.Error))
 		} else if next.Loaded != nil {
-			// Feed documents into the combiner as reduce-left operations.
-			for _, slice := range next.Loaded.DocsJson {
-				if err := m.combiner.ReduceLeft(next.Loaded.Arena.Bytes(slice)); err != nil {
-					return client.FinishedOperation(fmt.Errorf("combiner.ReduceLeft: %w", err))
-				}
+			if err := m.reduceLoaded(next.Loaded); err != nil {
+				return client.FinishedOperation(err)
 			}
 		} else if next.Prepared != nil {
 			// Stage a provided driver checkpoint to commit with this transaction.
@@ -212,61 +217,18 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 		}
 	}
 
-	// Precondition: |m.flighted| contains the precise set of keys in this transaction.
-	// See FinalizeTxn.
-	var remaining = len(m.flighted)
-
-	// Drain the combiner into materialization Store requests.
-	if err := m.combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
-		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
-		if _, ok := m.flighted[string(packedKey)]; !ok {
-			var key, _ = tuple.Unpack(packedKey)
-			return fmt.Errorf(
-				"driver implementation error: "+
-					"loaded key %v was not requested by Flow in this transaction (document %s)",
-				key,
-				string(docRaw))
-		}
-
-		// We're using |full|, an indicator of whether the document was a full
-		// reduction or a partial combine, to track whether the document exists
-		// in the store. This works because we only issue reduce-left when a
-		// document was provided by Loaded or was retained from a previous
-		// transaction's Store.
-
-		if err := lifecycle.StageStore(m.driverTx, &m.request,
-			packedKey, packedValues, docRaw, full,
+	// Drain each binding.
+	for i, b := range m.task.Materialization.Bindings {
+		if err := drainBinding(
+			m.flighted[i],
+			m.combiners[i],
+			b.DeltaUpdates,
+			m.driverTx,
+			&m.request,
+			i,
 		); err != nil {
-			return err
+			return client.FinishedOperation(err)
 		}
-
-		// We can retain a bounded number of documents from this transaction
-		// as a performance optimization, so that they may be directly available
-		// to the next transaction without issuing a Load.
-		if m.deltaUpdates || remaining >= cachedDocumentBound {
-			delete(m.flighted, string(packedKey)) // Don't retain.
-		} else {
-			// We cannot reference |rawDoc| beyond this callback, and must copy.
-			// Fortunately, StageStore did just that, appending the document
-			// to the staged request Arena, which we can reference here because
-			// Arena bytes are write-once.
-			var s = m.request.Store
-			m.flighted[string(packedKey)] = s.Arena.Bytes(s.DocsJson[len(s.DocsJson)-1])
-		}
-
-		remaining--
-		return nil
-
-	}); err != nil {
-		return client.FinishedOperation(fmt.Errorf("combine.Finish: %w", err))
-	}
-
-	// We should have seen 1:1 combined documents for each flighted key.
-	if remaining != 0 {
-		log.WithFields(log.Fields{
-			"remaining": remaining,
-			"flighted":  len(m.flighted),
-		}).Panic("combiner drained, but expected documents remainder != 0")
 	}
 
 	// Wait for any |waitFor| operations. In practice this is always empty.
@@ -288,6 +250,76 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 
 	// Tell our JSON store to commit to its recovery log after |m.committed| resolves.
 	return m.store.StartCommit(shard, checkpoint, consumer.OpFutures{m.committed: struct{}{}})
+}
+
+// drainBinding drains the a single materialization binding by sending Store
+// requests for its reduced documents.
+func drainBinding(
+	flighted map[string]json.RawMessage,
+	combiner *bindings.Combine,
+	deltaUpdates bool,
+	driverTx pm.Driver_TransactionsClient,
+	request **pm.TransactionRequest,
+	binding int,
+) error {
+	// Precondition: |flighted| contains the precise set of keys for this binding in this transaction.
+	// See FinalizeTxn.
+	var remaining = len(flighted)
+
+	// Drain the combiner into materialization Store requests.
+	if err := combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
+		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
+		if _, ok := flighted[string(packedKey)]; !ok {
+			var key, _ = tuple.Unpack(packedKey)
+			return fmt.Errorf(
+				"driver implementation error: "+
+					"loaded key %v was not requested by Flow in this transaction (document %s)",
+				key,
+				string(docRaw))
+		}
+
+		// We're using |full|, an indicator of whether the document was a full
+		// reduction or a partial combine, to track whether the document exists
+		// in the store. This works because we only issue reduce-left when a
+		// document was provided by Loaded or was retained from a previous
+		// transaction's Store.
+
+		if err := lifecycle.StageStore(driverTx, request, binding,
+			packedKey, packedValues, docRaw, full,
+		); err != nil {
+			return err
+		}
+
+		// We can retain a bounded number of documents from this transaction
+		// as a performance optimization, so that they may be directly available
+		// to the next transaction without issuing a Load.
+		if deltaUpdates || remaining >= cachedDocumentBound {
+			delete(flighted, string(packedKey)) // Don't retain.
+		} else {
+			// We cannot reference |rawDoc| beyond this callback, and must copy.
+			// Fortunately, StageStore did just that, appending the document
+			// to the staged request Arena, which we can reference here because
+			// Arena bytes are write-once.
+			var s = (*request).Store
+			flighted[string(packedKey)] = s.Arena.Bytes(s.DocsJson[len(s.DocsJson)-1])
+		}
+
+		remaining--
+		return nil
+
+	}); err != nil {
+		return fmt.Errorf("combine.Finish: %w", err)
+	}
+
+	// We should have seen 1:1 combined documents for each flighted key.
+	if remaining != 0 {
+		log.WithFields(log.Fields{
+			"remaining": remaining,
+			"flighted":  len(flighted),
+		}).Panic("combiner drained, but expected documents remainder != 0")
+	}
+
+	return nil
 }
 
 func awaitCommitted(driverRx <-chan materialize.TransactionResponse, result *client.AsyncOperation) {
@@ -337,16 +369,30 @@ func (m *Materialize) pollLoaded() error {
 		if resp.Error != nil {
 			return fmt.Errorf("reading Loaded: %w", resp.Error)
 		} else if resp.Loaded != nil {
-			// Feed documents into the combiner as reduce-left operations.
-			for _, slice := range resp.Loaded.DocsJson {
-				if err := m.combiner.ReduceLeft(resp.Loaded.Arena.Bytes(slice)); err != nil {
-					return fmt.Errorf("combiner.ReduceLeft: %w", err)
-				}
+			if err := m.reduceLoaded(resp.Loaded); err != nil {
+				return err
 			}
 		} else {
 			return fmt.Errorf("expected Loaded, got %#v", resp.TransactionResponse)
 		}
 	}
+}
+
+// reduceLoaded reduces documents of the Loaded response into the matched combiner.
+func (m *Materialize) reduceLoaded(loaded *pm.TransactionResponse_Loaded) error {
+	var b = loaded.Binding
+	if b >= uint32(len(m.task.Materialization.Bindings)) {
+		return fmt.Errorf("driver error (binding %d out of range)", b)
+	}
+	var combiner = m.combiners[b]
+
+	// Feed documents into the combiner as reduce-left operations.
+	for _, slice := range loaded.DocsJson {
+		if err := combiner.ReduceLeft(loaded.Arena.Bytes(slice)); err != nil {
+			return fmt.Errorf("combiner.ReduceLeft: %w", err)
+		}
+	}
+	return nil
 }
 
 // ConsumeMessage implements Application.ConsumeMessage
@@ -371,28 +417,43 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 		return nil // We just ignore the ACK documents.
 	}
 
-	if doc, ok := m.flighted[string(packedKey)]; ok && doc == nil {
+	// Find *Shuffle with equal pointer.
+	var binding = -1 // Panic if no *Shuffle is matched.
+	var flighted map[string]json.RawMessage
+	var combiner *bindings.Combine
+	var deltaUpdates bool
+
+	for i, shuffle := range m.shuffles {
+		if shuffle == doc.Shuffle {
+			binding = i
+			flighted = m.flighted[i]
+			combiner = m.combiners[i]
+			deltaUpdates = m.task.Materialization.Bindings[i].DeltaUpdates
+		}
+	}
+
+	if doc, ok := flighted[string(packedKey)]; ok && doc == nil {
 		// We've already seen this key within this transaction.
 	} else if ok {
 		// We retained this document from the last transaction.
-		if m.deltaUpdates {
+		if deltaUpdates {
 			panic("we shouldn't have retained if deltaUpdates")
 		}
-		if err := m.combiner.ReduceLeft(doc); err != nil {
+		if err := combiner.ReduceLeft(doc); err != nil {
 			return fmt.Errorf("combiner.ReduceLeft: %w", err)
 		}
-		m.flighted[string(packedKey)] = nil // Clear old value & mark as visited.
+		flighted[string(packedKey)] = nil // Clear old value & mark as visited.
 	} else {
 		// This is a novel key.
-		if !m.deltaUpdates {
-			if err := lifecycle.StageLoad(m.driverTx, &m.request, packedKey); err != nil {
+		if !deltaUpdates {
+			if err := lifecycle.StageLoad(m.driverTx, &m.request, binding, packedKey); err != nil {
 				return err
 			}
 		}
-		m.flighted[string(packedKey)] = nil // Mark as visited.
+		flighted[string(packedKey)] = nil // Mark as visited.
 	}
 
-	if err := m.combiner.CombineRight(doc.Arena.Bytes(doc.DocsJson[doc.Index])); err != nil {
+	if err := combiner.CombineRight(doc.Arena.Bytes(doc.DocsJson[doc.Index])); err != nil {
 		return fmt.Errorf("combiner.CombineRight: %w", err)
 	}
 
@@ -412,9 +473,11 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	// of a prior transaction which were not updated during this one.
 	// We garbage collect them here, and achieve the StartCommit precondition that
 	// |m.flighted| holds only keys of the current transaction with `nil` sentinels.
-	for key, doc := range m.flighted {
-		if doc != nil {
-			delete(m.flighted, key)
+	for _, flighted := range m.flighted {
+		for key, doc := range flighted {
+			if doc != nil {
+				delete(flighted, key)
+			}
 		}
 	}
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -193,7 +192,7 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 
 	// Build CatalogCommons and CatalogTasks around a generated CommonsID.
 	var commons = pf.CatalogCommons{
-		CommonsId:             uuid.New().String(),
+		CommonsId:             build.ID.String(),
 		JournalRules:          build.JournalRules,
 		ShardRules:            build.ShardRules,
 		Schemas:               build.Schemas,
