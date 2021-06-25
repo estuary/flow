@@ -115,37 +115,48 @@ tables!(
         update_lambda: Option<names::Lambda>,
     }
 
-    table Endpoints (row Endpoint, sql "endpoints") {
-        scope: url::Url,
-        // Name of this endpoint.
-        endpoint: names::Endpoint,
-        // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: protocol::flow::EndpointType,
-        // JSON object which partially specifies the endpoint.
-        base_spec: serde_json::Value,
-    }
-
     table Captures (row Capture, sql "captures") {
         scope: url::Url,
+        // Name of this capture.
+        capture: names::Capture,
+        // Enumerated type of the endpoint, used to select an appropriate driver.
+        endpoint_type: protocol::flow::EndpointType,
+        // JSON object which configures the endpoint with respect to its driver.
+        endpoint_spec: serde_json::Value,
+    }
+
+    table CaptureBindings (row CaptureBinding, sql "capture_bindings") {
+        scope: url::Url,
+        // Capture to which this binding belongs.
+        capture: names::Capture,
+        // Index of this binding within the Capture.
+        capture_index: u32,
+        // JSON object which specifies the endpoint resource to be captured.
+        resource_spec: serde_json::Value,
         // Collection into which documents are captured.
         collection: names::Collection,
-        // Endpoint from which documents are to be captured.
-        endpoint: names::Endpoint,
-        // JSON object which merges into the endpoint's base_spec,
-        // to fully specify this capture with respect to the endpoint driver.
-        endpoint_patch_spec: serde_json::Value,
     }
 
     table Materializations (row Materialization, sql "materializations") {
         scope: url::Url,
+        // Name of this materialization.
+        materialization: names::Materialization,
+        // Enumerated type of the endpoint, used to select an appropriate driver.
+        endpoint_type: protocol::flow::EndpointType,
+        // JSON object which configures the endpoint with respect to its driver.
+        endpoint_spec: serde_json::Value,
+    }
+
+    table MaterializationBindings (row MaterializationBinding, sql "materialization_bindings") {
+        scope: url::Url,
+        // Materialization to which this binding belongs.
+        materialization: names::Materialization,
+        // Index of this binding within the Materialization.
+        materialization_index: u32,
+        // JSON object which specifies the endpoint resource to be materialized.
+        resource_spec: serde_json::Value,
         // Collection from which documents are materialized.
         collection: names::Collection,
-        // Endpoint into which documents are materialized.
-        endpoint: names::Endpoint,
-        // JSON object which merges into the endpoint's base_spec,
-        // to fully specify this materialization with respect to the
-        // endpoint driver.
-        endpoint_patch_spec: serde_json::Value,
         // Fields which must not be included in the materialization.
         fields_exclude: Vec<String>,
         // Fields which must be included in the materialization,
@@ -250,22 +261,23 @@ pub struct All {
     pub built_derivations: BuiltDerivations,
     pub built_materializations: BuiltMaterializations,
     pub built_tests: BuiltTests,
+    pub capture_bindings: CaptureBindings,
     pub captures: Captures,
     pub collections: Collections,
     pub derivations: Derivations,
-    pub endpoints: Endpoints,
     pub errors: Errors,
     pub fetches: Fetches,
     pub imports: Imports,
     pub inferences: Inferences,
     pub journal_rules: JournalRules,
-    pub shard_rules: ShardRules,
+    pub materialization_bindings: MaterializationBindings,
     pub materializations: Materializations,
     pub named_schemas: NamedSchemas,
     pub npm_dependencies: NPMDependencies,
     pub projections: Projections,
     pub resources: Resources,
     pub schema_docs: SchemaDocs,
+    pub shard_rules: ShardRules,
     pub test_steps: TestSteps,
     pub transforms: Transforms,
 }
@@ -280,15 +292,16 @@ impl All {
             built_derivations,
             built_materializations,
             built_tests,
+            capture_bindings,
             captures,
             collections,
             derivations,
-            endpoints,
             errors,
             fetches,
             imports,
             inferences,
             journal_rules,
+            materialization_bindings,
             materializations,
             named_schemas,
             npm_dependencies,
@@ -306,15 +319,16 @@ impl All {
             built_derivations,
             built_materializations,
             built_tests,
+            capture_bindings,
             captures,
             collections,
             derivations,
-            endpoints,
             errors,
             fetches,
             imports,
             inferences,
             journal_rules,
+            materialization_bindings,
             materializations,
             named_schemas,
             npm_dependencies,
@@ -335,15 +349,16 @@ impl All {
             built_derivations,
             built_materializations,
             built_tests,
+            capture_bindings,
             captures,
             collections,
             derivations,
-            endpoints,
             errors,
             fetches,
             imports,
             inferences,
             journal_rules,
+            materialization_bindings,
             materializations,
             named_schemas,
             npm_dependencies,
@@ -361,15 +376,16 @@ impl All {
             built_derivations,
             built_materializations,
             built_tests,
+            capture_bindings,
             captures,
             collections,
             derivations,
-            endpoints,
             errors,
             fetches,
             imports,
             inferences,
             journal_rules,
+            materialization_bindings,
             materializations,
             named_schemas,
             npm_dependencies,
@@ -393,9 +409,10 @@ primitive_sql_types!(
 );
 
 string_wrapper_types!(
+    names::Capture,
     names::Collection,
-    names::Endpoint,
     names::JsonPointer,
+    names::Materialization,
     names::Rule,
     names::Test,
     names::Transform,

@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 /// Collection names consist of Unicode letters, numbers, and symbols: - _ . /
 ///
 /// Spaces and other special characters are disallowed.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[schemars(example = "Collection::example")]
 pub struct Collection(#[schemars(schema_with = "Collection::schema")] String);
 
@@ -52,18 +54,43 @@ impl std::ops::Deref for Transform {
     }
 }
 
-/// Endpoint names a Flow endpoint.
+/// Capture names a Flow capture.
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Endpoint::example")]
-pub struct Endpoint(String);
+#[schemars(example = "Capture::example")]
+pub struct Capture(String);
 
-impl Endpoint {
+impl Capture {
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
-impl std::ops::Deref for Endpoint {
+impl std::ops::Deref for Capture {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Materialization names a Flow materialization.
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[schemars(example = "Materialization::example")]
+pub struct Materialization(String);
+
+impl Materialization {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Materialization {
     type Target = str;
 
     fn deref(&self) -> &str {
