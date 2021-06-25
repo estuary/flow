@@ -126,29 +126,117 @@ test://example/int-reverse:
 }
 
 #[test]
-fn test_invalid_endpoint_names_and_duplicates() {
+fn test_invalid_capture_names_and_duplicates() {
     run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
   import:
-    - test://example/more-endpoints
-test://example/more-endpoints:
-  endpoints:
+    - test://example/captures
+test://example/captures:
+  captures:
     good: &spec
-      airbyteSource:
-        image: an/image
-        config:
-          bucket: a-bucket
-          prefix: and-prefix
+      endpoint:
+        airbyteSource:
+          image: an/image
+          config:
+            bucket: a-bucket
+            prefix: and-prefix
+      bindings: []
 
-    "": *spec
-    inv alid: *spec
-    inv!alid: *spec
+    #"": *spec
+    bad name: *spec
+    bad!name: *spec
 
-    # Illegal duplicates under collation.
-    CAPtUReOtherEndpoINT: *spec
-    Materializeendpoint: *spec
+    # We require a sequence of non-empty tokens, separated by exactly one '/'.
+    bad//name: *spec
+    bad/name/: *spec
+    /bad/name: *spec
+
+    # Invalid prefix of testing/some-source.
+    testing: *spec
+
+    # Illegal duplicates under naming collation.
+    testing/some-source: *spec
+    testing/SoMe-source: *spec
+"#,
+    );
+}
+
+#[test]
+fn test_invalid_materialization_names_and_duplicates() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  import:
+    - test://example/materializations
+test://example/materializations:
+  materializations:
+    good: &spec
+      endpoint:
+        flowSink:
+          image: an/image
+          config:
+            bucket: a-bucket
+            prefix: and-prefix
+      bindings: []
+
+    #"": *spec
+    bad name: *spec
+    bad!name: *spec
+
+    # We require a sequence of non-empty tokens, separated by exactly one '/'.
+    bad//name: *spec
+    bad/name/: *spec
+    /bad/name: *spec
+
+    # Invalid prefix of testing/some-source.
+    testing: *spec
+
+    # Illegal duplicates under naming collation.
+    testing/some-target: *spec
+    testing/SoMe-target: *spec
+"#,
+    );
+}
+
+#[test]
+fn test_cross_entity_name_prefixes_and_duplicates() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+
+  collections:
+    a/b/1: &collection_spec
+      schema: test://example/int-string.schema
+      key: [/int]
+
+    a/b/3/suffix: *collection_spec
+    a/b/2: *collection_spec
+
+  materializations:
+    a/b/2: &materialization_spec
+      endpoint:
+        flowSink:
+          image: an/image
+          config: { a: config }
+      bindings: []
+
+    a/b/1/suffix: *materialization_spec
+    a/b/3: *materialization_spec
+
+  captures:
+    a/b/3: &capture_spec
+      endpoint:
+        airbyteSource:
+          image: an/image
+          config: { a: value }
+      bindings: []
+
+    a/b/1: *capture_spec
+    a/b/2/suffix: *capture_spec
 "#,
     );
 }
@@ -176,27 +264,14 @@ fn test_capture_target_not_found() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-string-capture:
+test://example/int-string-captures:
   captures:
-    - target: { name: testiNg/int-strinK }
-      endpoint: { name: captureEndpoint }
-    - target: { name: wildly/off/name }
-      endpoint: { name: captureOtherEndpoint }
-"#,
-    );
-}
-
-#[test]
-fn test_capture_endpoint_not_found() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string-capture:
-  captures:
-    - target: { name: testing/int-string }
-      endpoint: { name: CaptureEndpoit }
-    - target: { name: testing/int-string }
-      endpoint: { name: wildlyOffName }
+    testing/s3-source:
+      bindings:
+        - target: testiNg/int-strinK
+          resource: { stream: a-stream }
+        - target: wildly/off/name
+          resource: { stream: v2-stream }
 "#,
     );
 }
@@ -206,19 +281,15 @@ fn test_capture_target_is_derivation_and_missing_imports() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-string-capture:
+test://example/int-string-captures:
   import: null
   captures:
-    - target: { name: testing/int-reverse }
-      endpoint:
-        name: captureEndpoint
-        spec: { stream: a-stream }
-    - target: { name: testing/int-string }
-      endpoint:
-        name: captureOtherEndpoint
-        spec:
-          stream: other-stream
-          namespace: and namespace
+    # testing/s3-source is unchanged but is now missing its import.
+
+    testing/db-cdc:
+      bindings:
+        - target: testing/int-reverse
+          resource: { }
 "#,
     );
 }
@@ -228,12 +299,28 @@ fn test_capture_duplicates() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/catalog.yaml:
+test://example/int-string-captures:
   captures:
-    - target: { name: testing/int-string }
-      endpoint:
-        name: captureEndpoint
-        spec: { stream: a-stream }
+    testing/s3-source:
+      bindings:
+        - target: testing/int-string
+          resource: {}
+
+          # Duplicated resource path (disallowed).
+        - target: testing/int-string.v2
+          resource: {}
+
+          # Duplicated collection (okay).
+        - target: testing/int-string
+          resource: {}
+
+driver:
+  captures:
+    testing/s3-source:
+      bindings:
+        - resourcePath: [target, one]
+        - resourcePath: [target, one]
+        - resourcePath: [target, two]
 "#,
     );
 }
@@ -243,13 +330,31 @@ fn test_materialization_duplicates() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/catalog.yaml:
+test://example/db-views:
   materializations:
-    - source:
-        name: testing/int-halve
-      endpoint:
-        name: materializeEndpoint
-        spec: { fixture: two }
+    testing/db-views:
+      bindings:
+        - source: testing/int-string
+          resource: {}
+
+        # Duplicated resource path (disallowed).
+        - source: testing/int-string.v2
+          resource: {}
+
+        # Duplicated collection (okay).
+        - source: testing/int-string
+          resource: {}
+
+driver:
+  materializations:
+    testing/db-views:
+      bindings:
+        - constraints: {}
+          resourcePath: [target, one]
+        - constraints: {}
+          resourcePath: [target, one]
+        - constraints: {}
+          resourcePath: [target, two]
 "#,
     );
 }
@@ -264,20 +369,9 @@ test://example/int-string:
 
 test://example/int-reverse:
   import: [] # Clear.
-  endpoints:
-    s3WithoutImport:
-      s3:
-        bucket: a-bucket
-        prefix: and-prefix
 
-test://example/int-string-materialization:
+test://example/webhook-deliveries:
   import: [] # Clear.
-  materializations:
-    - source:
-        name: testing/int-string
-      endpoint:
-        name: s3WithoutImport
-        spec: { fixture: one }
 "#,
     );
 }
@@ -292,8 +386,11 @@ test://example/int-string:
     testing/int-string:
       schema: test://example/int-string.schema#/not/found
 
-test://example/int-string-materialization:
-  materializations: [] # Omit downstream errors.
+# Omit downstream errors.
+test://example/db-views:
+  materializations: null
+test://example/webhook-deliveries:
+  materializations: null
 
 test://example/int-halve:
   collections:
@@ -507,33 +604,14 @@ fn test_materialization_source_not_found() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-string-materialization:
+test://example/db-views:
   materializations:
-    - source: { name: testiNg/int-strinK }
-      endpoint: { name: materializeEndpoint }
-
-test://example/int-halve-materialization:
-  materializations:
-    - source: { name: wildly/off/name }
-      endpoint: { name: materializeEndpoint }
-"#,
-    );
-}
-
-#[test]
-fn test_materialization_endpoint_not_found() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string-materialization:
-  materializations:
-    - source: { name: testing/int-string }
-      endpoint: { name: MaterializeEndpoit }
-
-test://example/int-halve-materialization:
-  materializations:
-    - source: { name: testing/int-halve }
-      endpoint: { name: wildlyOffName }
+    testing/db-views:
+      bindings:
+        - source: testiNg/int-strinK
+          resource: { table: the_table }
+        - source: wildly/off/name
+          resource: { table: other_table }
 "#,
     );
 }
@@ -543,22 +621,26 @@ fn test_materialization_field_errors() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-halve-materialization:
+test://example/webhook-deliveries:
   materializations:
-    - source: { name: testing/int-halve }
-      endpoint:
-        name: materializeEndpoint
-        spec: { fixture: two }
-      fields:
-        include:
-          int: {} # Include and exclude.
-          biT: {} # Unknown.
-          Len: {} # OK.
-        exclude:
-          - BiTT # Unknown.
-          - WildlyOffName # Also unknown.
-          - int
-        recommended: false
+    testing/webhook/deliveries:
+      bindings:
+        # Included only to maintain proper ordering of driver fixture.
+        - source: testing/int-string
+          resource: { fixture: one }
+
+        - source: testing/int-halve
+          resource: { fixture: two }
+          fields:
+            include:
+              int: {} # Include and exclude.
+              biT: {} # Unknown.
+              Len: {} # OK.
+            exclude:
+              - BiTT # Unknown.
+              - WildlyOffName # Also unknown.
+              - int
+            recommended: false
 "#,
     );
 }
@@ -570,7 +652,7 @@ fn test_capture_driver_returns_error() {
         r#"
 driver:
   captures:
-    one:
+    testing/s3-source:
       error: "A driver error!"
 "#,
     );
@@ -583,8 +665,8 @@ fn test_materialization_driver_returns_error() {
         r#"
 driver:
   materializations:
-    one:
-      constraints: null
+    testing/webhook/deliveries:
+      bindings: []
       error: "A driver error!"
 "#,
     );
@@ -597,9 +679,16 @@ fn test_materialization_driver_unknown_constraint() {
         r#"
 driver:
   materializations:
-    one:
-      constraints:
-        str: { type: 99, reason: "whoops" }
+    testing/webhook/deliveries:
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            int: { type: 98, reason: "other whoops" }
+          resourcePath: [tar!get, one]
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            str: { type: 99, reason: "whoops" }
+          resourcePath: [tar!get, two]
 "#,
     );
 }
@@ -609,30 +698,33 @@ fn test_materialization_driver_conflicts() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-string-materialization:
+
+test://example/db-views:
   materializations:
-    - source: { name: testing/int-string }
-      endpoint:
-        name: materializeEndpoint
-        spec: { fixture: one }
-      fields:
-        include:
-          str: {}
-        exclude:
-          - bit
-          - Int
-        recommended: true
+    testing/db-views:
+      bindings:
+        - source: testing/int-string
+          resource: { table: the_table }
+          fields:
+            include:
+              str: {}
+            exclude:
+              - bit
+              - Int
+            recommended: true
+
 driver:
   materializations:
-    one:
-      constraints:
-        flow_document: { type: 1, reason: "location required" }
-        Int: { type: 1, reason: "location required" }
-
-        int: { type: 5, reason: "field unsatisfiable" }
-        str: { type: 4, reason: "field forbidden" }
-        bit: { type: 0, reason: "field required" }
-        Unknown: { type: 0, reason: "whoops" }
+    testing/db-views:
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            Int: { type: 1, reason: "location required" }
+            int: { type: 5, reason: "field unsatisfiable" }
+            str: { type: 4, reason: "field forbidden" }
+            bit: { type: 0, reason: "field required" }
+            Unknown: { type: 0, reason: "whoops" }
+          resourcePath: [tar!get]
 "#,
     );
 }
@@ -716,22 +808,21 @@ fn test_materialization_selector() {
     run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-string-materialization:
+test://example/db-views:
   materializations:
-    - source:
-        name: testing/int-string
-        partitions:
-          include:
-            bit: [true, 42, ""]
-            Int: [15, true]
-            Unknown: ["whoops"]
-          exclude:
-            bit: [false, "a string"]
-            Int: [false, "", 16]
-            AlsoUnknown: ["whoops"]
-      endpoint:
-        name: materializeEndpoint
-        spec: { fixture: one }
+    testing/db-views:
+      bindings:
+        - source: testing/int-string
+          resource: { table: the_table }
+          partitions:
+            include:
+              bit: [true, 42, ""]
+              Int: [15, true]
+              Unknown: ["whoops"]
+            exclude:
+              bit: [false, "a string"]
+              Int: [false, "", 16]
+              AlsoUnknown: ["whoops"]
 "#,
     );
 }
@@ -796,8 +887,7 @@ struct MockDriverCalls {
 struct MockCaptureValidateCall {
     endpoint: flow::EndpointType,
     spec: serde_json::Value,
-    #[serde(default)]
-    resource_path: Vec<String>,
+    bindings: Vec<MockDriverBinding>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -807,12 +897,19 @@ struct MockCaptureValidateCall {
 struct MockMaterializationValidateCall {
     endpoint: flow::EndpointType,
     spec: serde_json::Value,
+    bindings: Vec<MockDriverBinding>,
     #[serde(default)]
-    constraints: HashMap<String, materialize::Constraint>,
-    #[serde(default)]
-    resource_path: Vec<String>,
+    delta_updates: bool,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MockDriverBinding {
+    resource_path: Vec<String>,
+    #[serde(default)]
+    constraints: HashMap<String, materialize::Constraint>,
 }
 
 impl validation::Drivers for MockDriverCalls {
@@ -821,24 +918,48 @@ impl validation::Drivers for MockDriverCalls {
         request: materialize::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
         async move {
+            let call = match self.materializations.get(&request.materialization) {
+                Some(call) => call,
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "driver fixture not found: {}",
+                        request.materialization
+                    ));
+                }
+            };
+
             let endpoint_spec: serde_json::Value =
                 serde_json::from_str(&request.endpoint_spec_json)?;
 
-            for (_key, call) in &self.materializations {
-                if (call.endpoint as i32, &call.spec) != (request.endpoint_type, &endpoint_spec) {
-                    continue;
-                }
-
-                if let Some(err) = &call.error {
-                    return Err(anyhow::anyhow!("{}", err));
-                } else {
-                    return Ok(materialize::ValidateResponse {
-                        constraints: call.constraints.clone(),
-                        resource_path: call.resource_path.clone(),
-                    });
-                }
+            if call.endpoint as i32 != request.endpoint_type {
+                return Err(anyhow::anyhow!(
+                    "endpoint type mismatch: {} vs {}",
+                    call.endpoint as i32,
+                    request.endpoint_type
+                ));
             }
-            return Err(anyhow::anyhow!("driver fixture not found"));
+            if &call.spec != &endpoint_spec {
+                return Err(anyhow::anyhow!(
+                    "endpoint spec mismatch: {} vs {}",
+                    call.spec.to_string(),
+                    &request.endpoint_spec_json,
+                ));
+            }
+            if let Some(err) = &call.error {
+                return Err(anyhow::anyhow!("{}", err));
+            }
+
+            let bindings = call
+                .bindings
+                .iter()
+                .map(|b| materialize::validate_response::Binding {
+                    constraints: b.constraints.clone(),
+                    delta_updates: call.delta_updates,
+                    resource_path: b.resource_path.clone(),
+                })
+                .collect();
+
+            return Ok(materialize::ValidateResponse { bindings });
         }
         .boxed_local()
     }
@@ -848,23 +969,46 @@ impl validation::Drivers for MockDriverCalls {
         request: capture::ValidateRequest,
     ) -> LocalBoxFuture<'a, Result<capture::ValidateResponse, anyhow::Error>> {
         async move {
+            let call = match self.captures.get(&request.capture) {
+                Some(call) => call,
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "driver fixture not found: {}",
+                        request.capture
+                    ));
+                }
+            };
+
             let endpoint_spec: serde_json::Value =
                 serde_json::from_str(&request.endpoint_spec_json)?;
 
-            for (_key, call) in &self.captures {
-                if (call.endpoint as i32, &call.spec) != (request.endpoint_type, &endpoint_spec) {
-                    continue;
-                }
-
-                if let Some(err) = &call.error {
-                    return Err(anyhow::anyhow!("{}", err));
-                } else {
-                    return Ok(capture::ValidateResponse {
-                        resource_path: call.resource_path.clone(),
-                    });
-                }
+            if call.endpoint as i32 != request.endpoint_type {
+                return Err(anyhow::anyhow!(
+                    "endpoint type mismatch: {} vs {}",
+                    call.endpoint as i32,
+                    request.endpoint_type
+                ));
             }
-            return Err(anyhow::anyhow!("driver fixture not found",));
+            if &call.spec != &endpoint_spec {
+                return Err(anyhow::anyhow!(
+                    "endpoint spec mismatch: {} vs {}",
+                    call.spec.to_string(),
+                    &request.endpoint_spec_json,
+                ));
+            }
+            if let Some(err) = &call.error {
+                return Err(anyhow::anyhow!("{}", err));
+            }
+
+            let bindings = call
+                .bindings
+                .iter()
+                .map(|b| capture::validate_response::Binding {
+                    resource_path: b.resource_path.clone(),
+                })
+                .collect();
+
+            return Ok(capture::ValidateResponse { bindings });
         }
         .boxed_local()
     }
@@ -879,14 +1023,15 @@ fn run_test(mut fixture: Value) -> tables::All {
     let mock_calls: MockDriverCalls = serde_json::from_value(mock_calls).unwrap();
 
     let sources::Tables {
+        capture_bindings,
         captures,
         collections,
         derivations,
-        endpoints,
         mut errors,
         fetches,
         imports,
         journal_rules,
+        materialization_bindings,
         materializations,
         named_schemas,
         npm_dependencies,
@@ -909,12 +1054,13 @@ fn run_test(mut fixture: Value) -> tables::All {
         inferences,
     } = futures::executor::block_on(validation::validate(
         &mock_calls,
+        &capture_bindings,
         &captures,
         &collections,
         &derivations,
-        &endpoints,
         &imports,
         &journal_rules,
+        &materialization_bindings,
         &materializations,
         &named_schemas,
         &npm_dependencies,
@@ -935,15 +1081,16 @@ fn run_test(mut fixture: Value) -> tables::All {
         built_derivations,
         built_materializations,
         built_tests,
+        capture_bindings,
         captures,
         collections,
         derivations,
-        endpoints,
         errors,
         fetches,
         imports,
         inferences,
         journal_rules,
+        materialization_bindings,
         materializations,
         named_schemas,
         npm_dependencies,

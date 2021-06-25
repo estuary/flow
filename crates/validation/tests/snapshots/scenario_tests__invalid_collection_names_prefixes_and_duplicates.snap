@@ -1,6 +1,7 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
@@ -29,18 +30,18 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/collections/,
-        error: collection  is a prohibited prefix of /bad/name, defined at test://example/catalog.yaml#/collections/~1bad~1name,
+        error: collection  is a prohibited prefix of collection /bad/name, defined at test://example/catalog.yaml#/collections/~1bad~1name,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing,
-        error: collection testing is a prohibited prefix of testing/Int-Halve, defined at test://example/catalog.yaml#/collections/testing~1Int-Halve,
+        error: collection testing is a prohibited prefix of capture testing/db-cdc, defined at test://example/int-string-captures#/captures/testing~1db-cdc,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1Int-Halve,
-        error: collection testing/Int-Halve has a duplicated definition at test://example/int-halve#/collections/testing~1int-halve,
+        error: collection testing/Int-Halve collides with collection testing/int-halve, defined at test://example/int-halve#/collections/testing~1int-halve,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1int-sTRinG,
-        error: collection testing/int-sTRinG has a duplicated definition at test://example/int-string#/collections/testing~1int-string,
+        error: collection testing/int-sTRinG collides with collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string,
     },
 ]

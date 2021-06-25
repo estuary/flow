@@ -7,8 +7,9 @@ use url::Url;
 const TOKEN: &'static str = r"[\pL\pN\-_.]+";
 
 lazy_static::lazy_static! {
+    pub static ref CAPTURE_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
     pub static ref COLLECTION_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref ENDPOINT_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
+    pub static ref MATERIALIZATION_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
     pub static ref PARTITION_RE: Regex = Regex::new(TOKEN).unwrap();
     pub static ref TRANSFORM_RE: Regex = Regex::new(TOKEN).unwrap();
 }
@@ -40,17 +41,16 @@ pub fn walk_name(
     }
 }
 
-pub fn walk_duplicates<'a, I, N>(entity: &'static str, i: I, errors: &mut tables::Errors)
+pub fn walk_duplicates<'a, I>(i: I, errors: &mut tables::Errors)
 where
-    I: Iterator<Item = (&'a N, &'a Url)> + 'a,
-    N: std::ops::Deref<Target = str> + Clone + 'static,
+    I: Iterator<Item = (&'static str, &'a str, &'a Url)> + 'a,
 {
     // Sort entity iterator by increasing, collated name.
-    let i = i.sorted_by(|(lhs, _), (rhs, _)| collate(lhs.chars()).cmp(collate(rhs.chars())));
+    let i = i.sorted_by(|(_, lhs, _), (_, rhs, _)| collate(lhs.chars()).cmp(collate(rhs.chars())));
 
     // Walk ordered 2-tuples of names & their scopes,
     // looking for duplicates or prefixes.
-    for ((lhs, lhs_scope), (rhs, rhs_scope)) in i.tuple_windows() {
+    for ((lhs_entity, lhs, lhs_scope), (rhs_entity, rhs, rhs_scope)) in i.tuple_windows() {
         // This loop is walking zipped characters of each name, and doing two things:
         // 1) Identifying an exact match (iterator drains with no different characters).
         // 2) Identifying hierarchical prefixes:
@@ -70,10 +70,12 @@ where
                 Some(EitherOrBoth::Right(r)) if r == '/' => {
                     // LHS finished *just* as we reached a '/',
                     // as in "foo/bar" vs "foo/bar/".
-                    Error::Prefix {
-                        entity,
-                        lhs: lhs.to_string(),
-                        rhs: rhs.to_string(),
+                    Error::NameCollision {
+                        error_class: "is a prohibited prefix of",
+                        lhs_entity,
+                        lhs_name: lhs.to_string(),
+                        rhs_entity,
+                        rhs_name: rhs.to_string(),
                         rhs_scope: rhs_scope.clone(),
                     }
                     .push(lhs_scope, errors);
@@ -84,9 +86,12 @@ where
                 }
                 None => {
                     // Iterator finished with no different characters.
-                    Error::Duplicate {
-                        entity,
-                        lhs: lhs.to_string(),
+                    Error::NameCollision {
+                        error_class: "collides with",
+                        lhs_entity,
+                        lhs_name: lhs.to_string(),
+                        rhs_entity,
+                        rhs_name: rhs.to_string(),
                         rhs_scope: rhs_scope.clone(),
                     }
                     .push(lhs_scope, errors);

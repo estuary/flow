@@ -45,11 +45,10 @@ pub fn walk_all_test_steps(
     }
 
     indexed::walk_duplicates(
-        "test",
         test_steps
             .iter()
             .filter(|s| s.step_index == 0)
-            .map(|s| (&s.test, &s.scope)),
+            .map(|s| ("test", s.test.as_str(), &s.scope)),
         errors,
     );
 

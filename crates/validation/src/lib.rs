@@ -7,7 +7,6 @@ mod capture;
 mod collate;
 mod collection;
 mod derivation;
-mod endpoint;
 mod errors;
 mod indexed;
 mod journal_rule;
@@ -47,12 +46,13 @@ pub struct Tables {
 
 pub async fn validate<D: Drivers>(
     drivers: &D,
+    capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
-    endpoints: &[tables::Endpoint],
     imports: &[tables::Import],
     journal_rules: &[tables::JournalRule],
+    materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     named_schemas: &[tables::NamedSchema],
     npm_dependencies: &[tables::NPMDependency],
@@ -124,15 +124,31 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
-    endpoint::walk_all_endpoints(endpoints, &mut errors);
+    // Look for name collisions among all top-level catalog entities.
+    // This is deliberately but arbitrarily ordered after granular
+    // validations of collections, but before captures and materializations.
+    let collections_it = collections
+        .iter()
+        .map(|c| ("collection", c.collection.as_str(), &c.scope));
+    let captures_it = captures
+        .iter()
+        .map(|c| ("capture", c.capture.as_str(), &c.scope));
+    let materializations_it = materializations
+        .iter()
+        .map(|m| ("materialization", m.materialization.as_str(), &m.scope));
+
+    indexed::walk_duplicates(
+        captures_it.chain(collections_it).chain(materializations_it),
+        &mut errors,
+    );
 
     let built_captures = capture::walk_all_captures(
         drivers,
         &built_collections,
+        capture_bindings,
         captures,
         collections,
         derivations,
-        endpoints,
         &imports,
         &mut errors,
     );
@@ -142,8 +158,8 @@ pub async fn validate<D: Drivers>(
         drivers,
         &built_collections,
         collections,
-        endpoints,
         &imports,
+        materialization_bindings,
         materializations,
         projections,
         &schema_shapes,

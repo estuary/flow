@@ -1,8 +1,13 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,
+    },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
         error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,

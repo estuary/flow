@@ -1,18 +1,23 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
-        scope: test://example/int-string-capture#/captures/0,
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
         error: capture references collection testing/int-reverse, defined at test://example/int-reverse#/collections/testing~1int-reverse, without importing it or being imported by it,
     },
     Error {
-        scope: test://example/int-string-capture#/captures/0,
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
         error: cannot capture into derived collection testing/int-reverse,
     },
     Error {
-        scope: test://example/int-string-capture#/captures/1,
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
         error: capture references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
+        error: capture references collection testing/int-string.v2, defined at test://example/int-string#/collections/testing~1int-string.v2, without importing it or being imported by it,
     },
 ]

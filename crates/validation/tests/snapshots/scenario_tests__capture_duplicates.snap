@@ -5,7 +5,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/catalog.yaml#/captures/0,
-        error: capture testing/int-string__captureEndpoint/bucke+/pr%40fix has a duplicated definition at test://example/int-string-capture#/captures/0,
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
+        error: capture testing/s3-source bindings duplicate the endpoint resource target.one at test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
     },
 ]

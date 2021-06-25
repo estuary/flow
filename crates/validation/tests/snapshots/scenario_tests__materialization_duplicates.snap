@@ -1,10 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
-        scope: test://example/catalog.yaml#/materializations/0,
-        error: materialization materializeEndpoint/tab%21e/two has a duplicated definition at test://example/int-halve-materialization#/materializations/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        error: materialization testing/db-views bindings duplicate the endpoint resource target.one at test://example/db-views#/materializations/testing~1db-views/bindings/1,
     },
 ]

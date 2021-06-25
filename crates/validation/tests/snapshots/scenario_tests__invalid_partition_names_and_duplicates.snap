@@ -1,15 +1,16 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/bIt,
-        error: projection bIt has a duplicated definition at test://example/int-string#/collections/testing~1int-string/projections/bit,
+        error: projection bIt collides with projection bit, defined at test://example/int-string#/collections/testing~1int-string/projections/bit,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/INT,
-        error: projection INT has a duplicated definition at test://example/int-string#/collections/testing~1int-string/projections/Int,
+        error: projection INT collides with projection Int, defined at test://example/int-string#/collections/testing~1int-string/projections/Int,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/,

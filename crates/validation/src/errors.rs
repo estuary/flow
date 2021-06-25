@@ -13,17 +13,15 @@ pub enum Error {
         name: String,
         unmatched: String,
     },
-    #[error("{entity} {lhs} has a duplicated definition at {rhs_scope}")]
-    Duplicate {
-        entity: &'static str,
-        lhs: String,
-        rhs_scope: Url,
-    },
-    #[error("{entity} {lhs} is a prohibited prefix of {rhs}, defined at {rhs_scope}")]
-    Prefix {
-        entity: &'static str,
-        lhs: String,
-        rhs: String,
+    #[error(
+        "{lhs_entity} {lhs_name} {error_class} {rhs_entity} {rhs_name}, defined at {rhs_scope}"
+    )]
+    NameCollision {
+        error_class: &'static str,
+        lhs_entity: &'static str,
+        lhs_name: String,
+        rhs_entity: &'static str,
+        rhs_name: String,
         rhs_scope: Url,
     },
     #[error("{ref_entity} {ref_name}, referenced by {this_thing}, is not defined")]
@@ -146,11 +144,17 @@ pub enum Error {
         rhs_version: String,
         rhs_scope: Url,
     },
-
     #[error("derivation's initial register is invalid against its schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     RegisterInitialInvalid(doc::FailedValidation),
     #[error("test ingest document is invalid against the collection schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     IngestDocInvalid(doc::FailedValidation),
+    #[error("{entity} {name} bindings duplicate the endpoint resource {resource} at {rhs_scope}")]
+    BindingDuplicatesResource {
+        entity: &'static str,
+        name: String,
+        resource: String,
+        rhs_scope: Url,
+    },
 
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),

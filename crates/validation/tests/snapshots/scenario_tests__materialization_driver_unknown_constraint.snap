@@ -1,17 +1,29 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
-        scope: test://example/int-string-materialization#/materializations/0,
-        error: driver error while validating materialization materializeEndpoint/table/The%20One
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+        error: materialization testing/webhook/deliveries field str is not satisfiable (selector includes field, but driver forbids it with reason: ),
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+        error: driver error while validating materialization testing/webhook/deliveries
+        
+        Caused by:
+            unknown constraint type 98,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
+        error: materialization testing/webhook/deliveries field Len is not satisfiable (selector includes field, but driver forbids it with reason: ),
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
+        error: driver error while validating materialization testing/webhook/deliveries
         
         Caused by:
             unknown constraint type 99,
-    },
-    Error {
-        scope: test://example/int-string-materialization#/materializations/0,
-        error: materialization materializeEndpoint/table/The%20One field str is not satisfiable (selector includes field, but driver forbids it with reason reason: whoops),
     },
 ]
