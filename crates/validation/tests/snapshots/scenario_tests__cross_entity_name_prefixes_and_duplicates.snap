@@ -1,0 +1,73 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/captures/a~1b~11,
+        error: capture a/b/1 collides with collection a/b/1, defined at test://example/catalog.yaml#/collections/a~1b~11,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/a~1b~11,
+        error: collection a/b/1 is a prohibited prefix of materialization a/b/1/suffix, defined at test://example/catalog.yaml#/materializations/a~1b~11~1suffix,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/a~1b~12,
+        error: collection a/b/2 collides with materialization a/b/2, defined at test://example/catalog.yaml#/materializations/a~1b~12,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/a~1b~12,
+        error: materialization a/b/2 is a prohibited prefix of capture a/b/2/suffix, defined at test://example/catalog.yaml#/captures/a~1b~12~1suffix,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/a~1b~13,
+        error: capture a/b/3 collides with materialization a/b/3, defined at test://example/catalog.yaml#/materializations/a~1b~13,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/a~1b~13,
+        error: materialization a/b/3 is a prohibited prefix of collection a/b/3/suffix, defined at test://example/catalog.yaml#/collections/a~1b~13~1suffix,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/a~1b~11,
+        error: driver error while validating capture a/b/1
+        
+        Caused by:
+            driver fixture not found: a/b/1,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/a~1b~12~1suffix,
+        error: driver error while validating capture a/b/2/suffix
+        
+        Caused by:
+            driver fixture not found: a/b/2/suffix,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/a~1b~13,
+        error: driver error while validating capture a/b/3
+        
+        Caused by:
+            driver fixture not found: a/b/3,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/a~1b~11~1suffix,
+        error: driver error while validating materialization a/b/1/suffix
+        
+        Caused by:
+            driver fixture not found: a/b/1/suffix,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/a~1b~12,
+        error: driver error while validating materialization a/b/2
+        
+        Caused by:
+            driver fixture not found: a/b/2,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/a~1b~13,
+        error: driver error while validating materialization a/b/3
+        
+        Caused by:
+            driver fixture not found: a/b/3,
+    },
+]

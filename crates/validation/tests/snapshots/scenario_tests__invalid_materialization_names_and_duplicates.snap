@@ -1,0 +1,63 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+
+---
+[
+    Error {
+        scope: test://example/materializations#/materializations/testing,
+        error: materialization testing is a prohibited prefix of materialization testing/SoMe-target, defined at test://example/materializations#/materializations/testing~1SoMe-target,
+    },
+    Error {
+        scope: test://example/materializations#/materializations/testing~1SoMe-target,
+        error: materialization testing/SoMe-target collides with materialization testing/some-target, defined at test://example/materializations#/materializations/testing~1some-target,
+    },
+    Error {
+        scope: test://example/materializations#/materializations/~1bad~1name,
+        error: /bad/name cannot be used as name for materialization ("/" is invalid),
+    },
+    Error {
+        scope: test://example/materializations#/materializations/bad%20name,
+        error: bad name cannot be used as name for materialization (" name" is invalid),
+    },
+    Error {
+        scope: test://example/materializations#/materializations/bad!name,
+        error: bad!name cannot be used as name for materialization ("!name" is invalid),
+    },
+    Error {
+        scope: test://example/materializations#/materializations/bad~1~1name,
+        error: bad//name cannot be used as name for materialization ("//name" is invalid),
+    },
+    Error {
+        scope: test://example/materializations#/materializations/bad~1name~1,
+        error: bad/name/ cannot be used as name for materialization ("/" is invalid),
+    },
+    Error {
+        scope: test://example/materializations#/materializations/good,
+        error: driver error while validating materialization good
+        
+        Caused by:
+            driver fixture not found: good,
+    },
+    Error {
+        scope: test://example/materializations#/materializations/testing,
+        error: driver error while validating materialization testing
+        
+        Caused by:
+            driver fixture not found: testing,
+    },
+    Error {
+        scope: test://example/materializations#/materializations/testing~1SoMe-target,
+        error: driver error while validating materialization testing/SoMe-target
+        
+        Caused by:
+            driver fixture not found: testing/SoMe-target,
+    },
+    Error {
+        scope: test://example/materializations#/materializations/testing~1some-target,
+        error: driver error while validating materialization testing/some-target
+        
+        Caused by:
+            driver fixture not found: testing/some-target,
+    },
+]

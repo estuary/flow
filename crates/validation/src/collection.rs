@@ -33,12 +33,6 @@ pub fn walk_all_collections(
         );
     }
 
-    indexed::walk_duplicates(
-        "collection",
-        collections.iter().map(|c| (&c.collection, &c.scope)),
-        errors,
-    );
-
     (built_collections, implicit_projections)
 }
 
@@ -89,8 +83,9 @@ fn walk_collection_projections(
     // This restricts *manually* specified projections, but not canonical ones.
     // Most importantly, this ensures there are no collation-duplicated partitions.
     indexed::walk_duplicates(
-        "projection",
-        projections.iter().map(|p| (&p.field, &p.scope)),
+        projections
+            .iter()
+            .map(|p| ("projection", p.field.as_str(), &p.scope)),
         errors,
     );
 

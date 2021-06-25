@@ -1,7 +1,7 @@
 use super::{collection, indexed, reference, schema, Drivers, Error};
 use futures::FutureExt;
-use itertools::Itertools;
-use models::{build, names, tables};
+use itertools::{EitherOrBoth, Itertools};
+use models::{names, tables};
 use protocol::{flow, materialize};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
@@ -10,8 +10,8 @@ pub async fn walk_all_materializations<D: Drivers>(
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
-    endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
+    materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
@@ -19,99 +19,183 @@ pub async fn walk_all_materializations<D: Drivers>(
 ) -> tables::BuiltMaterializations {
     let mut validations = Vec::new();
 
-    for materialization in materializations {
-        validations.extend(
-            walk_materialization_request(
-                built_collections,
-                collections,
-                endpoints,
-                imports,
-                materialization,
-                projections,
-                schema_shapes,
-                errors,
-            )
-            .into_iter(),
+    // Index |materialization_bindings| on (materialization, index),
+    // then group bindings having the same materialization.
+    let materialization_bindings = materialization_bindings
+        .into_iter()
+        .sorted_by_key(|m| (&m.materialization, m.materialization_index))
+        .group_by(|m| &m.materialization);
+
+    // Walk ordered materializations, left-joined by their bindings.
+    for (materialization, bindings) in materializations
+        .iter()
+        .sorted_by_key(|m| &m.materialization)
+        .merge_join_by(materialization_bindings.into_iter(), |l, (r, _)| {
+            l.materialization.cmp(r)
+        })
+        .filter_map(|eob| match eob {
+            EitherOrBoth::Both(materialization, (_, bindings)) => {
+                Some((materialization, Some(bindings)))
+            }
+            EitherOrBoth::Left(materialization) => Some((materialization, None)),
+            EitherOrBoth::Right(_) => None,
+        })
+    {
+        let mut materialization_errors = tables::Errors::new();
+
+        // Require the materialization name is valid.
+        indexed::walk_name(
+            &materialization.scope,
+            "materialization",
+            &materialization.materialization,
+            &indexed::MATERIALIZATION_RE,
+            &mut materialization_errors,
         );
+
+        let validation = walk_materialization_request(
+            built_collections,
+            collections,
+            imports,
+            materialization,
+            bindings.into_iter().flatten().collect(),
+            projections,
+            schema_shapes,
+            &mut materialization_errors,
+        );
+
+        // Skip validation if errors were encountered building the request.
+        if materialization_errors.is_empty() {
+            validations.push(validation);
+        } else {
+            errors.extend(materialization_errors.into_iter());
+        }
     }
 
     // Run all validations concurrently.
-    let validations =
-        validations
-            .into_iter()
-            .map(|(built_collection, materialization, request)| async move {
-                drivers
-                    .validate_materialization(request.clone())
-                    // Pass-through the materialization & CollectionSpec for future verification.
-                    .map(|response| (built_collection, materialization, request, response))
-                    .await
-            });
+    let validations = validations
+        .into_iter()
+        .map(|(scope, binding_models, request)| async move {
+            drivers
+                .validate_materialization(request.clone())
+                .map(|response| (scope, binding_models, request, response))
+                .await
+        });
     let validations = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
-    for (built_collection, materialization, request, response) in validations {
+    for (scope, binding_models, request, response) in validations {
         match response {
             Ok(response) => {
                 let materialize::ValidateRequest {
                     endpoint_type,
-                    endpoint_name,
                     endpoint_spec_json,
-                    ..
+                    bindings: binding_requests,
+                    materialization: name,
                 } = request;
 
-                // Safe to unwrap because walk_materialization_request previously
-                // cast to i32 from EndpointType.
-                let endpoint_type = flow::EndpointType::from_i32(endpoint_type).unwrap();
-
                 let materialize::ValidateResponse {
-                    constraints,
-                    resource_path,
+                    bindings: binding_responses,
                 } = response;
 
-                // Materialization tasks are named by the fully qualified
-                // endpoint resource path into which they materialize.
-                // This imposes a uniqueness constraint that a endpoint
-                // resource may have at most one materialization task.
-                let resolved_name = build::encode_endpoint_path(&endpoint_name, &resource_path);
+                // We constructed |binding_requests| while processing binding models.
+                assert!(binding_requests.len() == binding_models.len());
 
-                let fields = walk_materialization_response(
-                    built_collection,
-                    materialization,
-                    &resolved_name,
-                    constraints,
-                    errors,
-                );
+                if binding_requests.len() != binding_responses.len() {
+                    Error::MaterializationDriver {
+                        name: name.to_string(),
+                        detail: anyhow::anyhow!(
+                            "driver returned wrong number of bindings (expected {}, got {})",
+                            binding_requests.len(),
+                            binding_responses.len()
+                        ),
+                    }
+                    .push(scope, errors);
+                }
 
-                let spec = models::build::materialization_spec(
-                    materialization,
-                    built_collection,
-                    &resolved_name,
-                    endpoint_type,
+                // Join requests, responses and models to produce tuples
+                // of (scope, built binding).
+                let bindings: Vec<_> = binding_requests
+                    .into_iter()
+                    .zip(binding_responses.into_iter())
+                    .zip(binding_models.into_iter())
+                    .map(|((binding_request, binding_response), binding_model)| {
+                        let materialize::validate_request::Binding {
+                            collection: collection_spec,
+                            field_config_json: _,
+                            resource_spec_json,
+                        } = binding_request;
+
+                        let materialize::validate_response::Binding {
+                            constraints,
+                            delta_updates,
+                            resource_path,
+                        } = binding_response;
+
+                        let collection_spec = collection_spec.unwrap();
+                        let fields = walk_materialization_response(
+                            &collection_spec,
+                            binding_model,
+                            constraints,
+                            errors,
+                        );
+                        let shuffle = models::build::materialization_shuffle(
+                            binding_model,
+                            &collection_spec,
+                            &resource_path,
+                        );
+
+                        (
+                            &binding_model.scope,
+                            flow::materialization_spec::Binding {
+                                collection: Some(collection_spec),
+                                field_selection: Some(fields),
+                                resource_spec_json,
+                                resource_path,
+                                delta_updates,
+                                shuffle: Some(shuffle),
+                            },
+                        )
+                    })
+                    .collect();
+
+                // Look for (and error on) duplicated resource paths within the bindings.
+                for ((l_scope, _), (r_scope, binding)) in bindings
+                    .iter()
+                    .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
+                    .tuple_windows()
+                    .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
+                {
+                    Error::BindingDuplicatesResource {
+                        entity: "materialization",
+                        name: name.to_string(),
+                        resource: binding.resource_path.iter().join("."),
+                        rhs_scope: (*r_scope).clone(),
+                    }
+                    .push(l_scope, errors);
+                }
+
+                // Unzip to strip scopes, leaving built bindings.
+                let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
+
+                let spec = flow::MaterializationSpec {
+                    bindings,
                     endpoint_spec_json,
-                    resource_path,
-                    fields,
-                );
+                    endpoint_type,
+                    materialization: name.to_string(),
+                };
 
-                built_materializations.push_row(&materialization.scope, resolved_name, spec);
+                built_materializations.push_row(scope, name, spec);
             }
             Err(err) => {
                 Error::MaterializationDriver {
-                    name: request.endpoint_name,
+                    name: request.materialization,
                     detail: err,
                 }
-                .push(&materialization.scope, errors);
+                .push(scope, errors);
             }
         }
     }
-
-    indexed::walk_duplicates(
-        "materialization",
-        built_materializations
-            .iter()
-            .map(|m| (&m.materialization, &m.scope)),
-        errors,
-    );
 
     built_materializations
 }
@@ -119,55 +203,82 @@ pub async fn walk_all_materializations<D: Drivers>(
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     collections: &[tables::Collection],
-    endpoints: &[tables::Endpoint],
     imports: &[&tables::Import],
     materialization: &'a tables::Materialization,
+    materialization_bindings: Vec<&'a tables::MaterializationBinding>,
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
-) -> Option<(
-    &'a tables::BuiltCollection,
-    &'a tables::Materialization,
+) -> (
+    &'a Url,
+    Vec<&'a tables::MaterializationBinding>,
     materialize::ValidateRequest,
-)> {
+) {
     let tables::Materialization {
         scope,
-        collection: source,
-        endpoint,
-        endpoint_patch_spec,
-        fields_exclude,
-        fields_include,
-        fields_recommended: _,
-        source_partitions,
+        materialization: name,
+        endpoint_type,
+        endpoint_spec,
     } = materialization;
 
+    let (binding_models, binding_requests): (Vec<_>, Vec<_>) = materialization_bindings
+        .iter()
+        .filter_map(|materialization_binding| {
+            walk_materialization_binding(
+                built_collections,
+                collections,
+                imports,
+                materialization_binding,
+                projections,
+                schema_shapes,
+                errors,
+            )
+            .map(|binding_request| (*materialization_binding, binding_request))
+        })
+        .unzip();
+
+    let request = materialize::ValidateRequest {
+        materialization: name.to_string(),
+        bindings: binding_requests,
+        endpoint_type: *endpoint_type as i32,
+        endpoint_spec_json: endpoint_spec.to_string(),
+    };
+
+    (scope, binding_models, request)
+}
+
+fn walk_materialization_binding<'a>(
+    built_collections: &'a [tables::BuiltCollection],
+    collections: &[tables::Collection],
+    imports: &[&tables::Import],
+    materialization_binding: &'a tables::MaterializationBinding,
+    projections: &[tables::Projection],
+    schema_shapes: &[schema::Shape],
+    errors: &mut tables::Errors,
+) -> Option<materialize::validate_request::Binding> {
+    let tables::MaterializationBinding {
+        scope,
+        materialization: name,
+        materialization_index: _,
+        resource_spec,
+        collection,
+        fields_include,
+        fields_exclude,
+        fields_recommended: _,
+        source_partitions,
+    } = materialization_binding;
+
+    // We must resolve the source collection to continue.
     let source = reference::walk_reference(
         scope,
         "materialization",
         "collection",
-        source,
+        collection,
         collections,
         |c| (&c.collection, &c.scope),
         imports,
         errors,
-    );
-
-    let endpoint = reference::walk_reference(
-        scope,
-        "materialization",
-        "endpoint",
-        endpoint,
-        endpoints,
-        |e| (&e.endpoint, &e.scope),
-        imports,
-        errors,
-    );
-
-    // We must resolve both |source| and |endpoint| to continue.
-    let (source, endpoint) = match (source, endpoint) {
-        (Some(s), Some(e)) => (s, e),
-        _ => return None,
-    };
+    )?;
 
     let built_collection = built_collections
         .iter()
@@ -178,30 +289,27 @@ fn walk_materialization_request<'a>(
         collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
     }
 
-    let mut endpoint_spec = endpoint.base_spec.clone();
-    json_patch::merge(&mut endpoint_spec, &endpoint_patch_spec);
-
     let field_config = walk_materialization_fields(
         scope,
+        name,
         built_collection,
         fields_include,
         fields_exclude,
         errors,
     );
 
-    let request = materialize::ValidateRequest {
-        endpoint_name: endpoint.endpoint.to_string(),
-        endpoint_type: endpoint.endpoint_type as i32,
-        endpoint_spec_json: endpoint_spec.to_string(),
+    let request = materialize::validate_request::Binding {
+        resource_spec_json: resource_spec.to_string(),
         collection: Some(built_collection.spec.clone()),
         field_config_json: field_config.into_iter().collect(),
     };
 
-    Some((built_collection, materialization, request))
+    Some(request)
 }
 
 fn walk_materialization_fields<'a>(
     scope: &Url,
+    materialization: &str,
     built_collection: &tables::BuiltCollection,
     include: &BTreeMap<String, names::Object>,
     exclude: &[String],
@@ -237,31 +345,38 @@ fn walk_materialization_fields<'a>(
             }
             .push(scope, errors);
         }
+        if include.contains_key(field) {
+            Error::FieldUnsatisfiable {
+                name: materialization.to_string(),
+                field: field.to_string(),
+                reason: "field is both included and excluded by selector".to_string(),
+            }
+            .push(scope, errors);
+        }
     }
 
     bag
 }
 
 fn walk_materialization_response(
-    built_collection: &tables::BuiltCollection,
-    materialization: &tables::Materialization,
-    name: &str,
+    collection_spec: &flow::CollectionSpec,
+    materialization_binding: &tables::MaterializationBinding,
     mut constraints: HashMap<String, materialize::Constraint>,
     errors: &mut tables::Errors,
 ) -> flow::FieldSelection {
-    let tables::Materialization {
+    let tables::MaterializationBinding {
         scope,
         fields_include: include,
         fields_exclude: exclude,
         fields_recommended: recommended,
         ..
-    } = materialization;
+    } = materialization_binding;
 
     let flow::CollectionSpec {
         projections,
         key_ptrs,
         ..
-    } = &built_collection.spec;
+    } = collection_spec;
 
     // |keys| and |document| are initialized with placeholder None,
     // that we'll revisit as we walk projections & constraints.
@@ -311,7 +426,7 @@ fn walk_materialization_response(
             Some(t) => t,
             None => {
                 Error::MaterializationDriver {
-                    name: name.to_string(),
+                    name: materialization_binding.materialization.to_string(),
                     detail: anyhow::anyhow!("unknown constraint type {}", constraint.r#type),
                 }
                 .push(scope, errors);
@@ -336,14 +451,14 @@ fn walk_materialization_response(
             type_,
         ) {
             // Selector / driver constraints conflict internally:
-            (true, true, _) => Err(format!("field is both included and excluded by selector")),
+            (true, true, _) => panic!("included and excluded (should have been filtered)"),
             (_, _, Type::Unsatisfiable) => Err(format!(
                 "driver reports as unsatisfiable with reason: {}",
                 reason
             )),
             // Selector / driver constraints conflict with each other:
             (true, false, Type::FieldForbidden) => Err(format!(
-                "selector includes field, but driver forbids it with reason reason: {}",
+                "selector includes field, but driver forbids it with reason: {}",
                 reason
             )),
             (false, true, Type::FieldRequired) => Err(format!(
@@ -378,7 +493,7 @@ fn walk_materialization_response(
         match resolution {
             Err(reason) => {
                 Error::FieldUnsatisfiable {
-                    name: name.to_string(),
+                    name: materialization_binding.materialization.to_string(),
                     field: field.to_string(),
                     reason,
                 }
@@ -410,7 +525,7 @@ fn walk_materialization_response(
     // Any left-over constraints were unexpectedly not in |projections|.
     for (field, _) in constraints {
         Error::MaterializationDriver {
-            name: name.to_string(),
+            name: materialization_binding.materialization.to_string(),
             detail: anyhow::anyhow!("driver sent constraint for unknown field {}", field),
         }
         .push(scope, errors);
@@ -419,7 +534,7 @@ fn walk_materialization_response(
     for (location, found) in locations {
         if !found {
             Error::LocationUnsatisfiable {
-                name: name.to_string(),
+                name: materialization_binding.materialization.to_string(),
                 location,
             }
             .push(scope, errors);

@@ -99,9 +99,12 @@ pub fn walk_all_named_schemas<'a>(
         .tuple_windows()
     {
         if lhs.anchor_name == rhs.anchor_name {
-            Error::Duplicate {
-                entity: "named schema",
-                lhs: lhs.anchor_name.clone(),
+            Error::NameCollision {
+                error_class: "duplicates",
+                lhs_entity: "named schema",
+                lhs_name: lhs.anchor_name.clone(),
+                rhs_entity: "named schema",
+                rhs_name: rhs.anchor_name.clone(),
                 rhs_scope: rhs.scope.clone(),
             }
             .push(&lhs.scope, errors);

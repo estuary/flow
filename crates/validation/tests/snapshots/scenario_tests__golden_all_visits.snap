@@ -6,263 +6,467 @@ expression: tables
 All {
     built_captures: [
         BuiltCapture {
-            scope: test://example/int-string-capture#/captures/0,
-            capture: testing/int-string__captureEndpoint/bucke+/pr%40fix,
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            capture: testing/db-cdc,
             spec: CaptureSpec {
-                capture: "testing/int-string__captureEndpoint/bucke+/pr%40fix",
-                collection: Some(
-                    CollectionSpec {
-                        collection: "testing/int-string",
-                        schema_uri: "test://example/int-string.schema",
-                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                        key_ptrs: [
-                            "/int",
+                capture: "testing/db-cdc",
+                endpoint_type: AirbyteSource,
+                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\"}",
+                bindings: [
+                    Binding {
+                        resource_spec_json: "{\"namespace\":\"and namespace\",\"stream\":\"other-stream\"}",
+                        resource_path: [
+                            "schema",
+                            "table",
                         ],
-                        uuid_ptr: "/_meta/uuid",
-                        partition_fields: [
-                            "bit",
-                        ],
-                        projections: [
-                            Projection {
-                                ptr: "/int",
-                                field: "Int",
-                                user_provided: true,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/bit",
-                                field: "bit",
-                                user_provided: true,
-                                is_partition_key: true,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/int",
-                                field: "int",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/str",
-                                field: "str",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "string",
-                                        ],
-                                        must_exist: true,
-                                        string: Some(
-                                            String {
-                                                content_type: "",
-                                                format: "",
-                                                is_base64: false,
-                                                max_length: 0,
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string",
+                                schema_uri: "test://example/int-string.schema",
+                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
                                         ),
-                                        title: "",
-                                        description: "",
                                     },
-                                ),
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                             },
-                        ],
-                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                        ),
                     },
-                ),
-                endpoint_name: "captureEndpoint",
-                endpoint_type: AirbyteSource,
-                endpoint_spec_json: "{\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"},\"image\":\"s3\",\"namespace\":\"\",\"stream\":\"a-stream\"}",
-                endpoint_resource_path: [
-                    "bucke+",
-                    "pr@fix",
                 ],
             },
         },
         BuiltCapture {
-            scope: test://example/int-string-capture#/captures/1,
-            capture: testing/int-string__captureOtherEndpoint/schema/table,
+            scope: test://example/int-string-captures#/captures/testing~1s3-source,
+            capture: testing/s3-source,
             spec: CaptureSpec {
-                capture: "testing/int-string__captureOtherEndpoint/schema/table",
-                collection: Some(
-                    CollectionSpec {
-                        collection: "testing/int-string",
-                        schema_uri: "test://example/int-string.schema",
-                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                        key_ptrs: [
-                            "/int",
+                capture: "testing/s3-source",
+                endpoint_type: AirbyteSource,
+                endpoint_spec_json: "{\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"},\"image\":\"s3\"}",
+                bindings: [
+                    Binding {
+                        resource_spec_json: "{\"stream\":\"a-stream\"}",
+                        resource_path: [
+                            "bucke+",
+                            "pr@fix",
                         ],
-                        uuid_ptr: "/_meta/uuid",
-                        partition_fields: [
-                            "bit",
-                        ],
-                        projections: [
-                            Projection {
-                                ptr: "/int",
-                                field: "Int",
-                                user_provided: true,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/bit",
-                                field: "bit",
-                                user_provided: true,
-                                is_partition_key: true,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/int",
-                                field: "int",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/str",
-                                field: "str",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "string",
-                                        ],
-                                        must_exist: true,
-                                        string: Some(
-                                            String {
-                                                content_type: "",
-                                                format: "",
-                                                is_base64: false,
-                                                max_length: 0,
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string",
+                                schema_uri: "test://example/int-string.schema",
+                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
                                         ),
-                                        title: "",
-                                        description: "",
                                     },
-                                ),
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                             },
-                        ],
-                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                        ),
                     },
-                ),
-                endpoint_name: "captureOtherEndpoint",
-                endpoint_type: AirbyteSource,
-                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\",\"namespace\":\"and namespace\",\"stream\":\"other-stream\"}",
-                endpoint_resource_path: [
-                    "schema",
-                    "table",
+                    Binding {
+                        resource_spec_json: "{\"stream\":\"v2-stream\"}",
+                        resource_path: [
+                            "other-bucket",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string.v2",
+                                schema_uri: "test://example/int-string.schema",
+                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                            },
+                        ),
+                    },
                 ],
             },
         },
     ],
     built_collections: [
+        BuiltCollection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            spec: CollectionSpec {
+                collection: "testing/int-string.v2",
+                schema_uri: "test://example/int-string.schema",
+                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                key_ptrs: [
+                    "/int",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/bit",
+                        field: "bit",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/int",
+                        field: "int",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/str",
+                        field: "str",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                must_exist: true,
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                ],
+                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+            },
+        },
         BuiltCollection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
@@ -1159,456 +1363,632 @@ All {
     ],
     built_materializations: [
         BuiltMaterialization {
-            scope: test://example/int-string-materialization#/materializations/0,
-            materialization: materializeEndpoint/table/The%20One,
+            scope: test://example/db-views#/materializations/testing~1db-views,
+            materialization: testing/db-views,
             spec: MaterializationSpec {
-                materialization: "materializeEndpoint/table/The%20One",
-                collection: Some(
-                    CollectionSpec {
-                        collection: "testing/int-string",
-                        schema_uri: "test://example/int-string.schema",
-                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                        key_ptrs: [
-                            "/int",
+                materialization: "testing/db-views",
+                endpoint_type: FlowSink,
+                endpoint_spec_json: "{\"config\":{\"foo\":\"bar\"},\"image\":\"database/image\"}",
+                bindings: [
+                    Binding {
+                        resource_spec_json: "{\"table\":\"the_table\"}",
+                        resource_path: [
+                            "view",
                         ],
-                        uuid_ptr: "/_meta/uuid",
-                        partition_fields: [
-                            "bit",
-                        ],
-                        projections: [
-                            Projection {
-                                ptr: "/int",
-                                field: "Int",
-                                user_provided: true,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/bit",
-                                field: "bit",
-                                user_provided: true,
-                                is_partition_key: true,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/int",
-                                field: "int",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/str",
-                                field: "str",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "string",
-                                        ],
-                                        must_exist: true,
-                                        string: Some(
-                                            String {
-                                                content_type: "",
-                                                format: "",
-                                                is_base64: false,
-                                                max_length: 0,
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string",
+                                schema_uri: "test://example/int-string.schema",
+                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
                                         ),
-                                        title: "",
-                                        description: "",
                                     },
-                                ),
-                            },
-                        ],
-                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                    },
-                ),
-                endpoint_name: "materializeEndpoint",
-                endpoint_type: S3,
-                endpoint_spec_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"one\",\"prefix\":\"and-prefix\"}",
-                endpoint_resource_path: [
-                    "table",
-                    "The One",
-                ],
-                field_selection: Some(
-                    FieldSelection {
-                        keys: [
-                            "int",
-                        ],
-                        values: [
-                            "str",
-                        ],
-                        document: "flow_document",
-                        field_config_json: {
-                            "str": "{\"pass\":\"through\"}",
-                        },
-                    },
-                ),
-                shuffle: Some(
-                    Shuffle {
-                        group_name: "materialize/materializeEndpoint/table/The%20One",
-                        source_collection: "testing/int-string",
-                        source_partitions: Some(
-                            LabelSelector {
-                                include: Some(
-                                    LabelSet {
-                                        labels: [
-                                            Label {
-                                                name: "estuary.dev/collection",
-                                                value: "testing/int-string",
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
-                                            Label {
-                                                name: "estuary.dev/field/bit",
-                                                value: "true",
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
-                                        ],
+                                        ),
                                     },
-                                ),
-                                exclude: Some(
-                                    LabelSet {
-                                        labels: [],
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
                                     },
-                                ),
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                             },
                         ),
-                        source_uuid_ptr: "/_meta/uuid",
-                        shuffle_key_ptr: [
-                            "/int",
-                        ],
-                        uses_source_key: true,
-                        shuffle_lambda: None,
-                        source_schema_uri: "test://example/int-string.schema",
-                        uses_source_schema: true,
-                        validate_schema_at_read: false,
-                        filter_r_clocks: false,
-                        read_delay_seconds: 0,
-                        priority: 0,
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [],
+                                values: [],
+                                document: "flow_document",
+                                field_config_json: {},
+                            },
+                        ),
+                        delta_updates: false,
+                        shuffle: Some(
+                            Shuffle {
+                                group_name: "materialize/testing/db-views/view",
+                                source_collection: "testing/int-string",
+                                source_partitions: Some(
+                                    LabelSelector {
+                                        include: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        exclude: Some(
+                                            LabelSet {
+                                                labels: [],
+                                            },
+                                        ),
+                                    },
+                                ),
+                                source_uuid_ptr: "/_meta/uuid",
+                                shuffle_key_ptr: [
+                                    "/int",
+                                ],
+                                uses_source_key: true,
+                                shuffle_lambda: None,
+                                source_schema_uri: "test://example/int-string.schema",
+                                uses_source_schema: true,
+                                validate_schema_at_read: false,
+                                filter_r_clocks: false,
+                                read_delay_seconds: 0,
+                                priority: 0,
+                            },
+                        ),
                     },
-                ),
+                ],
             },
         },
         BuiltMaterialization {
-            scope: test://example/int-halve-materialization#/materializations/0,
-            materialization: materializeEndpoint/tab%21e/two,
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            materialization: testing/webhook/deliveries,
             spec: MaterializationSpec {
-                materialization: "materializeEndpoint/tab%21e/two",
-                collection: Some(
-                    CollectionSpec {
-                        collection: "testing/int-halve",
-                        schema_uri: "test://example/int-string-len.schema",
-                        schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
-                        key_ptrs: [
-                            "/int",
+                materialization: "testing/webhook/deliveries",
+                endpoint_type: Webhook,
+                endpoint_spec_json: "{\"address\":\"http://example/webhook\"}",
+                bindings: [
+                    Binding {
+                        resource_spec_json: "{\"fixture\":\"one\"}",
+                        resource_path: [
+                            "Web!hook",
+                            "foo bar",
                         ],
-                        uuid_ptr: "/_meta/uuid",
-                        partition_fields: [
-                            "Len",
-                        ],
-                        projections: [
-                            Projection {
-                                ptr: "/extra",
-                                field: "Extra",
-                                user_provided: true,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: false,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/len",
-                                field: "Len",
-                                user_provided: true,
-                                is_partition_key: true,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "Root",
-                                user_provided: true,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/arr",
-                                field: "arr",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "array",
-                                        ],
-                                        must_exist: false,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/bit",
-                                field: "bit",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/extra",
-                                field: "extra",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: false,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/int",
-                                field: "int",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/len",
-                                field: "len",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/str",
-                                field: "str",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "string",
-                                        ],
-                                        must_exist: true,
-                                        string: Some(
-                                            String {
-                                                content_type: "",
-                                                format: "",
-                                                is_base64: false,
-                                                max_length: 0,
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string",
+                                schema_uri: "test://example/int-string.schema",
+                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
                                         ),
-                                        title: "",
-                                        description: "",
                                     },
-                                ),
-                            },
-                        ],
-                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                    },
-                ),
-                endpoint_name: "materializeEndpoint",
-                endpoint_type: S3,
-                endpoint_spec_json: "{\"bucket\":\"a-bucket\",\"fixture\":\"two\",\"prefix\":\"and-prefix\"}",
-                endpoint_resource_path: [
-                    "tab!e",
-                    "two",
-                ],
-                field_selection: Some(
-                    FieldSelection {
-                        keys: [
-                            "int",
-                        ],
-                        values: [
-                            "Extra",
-                            "Len",
-                        ],
-                        document: "Root",
-                        field_config_json: {
-                            "Len": "{}",
-                        },
-                    },
-                ),
-                shuffle: Some(
-                    Shuffle {
-                        group_name: "materialize/materializeEndpoint/tab%21e/two",
-                        source_collection: "testing/int-halve",
-                        source_partitions: Some(
-                            LabelSelector {
-                                include: Some(
-                                    LabelSet {
-                                        labels: [
-                                            Label {
-                                                name: "estuary.dev/collection",
-                                                value: "testing/int-halve",
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
                                             },
-                                        ],
+                                        ),
                                     },
-                                ),
-                                exclude: Some(
-                                    LabelSet {
-                                        labels: [],
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
                                     },
-                                ),
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                             },
                         ),
-                        source_uuid_ptr: "/_meta/uuid",
-                        shuffle_key_ptr: [
-                            "/int",
-                        ],
-                        uses_source_key: true,
-                        shuffle_lambda: None,
-                        source_schema_uri: "test://example/int-string-len.schema",
-                        uses_source_schema: true,
-                        validate_schema_at_read: false,
-                        filter_r_clocks: false,
-                        read_delay_seconds: 0,
-                        priority: 0,
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [
+                                    "int",
+                                ],
+                                values: [
+                                    "str",
+                                ],
+                                document: "flow_document",
+                                field_config_json: {
+                                    "str": "{\"pass\":\"through\"}",
+                                },
+                            },
+                        ),
+                        delta_updates: true,
+                        shuffle: Some(
+                            Shuffle {
+                                group_name: "materialize/testing/webhook/deliveries/Web%21hook/foo%20bar",
+                                source_collection: "testing/int-string",
+                                source_partitions: Some(
+                                    LabelSelector {
+                                        include: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/field/bit",
+                                                        value: "true",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        exclude: Some(
+                                            LabelSet {
+                                                labels: [],
+                                            },
+                                        ),
+                                    },
+                                ),
+                                source_uuid_ptr: "/_meta/uuid",
+                                shuffle_key_ptr: [
+                                    "/int",
+                                ],
+                                uses_source_key: true,
+                                shuffle_lambda: None,
+                                source_schema_uri: "test://example/int-string.schema",
+                                uses_source_schema: true,
+                                validate_schema_at_read: false,
+                                filter_r_clocks: false,
+                                read_delay_seconds: 0,
+                                priority: 0,
+                            },
+                        ),
                     },
-                ),
+                    Binding {
+                        resource_spec_json: "{\"fixture\":\"two\"}",
+                        resource_path: [
+                            "targe+",
+                            "two",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-halve",
+                                schema_uri: "test://example/int-string-len.schema",
+                                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "Len",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/extra",
+                                        field: "Extra",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: false,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "Len",
+                                        user_provided: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "Root",
+                                        user_provided: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr",
+                                        field: "arr",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "array",
+                                                ],
+                                                must_exist: false,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/extra",
+                                        field: "extra",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                must_exist: false,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "len",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                must_exist: true,
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        user_provided: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                must_exist: true,
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                            },
+                        ),
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [
+                                    "int",
+                                ],
+                                values: [
+                                    "Extra",
+                                    "Len",
+                                ],
+                                document: "Root",
+                                field_config_json: {
+                                    "Len": "{}",
+                                },
+                            },
+                        ),
+                        delta_updates: true,
+                        shuffle: Some(
+                            Shuffle {
+                                group_name: "materialize/testing/webhook/deliveries/targe+/two",
+                                source_collection: "testing/int-halve",
+                                source_partitions: Some(
+                                    LabelSelector {
+                                        include: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-halve",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        exclude: Some(
+                                            LabelSet {
+                                                labels: [],
+                                            },
+                                        ),
+                                    },
+                                ),
+                                source_uuid_ptr: "/_meta/uuid",
+                                shuffle_key_ptr: [
+                                    "/int",
+                                ],
+                                uses_source_key: true,
+                                shuffle_lambda: None,
+                                source_schema_uri: "test://example/int-string-len.schema",
+                                uses_source_schema: true,
+                                validate_schema_at_read: false,
+                                filter_r_clocks: false,
+                                read_delay_seconds: 0,
+                                priority: 0,
+                            },
+                        ),
+                    },
+                ],
             },
         },
     ],
@@ -1688,21 +2068,50 @@ All {
             },
         },
     ],
+    capture_bindings: [
+        CaptureBinding {
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
+            capture: testing/db-cdc,
+            capture_index: 0,
+            resource_spec: {"namespace":"and namespace","stream":"other-stream"},
+            collection: testing/int-string,
+        },
+        CaptureBinding {
+            scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
+            capture: testing/s3-source,
+            capture_index: 0,
+            resource_spec: {"stream":"a-stream"},
+            collection: testing/int-string,
+        },
+        CaptureBinding {
+            scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
+            capture: testing/s3-source,
+            capture_index: 1,
+            resource_spec: {"stream":"v2-stream"},
+            collection: testing/int-string.v2,
+        },
+    ],
     captures: [
         Capture {
-            scope: test://example/int-string-capture#/captures/0,
-            collection: testing/int-string,
-            endpoint: captureEndpoint,
-            endpoint_patch_spec: {"stream":"a-stream"},
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            capture: testing/db-cdc,
+            endpoint_type: "AirbyteSource",
+            endpoint_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database"},
         },
         Capture {
-            scope: test://example/int-string-capture#/captures/1,
-            collection: testing/int-string,
-            endpoint: captureOtherEndpoint,
-            endpoint_patch_spec: {"namespace":"and namespace","stream":"other-stream"},
+            scope: test://example/int-string-captures#/captures/testing~1s3-source,
+            capture: testing/s3-source,
+            endpoint_type: "AirbyteSource",
+            endpoint_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"},
         },
     ],
     collections: [
+        Collection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            schema: test://example/int-string.schema,
+            key: ["/int"],
+        },
         Collection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
@@ -1736,26 +2145,6 @@ All {
             register_initial: 42,
         },
     ],
-    endpoints: [
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/captureEndpoint,
-            endpoint: captureEndpoint,
-            endpoint_type: "AirbyteSource",
-            base_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3","namespace":"","stream":""},
-        },
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/captureOtherEndpoint,
-            endpoint: captureOtherEndpoint,
-            endpoint_type: "AirbyteSource",
-            base_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database","namespace":"","stream":""},
-        },
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/materializeEndpoint,
-            endpoint: materializeEndpoint,
-            endpoint_type: "S3",
-            base_spec: {"bucket":"a-bucket","prefix":"and-prefix"},
-        },
-    ],
     errors: [],
     fetches: [
         Fetch {
@@ -1771,13 +2160,13 @@ All {
             resource: test://example/int-halve,
         },
         Fetch {
-            resource: test://example/int-string-capture,
+            resource: test://example/int-string-captures,
         },
         Fetch {
-            resource: test://example/int-string-materialization,
+            resource: test://example/webhook-deliveries,
         },
         Fetch {
-            resource: test://example/int-halve-materialization,
+            resource: test://example/db-views,
         },
         Fetch {
             resource: test://example/int-string-tests,
@@ -1801,13 +2190,13 @@ All {
             resource: test://example/int-string-len.schema,
         },
         Fetch {
-            resource: test://example/int-string-capture.ts,
+            resource: test://example/int-string-captures.ts,
         },
         Fetch {
-            resource: test://example/int-string-materialization.ts,
+            resource: test://example/webhook-deliveries.ts,
         },
         Fetch {
-            resource: test://example/int-halve-materialization.ts,
+            resource: test://example/db-views.ts,
         },
         Fetch {
             resource: test://example/int-string-tests.ts,
@@ -1818,6 +2207,11 @@ All {
             scope: test://example/int-string#/import/0,
             from_resource: test://example/int-string,
             to_resource: test://example/int-halve,
+        },
+        Import {
+            scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string.schema,
         },
         Import {
             scope: test://example/int-reverse#/import/0,
@@ -1845,19 +2239,24 @@ All {
             to_resource: test://example/int-string-len.schema,
         },
         Import {
-            scope: test://example/int-string-capture#/import/0,
-            from_resource: test://example/int-string-capture,
+            scope: test://example/int-string-captures#/import/0,
+            from_resource: test://example/int-string-captures,
             to_resource: test://example/int-string,
         },
         Import {
-            scope: test://example/int-string-materialization#/import/0,
-            from_resource: test://example/int-string-materialization,
+            scope: test://example/webhook-deliveries#/import/0,
+            from_resource: test://example/webhook-deliveries,
             to_resource: test://example/int-string,
         },
         Import {
-            scope: test://example/int-halve-materialization#/import/0,
-            from_resource: test://example/int-halve-materialization,
+            scope: test://example/webhook-deliveries#/import/1,
+            from_resource: test://example/webhook-deliveries,
             to_resource: test://example/int-halve,
+        },
+        Import {
+            scope: test://example/db-views#/import/0,
+            from_resource: test://example/db-views,
+            to_resource: test://example/int-string,
         },
         Import {
             scope: test://example/int-string-tests#/import/0,
@@ -1920,34 +2319,34 @@ All {
             to_resource: test://example/int-halve,
         },
         Import {
-            scope: test://example/int-string-capture,
-            from_resource: test://example/int-string-capture,
-            to_resource: test://example/int-string-capture.ts,
+            scope: test://example/int-string-captures,
+            from_resource: test://example/int-string-captures,
+            to_resource: test://example/int-string-captures.ts,
         },
         Import {
             scope: test://example/catalog.yaml#/import/3,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-string-capture,
+            to_resource: test://example/int-string-captures,
         },
         Import {
-            scope: test://example/int-string-materialization,
-            from_resource: test://example/int-string-materialization,
-            to_resource: test://example/int-string-materialization.ts,
+            scope: test://example/webhook-deliveries,
+            from_resource: test://example/webhook-deliveries,
+            to_resource: test://example/webhook-deliveries.ts,
         },
         Import {
             scope: test://example/catalog.yaml#/import/4,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-string-materialization,
+            to_resource: test://example/webhook-deliveries,
         },
         Import {
-            scope: test://example/int-halve-materialization,
-            from_resource: test://example/int-halve-materialization,
-            to_resource: test://example/int-halve-materialization.ts,
+            scope: test://example/db-views,
+            from_resource: test://example/db-views,
+            to_resource: test://example/db-views.ts,
         },
         Import {
             scope: test://example/catalog.yaml#/import/5,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-halve-materialization,
+            to_resource: test://example/db-views,
         },
         Import {
             scope: test://example/int-string-tests,
@@ -2331,27 +2730,53 @@ All {
             },
         },
     ],
-    shard_rules: [],
-    materializations: [
-        Materialization {
-            scope: test://example/int-string-materialization#/materializations/0,
+    materialization_bindings: [
+        MaterializationBinding {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+            materialization: testing/webhook/deliveries,
+            materialization_index: 0,
+            resource_spec: {"fixture":"one"},
             collection: testing/int-string,
-            endpoint: materializeEndpoint,
-            endpoint_patch_spec: {"fixture":"one"},
             fields_exclude: ["bit"],
             fields_include: {"str":{"pass":"through"}},
             fields_recommended: 1,
             source_partitions: {"include":{"bit":[true]},"exclude":{}},
         },
-        Materialization {
-            scope: test://example/int-halve-materialization#/materializations/0,
+        MaterializationBinding {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
+            materialization: testing/webhook/deliveries,
+            materialization_index: 1,
+            resource_spec: {"fixture":"two"},
             collection: testing/int-halve,
-            endpoint: materializeEndpoint,
-            endpoint_patch_spec: {"fixture":"two"},
             fields_exclude: [],
             fields_include: {"Len":{}},
             fields_recommended: 0,
             source_partitions: NULL,
+        },
+        MaterializationBinding {
+            scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+            materialization: testing/db-views,
+            materialization_index: 0,
+            resource_spec: {"table":"the_table"},
+            collection: testing/int-string,
+            fields_exclude: [],
+            fields_include: {},
+            fields_recommended: 1,
+            source_partitions: NULL,
+        },
+    ],
+    materializations: [
+        Materialization {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            materialization: testing/webhook/deliveries,
+            endpoint_type: "Webhook",
+            endpoint_spec: {"address":"http://example/webhook"},
+        },
+        Materialization {
+            scope: test://example/db-views#/materializations/testing~1db-views,
+            materialization: testing/db-views,
+            endpoint_type: "FlowSink",
+            endpoint_spec: {"config":{"foo":"bar"},"image":"database/image"},
         },
     ],
     named_schemas: [
@@ -2407,6 +2832,38 @@ All {
             location: ,
             partition: 0,
             user_provided: 1,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: bit,
+            location: /bit,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: flow_document,
+            location: ,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: int,
+            location: /int,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: str,
+            location: /str,
+            partition: 0,
+            user_provided: 0,
         },
         Projection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
@@ -2553,17 +3010,17 @@ All {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/int-string-capture,
+            resource: test://example/int-string-captures,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/int-string-materialization,
+            resource: test://example/webhook-deliveries,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/int-halve-materialization,
+            resource: test://example/db-views,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },
@@ -2611,6 +3068,7 @@ All {
             dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$ref":"test://example/int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
         },
     ],
+    shard_rules: [],
     test_steps: [
         TestStep {
             scope: test://example/int-string-tests#/tests/A%20Test/0,

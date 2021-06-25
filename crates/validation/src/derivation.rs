@@ -100,8 +100,9 @@ fn walk_derivation(
     }
 
     indexed::walk_duplicates(
-        "transform",
-        transforms.iter().map(|t| (&t.transform, &t.scope)),
+        transforms
+            .iter()
+            .map(|t| ("transform", t.transform.as_str(), &t.scope)),
         errors,
     );
 

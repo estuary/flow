@@ -3,29 +3,10 @@ test://example/catalog.yaml:
     - test://example/int-string
     - test://example/int-reverse
     - test://example/int-halve
-    - test://example/int-string-capture
-    - test://example/int-string-materialization
-    - test://example/int-halve-materialization
+    - test://example/int-string-captures
+    - test://example/webhook-deliveries
+    - test://example/db-views
     - test://example/int-string-tests
-  endpoints:
-    captureEndpoint:
-      airbyteSource:
-        image: s3
-        config:
-          bucket: a-bucket
-          prefix: and-prefix
-
-    captureOtherEndpoint:
-      airbyteSource:
-        image: database
-        config:
-          host: a.host.name
-          user: a-user
-
-    materializeEndpoint:
-      s3:
-        bucket: a-bucket
-        prefix: and-prefix
 
   journalRules:
     123 A Rule:
@@ -52,42 +33,81 @@ test://example/int-string:
           location: /bit
           partition: true
 
-test://example/int-string-capture:
+    testing/int-string.v2:
+      schema: test://example/int-string.schema
+      key: [/int]
+
+test://example/int-string-captures:
   import:
     - test://example/int-string
   captures:
-    - target:
-        name: testing/int-string
+    testing/s3-source:
       endpoint:
-        name: captureEndpoint
-        spec: { stream: a-stream }
+        airbyteSource:
+          image: s3
+          config:
+            bucket: a-bucket
+            prefix: and-prefix
+      bindings:
+        - target: testing/int-string
+          resource: { stream: a-stream }
+        - target: testing/int-string.v2
+          resource: { stream: v2-stream }
 
-    - target:
-        name: testing/int-string
+    testing/db-cdc:
       endpoint:
-        name: captureOtherEndpoint
-        spec:
-          stream: other-stream
-          namespace: and namespace
+        airbyteSource:
+          image: database
+          config:
+            host: a.host.name
+            user: a-user
+      bindings:
+        - target: testing/int-string
+          resource:
+            stream: other-stream
+            namespace: and namespace
 
-test://example/int-string-materialization:
+test://example/webhook-deliveries:
+  import:
+    - test://example/int-string
+    - test://example/int-halve
+  materializations:
+    testing/webhook/deliveries:
+      endpoint:
+        webhook:
+          address: http://example/webhook
+      bindings:
+        - source: testing/int-string
+          partitions:
+            include:
+              bit: [true]
+          resource: { fixture: one }
+          fields:
+            include:
+              str: { pass: through }
+            exclude:
+              - bit
+            recommended: true
+        - source: testing/int-halve
+          resource: { fixture: two }
+          fields:
+            include:
+              Len: {}
+            recommended: false
+
+test://example/db-views:
   import:
     - test://example/int-string
   materializations:
-    - source:
-        name: testing/int-string
-        partitions:
-          include:
-            bit: [true]
+    testing/db-views:
       endpoint:
-        name: materializeEndpoint
-        spec: { fixture: one }
-      fields:
-        include:
-          str: { pass: through }
-        exclude:
-          - bit
-        recommended: true
+        flowSink:
+          image: database/image
+          config:
+            foo: bar
+      bindings:
+        - source: testing/int-string
+          resource: { table: the_table }
 
 test://example/int-string-tests:
   import:
@@ -170,20 +190,6 @@ test://example/int-halve:
 test://example/int-halve.ts:
   typescript: "module placeholder"
 
-test://example/int-halve-materialization:
-  import:
-    - test://example/int-halve
-  materializations:
-    - source:
-        name: testing/int-halve
-      endpoint:
-        name: materializeEndpoint
-        spec: { fixture: two }
-      fields:
-        include:
-          Len: {}
-        recommended: false
-
 test://example/int-string.schema:
   type: object
   properties:
@@ -223,57 +229,61 @@ test://example/int-string-len.schema:
 
 driver:
   materializations:
-    one:
-      endpoint: S3
+    testing/webhook/deliveries:
+      endpoint: Webhook
       spec:
-        bucket: a-bucket
-        prefix: and-prefix
-        fixture: one
-      constraints:
-        flow_document: { type: 1, reason: "location required" }
-        # `Int`, as a user-defined projection, would be selected
-        # over `int`. However, `int` is required by the driver,
-        # and chosen instead.
-        Int: { type: 2, reason: "recommended" }
-        int: { type: 0, reason: "field required" }
-        str: { type: 3, reason: "optional" }
-        bit: { type: 4, reason: "field forbidden" }
-      resourcePath: [table, "The One"]
+        address: http://example/webhook
+      deltaUpdates: true
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            # `Int`, as a user-defined projection, would be selected
+            # over `int`. However, `int` is required by the driver,
+            # and chosen instead.
+            Int: { type: 2, reason: "recommended" }
+            int: { type: 0, reason: "field required" }
+            str: { type: 3, reason: "optional" }
+            bit: { type: 4, reason: "field forbidden" }
+          resourcePath: [Web!hook, foo bar]
 
-    two:
-      endpoint: S3
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            # `Root`, as a user-defined projection, is selected over `flow_document`.
+            Root: { type: 1, reason: "location required" }
+            int: { type: 0, reason: "required" }
+            Extra: { type: 1, reason: "location required" }
+            Len: { type: 3, reason: "optional" }
+          resourcePath: [targe+, two]
+
+    testing/db-views:
+      endpoint: FlowSink
       spec:
-        bucket: a-bucket
-        prefix: and-prefix
-        fixture: two
-      constraints:
-        flow_document: { type: 1, reason: "location required" }
-        # `Root`, as a user-defined projection, is selected over `flow_document`.
-        Root: { type: 1, reason: "location required" }
-        int: { type: 0, reason: "required" }
-        Extra: { type: 1, reason: "location required" }
-        Len: { type: 3, reason: "optional" }
-      resourcePath: [tab!e, two]
+        image: database/image
+        config: { foo: bar }
+      deltaUpdates: false
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+          resourcePath: [view]
 
   captures:
-    one:
+    testing/s3-source:
       endpoint: AirbyteSource
       spec:
         image: s3
-        stream: a-stream
-        namespace: ""
         config:
           bucket: a-bucket
           prefix: and-prefix
-      resourcePath: [bucke+, pr@fix]
+      bindings:
+        - resourcePath: [bucke+, pr@fix]
+        - resourcePath: [other-bucket]
 
-    two:
+    testing/db-cdc:
       endpoint: AirbyteSource
       spec:
         image: database
-        stream: other-stream
-        namespace: and namespace
         config:
           host: a.host.name
           user: a-user
-      resourcePath: [schema, table]
+      bindings:
+        - resourcePath: [schema, table]

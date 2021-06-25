@@ -1,11 +1,12 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
-        scope: test://example/int-string-materialization#/materializations/0,
-        error: driver error while validating materialization materializeEndpoint
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+        error: driver error while validating materialization testing/webhook/deliveries
         
         Caused by:
             A driver error!,
