@@ -27,7 +27,7 @@ func TestCombineBindings(t *testing.T) {
 	schemaIndex, err := NewSchemaIndex(&built.Schemas)
 	require.NoError(t, err)
 
-	var combiner = NewCombine("test/combineBindings")
+	var combiner = NewCombine()
 
 	// Loop to exercise re-use of a Combiner.
 	for i := 0; i != 5; i++ {
@@ -35,11 +35,13 @@ func TestCombineBindings(t *testing.T) {
 		// Re-configure the Combiner every other iteration.
 		if i%2 == 0 {
 			err := combiner.Configure(
+				"test/combineBindings",
 				schemaIndex,
+				collection.Collection,
 				collection.SchemaUri,
+				collection.UuidPtr,
 				collection.KeyPtrs,
 				[]string{"/s/1", "/i"},
-				collection.UuidPtr,
 			)
 			require.NoError(t, err)
 		}

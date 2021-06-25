@@ -35,32 +35,34 @@ type Combine struct {
 }
 
 // NewCombiner builds and returns a new Combine.
-func NewCombine(fqn string) *Combine {
+func NewCombine() *Combine {
 	var combine = &Combine{
 		svc:     newCombineSvc(),
 		drained: nil,
 		stats:   combineStats{},
-		metrics: newCombineMetrics(fqn),
+		metrics: combineMetrics{},
 	}
 
-	combineNewInstanceCounter.WithLabelValues(fqn).Inc()
 	// Destroy the held service on garbage collection.
 	runtime.SetFinalizer(combine, func(c *Combine) {
-		c.svc.destroy()
-		combineDestroyInstanceCounter.WithLabelValues(fqn).Inc()
+		c.Destroy()
 	})
 	return combine
 }
 
 // Configure or re-configure the Combine.
 func (c *Combine) Configure(
+	fqn string,
 	index *SchemaIndex,
+	collection pf.Collection,
 	schemaURI string,
+	uuidPtr string,
 	keyPtrs []string,
 	fieldPtrs []string,
-	uuidPtr string,
 ) error {
+	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 
+	c.metrics = newCombineMetrics(fqn, collection)
 	c.pinnedIndex = index
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
@@ -133,6 +135,17 @@ func (c *Combine) Drain(cb CombineCallback) (err error) {
 	return
 }
 
+// Destroy the Combine service, releasing all held resources.
+// Destroy may be called when it's known that a *Combine is no longer needed,
+// but is optional. If not called explicitly, it will be run during garbage
+// collection of the *Combine.
+func (d *Combine) Destroy() {
+	if d.svc != nil {
+		d.svc.destroy()
+		d.svc = nil
+	}
+}
+
 func drainCombineToCallback(
 	svc *service,
 	out *[]C.Out,
@@ -171,43 +184,39 @@ func newCombineSvc() *service {
 	)
 }
 
+var combineConfigureCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_combine_configure_total",
+	Help: "Count of combiner configurations",
+}, []string{"shard", "collection"})
+
 var combineLeftDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_left_docs_total",
 	Help: "Count of documents input as the left hand side of combine operations",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineLeftBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_left_bytes_total",
 	Help: "Number of bytes input as the left hand side of combine operations",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineRightDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_right_docs_total",
 	Help: "Count of documents input as the right hand side of combine operations",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineRightBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_right_bytes_total",
 	Help: "Number of bytes input as the right hand side of combine operations",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineDrainDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_docs_total",
 	Help: "Count of documents drained from combiners",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineDrainBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_bytes_total",
 	Help: "Number of bytes drained from combiners",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 var combineOpsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_ops_total",
 	Help: "Count of number of combine operations. A single operation may combine any number of documents with any number of distinct keys.",
-}, []string{"shard"})
-
-var combineNewInstanceCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "flow_combine_new_total",
-	Help: "Count of new combiner instances created",
-}, []string{"shard"})
-var combineDestroyInstanceCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "flow_combine_finalize_total",
-	Help: "Count of combiner instances that have been torn down",
-}, []string{"shard"})
+}, []string{"shard", "collection"})
 
 type combineStats struct {
 	leftDocs   int
@@ -235,18 +244,20 @@ type combineMetrics struct {
 	drainCounter prometheus.Counter
 }
 
-func newCombineMetrics(shard string) combineMetrics {
+func newCombineMetrics(fqn string, collection pf.Collection) combineMetrics {
+	var name = collection.String()
+
 	return combineMetrics{
-		leftDocs:  combineLeftDocsCounter.WithLabelValues(shard),
-		leftBytes: combineLeftBytesCounter.WithLabelValues(shard),
+		leftDocs:  combineLeftDocsCounter.WithLabelValues(fqn, name),
+		leftBytes: combineLeftBytesCounter.WithLabelValues(fqn, name),
 
-		rightDocs:  combineRightDocsCounter.WithLabelValues(shard),
-		rightBytes: combineRightBytesCounter.WithLabelValues(shard),
+		rightDocs:  combineRightDocsCounter.WithLabelValues(fqn, name),
+		rightBytes: combineRightBytesCounter.WithLabelValues(fqn, name),
 
-		drainDocs:  combineDrainDocsCounter.WithLabelValues(shard),
-		drainBytes: combineDrainBytesCounter.WithLabelValues(shard),
+		drainDocs:  combineDrainDocsCounter.WithLabelValues(fqn, name),
+		drainBytes: combineDrainBytesCounter.WithLabelValues(fqn, name),
 
-		drainCounter: combineOpsCounter.WithLabelValues(shard),
+		drainCounter: combineOpsCounter.WithLabelValues(fqn, name),
 	}
 }
 

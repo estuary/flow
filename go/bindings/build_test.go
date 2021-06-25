@@ -8,6 +8,7 @@ import (
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/materialize"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -45,6 +46,7 @@ func TestBuildCatalog(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
+	built.ID = uuid.NameSpaceURL              // Stable, arbitrary fixture.
 	cupaloy.SnapshotT(t, built)
 }
 
@@ -64,6 +66,7 @@ func TestBuildSchema(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
+	built.ID = uuid.NameSpaceURL              // Stable, arbitrary fixture.
 	cupaloy.SnapshotT(t, built)
 }
 

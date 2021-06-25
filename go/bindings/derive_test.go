@@ -57,7 +57,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		derivation.Collection.GetProjection(field).IsPartitionKey = true
 	}
 
-	derive, err := NewDerive("test/derive/withIntStrings", gorocksdb.NewDefaultEnv(), t.TempDir())
+	derive, err := NewDerive(gorocksdb.NewDefaultEnv(), t.TempDir())
 	require.NoError(t, err)
 
 	// Loop to exercise multiple transactions.
@@ -65,7 +65,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		// Even transactions start with a re-configuration.
 		// Odd ones re-use the previous configuration.
 		if i%2 == 0 {
-			derive.Configure(schemaIndex, derivation, lambdaClient)
+			derive.Configure("test/derive/withIntStrings", schemaIndex, derivation, lambdaClient)
 		}
 
 		// Expect we can restore the last checkpoint in between transactions.
@@ -251,9 +251,9 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	}
 
 	var build = func(t *testing.T) *Derive {
-		d, err := NewDerive("test/derive/withIncReset", gorocksdb.NewDefaultEnv(), t.TempDir())
+		d, err := NewDerive(gorocksdb.NewDefaultEnv(), t.TempDir())
 		require.NoError(t, err)
-		require.NoError(t, d.Configure(schemaIndex, &built.Derivations[0], lambdaClient))
+		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, &built.Derivations[0], lambdaClient))
 		return d
 	}
 

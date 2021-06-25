@@ -127,6 +127,8 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 				response, err := driver.Validate(ctx, request)
 				if err != nil {
 					return nil, fmt.Errorf("driver.Validate: %w", err)
+				} else if err = response.Validate(); err != nil {
+					return nil, fmt.Errorf("driver.Validate implementation error: %w", err)
 				}
 				log.WithField("response", response).Debug("capture validation response")
 
@@ -158,6 +160,8 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 				response, err := driver.Validate(ctx, request)
 				if err != nil {
 					return nil, fmt.Errorf("driver.Validate: %w", err)
+				} else if err = response.Validate(); err != nil {
+					return nil, fmt.Errorf("driver.Validate implementation error: %w", err)
 				}
 				log.WithField("response", response).Debug("materialize validation response")
 

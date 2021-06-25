@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 )
 
@@ -19,6 +20,7 @@ type BuildError struct {
 // BuiltCatalog holds build outputs of the Flow catalog build process.
 type BuiltCatalog struct {
 	Config pf.BuildAPI_Config
+	ID     uuid.UUID
 	Errors []BuildError
 
 	Captures         []pf.CaptureSpec
@@ -34,7 +36,12 @@ type BuiltCatalog struct {
 }
 
 func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
-	var db, err = sql.Open("sqlite3", config.CatalogPath)
+	var id, err = uuid.NewUUID()
+	if err != nil {
+		return nil, fmt.Errorf("generating build ID: %w", err)
+	}
+
+	db, err := sql.Open("sqlite3", config.CatalogPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite DB: %w", err)
 	}
@@ -42,6 +49,7 @@ func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
 
 	var out = &BuiltCatalog{
 		Config:  config,
+		ID:      id,
 		Schemas: pf.SchemaBundle{Bundle: make(map[string]string)},
 	}
 
