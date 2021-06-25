@@ -112,7 +112,10 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 
 			for loadIt.Next() {
 				if err := enc.Encode(TxnRequest{
-					Load: &LoadRequest{Key: loadIt.Key},
+					Load: &LoadRequest{
+						Binding: loadIt.Binding,
+						Key:     loadIt.Key,
+					},
 				}); err != nil {
 					return fmt.Errorf("encoding Load: %w", err)
 				}
@@ -133,6 +136,7 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 			for storeIt.Next() {
 				if err := enc.Encode(TxnRequest{
 					Store: &StoreRequest{
+						Binding:  storeIt.Binding,
 						Key:      storeIt.Key,
 						Values:   storeIt.Values,
 						Document: storeIt.RawJSON,
@@ -165,11 +169,10 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 			return lifecycle.WriteOpened(
 				stream,
 				&response,
-				r.Opened.FlowCheckpoint,
-				r.Opened.DeltaUpdates,
+				r.Opened,
 			)
 		} else if r.Loaded != nil {
-			return lifecycle.StageLoaded(stream, &response, r.Loaded.Document)
+			return lifecycle.StageLoaded(stream, &response, r.Loaded.Binding, r.Loaded.Document)
 		} else if r.Prepared != nil {
 			return lifecycle.WritePrepared(stream, &response, r.Prepared)
 		} else if r.Committed != nil {
@@ -287,14 +290,17 @@ func (r *connectorStdout) Close() error {
 }
 
 type LoadRequest struct {
-	Key tuple.Tuple `json:"key"`
+	Binding int         `json:"binding"`
+	Key     tuple.Tuple `json:"key"`
 }
 
 type LoadResponse struct {
+	Binding  int             `json:"binding"`
 	Document json.RawMessage `json:"document"`
 }
 
 type StoreRequest struct {
+	Binding  int             `json:"binding"`
 	Key      tuple.Tuple     `json:"key"`
 	Values   tuple.Tuple     `json:"values"`
 	Document json.RawMessage `json:"document"`
