@@ -300,65 +300,68 @@ message FieldSelection {
 }
 
 // CaptureSpec describes a collection and its capture from an endpoint.
-// At the moment, we don't build or do anything with these.
-// This spec is a bit of a working placeholder until we can tackle
-// captures more broadly.
 message CaptureSpec {
-  // Name of this capture, derived from
-  // "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
-  // For example, {
-  //    endpoint_name: "company/team/database",
-  //    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
-  // } would have materialization name:
-  // "company/team/database/logical-db/and-schema/tab%21e"
-  string capture = 1;
-  // Collection to be captured into.
-  CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
-  // Endpoint from which we capture.
-  string endpoint_name = 3;
+  // Name of this capture.
+  string capture = 1 [ (gogoproto.casttype) = "Capture" ];
   // Type of the captures's endpoint.
-  EndpointType endpoint_type = 4;
+  EndpointType endpoint_type = 2;
   // JSON-encoded object which specifies this capture with
   // respect to the endpoint type driver.
-  string endpoint_spec_json = 5 [
+  string endpoint_spec_json = 3 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Endpoint path components which fully qualify the subresource being
-  // captured.
-  repeated string endpoint_resource_path = 6;
+  // Bindings of endpoint resources and collections into which they're captured.
+  // Bindings are ordered and unique on the bound collection name.
+  message Binding {
+    // JSON-encoded object which specifies the endpoint resource to be captured.
+    string resource_spec_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "resourceSpec"
+    ];
+    // Driver-supplied path components which fully qualify the
+    // subresource being materialized.
+    repeated string resource_path = 2;
+    // Collection to be captured into.
+    CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+  }
+  repeated Binding bindings = 4;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
 // endpoint.
 message MaterializationSpec {
-  // Name of this materialization, derived from
-  // "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
-  // For example, {
-  //    endpoint_name: "company/team/database",
-  //    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
-  // } would have materialization name:
-  // "company/team/database/logical-db/and-schema/tab%21e"
-  string materialization = 1;
-  // Collection to be materialized.
-  CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
-  // Endpoint to which we materialize.
-  string endpoint_name = 3;
+  // Name of this materialization.
+  string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Type of the materialization's endpoint.
-  EndpointType endpoint_type = 4;
+  EndpointType endpoint_type = 3;
   // JSON-encoded object which specifies this materialization with
   // respect to the endpoint type driver.
-  string endpoint_spec_json = 5 [
+  string endpoint_spec_json = 4 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Endpoint path components which fully qualify the subresource being
-  // materialized.
-  repeated string endpoint_resource_path = 6;
-  // Resolved fields selected for materialization.
-  FieldSelection field_selection = 7 [ (gogoproto.nullable) = false ];
-  // Shuffle applied to collection documents for this materialization.
-  Shuffle shuffle = 8 [ (gogoproto.nullable) = false ];
+  // Bindings of endpoint resources and collections from which they're materialized.
+  // Bindings are ordered and unique on the bound collection name.
+  message Binding {
+    // JSON-encoded object which specifies the endpoint resource to be materialized.
+    string resource_spec_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "resourceSpec"
+    ];
+    // Driver-supplied path components which fully qualify the
+    // subresource being materialized.
+    repeated string resource_path = 2;
+    // Collection to be materialized.
+    CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+    // Resolved fields selected for materialization.
+    FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
+    // Materialize delta updates of documents rather than full reductions.
+    bool delta_updates = 5;
+    // Shuffle applied to collection documents for this materialization binding.
+    Shuffle shuffle = 6 [ (gogoproto.nullable) = false ];
+  }
+  repeated Binding bindings = 5;
 }
 
 // TestSpec describes a catalog test.

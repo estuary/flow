@@ -31,44 +31,76 @@ pub struct DiscoverRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DiscoverResponse {
     #[prost(message, repeated, tag="1")]
-    pub captures: ::prost::alloc::vec::Vec<discover_response::Capture>,
+    pub bindings: ::prost::alloc::vec::Vec<discover_response::Binding>,
 }
 /// Nested message and enum types in `DiscoverResponse`.
 pub mod discover_response {
+    /// Potential bindings which the capture could provide.
+    /// Bindings may be returned in any order.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Capture {
-        /// Components of the resource path identified by this endpoint configuration.
+    pub struct Binding {
+        /// A recommended display name for this discovered binding.
         #[prost(string, repeated, tag="1")]
-        pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        /// JSON merge patch to apply to |endpoint_spec_json| for this capture.
+        pub recommended_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// JSON-encoded object which specifies the endpoint resource to be captured.
         #[prost(string, tag="2")]
-        pub spec_patch_json: ::prost::alloc::string::String,
-        /// JSON schema of documents produced by this capture.
+        pub resource_spec_json: ::prost::alloc::string::String,
+        /// JSON schema of documents produced by this binding.
         #[prost(string, tag="3")]
         pub document_schema_json: ::prost::alloc::string::String,
+        /// Composite key of documents (if known), as JSON-Pointers.
+        #[prost(string, repeated, tag="4")]
+        pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {
-    /// Endpoint which this request is addressing.
+    /// Name of the capture being validated.
     #[prost(string, tag="1")]
-    pub endpoint_name: ::prost::alloc::string::String,
+    pub capture: ::prost::alloc::string::String,
     /// Endpoint type addressed by this request.
     #[prost(enumeration="super::flow::EndpointType", tag="2")]
     pub endpoint_type: i32,
     /// Driver specification, as an encoded JSON object.
     #[prost(string, tag="3")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
-    /// Collection to be captured.
-    #[prost(message, optional, tag="4")]
-    pub collection: ::core::option::Option<super::flow::CollectionSpec>,
+    #[prost(message, repeated, tag="4")]
+    pub bindings: ::prost::alloc::vec::Vec<validate_request::Binding>,
+}
+/// Nested message and enum types in `ValidateRequest`.
+pub mod validate_request {
+    /// Bindings of endpoint resources and collections to which they would be captured.
+    /// Bindings are ordered and unique on the bound collection name.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Binding {
+        /// JSON-encoded object which specifies the endpoint resource to be captured.
+        #[prost(string, tag="1")]
+        pub resource_spec_json: ::prost::alloc::string::String,
+        /// Collection to be captured.
+        #[prost(message, optional, tag="2")]
+        pub collection: ::core::option::Option<super::super::flow::CollectionSpec>,
+    }
 }
 /// ValidateResponse is the response type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateResponse {
-    /// Components of the resource path identified by this endpoint configuration.
-    #[prost(string, repeated, tag="1")]
-    pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="1")]
+    pub bindings: ::prost::alloc::vec::Vec<validate_response::Binding>,
+}
+/// Nested message and enum types in `ValidateResponse`.
+pub mod validate_response {
+    /// Validation responses for each binding of the request,
+    /// and matching the request ordering.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Binding {
+        /// Components of the resource path which fully qualify the resource
+        /// identified by this binding.
+        /// - For an RDBMS, this might be []{dbname, schema, table}.
+        /// - For Kafka, this might be []{topic}.
+        /// - For Redis, this might be []{key_prefix}.
+        #[prost(string, repeated, tag="1")]
+        pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
 }
 /// CaptureRequest is the request type of a Capture RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -111,11 +143,14 @@ pub mod capture_response {
     /// Captured returns documents of the capture stream.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Captured {
+        /// The capture binding for documents of this Captured response.
+        #[prost(uint32, tag="1")]
+        pub binding: u32,
         /// Byte arena of the response.
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes="vec", tag="2")]
         pub arena: ::prost::alloc::vec::Vec<u8>,
         /// Captured JSON documents.
-        #[prost(message, repeated, tag="2")]
+        #[prost(message, repeated, tag="3")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
     /// Commit previous captured documents.

@@ -86,8 +86,9 @@ service Driver {
 
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
-  // Endpoint which this request is addressing.
-  string endpoint_name = 1;
+  // Name of the materialization being validated.
+  string materialization = 1 [ (gogoproto.casttype) =
+    "github.com/estuary/flow/go/protocols/flow.Materialization" ];
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 2;
   // Driver specification, as an encoded JSON object.
@@ -95,39 +96,70 @@ message ValidateRequest {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Collection to be materialized.
-  flow.CollectionSpec collection = 4;
-  // Projection configuration, keyed by the projection field name,
-  // with JSON-encoded and driver-defined configuration objects.
-  map<string, string> field_config_json = 5 [
-    (gogoproto.castvalue) = "encoding/json.RawMessage",
-    json_name = "fieldConfig"
-  ];
+  // Bindings of endpoint resources and collections from which they would be materialized.
+  // Bindings are ordered and unique on the bound collection name.
+  message Binding {
+    // JSON-encoded object which specifies the endpoint resource to be materialized.
+    string resource_spec_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "resourceSpec"
+    ];
+    // Collection to be materialized.
+    flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+    // Projection configuration, keyed by the projection field name,
+    // with JSON-encoded and driver-defined configuration objects.
+    map<string, string> field_config_json = 3 [
+      (gogoproto.castvalue) = "encoding/json.RawMessage",
+      json_name = "fieldConfig"
+    ];
+  }
+  repeated Binding bindings = 4;
 }
 
 // ValidateResponse is the response type of the Validate RPC.
 message ValidateResponse {
-  // Constraints over collection projections imposed by the Driver,
-  // keyed by the projection field name. Projections of the CollectionSpec
-  // which are missing from constraints are implicitly forbidden.
-  map<string, Constraint> constraints = 1;
-  // Components of the resource path identified by this endpoint configuration.
-  // Resource paths fully qualify the resource identified by the request.
-  // - For an RDBMS, this would be []{dbname, schema, table}.
-  // - For Kafka, this would be []{topic}.
-  // - For Redis, this would be []{key_prefix}.
-  // Some drivers may not have any path components. Semantically, this means
-  // the endpoint already represents a granular and indivisible resource.
-  repeated string resource_path = 2;
+  // Validation responses for each binding of the request,
+  // and matching the request ordering.
+  message Binding {
+    // Constraints over collection projections imposed by the Driver,
+    // keyed by the projection field name. Projections of the CollectionSpec
+    // which are missing from constraints are implicitly forbidden.
+    map<string, Constraint> constraints = 1;
+    // Components of the resource path which fully qualify the resource
+    // identified by this binding.
+    // - For an RDBMS, this might be []{dbname, schema, table}.
+    // - For Kafka, this might be []{topic}.
+    // - For Redis, this might be []{key_prefix}.
+    repeated string resource_path = 2;
+    // Materialize combined delta updates of documents rather than full
+    // reductions.
+    //
+    // When set, the Flow runtime will not attempt to load documents via
+    // TransactionRequest.Load, and also disables re-use of cached documents
+    // stored in prior transactions. Each stored document is exclusively
+    // combined from updates processed by the runtime within the current
+    // transaction only.
+    //
+    // This is appropriate for drivers over streams, WebHooks, and append-only
+    // files.
+    //
+    // For example, given a collection which reduces a sum count for each key,
+    // its materialization will produce a stream of delta updates to the count,
+    // such that a reader of the stream will arrive at the correct total count.
+    bool delta_updates = 3;
+  }
+  repeated Binding bindings = 1;
 }
 
 // ApplyRequest is the request type of the Apply RPC.
 message ApplyRequest {
   // Materialization to be applied.
   flow.MaterializationSpec materialization = 1;
+  // Version of the MaterializationSpec being applied.
+  string version = 2;
   // Is this Apply a dry-run? If so, no action is undertaken and Apply will
   // report only what would have happened.
-  bool dry_run = 2;
+  bool dry_run = 3;
 }
 
 // ApplyResponse is the response type of the Apply RPC.
@@ -158,13 +190,16 @@ message TransactionRequest {
     // Materialization to be transacted, which is the MaterializationSpec
     // last provided to a successful Apply RPC.
     flow.MaterializationSpec materialization = 1;
+    // Version of the opened MaterializationSpec, which matches the version
+    // last provided to a successful Apply RPC.
+    string version = 2;
     // [begin, end] inclusive range of keys processed by this transaction stream.
     // Ranges are with respect to a 32-bit hash of a packed document key.
-    fixed32 key_begin = 2;
-    fixed32 key_end = 3;
+    fixed32 key_begin = 3;
+    fixed32 key_end = 4;
     // Last-persisted driver checkpoint from a previous transaction stream.
     // Or empty, if the driver hasn't returned a checkpoint.
-    bytes driver_checkpoint_json = 4 [
+    bytes driver_checkpoint_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
@@ -175,9 +210,12 @@ message TransactionRequest {
   // Keys may included documents which have never before been stored,
   // but a given key will be sent in a transaction Load just one time.
   message Load {
+    // The materialization binding for documents of this Load request.
+    uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 2 [
+      (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena"
+    ];
     // Packed tuples of collection keys, enumerating the documents to load.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
   }
@@ -192,17 +230,20 @@ message TransactionRequest {
 
   // Store documents of this transaction commit.
   message Store {
+    // The materialization binding for documents of this Store request.
+    uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 1 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 2 [
+      (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena"
+    ];
     // Packed tuples holding keys of each document.
-    repeated flow.Slice packed_keys = 2 [ (gogoproto.nullable) = false ];
+    repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
     // Packed tuples holding values for each document.
-    repeated flow.Slice packed_values = 3 [ (gogoproto.nullable) = false ];
+    repeated flow.Slice packed_values = 4 [ (gogoproto.nullable) = false ];
     // JSON documents.
-    repeated flow.Slice docs_json = 4 [ (gogoproto.nullable) = false ];
+    repeated flow.Slice docs_json = 5 [ (gogoproto.nullable) = false ];
     // Exists is true if this document as previously been loaded or stored.
-    repeated bool exists = 5;
+    repeated bool exists = 6;
   }
   Store store = 4;
 
@@ -228,22 +269,6 @@ message TransactionResponse {
     // fully rebuild the materialization from scratch. This sentinel is a
     // trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
     bytes flow_checkpoint = 1;
-    // Materialize combined delta updates of documents rather than full
-    // reductions.
-    //
-    // When set, the Flow runtime will not attempt to load documents via
-    // TransactionRequest.Load, and also disables re-use of cached documents
-    // stored in prior transactions. Each stored document is exclusively
-    // combined from updates processed by the runtime within the current
-    // transaction only.
-    //
-    // This is appropriate for drivers over streams, WebHooks, and append-only
-    // files.
-    //
-    // For example, given a collection which reduces a sum count for each key,
-    // its materialization will produce a stream of delta updates to the count,
-    // such that a reader of the stream will arrive at the correct total count.
-    bool delta_updates = 2;
   }
   Opened opened = 1;
 
@@ -253,12 +278,14 @@ message TransactionResponse {
   // both within and across Loaded response messages, but a document of a given
   // key MUST be sent at most one time in a Transaction.
   message Loaded {
+    // The materialization binding for documents of this Loaded response.
+    uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 1 [
+    bytes arena = 2 [
       (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena"
     ];
     // Loaded JSON documents.
-    repeated flow.Slice docs_json = 2 [ (gogoproto.nullable) = false ];
+    repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
   }
   Loaded loaded = 2;
 

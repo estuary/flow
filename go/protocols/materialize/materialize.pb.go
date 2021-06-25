@@ -123,20 +123,16 @@ var xxx_messageInfo_Constraint proto.InternalMessageInfo
 
 // ValidateRequest is the request type of the Validate RPC.
 type ValidateRequest struct {
-	// Endpoint which this request is addressing.
-	EndpointName string `protobuf:"bytes,1,opt,name=endpoint_name,json=endpointName,proto3" json:"endpoint_name,omitempty"`
+	// Name of the materialization being validated.
+	Materialization github_com_estuary_flow_go_protocols_flow.Materialization `protobuf:"bytes,1,opt,name=materialization,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Materialization" json:"materialization,omitempty"`
 	// Endpoint type addressed by this request.
 	EndpointType flow.EndpointType `protobuf:"varint,2,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
 	// Driver specification, as an encoded JSON object.
-	EndpointSpecJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
-	// Collection to be materialized.
-	Collection *flow.CollectionSpec `protobuf:"bytes,4,opt,name=collection,proto3" json:"collection,omitempty"`
-	// Projection configuration, keyed by the projection field name,
-	// with JSON-encoded and driver-defined configuration objects.
-	FieldConfigJson      map[string]encoding_json.RawMessage `protobuf:"bytes,5,rep,name=field_config_json,json=fieldConfig,proto3,castvalue=encoding/json.RawMessage" json:"field_config_json,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	XXX_NoUnkeyedLiteral struct{}                            `json:"-"`
-	XXX_unrecognized     []byte                              `json:"-"`
-	XXX_sizecache        int32                               `json:"-"`
+	EndpointSpecJson     encoding_json.RawMessage   `protobuf:"bytes,3,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
+	Bindings             []*ValidateRequest_Binding `protobuf:"bytes,4,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
+	XXX_unrecognized     []byte                     `json:"-"`
+	XXX_sizecache        int32                      `json:"-"`
 }
 
 func (m *ValidateRequest) Reset()         { *m = ValidateRequest{} }
@@ -172,23 +168,60 @@ func (m *ValidateRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateRequest proto.InternalMessageInfo
 
+// Bindings of endpoint resources and collections from which they would be materialized.
+// Bindings are ordered and unique on the bound collection name.
+type ValidateRequest_Binding struct {
+	// JSON-encoded object which specifies the endpoint resource to be materialized.
+	ResourceSpecJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_spec_json,json=resourceSpec,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_json,omitempty"`
+	// Collection to be materialized.
+	Collection flow.CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection"`
+	// Projection configuration, keyed by the projection field name,
+	// with JSON-encoded and driver-defined configuration objects.
+	FieldConfigJson      map[string]encoding_json.RawMessage `protobuf:"bytes,3,rep,name=field_config_json,json=fieldConfig,proto3,castvalue=encoding/json.RawMessage" json:"field_config_json,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}                            `json:"-"`
+	XXX_unrecognized     []byte                              `json:"-"`
+	XXX_sizecache        int32                               `json:"-"`
+}
+
+func (m *ValidateRequest_Binding) Reset()         { *m = ValidateRequest_Binding{} }
+func (m *ValidateRequest_Binding) String() string { return proto.CompactTextString(m) }
+func (*ValidateRequest_Binding) ProtoMessage()    {}
+func (*ValidateRequest_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 0}
+}
+func (m *ValidateRequest_Binding) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ValidateRequest_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ValidateRequest_Binding.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ValidateRequest_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ValidateRequest_Binding.Merge(m, src)
+}
+func (m *ValidateRequest_Binding) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ValidateRequest_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_ValidateRequest_Binding.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ValidateRequest_Binding proto.InternalMessageInfo
+
 // ValidateResponse is the response type of the Validate RPC.
 type ValidateResponse struct {
-	// Constraints over collection projections imposed by the Driver,
-	// keyed by the projection field name. Projections of the CollectionSpec
-	// which are missing from constraints are implicitly forbidden.
-	Constraints map[string]*Constraint `protobuf:"bytes,1,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	// Components of the resource path identified by this endpoint configuration.
-	// Resource paths fully qualify the resource identified by the request.
-	// - For an RDBMS, this would be []{dbname, schema, table}.
-	// - For Kafka, this would be []{topic}.
-	// - For Redis, this would be []{key_prefix}.
-	// Some drivers may not have any path components. Semantically, this means
-	// the endpoint already represents a granular and indivisible resource.
-	ResourcePath         []string `protobuf:"bytes,2,rep,name=resource_path,json=resourcePath,proto3" json:"resource_path,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	Bindings             []*ValidateResponse_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
+	XXX_unrecognized     []byte                      `json:"-"`
+	XXX_sizecache        int32                       `json:"-"`
 }
 
 func (m *ValidateResponse) Reset()         { *m = ValidateResponse{} }
@@ -224,13 +257,82 @@ func (m *ValidateResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
 
+// Validation responses for each binding of the request,
+// and matching the request ordering.
+type ValidateResponse_Binding struct {
+	// Constraints over collection projections imposed by the Driver,
+	// keyed by the projection field name. Projections of the CollectionSpec
+	// which are missing from constraints are implicitly forbidden.
+	Constraints map[string]*Constraint `protobuf:"bytes,1,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// Components of the resource path which fully qualify the resource
+	// identified by this binding.
+	// - For an RDBMS, this might be []{dbname, schema, table}.
+	// - For Kafka, this might be []{topic}.
+	// - For Redis, this might be []{key_prefix}.
+	ResourcePath []string `protobuf:"bytes,2,rep,name=resource_path,json=resourcePath,proto3" json:"resource_path,omitempty"`
+	// Materialize combined delta updates of documents rather than full
+	// reductions.
+	//
+	// When set, the Flow runtime will not attempt to load documents via
+	// TransactionRequest.Load, and also disables re-use of cached documents
+	// stored in prior transactions. Each stored document is exclusively
+	// combined from updates processed by the runtime within the current
+	// transaction only.
+	//
+	// This is appropriate for drivers over streams, WebHooks, and append-only
+	// files.
+	//
+	// For example, given a collection which reduces a sum count for each key,
+	// its materialization will produce a stream of delta updates to the count,
+	// such that a reader of the stream will arrive at the correct total count.
+	DeltaUpdates         bool     `protobuf:"varint,3,opt,name=delta_updates,json=deltaUpdates,proto3" json:"delta_updates,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *ValidateResponse_Binding) Reset()         { *m = ValidateResponse_Binding{} }
+func (m *ValidateResponse_Binding) String() string { return proto.CompactTextString(m) }
+func (*ValidateResponse_Binding) ProtoMessage()    {}
+func (*ValidateResponse_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{2, 0}
+}
+func (m *ValidateResponse_Binding) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ValidateResponse_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ValidateResponse_Binding.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ValidateResponse_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ValidateResponse_Binding.Merge(m, src)
+}
+func (m *ValidateResponse_Binding) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *ValidateResponse_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_ValidateResponse_Binding.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ValidateResponse_Binding proto.InternalMessageInfo
+
 // ApplyRequest is the request type of the Apply RPC.
 type ApplyRequest struct {
 	// Materialization to be applied.
 	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	// Version of the MaterializationSpec being applied.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	// Is this Apply a dry-run? If so, no action is undertaken and Apply will
 	// report only what would have happened.
-	DryRun               bool     `protobuf:"varint,2,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	DryRun               bool     `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -376,13 +478,16 @@ type TransactionRequest_Open struct {
 	// Materialization to be transacted, which is the MaterializationSpec
 	// last provided to a successful Apply RPC.
 	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	// Version of the opened MaterializationSpec, which matches the version
+	// last provided to a successful Apply RPC.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	// [begin, end] inclusive range of keys processed by this transaction stream.
 	// Ranges are with respect to a 32-bit hash of a packed document key.
-	KeyBegin uint32 `protobuf:"fixed32,2,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
-	KeyEnd   uint32 `protobuf:"fixed32,3,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
+	KeyBegin uint32 `protobuf:"fixed32,3,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
+	KeyEnd   uint32 `protobuf:"fixed32,4,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
 	// Last-persisted driver checkpoint from a previous transaction stream.
 	// Or empty, if the driver hasn't returned a checkpoint.
-	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
+	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,5,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
 	XXX_sizecache        int32                    `json:"-"`
@@ -425,6 +530,8 @@ var xxx_messageInfo_TransactionRequest_Open proto.InternalMessageInfo
 // Keys may included documents which have never before been stored,
 // but a given key will be sent in a transaction Load just one time.
 type TransactionRequest_Load struct {
+	// The materialization binding for documents of this Load request.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
 	// Byte arena of the request.
 	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
 	// Packed tuples of collection keys, enumerating the documents to load.
@@ -511,16 +618,18 @@ var xxx_messageInfo_TransactionRequest_Prepare proto.InternalMessageInfo
 
 // Store documents of this transaction commit.
 type TransactionRequest_Store struct {
+	// The materialization binding for documents of this Store request.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
 	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
+	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
 	// Packed tuples holding keys of each document.
-	PackedKeys []flow.Slice `protobuf:"bytes,2,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
+	PackedKeys []flow.Slice `protobuf:"bytes,3,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
 	// Packed tuples holding values for each document.
-	PackedValues []flow.Slice `protobuf:"bytes,3,rep,name=packed_values,json=packedValues,proto3" json:"packed_values"`
+	PackedValues []flow.Slice `protobuf:"bytes,4,rep,name=packed_values,json=packedValues,proto3" json:"packed_values"`
 	// JSON documents.
-	DocsJson []flow.Slice `protobuf:"bytes,4,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+	DocsJson []flow.Slice `protobuf:"bytes,5,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
 	// Exists is true if this document as previously been loaded or stored.
-	Exists               []bool   `protobuf:"varint,5,rep,packed,name=exists,proto3" json:"exists,omitempty"`
+	Exists               []bool   `protobuf:"varint,6,rep,packed,name=exists,proto3" json:"exists,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -657,23 +766,7 @@ type TransactionResponse_Opened struct {
 	// to instruct the Flow runtime to disregard its internal checkpoint and
 	// fully rebuild the materialization from scratch. This sentinel is a
 	// trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
-	FlowCheckpoint []byte `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
-	// Materialize combined delta updates of documents rather than full
-	// reductions.
-	//
-	// When set, the Flow runtime will not attempt to load documents via
-	// TransactionRequest.Load, and also disables re-use of cached documents
-	// stored in prior transactions. Each stored document is exclusively
-	// combined from updates processed by the runtime within the current
-	// transaction only.
-	//
-	// This is appropriate for drivers over streams, WebHooks, and append-only
-	// files.
-	//
-	// For example, given a collection which reduces a sum count for each key,
-	// its materialization will produce a stream of delta updates to the count,
-	// such that a reader of the stream will arrive at the correct total count.
-	DeltaUpdates         bool     `protobuf:"varint,2,opt,name=delta_updates,json=deltaUpdates,proto3" json:"delta_updates,omitempty"`
+	FlowCheckpoint       []byte   `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -718,10 +811,12 @@ var xxx_messageInfo_TransactionResponse_Opened proto.InternalMessageInfo
 // both within and across Loaded response messages, but a document of a given
 // key MUST be sent at most one time in a Transaction.
 type TransactionResponse_Loaded struct {
+	// The materialization binding for documents of this Loaded response.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
 	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,1,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
+	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
 	// Loaded JSON documents.
-	DocsJson             []flow.Slice `protobuf:"bytes,2,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+	DocsJson             []flow.Slice `protobuf:"bytes,3,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
 	XXX_sizecache        int32        `json:"-"`
@@ -849,9 +944,11 @@ func init() {
 	proto.RegisterEnum("materialize.Constraint_Type", Constraint_Type_name, Constraint_Type_value)
 	proto.RegisterType((*Constraint)(nil), "materialize.Constraint")
 	proto.RegisterType((*ValidateRequest)(nil), "materialize.ValidateRequest")
-	proto.RegisterMapType((map[string]encoding_json.RawMessage)(nil), "materialize.ValidateRequest.FieldConfigJsonEntry")
+	proto.RegisterType((*ValidateRequest_Binding)(nil), "materialize.ValidateRequest.Binding")
+	proto.RegisterMapType((map[string]encoding_json.RawMessage)(nil), "materialize.ValidateRequest.Binding.FieldConfigJsonEntry")
 	proto.RegisterType((*ValidateResponse)(nil), "materialize.ValidateResponse")
-	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.ValidateResponse.ConstraintsEntry")
+	proto.RegisterType((*ValidateResponse_Binding)(nil), "materialize.ValidateResponse.Binding")
+	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.ValidateResponse.Binding.ConstraintsEntry")
 	proto.RegisterType((*ApplyRequest)(nil), "materialize.ApplyRequest")
 	proto.RegisterType((*ApplyResponse)(nil), "materialize.ApplyResponse")
 	proto.RegisterType((*TransactionRequest)(nil), "materialize.TransactionRequest")
@@ -872,82 +969,88 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
-	// 1199 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0x4b, 0x6f, 0x1b, 0xd5,
-	0x17, 0xef, 0xf8, 0xed, 0x63, 0xa7, 0x71, 0x6e, 0xf3, 0x6f, 0xdd, 0xf9, 0x87, 0xc4, 0x32, 0x8f,
-	0x86, 0x4a, 0xb5, 0x8b, 0x8b, 0xa0, 0x02, 0xa9, 0xc8, 0xaf, 0x80, 0xc1, 0xb1, 0xc3, 0x4d, 0x52,
-	0xa4, 0x6e, 0xac, 0xdb, 0x99, 0x1b, 0x67, 0xf0, 0x78, 0xee, 0x30, 0x77, 0xdc, 0x32, 0x6c, 0x11,
-	0x20, 0xf1, 0x29, 0x58, 0xf3, 0x49, 0xba, 0x84, 0x2f, 0x50, 0xa0, 0x6c, 0x90, 0x58, 0xb0, 0xef,
-	0x0a, 0xdd, 0x7b, 0xc7, 0xf6, 0xb8, 0x6d, 0xec, 0x08, 0x65, 0x63, 0xcd, 0x9c, 0xf3, 0xfb, 0x9d,
-	0x39, 0xef, 0x63, 0xb8, 0x39, 0x64, 0x55, 0xd7, 0x63, 0x3e, 0x33, 0x98, 0xcd, 0xab, 0x63, 0xe2,
-	0x53, 0xcf, 0x22, 0xb6, 0xf5, 0x0d, 0x8d, 0x3e, 0x57, 0x24, 0x02, 0xe5, 0x22, 0x22, 0x7d, 0x6b,
-	0x81, 0x78, 0x62, 0xb3, 0xc7, 0xf2, 0x47, 0x41, 0xf5, 0xcd, 0x21, 0x1b, 0x32, 0xf9, 0x58, 0x15,
-	0x4f, 0x4a, 0x5a, 0xfe, 0x5d, 0x03, 0x68, 0x32, 0x87, 0xfb, 0x1e, 0xb1, 0x1c, 0x1f, 0xdd, 0x86,
-	0x84, 0x1f, 0xb8, 0xb4, 0x18, 0x2b, 0x69, 0xbb, 0x97, 0x6b, 0x5b, 0x95, 0xe8, 0x17, 0xe7, 0xb0,
-	0xca, 0x51, 0xe0, 0x52, 0x2c, 0x91, 0xe8, 0x2a, 0xa4, 0x3c, 0x4a, 0x38, 0x73, 0x8a, 0xf1, 0x92,
-	0xb6, 0x9b, 0xc5, 0xe1, 0x5b, 0xf9, 0x07, 0x0d, 0x12, 0x02, 0x86, 0x10, 0x5c, 0xde, 0xeb, 0xb4,
-	0xbb, 0xad, 0x01, 0x6e, 0x7f, 0x7e, 0xdc, 0xc1, 0xed, 0x56, 0xe1, 0x12, 0xfa, 0x1f, 0x6c, 0x74,
-	0xfb, 0xcd, 0xfa, 0x51, 0xa7, 0xdf, 0x9b, 0x8b, 0x35, 0x54, 0x84, 0xcd, 0x88, 0xb8, 0xd9, 0xdf,
-	0xdf, 0x6f, 0xf7, 0x5a, 0xed, 0x56, 0x21, 0x36, 0x37, 0xd2, 0x3f, 0x10, 0xda, 0x7a, 0xb7, 0x10,
-	0x47, 0x57, 0x60, 0x5d, 0xc9, 0xf6, 0xfa, 0xb8, 0xd1, 0x69, 0xb5, 0xda, 0xbd, 0x42, 0x02, 0x6d,
-	0xc0, 0xda, 0x71, 0xef, 0xb0, 0x7e, 0xd4, 0x39, 0xdc, 0xeb, 0xd4, 0x1b, 0xdd, 0x76, 0x21, 0x59,
-	0xfe, 0x39, 0x0e, 0xeb, 0xf7, 0x89, 0x6d, 0x99, 0xc4, 0xa7, 0x98, 0x7e, 0x35, 0xa1, 0xdc, 0x47,
-	0xaf, 0xc3, 0x1a, 0x75, 0x4c, 0x97, 0x59, 0x8e, 0x3f, 0x70, 0xc8, 0x98, 0x16, 0x35, 0xe9, 0x7c,
-	0x7e, 0x2a, 0xec, 0x91, 0x31, 0x45, 0xef, 0x47, 0x40, 0x91, 0xac, 0xa0, 0x8a, 0xcc, 0x6a, 0x3b,
-	0x54, 0xc9, 0x5c, 0xcc, 0x88, 0x32, 0xe4, 0x3d, 0x40, 0x33, 0x22, 0x77, 0xa9, 0x31, 0xf8, 0x72,
-	0x96, 0x9f, 0xc6, 0xd6, 0xf3, 0xa7, 0x3b, 0x45, 0xea, 0x18, 0xcc, 0xb4, 0x9c, 0x61, 0x55, 0x28,
-	0x2a, 0x98, 0x3c, 0xde, 0xa7, 0x9c, 0x93, 0x61, 0xc4, 0xce, 0xa1, 0x4b, 0x0d, 0xf4, 0x2e, 0x80,
-	0xc1, 0x6c, 0x9b, 0x1a, 0xbe, 0xc5, 0x9c, 0x62, 0xa2, 0xa4, 0xed, 0xe6, 0x6a, 0x9b, 0xea, 0xeb,
-	0xcd, 0x99, 0x5c, 0x20, 0x71, 0x04, 0x87, 0x1e, 0xc3, 0xc6, 0x89, 0x45, 0x6d, 0x73, 0x60, 0x30,
-	0xe7, 0xc4, 0x1a, 0xaa, 0x8f, 0x27, 0x4b, 0xf1, 0xdd, 0x5c, 0xed, 0x9d, 0x85, 0x82, 0xbe, 0x90,
-	0x94, 0xca, 0x9e, 0x60, 0x35, 0x25, 0xe9, 0x53, 0xce, 0x9c, 0xb6, 0xe3, 0x7b, 0x41, 0x63, 0xeb,
-	0xc7, 0xdf, 0x96, 0xf8, 0x9b, 0x3b, 0x99, 0x73, 0xf4, 0x06, 0x6c, 0xbe, 0xca, 0x04, 0x2a, 0x40,
-	0x7c, 0x44, 0x83, 0x30, 0xc5, 0xe2, 0x11, 0x6d, 0x42, 0xf2, 0x11, 0xb1, 0x27, 0x2a, 0xa3, 0x59,
-	0xac, 0x5e, 0x3e, 0x88, 0xdd, 0xd5, 0xca, 0xcf, 0x34, 0x28, 0xcc, 0xfd, 0xe2, 0x2e, 0x73, 0x38,
-	0x45, 0x07, 0x90, 0x33, 0x66, 0xcd, 0xc7, 0x8b, 0x9a, 0x8c, 0xa5, 0x72, 0x46, 0x2c, 0x8a, 0x13,
-	0xe9, 0x56, 0x2e, 0xbd, 0xc0, 0x51, 0x13, 0xa2, 0xfe, 0x1e, 0xe5, 0x6c, 0xe2, 0x19, 0x74, 0xe0,
-	0x12, 0xff, 0xb4, 0x18, 0x2b, 0xc5, 0x45, 0xfd, 0xa7, 0xc2, 0x03, 0xe2, 0x9f, 0xea, 0x5f, 0x40,
-	0xe1, 0x45, 0x2b, 0xaf, 0x88, 0xe5, 0x56, 0x34, 0x96, 0x5c, 0xed, 0xda, 0x19, 0x33, 0x13, 0x0d,
-	0xd2, 0x86, 0x7c, 0xdd, 0x75, 0xed, 0x60, 0xda, 0x8d, 0x4d, 0x58, 0x9f, 0x93, 0x88, 0x2c, 0xb6,
-	0x26, 0x8d, 0x5d, 0x57, 0xc5, 0xde, 0x5f, 0x54, 0xca, 0x8a, 0xbf, 0xc8, 0x40, 0xd7, 0x20, 0x6d,
-	0x7a, 0xc1, 0xc0, 0x9b, 0x38, 0xd2, 0x93, 0x0c, 0x4e, 0x99, 0x5e, 0x80, 0x27, 0x4e, 0xf9, 0x1e,
-	0xac, 0x85, 0x5f, 0x0b, 0xd3, 0x79, 0x0b, 0x10, 0x91, 0xad, 0x32, 0x30, 0x29, 0x37, 0x3c, 0xcb,
-	0x9d, 0x7d, 0x31, 0x8b, 0x37, 0x94, 0xa6, 0x35, 0x57, 0x94, 0xff, 0x4e, 0x03, 0x3a, 0xf2, 0x88,
-	0xc3, 0x95, 0x6a, 0xea, 0xf4, 0x5d, 0x48, 0x30, 0x97, 0x4e, 0x3d, 0x7d, 0x63, 0x21, 0xec, 0x97,
-	0xe1, 0x95, 0xbe, 0x4b, 0x1d, 0x2c, 0x19, 0x82, 0x69, 0x33, 0x62, 0x86, 0x09, 0x5b, 0xc9, 0xec,
-	0x32, 0x62, 0x62, 0xc9, 0x40, 0x75, 0x48, 0xbb, 0x1e, 0x75, 0x89, 0x47, 0xe5, 0x34, 0xe5, 0x6a,
-	0x37, 0x56, 0x91, 0x0f, 0x14, 0x1c, 0x4f, 0x79, 0xe8, 0x43, 0x48, 0x72, 0x9f, 0x79, 0x34, 0x1c,
-	0xa7, 0x37, 0x57, 0x19, 0x38, 0x14, 0x60, 0xac, 0x38, 0xe8, 0x1e, 0xa4, 0x0c, 0x36, 0x1e, 0x5b,
-	0x7e, 0x31, 0x29, 0xd9, 0x6f, 0xad, 0x62, 0x37, 0x25, 0x1a, 0x87, 0x2c, 0xfd, 0x57, 0x0d, 0x12,
-	0x22, 0x11, 0x17, 0x53, 0xf1, 0xff, 0x43, 0x76, 0x44, 0x83, 0xc1, 0x43, 0x3a, 0xb4, 0x54, 0xcd,
-	0xd3, 0x38, 0x33, 0xa2, 0x41, 0x43, 0xbc, 0x8b, 0x76, 0x10, 0x4a, 0xea, 0x98, 0x32, 0x55, 0x69,
-	0x9c, 0x1a, 0xd1, 0xa0, 0xed, 0x98, 0xa8, 0x07, 0x57, 0x4d, 0xcf, 0x7a, 0x44, 0xbd, 0x81, 0x71,
-	0x4a, 0x8d, 0x91, 0xda, 0x52, 0x72, 0x47, 0x88, 0x8c, 0xe4, 0x57, 0x2c, 0xa8, 0x82, 0xe2, 0x36,
-	0x67, 0x54, 0xfd, 0x3b, 0x0d, 0x12, 0xa2, 0x44, 0xa8, 0x03, 0x49, 0xe2, 0x51, 0x87, 0x48, 0x57,
-	0xf2, 0x8d, 0x3b, 0xcf, 0x9f, 0xee, 0x54, 0x87, 0x96, 0x7f, 0x3a, 0x79, 0x58, 0x31, 0xd8, 0xb8,
-	0x4a, 0xb9, 0x3f, 0x21, 0x5e, 0xa0, 0xee, 0xd2, 0x4b, 0x97, 0xaa, 0x52, 0x17, 0x54, 0xac, 0x2c,
-	0xa0, 0x1a, 0xe4, 0x5c, 0x62, 0x8c, 0xa8, 0x39, 0x18, 0xd1, 0x80, 0x17, 0xe3, 0x72, 0xe0, 0x73,
-	0x2a, 0x35, 0x87, 0xb6, 0x65, 0xd0, 0x46, 0xe2, 0xc9, 0xd3, 0x9d, 0x4b, 0x18, 0x14, 0xea, 0x33,
-	0x1a, 0x70, 0xbd, 0x06, 0xe9, 0xb0, 0xd8, 0xe8, 0x06, 0xac, 0x0b, 0x68, 0x24, 0x40, 0x99, 0xdd,
-	0x3c, 0xbe, 0x2c, 0xc4, 0x11, 0xdf, 0xbf, 0x8f, 0x41, 0x52, 0x16, 0x78, 0xee, 0xbc, 0x76, 0xd1,
-	0xce, 0xc7, 0xce, 0xe1, 0x3c, 0x7a, 0x0f, 0xd6, 0x42, 0x8e, 0xdc, 0x12, 0x4b, 0x42, 0xce, 0x2b,
-	0xdc, 0x7d, 0x09, 0x43, 0x15, 0xc8, 0x9a, 0xcc, 0xe0, 0xd3, 0xfa, 0x9d, 0xc1, 0xc9, 0x08, 0x8c,
-	0xd8, 0xc7, 0xe2, 0x5a, 0xd3, 0xaf, 0x2d, 0xee, 0x73, 0x79, 0x10, 0x32, 0x38, 0x7c, 0xd3, 0x33,
-	0x90, 0x52, 0xad, 0x5a, 0xfe, 0x27, 0x01, 0x57, 0x16, 0x1a, 0x39, 0x5c, 0x1a, 0x1f, 0x41, 0x4a,
-	0x0c, 0x2f, 0x35, 0xc3, 0x46, 0x5d, 0x32, 0x79, 0xe1, 0x06, 0xee, 0x4b, 0x38, 0x0e, 0x69, 0xc2,
-	0x80, 0x98, 0x61, 0x3a, 0x9d, 0xfb, 0xd5, 0x06, 0xba, 0x12, 0x8e, 0x43, 0x1a, 0x6a, 0x43, 0x26,
-	0x1c, 0x62, 0x33, 0x9c, 0xfe, 0xb7, 0x57, 0x9a, 0x08, 0x3b, 0xc2, 0xc4, 0x33, 0x2a, 0xfa, 0x04,
-	0xb2, 0x6a, 0x1a, 0x7d, 0x6a, 0x86, 0x4b, 0xe0, 0xe6, 0x4a, 0x3b, 0xcd, 0x29, 0x03, 0xcf, 0xc9,
-	0xfa, 0x7d, 0x48, 0xa9, 0x18, 0xcf, 0xdd, 0x70, 0xe2, 0xee, 0x98, 0xd4, 0xf6, 0xc9, 0x60, 0xe2,
-	0x8a, 0x6b, 0xc5, 0xc3, 0x55, 0x9d, 0x97, 0xc2, 0x63, 0x25, 0xd3, 0xbf, 0xd5, 0x20, 0xa5, 0x62,
-	0xbf, 0xc8, 0xb6, 0x5c, 0x68, 0x95, 0xd8, 0xca, 0x56, 0xd1, 0x1f, 0x40, 0x66, 0x9a, 0xbd, 0x25,
-	0x3b, 0x43, 0xfb, 0x4f, 0x3b, 0x23, 0x07, 0xd9, 0x59, 0x46, 0x6b, 0x7f, 0x69, 0x90, 0x6a, 0x49,
-	0x04, 0xfa, 0x18, 0x32, 0xd3, 0x43, 0x8e, 0xb6, 0x96, 0xfd, 0x57, 0xd1, 0x5f, 0x5b, 0x7a, 0xfd,
-	0xd1, 0x3d, 0x48, 0xca, 0x9b, 0x87, 0xae, 0x2f, 0xe0, 0xa2, 0x57, 0x57, 0xd7, 0x5f, 0xa5, 0x0a,
-	0xf9, 0xc7, 0x90, 0x8f, 0xb4, 0x01, 0x47, 0x3b, 0x2b, 0x16, 0xbd, 0x5e, 0x5a, 0xd5, 0x42, 0xbb,
-	0xda, 0x6d, 0xad, 0xd1, 0x78, 0xf2, 0xc7, 0xf6, 0xa5, 0x27, 0xcf, 0xb6, 0xb5, 0x5f, 0x9e, 0x6d,
-	0x6b, 0x3f, 0xfd, 0xb9, 0xad, 0x3d, 0xb8, 0x7d, 0xae, 0x6a, 0x46, 0x6c, 0x3f, 0x4c, 0x49, 0xf1,
-	0x9d, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0x1c, 0x37, 0xdf, 0x1d, 0x27, 0x0c, 0x00, 0x00,
+	// 1283 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x56, 0x4f, 0x6f, 0x1b, 0xc5,
+	0x1b, 0xee, 0xfa, 0xbf, 0x5f, 0x3b, 0x8d, 0x33, 0xcd, 0xaf, 0x75, 0xf7, 0x17, 0x92, 0xc8, 0x50,
+	0x1a, 0x2a, 0x75, 0x53, 0x5c, 0xa9, 0xb4, 0x45, 0x14, 0xbc, 0xb6, 0x03, 0x86, 0x24, 0x2e, 0x93,
+	0xa4, 0xa0, 0x5e, 0xac, 0xcd, 0xee, 0xc4, 0x59, 0xbc, 0xd9, 0x59, 0x76, 0xd6, 0x2d, 0xcb, 0x85,
+	0x5b, 0x91, 0x38, 0x72, 0x47, 0xf4, 0x6b, 0xf0, 0x0d, 0x7a, 0x44, 0x7c, 0x80, 0x00, 0x85, 0x03,
+	0x12, 0xdf, 0xa0, 0x27, 0x34, 0x33, 0xbb, 0xf6, 0xba, 0x75, 0xe3, 0x08, 0x09, 0xc4, 0xc5, 0xda,
+	0x79, 0xe7, 0x79, 0x5e, 0xcf, 0xfb, 0xbc, 0x7f, 0x66, 0xe0, 0x4a, 0x9f, 0xae, 0x7b, 0x3e, 0x0d,
+	0xa8, 0x49, 0x1d, 0xb6, 0x7e, 0x64, 0x04, 0xc4, 0xb7, 0x0d, 0xc7, 0xfe, 0x92, 0x24, 0xbf, 0x35,
+	0x81, 0x40, 0xa5, 0x84, 0x49, 0x5d, 0x9a, 0x20, 0x1e, 0x38, 0xf4, 0xa1, 0xf8, 0x91, 0x50, 0x75,
+	0xb1, 0x4f, 0xfb, 0x54, 0x7c, 0xae, 0xf3, 0x2f, 0x69, 0xad, 0xfd, 0xa2, 0x00, 0x34, 0xa9, 0xcb,
+	0x02, 0xdf, 0xb0, 0xdd, 0x00, 0x5d, 0x83, 0x4c, 0x10, 0x7a, 0xa4, 0x9a, 0x5a, 0x55, 0xd6, 0xce,
+	0xd6, 0x97, 0xb4, 0xe4, 0x3f, 0x8e, 0x61, 0xda, 0x6e, 0xe8, 0x11, 0x2c, 0x90, 0xe8, 0x3c, 0xe4,
+	0x7c, 0x62, 0x30, 0xea, 0x56, 0xd3, 0xab, 0xca, 0x5a, 0x11, 0x47, 0xab, 0xda, 0xd7, 0x0a, 0x64,
+	0x38, 0x0c, 0x21, 0x38, 0xbb, 0xd1, 0x69, 0x6f, 0xb6, 0x7a, 0xb8, 0xfd, 0xf1, 0x5e, 0x07, 0xb7,
+	0x5b, 0x95, 0x33, 0xe8, 0x7f, 0xb0, 0xb0, 0xd9, 0x6d, 0x36, 0x76, 0x3b, 0xdd, 0xed, 0xb1, 0x59,
+	0x41, 0x55, 0x58, 0x4c, 0x98, 0x9b, 0xdd, 0xad, 0xad, 0xf6, 0x76, 0xab, 0xdd, 0xaa, 0xa4, 0xc6,
+	0x4e, 0xba, 0x77, 0xf9, 0x6e, 0x63, 0xb3, 0x92, 0x46, 0xe7, 0x60, 0x5e, 0xda, 0x36, 0xba, 0x58,
+	0xef, 0xb4, 0x5a, 0xed, 0xed, 0x4a, 0x06, 0x2d, 0xc0, 0xdc, 0xde, 0xf6, 0x4e, 0x63, 0xb7, 0xb3,
+	0xb3, 0xd1, 0x69, 0xe8, 0x9b, 0xed, 0x4a, 0xb6, 0xf6, 0x6d, 0x16, 0xe6, 0xef, 0x19, 0x8e, 0x6d,
+	0x19, 0x01, 0xc1, 0xe4, 0xf3, 0x21, 0x61, 0x01, 0xea, 0xc3, 0xfc, 0x38, 0x34, 0x23, 0xb0, 0xa9,
+	0x5b, 0x55, 0xf8, 0xf1, 0xf5, 0x77, 0x9e, 0x1d, 0xaf, 0xdc, 0xea, 0xdb, 0xc1, 0xe1, 0x70, 0x5f,
+	0x33, 0xe9, 0xd1, 0x3a, 0x61, 0xc1, 0xd0, 0xf0, 0x43, 0xa9, 0xe6, 0x0b, 0xfa, 0x6a, 0x5b, 0x93,
+	0x4e, 0xf0, 0xf3, 0x5e, 0xd1, 0x5b, 0x30, 0x47, 0x5c, 0xcb, 0xa3, 0xb6, 0x1b, 0xf4, 0x12, 0xca,
+	0x22, 0x4d, 0xd0, 0xdb, 0xd1, 0x96, 0xd0, 0xb3, 0x4c, 0x12, 0x2b, 0xb4, 0x01, 0x68, 0x44, 0x64,
+	0x1e, 0x31, 0x7b, 0x9f, 0x8d, 0x34, 0xd6, 0x97, 0x9e, 0x1d, 0xaf, 0x54, 0x89, 0x6b, 0x52, 0xcb,
+	0x76, 0xfb, 0xeb, 0x7c, 0x43, 0xc3, 0xc6, 0xc3, 0x2d, 0xc2, 0x98, 0xd1, 0x4f, 0xf8, 0xd9, 0xf1,
+	0x88, 0x89, 0xde, 0x83, 0xc2, 0xbe, 0xed, 0x72, 0x20, 0xab, 0x66, 0x56, 0xd3, 0x6b, 0xa5, 0xfa,
+	0x6b, 0x13, 0x59, 0x7d, 0x4e, 0x19, 0x4d, 0x97, 0x60, 0x3c, 0x62, 0xa9, 0x3f, 0xa5, 0x20, 0x1f,
+	0x59, 0xf9, 0xa9, 0x7c, 0xc2, 0xe8, 0xd0, 0x37, 0x49, 0xe2, 0x54, 0xca, 0x69, 0x4e, 0x15, 0xf3,
+	0xc4, 0xa9, 0x6e, 0x03, 0x98, 0xd4, 0x71, 0x88, 0x29, 0xa4, 0xe7, 0x9a, 0x94, 0xea, 0x8b, 0x52,
+	0x93, 0xe6, 0xc8, 0xce, 0x91, 0x7a, 0xe6, 0xc9, 0xf1, 0xca, 0x19, 0x9c, 0x40, 0xa3, 0xaf, 0x60,
+	0xe1, 0xc0, 0x26, 0x8e, 0xd5, 0x33, 0xa9, 0x7b, 0x60, 0xf7, 0x63, 0x61, 0x78, 0x68, 0xb7, 0x4e,
+	0x13, 0x9a, 0xb6, 0xc1, 0xd9, 0x4d, 0x41, 0xfe, 0x90, 0x51, 0xb7, 0xed, 0x06, 0x7e, 0xa8, 0x2f,
+	0x7d, 0xf3, 0xf3, 0x09, 0xa7, 0x2f, 0x1d, 0x8c, 0x39, 0xaa, 0x0e, 0x8b, 0xd3, 0x5c, 0xa0, 0x0a,
+	0xa4, 0x07, 0x24, 0x94, 0x6a, 0x60, 0xfe, 0x89, 0x16, 0x21, 0xfb, 0xc0, 0x70, 0x86, 0x32, 0xeb,
+	0x45, 0x2c, 0x17, 0xb7, 0x53, 0x37, 0x95, 0xda, 0x71, 0x0a, 0x2a, 0xe3, 0xf3, 0x31, 0x8f, 0xba,
+	0x8c, 0xa0, 0x46, 0x22, 0x57, 0x8a, 0x08, 0xe8, 0xd2, 0x4b, 0x02, 0x92, 0x84, 0x29, 0xc9, 0x7a,
+	0x94, 0x48, 0xd6, 0xa7, 0x50, 0x32, 0x47, 0x3d, 0x1b, 0x7b, 0xbc, 0x71, 0x2a, 0x8f, 0x89, 0x66,
+	0x67, 0x22, 0x38, 0x9c, 0x74, 0x85, 0x5e, 0x85, 0xb9, 0x51, 0x19, 0x78, 0x46, 0x70, 0x58, 0x4d,
+	0xad, 0xa6, 0xd7, 0x8a, 0xe3, 0x1c, 0xdf, 0x35, 0x82, 0x43, 0x0e, 0xb2, 0x88, 0x13, 0x18, 0xbd,
+	0xa1, 0xc7, 0xff, 0x82, 0x89, 0xe2, 0x2d, 0xe0, 0xb2, 0x30, 0xee, 0x49, 0x9b, 0xfa, 0x09, 0x54,
+	0x9e, 0xff, 0xab, 0x29, 0x3a, 0x5e, 0x4d, 0xea, 0x58, 0xaa, 0x5f, 0x78, 0xc9, 0x5c, 0x4a, 0x0a,
+	0xfc, 0x48, 0x81, 0x72, 0xc3, 0xf3, 0x9c, 0x30, 0x6e, 0xf9, 0xe6, 0xf4, 0x96, 0x2f, 0xd5, 0x2f,
+	0x6a, 0xd3, 0x5a, 0x99, 0x17, 0xdf, 0x8b, 0xed, 0x5c, 0x85, 0xfc, 0x03, 0xe2, 0xb3, 0xb8, 0x68,
+	0x8b, 0x38, 0x5e, 0xa2, 0x0b, 0x90, 0xb7, 0xfc, 0xb0, 0xe7, 0x0f, 0xdd, 0x28, 0xce, 0x9c, 0xe5,
+	0x87, 0x78, 0xe8, 0xd6, 0xee, 0xc0, 0x5c, 0x74, 0x8e, 0x28, 0xcb, 0x57, 0x01, 0x19, 0xa2, 0x92,
+	0x7b, 0x16, 0x61, 0xa6, 0x6f, 0x7b, 0xe3, 0xf1, 0x83, 0x17, 0xe4, 0x4e, 0x6b, 0xbc, 0x51, 0xfb,
+	0xa1, 0x00, 0x68, 0xd7, 0x37, 0x5c, 0x26, 0xb7, 0xe2, 0x70, 0x6e, 0x42, 0x86, 0x7a, 0x24, 0x8e,
+	0x61, 0xb2, 0xa7, 0x5f, 0x84, 0x6b, 0x5d, 0x8f, 0xb8, 0x58, 0x30, 0x38, 0xd3, 0xa1, 0x86, 0x15,
+	0x69, 0x39, 0x93, 0xb9, 0x49, 0x0d, 0x0b, 0x0b, 0x06, 0x6a, 0x40, 0xde, 0xf3, 0x89, 0x67, 0xf8,
+	0x44, 0xc4, 0x58, 0xaa, 0x5f, 0x9e, 0x45, 0xbe, 0x2b, 0xe1, 0x38, 0xe6, 0xa1, 0xb7, 0x21, 0xcb,
+	0x02, 0xea, 0x93, 0x6a, 0x46, 0x38, 0xb8, 0x34, 0xcb, 0xc1, 0x0e, 0x07, 0x63, 0xc9, 0x41, 0x77,
+	0x20, 0x67, 0xd2, 0xa3, 0x23, 0x3b, 0xa8, 0x66, 0x05, 0xfb, 0xf5, 0x59, 0xec, 0xa6, 0x40, 0xe3,
+	0x88, 0xa5, 0xfe, 0xa9, 0x40, 0x86, 0x0b, 0xf1, 0x4f, 0xd7, 0xc2, 0xff, 0xa1, 0x38, 0x20, 0x61,
+	0x6f, 0x9f, 0xf4, 0x6d, 0x59, 0x0d, 0x79, 0x5c, 0x18, 0x90, 0x50, 0xe7, 0x6b, 0x5e, 0x28, 0x7c,
+	0x93, 0xb8, 0x96, 0xd0, 0x20, 0x8f, 0x73, 0x03, 0x12, 0xb6, 0x5d, 0x0b, 0x6d, 0xc3, 0x79, 0xcb,
+	0xb7, 0x1f, 0x10, 0xbf, 0x67, 0x1e, 0x12, 0x73, 0x20, 0x47, 0xbf, 0x18, 0x6e, 0x3c, 0xda, 0xf2,
+	0x8c, 0xf9, 0x5a, 0x91, 0xdc, 0xe6, 0x88, 0xaa, 0x7e, 0xaf, 0x40, 0x86, 0x27, 0x8f, 0x1f, 0x34,
+	0x9a, 0x0f, 0x22, 0xca, 0x39, 0x1c, 0x2f, 0x51, 0x07, 0xb2, 0x86, 0x4f, 0x5c, 0x43, 0x04, 0x50,
+	0xd6, 0xaf, 0x3f, 0x3b, 0x5e, 0x59, 0x3f, 0xfd, 0xe5, 0xd7, 0xe0, 0x54, 0x2c, 0x3d, 0xa0, 0x3a,
+	0x94, 0x3c, 0xc3, 0x1c, 0x10, 0xab, 0x37, 0x20, 0x21, 0x8b, 0xe6, 0x71, 0x49, 0xca, 0xb9, 0xe3,
+	0xd8, 0x26, 0x89, 0x27, 0xb9, 0x44, 0x7d, 0x44, 0x42, 0xa6, 0xd6, 0x21, 0x1f, 0x15, 0x08, 0xba,
+	0x0c, 0xf3, 0x1c, 0x9a, 0x08, 0x5d, 0x9c, 0xb5, 0x8c, 0xcf, 0x72, 0x73, 0x22, 0xaa, 0xc7, 0x29,
+	0xc8, 0x8a, 0xa2, 0xf8, 0xcf, 0x86, 0x85, 0x6e, 0xc0, 0x5c, 0xc4, 0x11, 0xe3, 0x28, 0xbe, 0x77,
+	0xa7, 0xb0, 0xca, 0x12, 0x77, 0x4f, 0xc0, 0x90, 0x06, 0x45, 0x8b, 0x9a, 0x2c, 0xce, 0xf9, 0x4b,
+	0x38, 0x05, 0x8e, 0xe1, 0x97, 0x0e, 0x7f, 0x7a, 0x91, 0x2f, 0x6c, 0x16, 0xb0, 0x6a, 0x6e, 0x35,
+	0xcd, 0x27, 0x8e, 0x5c, 0xa9, 0x05, 0xc8, 0xc9, 0xc2, 0xaf, 0xfd, 0x9e, 0x81, 0x73, 0x13, 0x6d,
+	0x11, 0x8d, 0xa0, 0x77, 0x21, 0xc7, 0x47, 0x01, 0xb1, 0xa2, 0xb2, 0x3f, 0xa1, 0x8f, 0xa3, 0x7b,
+	0xa1, 0x2b, 0xe0, 0x38, 0xa2, 0x71, 0x07, 0x7c, 0x22, 0x90, 0x78, 0x8a, 0xcc, 0x76, 0xb0, 0x29,
+	0xe0, 0x38, 0xa2, 0xa1, 0x36, 0x14, 0xa2, 0x91, 0x60, 0x45, 0xb3, 0xe4, 0x8d, 0x99, 0x2e, 0xa2,
+	0x5a, 0xb1, 0xf0, 0x88, 0x8a, 0x3e, 0x80, 0xa2, 0xec, 0xed, 0x80, 0x58, 0xd1, 0x48, 0xb9, 0x32,
+	0xd3, 0x4f, 0x33, 0x66, 0xe0, 0x31, 0x59, 0x7d, 0x13, 0x72, 0x32, 0xc6, 0xd3, 0x97, 0xe2, 0x77,
+	0x0a, 0xe4, 0x64, 0x58, 0xff, 0x4e, 0x2d, 0x4e, 0xd4, 0x47, 0x7a, 0x66, 0x7d, 0xa8, 0xf7, 0xa1,
+	0x10, 0x4b, 0x76, 0xc2, 0x70, 0x51, 0xfe, 0xd6, 0x70, 0x29, 0x41, 0x71, 0x24, 0x63, 0xfd, 0x0f,
+	0x05, 0x72, 0x2d, 0x81, 0x40, 0xef, 0x43, 0x21, 0x7e, 0x53, 0xa0, 0xa5, 0x93, 0x5e, 0x63, 0xea,
+	0x2b, 0x27, 0x3e, 0x44, 0xd0, 0x1d, 0xc8, 0x8a, 0x6b, 0x13, 0x5d, 0x9c, 0xc0, 0x25, 0xaf, 0x74,
+	0x55, 0x9d, 0xb6, 0x15, 0xf1, 0xf7, 0xa0, 0x9c, 0xc8, 0x3d, 0x43, 0x2b, 0x33, 0xee, 0x0a, 0x75,
+	0x75, 0x56, 0xdd, 0xac, 0x29, 0xd7, 0x14, 0x5d, 0x7f, 0xf2, 0xeb, 0xf2, 0x99, 0x27, 0x4f, 0x97,
+	0x95, 0x1f, 0x9f, 0x2e, 0x2b, 0x8f, 0x7f, 0x5b, 0x56, 0xee, 0x5f, 0x3b, 0x55, 0x36, 0x13, 0xbe,
+	0xf7, 0x73, 0xc2, 0x7c, 0xfd, 0xaf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x40, 0x9e, 0x95, 0xf1, 0xe9,
+	0x0d, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1278,6 +1381,66 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
+	if len(m.Bindings) > 0 {
+		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMaterialize(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if len(m.EndpointSpecJson) > 0 {
+		i -= len(m.EndpointSpecJson)
+		copy(dAtA[i:], m.EndpointSpecJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointSpecJson)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.EndpointType != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Materialization) > 0 {
+		i -= len(m.Materialization)
+		copy(dAtA[i:], m.Materialization)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Materialization)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ValidateRequest_Binding) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ValidateRequest_Binding) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
 	if len(m.FieldConfigJson) > 0 {
 		for k := range m.FieldConfigJson {
 			v := m.FieldConfigJson[k]
@@ -1294,37 +1457,23 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0xa
 			i = encodeVarintMaterialize(dAtA, i, uint64(baseI-i))
 			i--
-			dAtA[i] = 0x2a
+			dAtA[i] = 0x1a
 		}
 	}
-	if m.Collection != nil {
-		{
-			size, err := m.Collection.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+	{
+		size, err := m.Collection.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
 		}
-		i--
-		dAtA[i] = 0x22
+		i -= size
+		i = encodeVarintMaterialize(dAtA, i, uint64(size))
 	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointSpecJson)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.EndpointType != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
-		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.EndpointName) > 0 {
-		i -= len(m.EndpointName)
-		copy(dAtA[i:], m.EndpointName)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointName)))
+	i--
+	dAtA[i] = 0x12
+	if len(m.ResourceSpecJson) > 0 {
+		i -= len(m.ResourceSpecJson)
+		copy(dAtA[i:], m.ResourceSpecJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ResourceSpecJson)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -1354,6 +1503,57 @@ func (m *ValidateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Bindings) > 0 {
+		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMaterialize(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ValidateResponse_Binding) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ValidateResponse_Binding) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ValidateResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.DeltaUpdates {
+		i--
+		if m.DeltaUpdates {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x18
 	}
 	if len(m.ResourcePath) > 0 {
 		for iNdEx := len(m.ResourcePath) - 1; iNdEx >= 0; iNdEx-- {
@@ -1425,7 +1625,14 @@ func (m *ApplyRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x10
+		dAtA[i] = 0x18
+	}
+	if len(m.Version) > 0 {
+		i -= len(m.Version)
+		copy(dAtA[i:], m.Version)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
+		i--
+		dAtA[i] = 0x12
 	}
 	if m.Materialization != nil {
 		{
@@ -1592,19 +1799,26 @@ func (m *TransactionRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error)
 		copy(dAtA[i:], m.DriverCheckpointJson)
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DriverCheckpointJson)))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x2a
 	}
 	if m.KeyEnd != 0 {
 		i -= 4
 		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyEnd))
 		i--
-		dAtA[i] = 0x1d
+		dAtA[i] = 0x25
 	}
 	if m.KeyBegin != 0 {
 		i -= 4
 		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyBegin))
 		i--
-		dAtA[i] = 0x15
+		dAtA[i] = 0x1d
+	}
+	if len(m.Version) > 0 {
+		i -= len(m.Version)
+		copy(dAtA[i:], m.Version)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
+		i--
+		dAtA[i] = 0x12
 	}
 	if m.Materialization != nil {
 		{
@@ -1665,6 +1879,11 @@ func (m *TransactionRequest_Load) MarshalToSizedBuffer(dAtA []byte) (int, error)
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
 		i--
 		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -1738,7 +1957,7 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 		}
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Exists)))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x32
 	}
 	if len(m.DocsJson) > 0 {
 		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
@@ -1751,7 +1970,7 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 				i = encodeVarintMaterialize(dAtA, i, uint64(size))
 			}
 			i--
-			dAtA[i] = 0x22
+			dAtA[i] = 0x2a
 		}
 	}
 	if len(m.PackedValues) > 0 {
@@ -1765,7 +1984,7 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 				i = encodeVarintMaterialize(dAtA, i, uint64(size))
 			}
 			i--
-			dAtA[i] = 0x1a
+			dAtA[i] = 0x22
 		}
 	}
 	if len(m.PackedKeys) > 0 {
@@ -1779,7 +1998,7 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 				i = encodeVarintMaterialize(dAtA, i, uint64(size))
 			}
 			i--
-			dAtA[i] = 0x12
+			dAtA[i] = 0x1a
 		}
 	}
 	if len(m.Arena) > 0 {
@@ -1787,7 +2006,12 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 		copy(dAtA[i:], m.Arena)
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -1918,16 +2142,6 @@ func (m *TransactionResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, err
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.DeltaUpdates {
-		i--
-		if m.DeltaUpdates {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x10
-	}
 	if len(m.FlowCheckpoint) > 0 {
 		i -= len(m.FlowCheckpoint)
 		copy(dAtA[i:], m.FlowCheckpoint)
@@ -1973,7 +2187,7 @@ func (m *TransactionResponse_Loaded) MarshalToSizedBuffer(dAtA []byte) (int, err
 				i = encodeVarintMaterialize(dAtA, i, uint64(size))
 			}
 			i--
-			dAtA[i] = 0x12
+			dAtA[i] = 0x1a
 		}
 	}
 	if len(m.Arena) > 0 {
@@ -1981,7 +2195,12 @@ func (m *TransactionResponse_Loaded) MarshalToSizedBuffer(dAtA []byte) (int, err
 		copy(dAtA[i:], m.Arena)
 		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -2083,7 +2302,7 @@ func (m *ValidateRequest) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.EndpointName)
+	l = len(m.Materialization)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -2094,10 +2313,30 @@ func (m *ValidateRequest) ProtoSize() (n int) {
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.Collection != nil {
-		l = m.Collection.ProtoSize()
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ValidateRequest_Binding) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ResourceSpecJson)
+	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
+	l = m.Collection.ProtoSize()
+	n += 1 + l + sovMaterialize(uint64(l))
 	if len(m.FieldConfigJson) > 0 {
 		for k, v := range m.FieldConfigJson {
 			_ = k
@@ -2113,6 +2352,24 @@ func (m *ValidateRequest) ProtoSize() (n int) {
 }
 
 func (m *ValidateResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *ValidateResponse_Binding) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2137,6 +2394,9 @@ func (m *ValidateResponse) ProtoSize() (n int) {
 			n += 1 + l + sovMaterialize(uint64(l))
 		}
 	}
+	if m.DeltaUpdates {
+		n += 2
+	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -2151,6 +2411,10 @@ func (m *ApplyRequest) ProtoSize() (n int) {
 	_ = l
 	if m.Materialization != nil {
 		l = m.Materialization.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.Version)
+	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.DryRun {
@@ -2220,6 +2484,10 @@ func (m *TransactionRequest_Open) ProtoSize() (n int) {
 		l = m.Materialization.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
+	l = len(m.Version)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
 	if m.KeyBegin != 0 {
 		n += 5
 	}
@@ -2242,6 +2510,9 @@ func (m *TransactionRequest_Load) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovMaterialize(uint64(m.Binding))
+	}
 	l = len(m.Arena)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
@@ -2280,6 +2551,9 @@ func (m *TransactionRequest_Store) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovMaterialize(uint64(m.Binding))
+	}
 	l = len(m.Arena)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
@@ -2361,9 +2635,6 @@ func (m *TransactionResponse_Opened) ProtoSize() (n int) {
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.DeltaUpdates {
-		n += 2
-	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -2376,6 +2647,9 @@ func (m *TransactionResponse_Loaded) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovMaterialize(uint64(m.Binding))
+	}
 	l = len(m.Arena)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
@@ -2562,7 +2836,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointName", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Materialization", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -2590,7 +2864,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.EndpointName = string(dAtA[iNdEx:postIndex])
+			m.Materialization = github_com_estuary_flow_go_protocols_flow.Materialization(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 0 {
@@ -2645,6 +2919,126 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bindings = append(m.Bindings, &ValidateRequest_Binding{})
+			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourceSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Collection", wireType)
 			}
 			var msglen int
@@ -2672,14 +3066,11 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Collection == nil {
-				m.Collection = &flow.CollectionSpec{}
-			}
 			if err := m.Collection.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 5:
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field FieldConfigJson", wireType)
 			}
@@ -2862,6 +3253,94 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bindings = append(m.Bindings, &ValidateResponse_Binding{})
+			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Constraints", wireType)
 			}
 			var msglen int
@@ -3021,6 +3500,26 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 			}
 			m.ResourcePath = append(m.ResourcePath, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DeltaUpdates = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])
@@ -3112,6 +3611,38 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 			}
 			iNdEx = postIndex
 		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Version", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Version = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DryRun", wireType)
 			}
@@ -3542,6 +4073,38 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 			}
 			iNdEx = postIndex
 		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Version", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Version = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
 			if wireType != 5 {
 				return fmt.Errorf("proto: wrong wireType = %d for field KeyBegin", wireType)
 			}
@@ -3551,7 +4114,7 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 			}
 			m.KeyBegin = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
 			iNdEx += 4
-		case 3:
+		case 4:
 			if wireType != 5 {
 				return fmt.Errorf("proto: wrong wireType = %d for field KeyEnd", wireType)
 			}
@@ -3561,7 +4124,7 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 			}
 			m.KeyEnd = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
 			iNdEx += 4
-		case 4:
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
 			}
@@ -3649,6 +4212,25 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 			return fmt.Errorf("proto: Load: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
+			}
+			m.Binding = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Binding |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		case 2:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
@@ -3860,6 +4442,25 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
+			}
+			m.Binding = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Binding |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
 			}
@@ -3893,7 +4494,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				m.Arena = []byte{}
 			}
 			iNdEx = postIndex
-		case 2:
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PackedKeys", wireType)
 			}
@@ -3927,7 +4528,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 3:
+		case 4:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PackedValues", wireType)
 			}
@@ -3961,7 +4562,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 4:
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
 			}
@@ -3995,7 +4596,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 5:
+		case 6:
 			if wireType == 0 {
 				var v int
 				for shift := uint(0); ; shift += 7 {
@@ -4405,26 +5006,6 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 				m.FlowCheckpoint = []byte{}
 			}
 			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.DeltaUpdates = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])
@@ -4480,6 +5061,25 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
+			}
+			m.Binding = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Binding |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
 			}
@@ -4513,7 +5113,7 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 				m.Arena = []byte{}
 			}
 			iNdEx = postIndex
-		case 2:
+		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
 			}
