@@ -37,14 +37,14 @@ func NewDriver(
 		return AdaptServerToClient(jsonimage.NewDriver()), nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
-			Endpoint protocol.Endpoint
+			Address protocol.Endpoint
 		}
 		if err := json.Unmarshal(endpointSpec, &cfg); err != nil {
 			return nil, fmt.Errorf("parsing config: %w", err)
-		} else if err = cfg.Endpoint.Validate(); err != nil {
+		} else if err = cfg.Address.Validate(); err != nil {
 			return nil, err
 		}
-		conn, err := grpc.DialContext(ctx, string(cfg.Endpoint))
+		conn, err := grpc.DialContext(ctx, string(cfg.Address))
 		return pm.NewDriverClient(conn), err
 	default:
 		return nil, fmt.Errorf("unknown endpoint %v", endpointType)
