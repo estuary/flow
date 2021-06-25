@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/estuary/flow/go/materialize/lifecycle"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/broker/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // driver implements the pm.DriverServer interface.
@@ -21,45 +23,77 @@ type driver struct{}
 func NewDriver() pm.DriverServer { return driver{} }
 
 type config struct {
-	Endpoint protocol.Endpoint
+	Address pb.Endpoint
 }
 
 // Validate returns an error if the config is not well-formed.
 func (c config) Validate() error {
-	return c.Endpoint.Validate()
+	return c.Address.Validate()
+}
+
+type resource struct {
+	// Path which is joined with the base Address to build a complete URL.
+	RelativePath string
+}
+
+func (r resource) Validate() error {
+	if _, err := url.Parse(r.RelativePath); err != nil {
+		return fmt.Errorf("relativePath: %w", err)
+	}
+	return nil
+}
+
+func (r resource) URL() *url.URL {
+	var u, err = url.Parse(r.RelativePath)
+	if err != nil {
+		panic(err)
+	}
+	return u
 }
 
 // Validate validates the Webhook configuration and constrains projections
 // to the document root (only).
 func (driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 	var cfg config
-	var constraints = make(map[string]*pm.Constraint)
-
-	if err := req.Collection.Validate(); err != nil {
-		return nil, fmt.Errorf("validating collection: %w", err)
-	} else if err = json.Unmarshal([]byte(req.EndpointSpecJson), &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
-	} else if err = cfg.Validate(); err != nil {
-		return nil, err
+	if err := pf.UnmarshalStrict(req.EndpointSpecJson, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing endpoint config: %w", err)
 	}
 
-	for _, projection := range req.Collection.Projections {
-		var constraint = new(pm.Constraint)
-		switch {
-		case projection.IsRootDocumentProjection():
-			constraint.Type = pm.Constraint_LOCATION_REQUIRED
-			constraint.Reason = "The root document must be materialized"
-		default:
-			constraint.Type = pm.Constraint_FIELD_FORBIDDEN
-			constraint.Reason = "Webhooks only materialize the full document"
+	var out []*pm.ValidateResponse_Binding
+	for _, binding := range req.Bindings {
+
+		// Verify that the resource parses, and joins into an absolute URL.
+		var res resource
+		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, &res); err != nil {
+			return nil, fmt.Errorf("parsing resource config: %w", err)
 		}
-		constraints[projection.Field] = constraint
+		var resolved = cfg.Address.URL().ResolveReference(res.URL())
+		if !resolved.IsAbs() {
+			return nil, fmt.Errorf("resolved webhook address %s is not absolute", resolved)
+		}
+
+		var constraints = make(map[string]*pm.Constraint)
+		for _, projection := range binding.Collection.Projections {
+			var constraint = new(pm.Constraint)
+			switch {
+			case projection.IsRootDocumentProjection():
+				constraint.Type = pm.Constraint_LOCATION_REQUIRED
+				constraint.Reason = "The root document must be materialized"
+			default:
+				constraint.Type = pm.Constraint_FIELD_FORBIDDEN
+				constraint.Reason = "Webhooks only materialize the full document"
+			}
+			constraints[projection.Field] = constraint
+		}
+
+		out = append(out, &pm.ValidateResponse_Binding{
+			Constraints: constraints,
+			// Only delta updates are supported by webhooks.
+			DeltaUpdates: true,
+		})
 	}
 
-	return &pm.ValidateResponse{
-		Constraints:  constraints,
-		ResourcePath: []string{},
-	}, nil
+	return &pm.ValidateResponse{Bindings: out}, nil
 }
 
 // Apply is a no-op.
@@ -77,42 +111,51 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	}
 
 	var cfg config
+	if err := pf.UnmarshalStrict(open.Open.Materialization.EndpointSpecJson, &cfg); err != nil {
+		return fmt.Errorf("parsing endpoint config: %w", err)
+	}
 
-	err = json.Unmarshal([]byte(open.Open.Materialization.EndpointSpecJson), &cfg)
-	if err != nil {
-		return fmt.Errorf("parsing config: %w", err)
-	} else if err = cfg.Validate(); err != nil {
-		return err
+	var log = log.WithField("address", cfg.Address)
+	var addresses []*url.URL
+
+	for _, binding := range open.Open.Materialization.Bindings {
+		// Join paths of each binding with the base URL.
+		var res resource
+		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, &res); err != nil {
+			return fmt.Errorf("parsing resource config: %w", err)
+		}
+		addresses = append(addresses, cfg.Address.URL().ResolveReference(res.URL()))
+	}
+
+	var transactor = &transactor{
+		ctx:       stream.Context(),
+		addresses: addresses,
+		bodies:    make([]bytes.Buffer, len(open.Open.Materialization.Bindings)),
 	}
 
 	if err = stream.Send(&pm.TransactionResponse{
-		Opened: &pm.TransactionResponse_Opened{
-			FlowCheckpoint: nil,
-			DeltaUpdates:   true,
-		},
+		Opened: &pm.TransactionResponse_Opened{FlowCheckpoint: nil},
 	}); err != nil {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	var log = log.WithField("endpoint", cfg.Endpoint)
-	var transactor = &transactor{ctx: stream.Context(), config: cfg}
 	return lifecycle.RunTransactions(stream, transactor, log)
 }
 
 type transactor struct {
-	ctx context.Context
-	config
-	body bytes.Buffer
+	ctx       context.Context
+	addresses []*url.URL
+	bodies    []bytes.Buffer
 }
 
 // Load should not be called and panics.
-func (d *transactor) Load(_ *lifecycle.LoadIterator, _ <-chan struct{}, _ func(json.RawMessage) error) error {
+func (d *transactor) Load(_ *lifecycle.LoadIterator, _ <-chan struct{}, _ func(int, json.RawMessage) error) error {
 	panic("Load should never be called for webhook.Driver")
 }
 
 // Prepare returns a zero-valued Prepared.
 func (d *transactor) Prepare(req *pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error) {
-	if d.body.Len() != 0 {
+	if d.bodies[0].Len() != 0 {
 		panic("d.body.Len() != 0") // Invariant: previous call is finished.
 	}
 	return &pm.TransactionResponse_Prepared{}, nil
@@ -120,61 +163,68 @@ func (d *transactor) Prepare(req *pm.TransactionRequest_Prepare) (*pm.Transactio
 
 // Store invokes the Webhook URL, with a body containing StoreIterator documents.
 func (d *transactor) Store(it *lifecycle.StoreIterator) error {
-	var comma bool
-
 	for it.Next() {
-		if comma {
-			d.body.WriteString(",\n")
+		var b = &d.bodies[it.Binding]
+
+		if b.Len() != 0 {
+			b.WriteString(",\n")
 		} else {
-			d.body.WriteString("[\n")
-			comma = true
+			b.WriteString("[\n")
 		}
-		if _, err := d.body.Write(it.RawJSON); err != nil {
+		if _, err := b.Write(it.RawJSON); err != nil {
 			return err
 		}
 	}
 
-	d.body.WriteString("\n]")
+	for i := range d.bodies {
+		d.bodies[i].WriteString("\n]")
+	}
 	return nil
 }
 
 // Commit awaits the completion of the call started in Store.
 func (d *transactor) Commit() error {
-	for attempt := 0; true; attempt++ {
-		select {
-		case <-d.ctx.Done():
-			return d.ctx.Err()
-		case <-time.After(backoff(attempt)):
-			// Fallthrough.
-		}
 
-		request, err := http.NewRequest("POST", string(d.Endpoint), bytes.NewReader(d.body.Bytes()))
-		if err != nil {
-			return fmt.Errorf("http.NewRequest(%s): %w", d.Endpoint, err)
-		}
-		request.Header.Add("Content-Type", "application/json")
+	for i, address := range d.addresses {
+		var address = address.String()
+		var body = &d.bodies[i]
 
-		response, err := http.DefaultClient.Do(request)
-		if err == nil {
-			err = response.Body.Close()
-		}
-		if err == nil && (response.StatusCode < 200 || response.StatusCode >= 300) {
-			err = fmt.Errorf("unexpected webhook response code %d from %s",
-				response.StatusCode, d.Endpoint)
-		}
+		for attempt := 0; true; attempt++ {
+			select {
+			case <-d.ctx.Done():
+				return d.ctx.Err()
+			case <-time.After(backoff(attempt)):
+				// Fallthrough.
+			}
 
-		if err == nil {
-			d.body.Reset()
-			return nil
-		}
+			request, err := http.NewRequest("POST", address, bytes.NewReader(body.Bytes()))
+			if err != nil {
+				return fmt.Errorf("http.NewRequest(%s): %w", address, err)
+			}
+			request.Header.Add("Content-Type", "application/json")
 
-		log.WithFields(log.Fields{
-			"err":      err,
-			"attempt":  attempt,
-			"endpoint": d.Endpoint,
-		}).Error("failed to invoke Webhook (will retry)")
+			response, err := http.DefaultClient.Do(request)
+			if err == nil {
+				err = response.Body.Close()
+			}
+			if err == nil && (response.StatusCode < 200 || response.StatusCode >= 300) {
+				err = fmt.Errorf("unexpected webhook response code %d from %s",
+					response.StatusCode, address)
+			}
+
+			if err == nil {
+				body.Reset() // Reset for next use.
+				break
+			}
+
+			log.WithFields(log.Fields{
+				"err":     err,
+				"attempt": attempt,
+				"address": address,
+			}).Error("failed to invoke Webhook (will retry)")
+		}
 	}
-	panic("not reached")
+	return nil
 }
 
 // Destroy is a no-op.
