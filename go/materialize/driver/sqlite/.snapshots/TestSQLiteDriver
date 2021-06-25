@@ -5,7 +5,7 @@ key2Value, bar, 0, 88, { "theKey": "key2Value", "string": "bar", "bool": false, 
 key3Value, baz, 0, 99, { "theKey": "key3Value", "string": "baz", "bool": false, "int": 99, "number": 0 }
 key4Value, <nil>, <nil>, <nil>, { "theKey": "key4Value" }
 
-flow_checkpoints:
+flow_checkpoints_v1:
 materialization, key_begin, key_end, fence, checkpoint
 a/materialization, 0, 4294967295, 6, aW5pdGlhbCBjaGVja3BvaW50IGZpeHR1cmU=
 a/materialization, 100, 200, 6, dGhpcmQgY2hlY2twb2ludCB2YWx1ZQ==
