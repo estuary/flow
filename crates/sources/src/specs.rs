@@ -42,15 +42,12 @@ pub struct Catalog {
     #[serde(default)]
     #[schemars(example = "Catalog::example_collections")]
     pub collections: BTreeMap<names::Collection, CollectionDef>,
-    /// # Named Endpoints of this Catalog.
-    #[serde(default)]
-    pub endpoints: BTreeMap<names::Endpoint, EndpointDef>,
     /// # Materializations of this Catalog.
     #[serde(default)]
-    pub materializations: Vec<MaterializationDef>,
+    pub materializations: BTreeMap<names::Materialization, MaterializationDef>,
     /// # Captures of this Catalog.
     #[serde(default)]
-    pub captures: Vec<CaptureDef>,
+    pub captures: BTreeMap<names::Capture, CaptureDef>,
     // Tests of the catalog, indexed by name.
     #[serde(default)]
     #[schemars(default = "Catalog::default_test")]
@@ -292,21 +289,36 @@ pub enum Schema {
     Bool(bool),
 }
 
-/// An Endpoint is an external system from which a Flow collection may be captured,
-/// or to which a Flow collection may be materialized.
+/// An Endpoint connector used for Flow captures.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum EndpointDef {
+pub enum CaptureEndpoint {
     /// # An Airbyte source connector.
     AirbyteSource(AirbyteSourceConfig),
-    /// # A GCS bucket and prefix.
-    GS(BucketConfig),
+    /// # A remote implementation of an endpoint gRPC driver.
+    Remote(RemoteDriverConfig),
+}
+
+impl CaptureEndpoint {
+    pub fn endpoint_type(&self) -> protocol::flow::EndpointType {
+        use protocol::flow::EndpointType;
+
+        use CaptureEndpoint::*;
+        match self {
+            AirbyteSource(_) => EndpointType::AirbyteSource,
+            Remote(_) => EndpointType::Remote,
+        }
+    }
+}
+
+/// An Endpoint connector used for Flow materializations.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum MaterializationEndpoint {
     /// # A PostgreSQL database.
     Postgres(PostgresConfig),
     /// # A remote implementation of an endpoint gRPC driver.
     Remote(RemoteDriverConfig),
-    /// # An S3 bucket and prefix.
-    S3(BucketConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
     /// # A Snowflake database.
@@ -317,20 +329,18 @@ pub enum EndpointDef {
     FlowSink(FlowSinkConfig),
 }
 
-impl EndpointDef {
+impl MaterializationEndpoint {
     pub fn endpoint_type(&self) -> protocol::flow::EndpointType {
         use protocol::flow::EndpointType;
 
+        use MaterializationEndpoint::*;
         match self {
-            EndpointDef::AirbyteSource(_) => EndpointType::AirbyteSource,
-            EndpointDef::GS(_) => EndpointType::Gs,
-            EndpointDef::Postgres(_) => EndpointType::Postgresql,
-            EndpointDef::Remote(_) => EndpointType::Remote,
-            EndpointDef::S3(_) => EndpointType::S3,
-            EndpointDef::Sqlite(_) => EndpointType::Sqlite,
-            EndpointDef::Snowflake(_) => EndpointType::Snowflake,
-            EndpointDef::Webhook(_) => EndpointType::Webhook,
-            EndpointDef::FlowSink(_) => EndpointType::FlowSink,
+            Postgres(_) => EndpointType::Postgresql,
+            Remote(_) => EndpointType::Remote,
+            Sqlite(_) => EndpointType::Sqlite,
+            Snowflake(_) => EndpointType::Snowflake,
+            Webhook(_) => EndpointType::Webhook,
+            FlowSink(_) => EndpointType::FlowSink,
         }
     }
 }
@@ -342,12 +352,6 @@ pub struct AirbyteSourceConfig {
     pub image: String,
     /// # Configuration of the connector.
     pub config: names::Object,
-    /// # Selected stream of the source connector.
-    #[serde(default)]
-    pub stream: String,
-    /// # Namespace of the source connector.
-    #[serde(default)]
-    pub namespace: String,
 }
 
 /// Flow sink connector specification.
@@ -417,21 +421,8 @@ pub struct WebhookConfig {
     /// Some fields are explicit below, to benefit from JSON-Schema generation.
     #[serde(flatten)]
     pub extra: names::Object,
-    /// # URL endpoint of the Webhook.
-    pub endpoint: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct BucketConfig {
-    /// Preserve and pass-through all configuration.
-    /// Some fields are explicit below, to benefit from JSON-Schema generation.
-    #[serde(flatten)]
-    pub extra: names::Object,
-    /// # Bucket name.
-    pub bucket: String,
-    /// # File prefix within the bucket.
-    #[serde(default)]
-    pub prefix: String,
+    /// # URL address of the Webhook.
+    pub address: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -441,7 +432,7 @@ pub struct RemoteDriverConfig {
     #[serde(flatten)]
     pub extra: names::Object,
     /// # gRPC address of the driver.
-    pub endpoint: String,
+    pub address: String,
 }
 
 /// A Materialization binds a Flow collection with an external system & target
@@ -449,25 +440,27 @@ pub struct RemoteDriverConfig {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MaterializationDef {
-    /// # Source collection to materialize.
-    pub source: MaterializationSource,
     /// # Endpoint to materialize into.
-    pub endpoint: EndpointRef,
-    /// # Selected projections for this materialization.
-    #[serde(default)]
-    pub fields: MaterializationFields,
+    pub endpoint: MaterializationEndpoint,
+    /// # Bound collections to materialize into the endpoint.
+    pub bindings: Vec<MaterializationBinding>,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "MaterializationSource::example")]
-pub struct MaterializationSource {
+#[schemars(example = "MaterializationBinding::example")]
+pub struct MaterializationBinding {
+    /// # Endpoint resource to materialize into.
+    pub resource: names::Object,
     /// # Name of the collection to be materialized.
-    pub name: names::Collection,
-    /// # Selector over partition of the source collection to read.
+    pub source: names::Collection,
+    /// # Selector over partitions of the source collection to read.
     #[serde(default)]
     #[schemars(default = "names::PartitionSelector::example")]
     pub partitions: Option<names::PartitionSelector>,
+    /// # Selected projections for this materialization.
+    #[serde(default)]
+    pub fields: MaterializationFields,
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -501,20 +494,6 @@ impl Default for MaterializationFields {
     }
 }
 
-/// A reference to an endpoint, with optional additional configuration.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(example = "EndpointRef::example")]
-pub struct EndpointRef {
-    /// # Name of the endpoint to use.
-    pub name: names::Endpoint,
-    /// # Additional endpoint specification.
-    /// This specification is merged into that of the endpoint.
-    #[serde(default)]
-    #[serde(alias = "config")] // Legacy name of this field.
-    pub spec: names::Object,
-}
-
 /// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
 /// from which data should be continuously captured, with a Flow collection into that captured
 /// data is ingested. Multiple Captures may be bound to a single collection, but only one
@@ -522,18 +501,20 @@ pub struct EndpointRef {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CaptureDef {
-    /// # Target collection to capture into.
-    pub target: CaptureTarget,
-    /// # Endpoint connector to capture from.
-    pub endpoint: EndpointRef,
+    /// # Endpoint to capture from.
+    pub endpoint: CaptureEndpoint,
+    /// # Bound collections to capture from the endpoint.
+    pub bindings: Vec<CaptureBinding>,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[schemars(example = "CaptureTarget::example")]
-pub struct CaptureTarget {
-    /// # Name of the collection to be ingested into.
-    pub name: names::Collection,
+#[schemars(example = "CaptureBinding::example")]
+pub struct CaptureBinding {
+    /// # Endpoint resource to capture from.
+    pub resource: names::Object,
+    /// # Name of the collection to capture into.
+    pub target: names::Collection,
 }
 
 /// A URL identifying a resource, which may be a relative local path

@@ -32,14 +32,15 @@ pub enum LoadError {
 
 #[derive(Default, Debug)]
 pub struct Tables {
+    pub capture_bindings: tables::CaptureBindings,
     pub captures: tables::Captures,
     pub collections: tables::Collections,
     pub derivations: tables::Derivations,
-    pub endpoints: tables::Endpoints,
     pub errors: tables::Errors,
     pub fetches: tables::Fetches,
     pub imports: tables::Imports,
     pub journal_rules: tables::JournalRules,
+    pub materialization_bindings: tables::MaterializationBindings,
     pub materializations: tables::Materializations,
     pub named_schemas: tables::NamedSchemas,
     pub npm_dependencies: tables::NPMDependencies,
@@ -328,7 +329,6 @@ impl<F: Fetcher> Loader<F> {
             npm_dependencies,
             journal_rules,
             collections,
-            endpoints,
             materializations,
             captures,
             tests,
@@ -398,79 +398,81 @@ impl<F: Fetcher> Loader<F> {
             });
         let collections = futures::future::join_all(collections);
 
-        // Collect endpoints.
-        for (name, endpoint) in endpoints {
-            let scope = scope.push_prop("endpoints");
-            let scope = scope.push_prop(name.as_ref());
+        // Collect captures.
+        for (name, capture) in captures {
+            let scope = scope.push_prop("captures");
+            let scope = scope.push_prop(&name);
+            let specs::CaptureDef { endpoint, bindings } = capture;
             let endpoint_type = endpoint.endpoint_type();
 
-            if let Some(base_config) = self.load_endpoint_specification(scope, endpoint) {
-                self.tables.borrow_mut().endpoints.push_row(
+            if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint) {
+                self.tables.borrow_mut().captures.push_row(
                     scope.flatten(),
-                    name,
+                    &name,
                     endpoint_type,
-                    base_config,
+                    endpoint_spec,
+                );
+            }
+
+            for (index, binding) in bindings.into_iter().enumerate() {
+                let scope = scope.push_prop("bindings");
+                let scope = scope.push_item(index);
+                let specs::CaptureBinding { resource, target } = binding;
+
+                self.tables.borrow_mut().capture_bindings.push_row(
+                    scope.flatten(),
+                    &name,
+                    index as u32,
+                    serde_json::Value::Object(resource),
+                    target,
                 );
             }
         }
 
-        // Collect captures.
-        for (index, capture) in captures.into_iter().enumerate() {
-            let scope = scope.push_prop("captures").push_item(index).flatten();
-
-            let specs::CaptureDef {
-                target: specs::CaptureTarget { name: collection },
-                endpoint:
-                    specs::EndpointRef {
-                        name: endpoint,
-                        spec: patch_spec,
-                    },
-            } = capture;
-
-            self.tables.borrow_mut().captures.push_row(
-                scope,
-                collection,
-                endpoint,
-                serde_json::Value::Object(patch_spec),
-            );
-        }
-
         // Collect materializations.
-        for (index, materialization) in materializations.into_iter().enumerate() {
-            let scope = scope
-                .push_prop("materializations")
-                .push_item(index)
-                .flatten();
+        for (name, materialization) in materializations {
+            let scope = scope.push_prop("materializations");
+            let scope = scope.push_prop(&name);
+            let specs::MaterializationDef { endpoint, bindings } = materialization;
+            let endpoint_type = endpoint.endpoint_type();
 
-            let specs::MaterializationDef {
-                source:
-                    specs::MaterializationSource {
-                        name: collection,
-                        partitions: source_partitions,
-                    },
-                endpoint:
-                    specs::EndpointRef {
-                        name: endpoint,
-                        spec: patch_spec,
-                    },
-                fields:
-                    specs::MaterializationFields {
-                        include: fields_include,
-                        exclude: fields_exclude,
-                        recommended: fields_recommended,
-                    },
-            } = materialization;
+            if let Some(endpoint_spec) = self.load_materialization_endpoint(scope, endpoint) {
+                self.tables.borrow_mut().materializations.push_row(
+                    scope.flatten(),
+                    &name,
+                    endpoint_type,
+                    endpoint_spec,
+                );
+            }
 
-            self.tables.borrow_mut().materializations.push_row(
-                scope,
-                collection,
-                endpoint,
-                serde_json::Value::Object(patch_spec),
-                fields_exclude,
-                fields_include,
-                fields_recommended,
-                source_partitions,
-            );
+            for (index, binding) in bindings.into_iter().enumerate() {
+                let scope = scope.push_prop("bindings");
+                let scope = scope.push_item(index);
+
+                let specs::MaterializationBinding {
+                    resource,
+                    source,
+                    partitions,
+                    fields:
+                        specs::MaterializationFields {
+                            include: fields_include,
+                            exclude: fields_exclude,
+                            recommended: fields_recommended,
+                        },
+                } = binding;
+
+                self.tables.borrow_mut().materialization_bindings.push_row(
+                    scope.flatten(),
+                    &name,
+                    index as u32,
+                    serde_json::Value::Object(resource),
+                    source,
+                    fields_exclude,
+                    fields_include,
+                    fields_recommended,
+                    partitions,
+                );
+            }
         }
 
         // Collect tests.
@@ -684,21 +686,31 @@ impl<F: Fetcher> Loader<F> {
         );
     }
 
-    fn load_endpoint_specification<'s>(
+    fn load_capture_endpoint<'s>(
+        &'s self,
+        _scope: Scope<'s>,
+        endpoint: specs::CaptureEndpoint,
+    ) -> Option<serde_json::Value> {
+        use specs::CaptureEndpoint::*;
+        match endpoint {
+            AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
+        }
+    }
+
+    fn load_materialization_endpoint<'s>(
         &'s self,
         scope: Scope<'s>,
-        endpoint: specs::EndpointDef,
+        endpoint: specs::MaterializationEndpoint,
     ) -> Option<serde_json::Value> {
+        use specs::MaterializationEndpoint::*;
         match endpoint {
-            specs::EndpointDef::AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::GS(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::Postgres(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::S3(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::Snowflake(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::Webhook(spec) => Some(serde_json::to_value(spec).unwrap()),
-            specs::EndpointDef::Sqlite(mut spec) => {
+            FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Postgres(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Snowflake(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Webhook(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
                     Some(serde_json::to_value(spec).unwrap()) // Already absolute.
                 } else if let Some(path) =

@@ -1,12 +1,13 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
+
 ---
 Tables {
+    capture_bindings: [],
     captures: [],
     collections: [],
     derivations: [],
-    endpoints: [],
     errors: [],
     fetches: [
         Fetch {
@@ -97,6 +98,7 @@ Tables {
         },
     ],
     journal_rules: [],
+    materialization_bindings: [],
     materializations: [],
     named_schemas: [],
     npm_dependencies: [],

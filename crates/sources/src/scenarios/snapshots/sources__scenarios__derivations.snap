@@ -4,6 +4,7 @@ expression: tables
 
 ---
 Tables {
+    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
@@ -33,7 +34,6 @@ Tables {
             register_initial: {"initial":["value",32]},
         },
     ],
-    endpoints: [],
     errors: [],
     fetches: [
         Fetch {
@@ -85,6 +85,7 @@ Tables {
         },
     ],
     journal_rules: [],
+    materialization_bindings: [],
     materializations: [],
     named_schemas: [],
     npm_dependencies: [],
