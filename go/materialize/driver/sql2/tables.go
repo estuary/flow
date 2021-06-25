@@ -8,9 +8,9 @@ import (
 
 const (
 	// DefaultFlowCheckpoints is the default table for checkpoints.
-	DefaultFlowCheckpoints = "flow_checkpoints"
+	DefaultFlowCheckpoints = "flow_checkpoints_v1"
 	// DefaultFlowMaterializations is the default table for materialization specs.
-	DefaultFlowMaterializations = "flow_materializations"
+	DefaultFlowMaterializations = "flow_materializations_v2"
 )
 
 // FlowCheckpointsTable returns the Table description for the table that holds the checkpoint
@@ -72,10 +72,17 @@ func FlowMaterializationsTable(name string) *Table {
 		Comment:     "This table is the source of truth for all materializations into this system.",
 		Columns: []Column{
 			{
-				Name:       "table_name",
-				Identifier: "table_name",
-				Comment:    "The name of the target table of the materialization, which may or may not include a schema and catalog prefix",
+				Name:       "materialization",
+				Identifier: "materialization",
+				Comment:    "The name of the materialization.",
 				PrimaryKey: true,
+				Type:       STRING,
+				NotNull:    true,
+			},
+			{
+				Name:       "version",
+				Identifier: "version",
+				Comment:    "Version of the materialization.",
 				Type:       STRING,
 				NotNull:    true,
 			},
