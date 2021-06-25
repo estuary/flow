@@ -78,34 +78,6 @@ func TestSQLGenerator(t *testing.T) {
 				cupaloy.SnapshotT(t, allSQL)
 			})
 		}
-		// Test the DirectInsertStatement function, but only for the flow_materializations table
-		// This doesn't need to be a valid MaterializationSpec for this test, but we do want to test
-		// some json that contains single quotes and newlines.
-		var materializationJSON = `{
-            "collectionSpec": {
-                "name": "foo",
-                "schemaUri": "test://schema.test/mySchema.json",
-                "key": ["/id"]
-                "projections": [
-                    {
-                        "field": "wee'ee",
-                        "ptr": "/wee",
-                        "isPrimaryKey": false,
-                        "userProvided": true
-                    }
-                ]
-            },
-            "fields": {
-                "keys": ["id"],
-                "values": ["wee'ee"],
-                "document": "yes, please"
-            }
-        }`
-		t.Run(fmt.Sprintf("%s_flow_materialization_insert", dialect), func(t *testing.T) {
-			var insertStatement, err = gen.DirectInsertStatement(flowMaterializations, "test_table", materializationJSON)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, insertStatement)
-		})
 	}
 }
 

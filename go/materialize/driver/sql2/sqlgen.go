@@ -535,25 +535,6 @@ func (gen *Generator) InsertStatement(table *Table) (string, ParametersConverter
 	return gen.genInsertStatement(table, gen.Placeholder)
 }
 
-// DirectInsertStatement returns an insert statement without any bound parameters. Only string
-// type parameters are accepted, since that is all we require from this interface. The string
-// args will be quoted and escaped as required. The number of provided args must be the same as
-// the number of the columns, and they must also be provided in the same order.
-func (gen *Generator) DirectInsertStatement(table *Table, args ...string) (string, error) {
-	if len(args) != len(table.Columns) {
-		return "", fmt.Errorf("The table has %d columns, but only %d arguments were provided", len(table.Columns), len(args))
-	}
-	var escapedArgs []string
-	for _, arg := range args {
-		escapedArgs = append(escapedArgs, gen.QuoteStringValue(arg))
-	}
-	var genParams = func(i int) string {
-		return escapedArgs[i]
-	}
-	var sql, _, err = gen.genInsertStatement(table, genParams)
-	return sql, err
-}
-
 func (gen *Generator) genInsertStatement(table *Table, genParams func(int) string) (string, ParametersConverter, error) {
 	var builder strings.Builder
 	builder.WriteString("INSERT INTO ")

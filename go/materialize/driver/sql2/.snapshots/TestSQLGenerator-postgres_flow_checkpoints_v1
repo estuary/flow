@@ -1,21 +1,21 @@
 -- This table holds Flow processing checkpoints used for exactly-once processing of materializations
-CREATE TABLE IF NOT EXISTS flow_checkpoints (
+CREATE TABLE IF NOT EXISTS flow_checkpoints_v1 (
 	-- The name of the materialization.
 	materialization TEXT NOT NULL,
 	-- The inclusive lower-bound key hash covered by this checkpoint.
-	key_begin INTEGER NOT NULL,
+	key_begin BIGINT NOT NULL,
 	-- The inclusive upper-bound key hash covered by this checkpoint.
-	key_end INTEGER NOT NULL,
+	key_end BIGINT NOT NULL,
 	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
-	fence INTEGER NOT NULL,
+	fence BIGINT NOT NULL,
 	-- Checkpoint of the Flow consumer shard, encoded as base64 protobuf.
 	checkpoint TEXT,
 
 	PRIMARY KEY(materialization, key_begin, key_end)
 );
 
-SELECT fence, checkpoint FROM flow_checkpoints WHERE materialization = ? AND key_begin = ? AND key_end = ?;
+SELECT fence, checkpoint FROM flow_checkpoints_v1 WHERE materialization = $1 AND key_begin = $2 AND key_end = $3;
 
-INSERT INTO flow_checkpoints (materialization, key_begin, key_end, fence, checkpoint) VALUES (?, ?, ?, ?, ?);
+INSERT INTO flow_checkpoints_v1 (materialization, key_begin, key_end, fence, checkpoint) VALUES ($1, $2, $3, $4, $5);
 
-UPDATE flow_checkpoints SET fence = ?, checkpoint = ? WHERE materialization = ? AND key_begin = ? AND key_end = ?;
+UPDATE flow_checkpoints_v1 SET fence = $1, checkpoint = $2 WHERE materialization = $3 AND key_begin = $4 AND key_end = $5;
