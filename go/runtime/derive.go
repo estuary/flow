@@ -39,7 +39,7 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
 
 	var env = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
-	var binding, err = bindings.NewDerive(shard.FQN(), env, recorder.Dir())
+	var binding, err = bindings.NewDerive(env, recorder.Dir())
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err 
 	if err != nil {
 		return cp, fmt.Errorf("building TypeScript client: %w", err)
 	}
-	err = d.binding.Configure(d.schemaIndex, d.task.Derivation, typeScriptClient)
+	err = d.binding.Configure(shard.FQN(), d.schemaIndex, d.task.Derivation, typeScriptClient)
 	if err != nil {
 		return cp, fmt.Errorf("configuring derive API: %w", err)
 	}

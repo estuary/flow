@@ -199,13 +199,15 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		return err
 	}
 
-	var combiner = bindings.NewCombine(task.Name())
+	var combiner = bindings.NewCombine()
 	if err = combiner.Configure(
+		task.Name(),
 		schemaIndex,
+		step.Collection,
 		step.CollectionSchemaUri,
+		"", // Don't populate UUID placeholder.
 		step.CollectionKeyPtr,
 		nil,
-		"", // Don't populate UUID placeholder.
 	); err != nil {
 		return fmt.Errorf("configuring combiner: %w", err)
 	}

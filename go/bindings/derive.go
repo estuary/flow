@@ -36,7 +36,6 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	fqn       string
 	pinnedEnv *gorocksdb.Env // Used from Rust.
 	svc       *service
 	metrics   combineMetrics
@@ -50,7 +49,7 @@ type Derive struct {
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
-func NewDerive(fqn string, rocksEnv *gorocksdb.Env, localDir string) (*Derive, error) {
+func NewDerive(rocksEnv *gorocksdb.Env, localDir string) (*Derive, error) {
 	// gorocksdb.Env has private field, so we must re-interpret to access.
 	if unsafe.Sizeof(&gorocksdb.Env{}) != unsafe.Sizeof(&gorocksdbEnv{}) ||
 		unsafe.Alignof(&gorocksdb.Env{}) != unsafe.Alignof(&gorocksdbEnv{}) {
@@ -72,10 +71,9 @@ func NewDerive(fqn string, rocksEnv *gorocksdb.Env, localDir string) (*Derive, e
 	}
 
 	var derive = &Derive{
-		fqn:       fqn,
 		pinnedEnv: rocksEnv,
 		svc:       svc,
-		metrics:   newCombineMetrics(fqn),
+		metrics:   combineMetrics{},
 		stats:     combineStats{},
 
 		// Fields updated by Configure:
@@ -99,6 +97,7 @@ type gorocksdbEnv struct {
 // Configure or re-configure the Derive. It must be called after NewDerive()
 // before a transaction is begun.
 func (d *Derive) Configure(
+	fqn string,
 	index *SchemaIndex,
 	derivation *pf.DerivationSpec,
 	typeScriptClient *http.Client,
@@ -110,9 +109,13 @@ func (d *Derive) Configure(
 		d.trampoline.stop()
 	}
 
+	var collection = derivation.Collection.Collection
+	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
+	d.metrics = newCombineMetrics(fqn, collection)
+
 	d.trampoline, d.trampolineCh = newTrampolineServer(
 		context.Background(),
-		newDeriveInvokeHandler(d.fqn, derivation, typeScriptClient),
+		newDeriveInvokeHandler(fqn, derivation, typeScriptClient),
 	)
 	d.pinnedIndex = index
 

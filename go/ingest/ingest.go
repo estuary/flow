@@ -19,8 +19,11 @@ import (
 
 // Ingester is a shared service for transactional ingestion into flow collections.
 type Ingester struct {
-	Catalog       flow.Catalog
-	Journals      flow.Journals
+	// Catalog keyspace served by this Ingester.
+	Catalog flow.Catalog
+	// Journal keyspace ingested into by this Ingester.
+	Journals flow.Journals
+	// Client to use for Journal interactions.
 	JournalClient pb.JournalClient
 	// Delta to apply to message.Clocks used by Ingestions to sequence
 	// published documents, with respect to real time.
@@ -196,13 +199,15 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 		return err
 	}
 
-	var combine = bindings.NewCombine(spec.Collection.String())
+	var combine = bindings.NewCombine()
 	if err = combine.Configure(
+		"ingester",
 		schemaIndex,
+		spec.Collection,
 		spec.SchemaUri,
+		spec.UuidPtr,
 		spec.KeyPtrs,
 		flow.PartitionPointers(spec),
-		spec.UuidPtr,
 	); err != nil {
 		return fmt.Errorf("configuring combiner for %q: %w", collection, err)
 	}

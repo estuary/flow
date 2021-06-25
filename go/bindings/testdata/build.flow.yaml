@@ -24,31 +24,26 @@ collections:
           publish:
             lambda: typescript
 
-endpoints:
-  my/s3:
-    airbyteSource:
-      image: estuary/s3
-      config:
-        bucket: bucket
-        prefix: prefix
-
-  my/db:
-    sqlite:
-      path: ":memory:"
-
 captures:
-  - target:
-      name: a/collection
+  example/capture:
     endpoint:
-      name: my/s3
+      airbyteSource:
+        image: estuary/s3
+        config:
+          bucket: bucket
+          prefix: prefix
+    bindings:
+      - target: a/collection
+        resource: { stream: a/stream }
 
 materializations:
-  - source:
-      name: a/derivation
+  example/materialization:
     endpoint:
-      name: my/db
-      spec:
-        table: a_table
+      sqlite:
+        path: ":memory:"
+    bindings:
+      - source: a/derivation
+        resource: { table: a_table }
 
 tests:
   "Example of a test":
