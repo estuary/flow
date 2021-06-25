@@ -232,7 +232,7 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, shards pc.ShardCli
 	for _, spec := range built.Materializations {
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, spec.Materialization,
+			flowLabels.TaskName, spec.Materialization.String(),
 			flowLabels.TaskType, flowLabels.TaskTypeMaterialization,
 			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
 			flowLabels.KeyEnd, flowLabels.KeyEndMax,
@@ -286,6 +286,7 @@ func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
 
 		response, err := driver.Apply(context.Background(), &pm.ApplyRequest{
 			Materialization: &spec,
+			Version:         built.ID.String(), // Use catalog commons ID.
 			DryRun:          dryRun,
 		})
 		if err != nil {

@@ -27,8 +27,13 @@ func TaskShuffles(task *pf.CatalogTask) []*pf.Shuffle {
 		}
 		return shuffles
 	}
+
 	if task.Materialization != nil {
-		return []*pf.Shuffle{&task.Materialization.Shuffle}
+		var shuffles = make([]*pf.Shuffle, len(task.Materialization.Bindings))
+		for i := range task.Materialization.Bindings {
+			shuffles[i] = &task.Materialization.Bindings[i].Shuffle
+		}
+		return shuffles
 	}
 	return nil
 }
