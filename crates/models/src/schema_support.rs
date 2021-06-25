@@ -5,7 +5,7 @@ use serde_json::{from_value, json};
 
 impl Collection {
     pub fn example() -> Self {
-        Self::new("a/collection")
+        Self::new("acmeCo/collection")
     }
     pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
         from_value(json!({
@@ -18,19 +18,25 @@ impl Collection {
 
 impl Transform {
     pub fn example() -> Self {
-        Self::new("a transform")
+        Self::new("my transform")
     }
 }
 
-impl Endpoint {
+impl Capture {
     pub fn example() -> Self {
-        Self::new("an endpoint")
+        Self::new("acmeCo/capture")
+    }
+}
+
+impl Materialization {
+    pub fn example() -> Self {
+        Self::new("acmeCo/materialization")
     }
 }
 
 impl Test {
     pub fn example() -> Self {
-        Self::new("a test")
+        Self::new("my test")
     }
 }
 

@@ -114,24 +114,6 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     }
 }
 
-pub fn capture_spec(
-    capture: &tables::Capture,
-    target: &tables::BuiltCollection,
-    name: &str,
-    endpoint_type: flow::EndpointType,
-    endpoint_spec_json: String,
-    endpoint_resource_path: Vec<String>,
-) -> flow::CaptureSpec {
-    flow::CaptureSpec {
-        capture: name.to_owned(),
-        collection: Some(target.spec.clone()),
-        endpoint_name: capture.endpoint.to_string(),
-        endpoint_type: endpoint_type as i32,
-        endpoint_spec_json,
-        endpoint_resource_path,
-    }
-}
-
 fn lambda_spec(
     lambda: &names::Lambda,
     transform: &tables::Transform,
@@ -229,16 +211,14 @@ pub fn derivation_spec(
     }
 }
 
-// encode_endpoint_path encodes an endpoint and resource path into a string which
-// is suitable for use within a shard ID. Shard IDs are restricted to
+// encode_resource_path encodes path components into a string which
+// is suitable for use within a Gazette token, such as a Journal
+// name or suffix, or a Shard ID. Tokens are restricted to
 // unicode letters and numbers, plus the symbols `-_+/.=%`.
 // All other runes are percent-encoded.
-pub fn encode_endpoint_path(
-    endpoint_name: &str,
-    endpoint_resource_path: &[impl AsRef<str>],
-) -> String {
-    let mut parts = vec![endpoint_name];
-    parts.extend(endpoint_resource_path.iter().map(AsRef::as_ref));
+pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
+    let mut parts = Vec::new();
+    parts.extend(resource_path.iter().map(AsRef::as_ref));
 
     let mut name = String::new();
 
@@ -259,64 +239,52 @@ pub fn encode_endpoint_path(
 
 #[cfg(test)]
 mod test {
-    use super::encode_endpoint_path;
+    use super::encode_resource_path;
 
     #[test]
     fn test_name_escapes() {
-        let out = encode_endpoint_path(
-            "endpoint name",
-            &vec![
-                "he!lo৬".to_string(),
-                "a/part%".to_string(),
-                "_¾the-=res+.".to_string(),
-            ],
-        );
-        assert_eq!(&out, "endpoint%20name/he%21lo৬/a/part%25/_¾the-=res+.");
+        let out = encode_resource_path(&vec![
+            "he!lo৬".to_string(),
+            "a/part%".to_string(),
+            "_¾the-=res+.".to_string(),
+        ]);
+        assert_eq!(&out, "he%21lo৬/a/part%25/_¾the-=res+.");
     }
 }
 
-pub fn materialization_spec(
-    materialization: &tables::Materialization,
-    source: &tables::BuiltCollection,
-    name: &str,
-    endpoint_type: flow::EndpointType,
-    endpoint_spec_json: String,
-    endpoint_resource_path: Vec<String>,
-    fields: flow::FieldSelection,
-) -> flow::MaterializationSpec {
-    flow::MaterializationSpec {
-        materialization: name.to_string(),
-        collection: Some(source.spec.clone()),
-        endpoint_name: materialization.endpoint.to_string(),
-        endpoint_type: endpoint_type as i32,
-        endpoint_spec_json,
-        endpoint_resource_path,
-        field_selection: Some(fields),
-        shuffle: Some(flow::Shuffle {
-            group_name: format!("materialize/{}", name),
-            source_collection: source.collection.to_string(),
-            source_partitions: Some(journal_selector(
-                &source.collection,
-                &materialization.source_partitions,
-            )),
-            source_uuid_ptr: source.spec.uuid_ptr.clone(),
-            // Materializations always group by the collection's key.
-            shuffle_key_ptr: source.spec.key_ptrs.clone(),
-            uses_source_key: true,
-            shuffle_lambda: None,
-            source_schema_uri: source.spec.schema_uri.clone(),
-            uses_source_schema: true,
-            validate_schema_at_read: false,
-            // At all times, a given collection key must be exclusively owned by
-            // a single materialization shard. Therefore we only subdivide
-            // materialization shards on key, never on r-clock.
-            filter_r_clocks: false,
-            // Never delay materializations.
-            read_delay_seconds: 0,
-            // Priority has no meaning since there's just one shuffle
-            // (we're not joining across collections as transforms do).
-            priority: 0,
-        }),
+pub fn materialization_shuffle(
+    binding: &tables::MaterializationBinding,
+    source: &flow::CollectionSpec,
+    resource_path: &[impl AsRef<str>],
+) -> flow::Shuffle {
+    flow::Shuffle {
+        group_name: format!(
+            "materialize/{}/{}",
+            binding.materialization.as_str(),
+            encode_resource_path(resource_path),
+        ),
+        source_collection: binding.collection.to_string(),
+        source_partitions: Some(journal_selector(
+            &binding.collection,
+            &binding.source_partitions,
+        )),
+        source_uuid_ptr: source.uuid_ptr.clone(),
+        // Materializations always group by the collection's key.
+        shuffle_key_ptr: source.key_ptrs.clone(),
+        uses_source_key: true,
+        shuffle_lambda: None,
+        source_schema_uri: source.schema_uri.clone(),
+        uses_source_schema: true,
+        validate_schema_at_read: false,
+        // At all times, a given collection key must be exclusively owned by
+        // a single materialization shard. Therefore we only subdivide
+        // materialization shards on key, never on r-clock.
+        filter_r_clocks: false,
+        // Never delay materializations.
+        read_delay_seconds: 0,
+        // Priority has no meaning since there's just one shuffle
+        // (we're not joining across collections as transforms do).
+        priority: 0,
     }
 }
 
