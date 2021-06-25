@@ -12,3 +12,12 @@ collections:
         array: { type: array }
       required: [theKey]
     key: [/theKey]
+
+materializations:
+  a/materialization:
+    endpoint:
+      sqlite:
+        path: ":memory:"
+    bindings:
+      - source: weird-types/optionals
+        resource: { table: test_target }
