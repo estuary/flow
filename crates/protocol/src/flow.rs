@@ -307,74 +307,82 @@ pub struct FieldSelection {
     pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// CaptureSpec describes a collection and its capture from an endpoint.
-/// At the moment, we don't build or do anything with these.
-/// This spec is a bit of a working placeholder until we can tackle
-/// captures more broadly.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
-    /// Name of this capture, derived from
-    /// "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
-    /// For example, {
-    ///    endpoint_name: "company/team/database",
-    ///    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
-    /// } would have materialization name:
-    /// "company/team/database/logical-db/and-schema/tab%21e"
+    /// Name of this capture.
     #[prost(string, tag="1")]
     pub capture: ::prost::alloc::string::String,
-    /// Collection to be captured into.
-    #[prost(message, optional, tag="2")]
-    pub collection: ::core::option::Option<CollectionSpec>,
-    /// Endpoint from which we capture.
-    #[prost(string, tag="3")]
-    pub endpoint_name: ::prost::alloc::string::String,
     /// Type of the captures's endpoint.
-    #[prost(enumeration="EndpointType", tag="4")]
+    #[prost(enumeration="EndpointType", tag="2")]
     pub endpoint_type: i32,
     /// JSON-encoded object which specifies this capture with
     /// respect to the endpoint type driver.
-    #[prost(string, tag="5")]
+    #[prost(string, tag="3")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
-    /// Endpoint path components which fully qualify the subresource being
-    /// captured.
-    #[prost(string, repeated, tag="6")]
-    pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="4")]
+    pub bindings: ::prost::alloc::vec::Vec<capture_spec::Binding>,
+}
+/// Nested message and enum types in `CaptureSpec`.
+pub mod capture_spec {
+    /// Bindings of endpoint resources and collections into which they're captured.
+    /// Bindings are ordered and unique on the bound collection name.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Binding {
+        /// JSON-encoded object which specifies the endpoint resource to be captured.
+        #[prost(string, tag="1")]
+        pub resource_spec_json: ::prost::alloc::string::String,
+        /// Driver-supplied path components which fully qualify the
+        /// subresource being materialized.
+        #[prost(string, repeated, tag="2")]
+        pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// Collection to be captured into.
+        #[prost(message, optional, tag="3")]
+        pub collection: ::core::option::Option<super::CollectionSpec>,
+    }
 }
 /// MaterializationSpec describes a collection and its materialization to an
 /// endpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
-    /// Name of this materialization, derived from
-    /// "${endpoint_name}/$(url-encode(join(endpoint_resource_path, '/')))".
-    /// For example, {
-    ///    endpoint_name: "company/team/database",
-    ///    endpoint_resource_path: []{"logical-db", "and-schema", "tab!e"},
-    /// } would have materialization name:
-    /// "company/team/database/logical-db/and-schema/tab%21e"
+    /// Name of this materialization.
     #[prost(string, tag="1")]
     pub materialization: ::prost::alloc::string::String,
-    /// Collection to be materialized.
-    #[prost(message, optional, tag="2")]
-    pub collection: ::core::option::Option<CollectionSpec>,
-    /// Endpoint to which we materialize.
-    #[prost(string, tag="3")]
-    pub endpoint_name: ::prost::alloc::string::String,
     /// Type of the materialization's endpoint.
-    #[prost(enumeration="EndpointType", tag="4")]
+    #[prost(enumeration="EndpointType", tag="3")]
     pub endpoint_type: i32,
     /// JSON-encoded object which specifies this materialization with
     /// respect to the endpoint type driver.
-    #[prost(string, tag="5")]
+    #[prost(string, tag="4")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
-    /// Endpoint path components which fully qualify the subresource being
-    /// materialized.
-    #[prost(string, repeated, tag="6")]
-    pub endpoint_resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Resolved fields selected for materialization.
-    #[prost(message, optional, tag="7")]
-    pub field_selection: ::core::option::Option<FieldSelection>,
-    /// Shuffle applied to collection documents for this materialization.
-    #[prost(message, optional, tag="8")]
-    pub shuffle: ::core::option::Option<Shuffle>,
+    #[prost(message, repeated, tag="5")]
+    pub bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
+}
+/// Nested message and enum types in `MaterializationSpec`.
+pub mod materialization_spec {
+    /// Bindings of endpoint resources and collections from which they're materialized.
+    /// Bindings are ordered and unique on the bound collection name.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Binding {
+        /// JSON-encoded object which specifies the endpoint resource to be materialized.
+        #[prost(string, tag="1")]
+        pub resource_spec_json: ::prost::alloc::string::String,
+        /// Driver-supplied path components which fully qualify the
+        /// subresource being materialized.
+        #[prost(string, repeated, tag="2")]
+        pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// Collection to be materialized.
+        #[prost(message, optional, tag="3")]
+        pub collection: ::core::option::Option<super::CollectionSpec>,
+        /// Resolved fields selected for materialization.
+        #[prost(message, optional, tag="4")]
+        pub field_selection: ::core::option::Option<super::FieldSelection>,
+        /// Materialize delta updates of documents rather than full reductions.
+        #[prost(bool, tag="5")]
+        pub delta_updates: bool,
+        /// Shuffle applied to collection documents for this materialization binding.
+        #[prost(message, optional, tag="6")]
+        pub shuffle: ::core::option::Option<super::Shuffle>,
+    }
 }
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]

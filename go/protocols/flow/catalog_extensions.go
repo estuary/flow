@@ -1,6 +1,9 @@
 package flow
 
 import (
+	bytes "bytes"
+	"encoding/json"
+
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -97,13 +100,13 @@ func (m *CatalogTask) Validate() error {
 // Name returns the stable, long-lived name of this CatalogTask.
 func (m *CatalogTask) Name() string {
 	if m.Capture != nil {
-		return m.Capture.Capture
+		return m.Capture.Capture.String()
 	} else if m.Ingestion != nil {
 		return m.Ingestion.Collection.String()
 	} else if m.Derivation != nil {
 		return m.Derivation.Collection.Collection.String()
 	} else if m.Materialization != nil {
-		return m.Materialization.Materialization
+		return m.Materialization.Materialization.String()
 	} else {
 		panic("invalid CatalogTask")
 	}
@@ -119,4 +122,17 @@ func (m *CatalogCommons) Validate() error {
 		return pb.ExtendContext(err, "ShardRules")
 	}
 	return nil
+}
+
+// UnmarshalStrict unmarshals |doc| into |m|, using a strict decoding
+// of the document which prohibits unknown fields.
+// If decoding is successful, then |m| is also validated.
+func UnmarshalStrict(doc json.RawMessage, into pb.Validator) error {
+	var d = json.NewDecoder(bytes.NewReader(doc))
+	d.DisallowUnknownFields()
+
+	if err := d.Decode(into); err != nil {
+		return err
+	}
+	return into.Validate()
 }

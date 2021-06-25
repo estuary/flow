@@ -21,6 +21,10 @@ func (m *CollectionSpec) GetProjection(field string) *Projection {
 
 // Validate returns an error if the CollectionSpec is invalid.
 func (m *CollectionSpec) Validate() error {
+	if err := m.Collection.Validate(); err != nil {
+		return pb.ExtendContext(err, "Collection")
+	}
+
 	var keyPointers = make(map[string]struct{})
 
 	for i, proj := range m.Projections {
@@ -49,16 +53,6 @@ func (m *CollectionSpec) Validate() error {
 		}
 	}
 
-	return nil
-}
-
-// Validate returns an error if the CaptureSpec is malformed.
-func (m *CaptureSpec) Validate() error {
-	if m.Capture == "" {
-		return pb.NewValidationError("missing Capture")
-	} else if err := m.Collection.Validate(); err != nil {
-		return pb.ExtendContext(err, "Collection")
-	}
 	return nil
 }
 
