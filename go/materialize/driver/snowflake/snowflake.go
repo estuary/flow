@@ -20,13 +20,51 @@ import (
 	sf "github.com/snowflakedb/gosnowflake"
 )
 
-type snowflakeConfig struct {
+// config represents the endpoint configuration for snowflake.
+// It must match the one defined for the source specs (flow.yaml) in Rust.
+type config struct {
 	sf.Config
-	Table        string
-	StageName    string
-	StagePath    string
-	DeltaUpdates bool
-	tempdir      string
+
+	Schema    string
+	StageName string
+	StagePath string
+	tempdir   string
+}
+
+func (c config) Validate() error {
+	if c.Account == "" {
+		return fmt.Errorf("expected account")
+	}
+	if c.Database == "" {
+		return fmt.Errorf("expected database")
+	}
+	return nil
+}
+
+type tableConfig struct {
+	base   *config
+	Schema string
+	Table  string
+	Delta  bool `json:"delta_updates"`
+}
+
+func (c tableConfig) Validate() error {
+	if c.Table == "" {
+		return fmt.Errorf("expected table")
+	}
+	return nil
+}
+
+func (c tableConfig) Path() sqlDriver.ResourcePath {
+	var schema = c.Schema
+	if schema == "" {
+		schema = c.base.Schema
+	}
+	return []string{schema, c.Table}
+}
+
+func (c tableConfig) DeltaUpdates() bool {
+	return c.Delta
 }
 
 // The Snowflake driver Params map uses string pointers as values, which is what this is used for.
@@ -35,13 +73,13 @@ var trueString = "true"
 // NewDriver creates a new Driver for Snowflake.
 func NewDriver(tempdir string) *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewEndpoint: func(ctx context.Context, name string, config json.RawMessage) (*sqlDriver.Endpoint, error) {
-			var parsed = new(snowflakeConfig)
-
-			if err := json.Unmarshal(config, &parsed); err != nil {
+		NewResource: func(endpoint *sqlDriver.Endpoint) sqlDriver.Resource {
+			return &tableConfig{base: endpoint.Config.(*config)}
+		},
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+			var parsed = new(config)
+			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Snowflake configuration: %w", err)
-			} else if parsed.Table == "" {
-				return nil, fmt.Errorf("expected Snowflake database configuration `table`")
 			}
 
 			// Build a DSN connection string. DSN() mutates the Config, so pass a copy.
@@ -65,10 +103,9 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				"role":      parsed.Role,
 				"stageName": parsed.StageName,
 				"stagePath": parsed.StagePath,
-				"table":     parsed.Table,
 				"user":      parsed.User,
 				"warehouse": parsed.Warehouse,
-			}).Info("opening Snowflake table")
+			}).Info("opening Snowflake")
 
 			db, err := sql.Open("snowflake", dsn)
 			if err == nil {
@@ -81,48 +118,27 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			parsed.tempdir = tempdir
 
 			var endpoint = &sqlDriver.Endpoint{
-				Config:       parsed,
-				Context:      ctx,
-				Name:         name,
-				DB:           db,
-				DeltaUpdates: parsed.DeltaUpdates,
-				TablePath:    []string{parsed.Database, parsed.Schema, parsed.Table},
-				Generator:    SQLGenerator(),
+				Config:    parsed,
+				Context:   ctx,
+				DB:        db,
+				Generator: SQLGenerator(),
 			}
 			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
 			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
-		NewTransactor: func(ep *sqlDriver.Endpoint, spec *pf.MaterializationSpec, fence *sqlDriver.Fence) (lifecycle.Transactor, error) {
-			var err error
-			var target = sqlDriver.TableForMaterialization(ep.TargetName(), "", &ep.Generator.IdentifierQuotes, spec)
+		NewTransactor: func(
+			ep *sqlDriver.Endpoint,
+			spec *pf.MaterializationSpec,
+			fence *sqlDriver.Fence,
+			resources []sqlDriver.Resource,
+		) (_ lifecycle.Transactor, err error) {
 			var d = &transactor{
 				ctx: ep.Context,
-				cfg: ep.Config.(*snowflakeConfig),
+				cfg: ep.Config.(*config),
 			}
-
-			// Create local scratch files used for loads and stores.
-			if d.load.stage, err = newScratchFile(d.cfg.tempdir); err != nil {
-				return nil, fmt.Errorf("newScratchFile: %w", err)
-			}
-			if d.store.stage, err = newScratchFile(d.cfg.tempdir); err != nil {
-				return nil, fmt.Errorf("newScratchFile: %w", err)
-			}
-
-			// Build all SQL statements and parameter converters.
-			var createStageSQL string
-			createStageSQL, d.load.sql, d.store.copySQL, d.store.mergeSQL = BuildSQL(
-				target, spec.FieldSelection, d.load.stage.uuid, d.store.stage.uuid)
-
-			_, d.load.params, err = ep.Generator.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
-			if err != nil {
-				return nil, fmt.Errorf("building load params: %w", err)
-			}
-			_, d.store.params, err = ep.Generator.InsertStatement(target)
-			if err != nil {
-				return nil, fmt.Errorf("building insert params: %w", err)
-			}
+			d.store.fence = fence
 
 			// Establish connections.
 			if d.load.conn, err = ep.DB.Conn(d.ctx); err != nil {
@@ -137,7 +153,12 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				return nil, fmt.Errorf("creating transfer stage : %w", err)
 			}
 
-			d.store.fence = fence
+			for _, spec := range spec.Bindings {
+				var target = sqlDriver.ResourcePath(spec.ResourcePath).Join()
+				if err = d.addBinding(target, spec); err != nil {
+					return nil, fmt.Errorf("%s: %w", target, err)
+				}
+			}
 
 			return d, nil
 		},
@@ -188,18 +209,31 @@ func SQLGenerator() sqlDriver.Generator {
 
 type transactor struct {
 	ctx context.Context
-	cfg *snowflakeConfig
+	cfg *config
+	gen *sqlDriver.Generator
+
 	// Variables exclusively used by Load.
 	load struct {
-		conn   *sql.Conn
-		params sqlDriver.ParametersConverter
-		sql    string
-		stage  *scratchFile
+		conn *sql.Conn
 	}
 	// Variables accessed by Prepare, Store, and Commit.
 	store struct {
-		conn      *sql.Conn
-		fence     *sqlDriver.Fence
+		conn  *sql.Conn
+		fence *sqlDriver.Fence
+	}
+	bindings []*binding
+}
+
+type binding struct {
+	// Variables exclusively used by Load.
+	load struct {
+		params  sqlDriver.ParametersConverter
+		sql     string
+		stage   *scratchFile
+		hasKeys bool
+	}
+	// Variables accessed by Prepare, Store, and Commit.
+	store struct {
 		stage     *scratchFile
 		params    sqlDriver.ParametersConverter
 		mergeSQL  string
@@ -209,37 +243,84 @@ type transactor struct {
 	}
 }
 
-func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded func(json.RawMessage) error) error {
-	for it.Next() {
-		if converted, err := d.load.params.Convert(it.Key); err != nil {
-			return fmt.Errorf("converting Load key: %w", err)
-		} else if err = d.load.stage.Encode(converted); err != nil {
-			return fmt.Errorf("encoding Load key to scratch file: %w", err)
-		}
+func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
+	var d = new(binding)
+	var err error
+	var target = sqlDriver.TableForMaterialization(targetName, "", &t.gen.IdentifierQuotes, spec)
+
+	// Create local scratch files used for loads and stores.
+	if d.load.stage, err = newScratchFile(t.cfg.tempdir); err != nil {
+		return fmt.Errorf("newScratchFile: %w", err)
 	}
-	if err := it.Err(); err != nil {
-		return err
+	if d.store.stage, err = newScratchFile(t.cfg.tempdir); err != nil {
+		return fmt.Errorf("newScratchFile: %w", err)
 	}
 
-	// PUT staged keys to Snowflake in preparation for querying.
-	if err := d.load.stage.put(d.cfg); err != nil {
-		return fmt.Errorf("load.stage(): %w", err)
+	// Build all SQL statements and parameter converters.
+	d.load.sql, d.store.copySQL, d.store.mergeSQL = BuildSQL(
+		len(t.bindings), target, spec.FieldSelection, d.load.stage.uuid, d.store.stage.uuid)
+
+	_, d.load.params, err = t.gen.QueryOnPrimaryKey(target, spec.FieldSelection.Document)
+	if err != nil {
+		return fmt.Errorf("building load params: %w", err)
 	}
+	_, d.store.params, err = t.gen.InsertStatement(target)
+	if err != nil {
+		return fmt.Errorf("building insert params: %w", err)
+	}
+
+	t.bindings = append(t.bindings, d)
+	return nil
+}
+
+func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
+	for it.Next() {
+		var b = d.bindings[it.Binding]
+
+		if converted, err := b.load.params.Convert(it.Key); err != nil {
+			return fmt.Errorf("converting Load key: %w", err)
+		} else if err = b.load.stage.Encode(converted); err != nil {
+			return fmt.Errorf("encoding Load key to scratch file: %w", err)
+		}
+		b.load.hasKeys = true
+	}
+	if it.Err() != nil {
+		return it.Err()
+	}
+
+	var subqueries []string
+	// PUT staged keys to Snowflake in preparation for querying.
+	for _, b := range d.bindings {
+		if !b.load.hasKeys {
+			// Pass.
+		} else if err := b.load.stage.put(d.cfg); err != nil {
+			return fmt.Errorf("load.stage(): %w", err)
+		} else {
+			subqueries = append(subqueries, b.load.sql)
+			b.load.hasKeys = false // Reset for next transaction.
+		}
+	}
+
+	if len(subqueries) == 0 {
+		return nil // Nothing to load.
+	}
+	var loadAllSQL = strings.Join(subqueries, "\nUNION ALL\n") + ";"
 
 	// Issue a join of the target table and (now staged) load keys,
 	// and send results to the |loaded| callback.
-	rows, err := d.load.conn.QueryContext(d.ctx, d.load.sql)
+	rows, err := d.load.conn.QueryContext(d.ctx, loadAllSQL)
 	if err != nil {
 		return fmt.Errorf("querying Load documents: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
+		var binding int
 		var document sql.RawBytes
 
-		if err = rows.Scan(&document); err != nil {
+		if err = rows.Scan(&binding, &document); err != nil {
 			return fmt.Errorf("scanning Load document: %w", err)
-		} else if err = loaded(json.RawMessage(document)); err != nil {
+		} else if err = loaded(binding, json.RawMessage(document)); err != nil {
 			return err
 		}
 	}
@@ -252,8 +333,6 @@ func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded 
 
 func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.TransactionResponse_Prepared, err error) {
 	d.store.fence.Checkpoint = prepare.FlowCheckpoint
-	d.store.hasDocs = false
-	d.store.mustMerge = false
 
 	return &pm.TransactionResponse_Prepared{
 		DriverCheckpointJson: nil, // Not used.
@@ -262,27 +341,31 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 
 func (d *transactor) Store(it *lifecycle.StoreIterator) error {
 	for it.Next() {
-		if converted, err := d.store.params.Convert(
+		var b = d.bindings[it.Binding]
+
+		if converted, err := b.store.params.Convert(
 			append(append(it.Key, it.Values...), it.RawJSON),
 		); err != nil {
 			return fmt.Errorf("converting Store: %w", err)
-		} else if err = d.store.stage.Encode(converted); err != nil {
+		} else if err = b.store.stage.Encode(converted); err != nil {
 			return fmt.Errorf("encoding Store to scratch file: %w", err)
 		}
 
 		if it.Exists {
-			d.store.mustMerge = true
+			b.store.mustMerge = true
 		}
-		d.store.hasDocs = true
+		b.store.hasDocs = true
 	}
 	return nil
 }
 
 func (d *transactor) Commit() error {
-	if d.store.hasDocs {
-		// PUT staged keys to Snowflake in preparation for querying.
-		if err := d.store.stage.put(d.cfg); err != nil {
-			return fmt.Errorf("load.stage(): %w", err)
+	for _, b := range d.bindings {
+		if b.store.hasDocs {
+			// PUT staged keys to Snowflake in preparation for querying.
+			if err := b.store.stage.put(d.cfg); err != nil {
+				return fmt.Errorf("load.stage(): %w", err)
+			}
 		}
 	}
 
@@ -307,18 +390,24 @@ func (d *transactor) Commit() error {
 		return fmt.Errorf("fence.Update: %w", err)
 	}
 
-	if !d.store.hasDocs {
-		// No table update required
-	} else if !d.store.mustMerge {
-		// We can issue a faster COPY INTO the target table.
-		if _, err = d.store.conn.ExecContext(d.ctx, d.store.copySQL); err != nil {
-			return fmt.Errorf("copying Store documents: %w", err)
+	for _, b := range d.bindings {
+		if !b.store.hasDocs {
+			// No table update required
+		} else if !b.store.mustMerge {
+			// We can issue a faster COPY INTO the target table.
+			if _, err = d.store.conn.ExecContext(d.ctx, b.store.copySQL); err != nil {
+				return fmt.Errorf("copying Store documents: %w", err)
+			}
+		} else {
+			// We must MERGE into the target table.
+			if _, err = d.store.conn.ExecContext(d.ctx, b.store.mergeSQL); err != nil {
+				return fmt.Errorf("merging Store documents: %w", err)
+			}
 		}
-	} else {
-		// We must MERGE into the target table.
-		if _, err = d.store.conn.ExecContext(d.ctx, d.store.mergeSQL); err != nil {
-			return fmt.Errorf("merging Store documents: %w", err)
-		}
+
+		// Reset for next transaction.
+		b.store.hasDocs = false
+		b.store.mustMerge = false
 	}
 
 	if err = txn.Commit(); err != nil {
@@ -331,8 +420,11 @@ func (d *transactor) Commit() error {
 func (d *transactor) Destroy() {
 	d.load.conn.Close()
 	d.store.conn.Close()
-	d.load.stage.destroy()
-	d.store.stage.destroy()
+
+	for _, b := range d.bindings {
+		b.load.stage.destroy()
+		b.store.stage.destroy()
+	}
 }
 
 type scratchFile struct {
@@ -370,7 +462,7 @@ func newScratchFile(tempdir string) (*scratchFile, error) {
 	}, nil
 }
 
-func (f *scratchFile) put(cfg *snowflakeConfig) error {
+func (f *scratchFile) put(cfg *config) error {
 	if err := f.bw.Flush(); err != nil {
 		return fmt.Errorf("scratch.Flush: %w", err)
 	}
@@ -411,8 +503,8 @@ func (f *scratchFile) put(cfg *snowflakeConfig) error {
 }
 
 // BuildSQL generates SQL used by Snowflake.
-func BuildSQL(table *sqlDriver.Table, fields pf.FieldSelection, loadUUID, storeUUID uuid.UUID) (
-	createStage, keyJoin, copyInto, mergeInto string) {
+func BuildSQL(binding int, table *sqlDriver.Table, fields pf.FieldSelection, loadUUID, storeUUID uuid.UUID) (
+	keyJoin, copyInto, mergeInto string) {
 
 	var exStore, names, rValues []string
 	for idx, name := range fields.AllFields() {
@@ -433,24 +525,16 @@ func BuildSQL(table *sqlDriver.Table, fields pf.FieldSelection, loadUUID, storeU
 		updates = append(updates, fmt.Sprintf("%s.%s = r.%s", table.Identifier, col.Identifier, col.Identifier))
 	}
 
-	createStage = `
-		CREATE STAGE IF NOT EXISTS flow_v1
-			FILE_FORMAT = (
-				TYPE = JSON
-				BINARY_FORMAT = BASE64
-			)
-			COMMENT = 'Internal stage used by Estuary Flow to stage loaded & stored documents'
-		;`
-
 	keyJoin = fmt.Sprintf(`
-		SELECT %s.%s
+		SELECT %d, %s.%s
 		FROM %s
 		JOIN (
 			SELECT %s
 			FROM @flow_v1/%s
 		) AS r
 		ON %s
-		;`,
+		`,
+		binding,
 		table.Identifier,
 		table.GetColumn(fields.Document).Identifier,
 		table.Identifier,
@@ -500,3 +584,12 @@ func BuildSQL(table *sqlDriver.Table, fields pf.FieldSelection, loadUUID, storeU
 
 	return
 }
+
+const createStageSQL = `
+		CREATE STAGE IF NOT EXISTS flow_v1
+			FILE_FORMAT = (
+				TYPE = JSON
+				BINARY_FORMAT = BASE64
+			)
+			COMMENT = 'Internal stage used by Estuary Flow to stage loaded & stored documents'
+		;`
