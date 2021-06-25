@@ -1,17 +1,15 @@
-package test
+package postgres
 
 import (
 	"testing"
 
-	"github.com/estuary/flow/go/materialize/driver/postgres"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPostgresConfig(t *testing.T) {
-	var validConfig = postgres.Config{
+	var validConfig = config{
 		Host:     "post.toast",
 		Port:     1234,
-		Table:    "testTable",
 		User:     "youser",
 		Password: "shmassword",
 		DBName:   "namegame",
@@ -30,10 +28,6 @@ func TestPostgresConfig(t *testing.T) {
 	var noHost = validConfig
 	noHost.Host = ""
 	require.Error(t, noHost.Validate(), "expected validation error")
-
-	var noTable = validConfig
-	noTable.Table = ""
-	require.Error(t, noTable.Validate(), "expected validation error")
 
 	var noUser = validConfig
 	noUser.User = ""
