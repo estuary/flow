@@ -9,3 +9,4 @@ import:
   - stations.test.flow.yaml
   - idle-bikes.flow.yaml
   - idle-bikes.test.flow.yaml
+  - views.flow.yaml

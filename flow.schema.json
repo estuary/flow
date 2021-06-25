@@ -14,9 +14,9 @@
     },
     "captures": {
       "title": "Captures of this Catalog.",
-      "default": [],
-      "type": "array",
-      "items": {
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
         "$ref": "#/definitions/CaptureDef"
       }
     },
@@ -25,7 +25,7 @@
       "default": {},
       "examples": [
         {
-          "a/collection": {
+          "acmeCo/collection": {
             "derivation": null,
             "key": [
               "/json/ptr"
@@ -38,14 +38,6 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/CollectionDef"
-      }
-    },
-    "endpoints": {
-      "title": "Named Endpoints of this Catalog.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/EndpointDef"
       }
     },
     "import": {
@@ -74,9 +66,9 @@
     },
     "materializations": {
       "title": "Materializations of this Catalog.",
-      "default": [],
-      "type": "array",
-      "items": {
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
         "$ref": "#/definitions/MaterializationDef"
       }
     },
@@ -100,7 +92,7 @@
           "Test that fob quips ipsum": [
             {
               "ingest": {
-                "collection": "a/collection",
+                "collection": "acmeCo/collection",
                 "documents": [
                   {
                     "example": "document"
@@ -113,7 +105,7 @@
             },
             {
               "verify": {
-                "collection": "a/collection",
+                "collection": "acmeCo/collection",
                 "documents": [
                   {
                     "expected": "document"
@@ -152,77 +144,31 @@
         "image": {
           "title": "Image of the connector.",
           "type": "string"
-        },
-        "namespace": {
-          "title": "Namespace of the source connector.",
-          "default": "",
-          "type": "string"
-        },
-        "stream": {
-          "title": "Selected stream of the source connector.",
-          "default": "",
-          "type": "string"
         }
       }
     },
-    "BucketConfig": {
-      "type": "object",
-      "required": [
-        "bucket"
-      ],
-      "properties": {
-        "bucket": {
-          "title": "Bucket name.",
-          "type": "string"
-        },
-        "prefix": {
-          "title": "File prefix within the bucket.",
-          "default": "",
-          "type": "string"
+    "CaptureBinding": {
+      "examples": [
+        {
+          "resource": {
+            "stream": "a_stream"
+          },
+          "target": "target/collection"
         }
-      },
-      "additionalProperties": true
-    },
-    "CaptureDef": {
-      "description": "A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket) from which data should be continuously captured, with a Flow collection into that captured data is ingested. Multiple Captures may be bound to a single collection, but only one capture may exist for a given endpoint and target.",
+      ],
       "type": "object",
       "required": [
-        "endpoint",
+        "resource",
         "target"
       ],
       "properties": {
-        "endpoint": {
-          "title": "Endpoint connector to capture from.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/EndpointRef"
-            }
-          ]
+        "resource": {
+          "title": "Endpoint resource to capture from.",
+          "type": "object",
+          "additionalProperties": true
         },
         "target": {
-          "title": "Target collection to capture into.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/CaptureTarget"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "CaptureTarget": {
-      "examples": [
-        {
-          "name": "target/collection"
-        }
-      ],
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "title": "Name of the collection to be ingested into.",
+          "title": "Name of the collection to capture into.",
           "allOf": [
             {
               "$ref": "#/definitions/Collection"
@@ -232,10 +178,65 @@
       },
       "additionalProperties": false
     },
+    "CaptureDef": {
+      "description": "A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket) from which data should be continuously captured, with a Flow collection into that captured data is ingested. Multiple Captures may be bound to a single collection, but only one capture may exist for a given endpoint and target.",
+      "type": "object",
+      "required": [
+        "bindings",
+        "endpoint"
+      ],
+      "properties": {
+        "bindings": {
+          "title": "Bound collections to capture from the endpoint.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CaptureBinding"
+          }
+        },
+        "endpoint": {
+          "title": "Endpoint to capture from.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CaptureEndpoint"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "CaptureEndpoint": {
+      "description": "An Endpoint connector used for Flow captures.",
+      "anyOf": [
+        {
+          "title": "An Airbyte source connector.",
+          "type": "object",
+          "required": [
+            "airbyteSource"
+          ],
+          "properties": {
+            "airbyteSource": {
+              "$ref": "#/definitions/AirbyteSourceConfig"
+            }
+          }
+        },
+        {
+          "title": "A remote implementation of an endpoint gRPC driver.",
+          "type": "object",
+          "required": [
+            "remote"
+          ],
+          "properties": {
+            "remote": {
+              "$ref": "#/definitions/RemoteDriverConfig"
+            }
+          }
+        }
+      ]
+    },
     "Collection": {
       "description": "Collection names consist of Unicode letters, numbers, and symbols: - _ . /\n\nSpaces and other special characters are disallowed.",
       "examples": [
-        "a/collection"
+        "acmeCo/collection"
       ],
       "type": "string",
       "pattern": "^[^ \t\n\\!@#$%^&*()+=\\<\\>?;:'\"\\[\\]\\|~`]+$"
@@ -385,159 +386,6 @@
           "additionalProperties": {
             "$ref": "#/definitions/Transform"
           }
-        }
-      },
-      "additionalProperties": false
-    },
-    "Endpoint": {
-      "description": "Endpoint names a Flow endpoint.",
-      "examples": [
-        "an endpoint"
-      ],
-      "type": "string"
-    },
-    "EndpointDef": {
-      "description": "An Endpoint is an external system from which a Flow collection may be captured, or to which a Flow collection may be materialized.",
-      "anyOf": [
-        {
-          "title": "An Airbyte source connector.",
-          "type": "object",
-          "required": [
-            "airbyteSource"
-          ],
-          "properties": {
-            "airbyteSource": {
-              "$ref": "#/definitions/AirbyteSourceConfig"
-            }
-          }
-        },
-        {
-          "title": "A GCS bucket and prefix.",
-          "type": "object",
-          "required": [
-            "gS"
-          ],
-          "properties": {
-            "gS": {
-              "$ref": "#/definitions/BucketConfig"
-            }
-          }
-        },
-        {
-          "title": "A PostgreSQL database.",
-          "type": "object",
-          "required": [
-            "postgres"
-          ],
-          "properties": {
-            "postgres": {
-              "$ref": "#/definitions/PostgresConfig"
-            }
-          }
-        },
-        {
-          "title": "A remote implementation of an endpoint gRPC driver.",
-          "type": "object",
-          "required": [
-            "remote"
-          ],
-          "properties": {
-            "remote": {
-              "$ref": "#/definitions/RemoteDriverConfig"
-            }
-          }
-        },
-        {
-          "title": "An S3 bucket and prefix.",
-          "type": "object",
-          "required": [
-            "s3"
-          ],
-          "properties": {
-            "s3": {
-              "$ref": "#/definitions/BucketConfig"
-            }
-          }
-        },
-        {
-          "title": "A SQLite database.",
-          "type": "object",
-          "required": [
-            "sqlite"
-          ],
-          "properties": {
-            "sqlite": {
-              "$ref": "#/definitions/SqliteConfig"
-            }
-          }
-        },
-        {
-          "title": "A Snowflake database.",
-          "type": "object",
-          "required": [
-            "snowflake"
-          ],
-          "properties": {
-            "snowflake": {
-              "$ref": "#/definitions/SnowflakeConfig"
-            }
-          }
-        },
-        {
-          "title": "A Webhook.",
-          "type": "object",
-          "required": [
-            "webhook"
-          ],
-          "properties": {
-            "webhook": {
-              "$ref": "#/definitions/WebhookConfig"
-            }
-          }
-        },
-        {
-          "title": "A Flow sink.",
-          "type": "object",
-          "required": [
-            "flowSink"
-          ],
-          "properties": {
-            "flowSink": {
-              "$ref": "#/definitions/FlowSinkConfig"
-            }
-          }
-        }
-      ]
-    },
-    "EndpointRef": {
-      "description": "A reference to an endpoint, with optional additional configuration.",
-      "examples": [
-        {
-          "name": "an endpoint",
-          "spec": {
-            "table": "a_sql_table"
-          }
-        }
-      ],
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "title": "Name of the endpoint to use.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Endpoint"
-            }
-          ]
-        },
-        "spec": {
-          "title": "Additional endpoint specification.",
-          "description": "This specification is merged into that of the endpoint.",
-          "default": {},
-          "type": "object",
-          "additionalProperties": true
         }
       },
       "additionalProperties": false
@@ -911,22 +759,27 @@
         }
       ]
     },
-    "MaterializationDef": {
-      "description": "A Materialization binds a Flow collection with an external system & target (e.x, a SQL table) into which the collection is to be continuously materialized.",
+    "MaterializationBinding": {
+      "examples": [
+        {
+          "fields": {
+            "exclude": [],
+            "include": {},
+            "recommended": true
+          },
+          "partitions": null,
+          "resource": {
+            "table": "a_table"
+          },
+          "source": "source/collection"
+        }
+      ],
       "type": "object",
       "required": [
-        "endpoint",
+        "resource",
         "source"
       ],
       "properties": {
-        "endpoint": {
-          "title": "Endpoint to materialize into.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/EndpointRef"
-            }
-          ]
-        },
         "fields": {
           "title": "Selected projections for this materialization.",
           "default": {
@@ -940,16 +793,149 @@
             }
           ]
         },
+        "partitions": {
+          "title": "Selector over partitions of the source collection to read.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resource": {
+          "title": "Endpoint resource to materialize into.",
+          "type": "object",
+          "additionalProperties": true
+        },
         "source": {
-          "title": "Source collection to materialize.",
+          "title": "Name of the collection to be materialized.",
           "allOf": [
             {
-              "$ref": "#/definitions/MaterializationSource"
+              "$ref": "#/definitions/Collection"
             }
           ]
         }
       },
       "additionalProperties": false
+    },
+    "MaterializationDef": {
+      "description": "A Materialization binds a Flow collection with an external system & target (e.x, a SQL table) into which the collection is to be continuously materialized.",
+      "type": "object",
+      "required": [
+        "bindings",
+        "endpoint"
+      ],
+      "properties": {
+        "bindings": {
+          "title": "Bound collections to materialize into the endpoint.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MaterializationBinding"
+          }
+        },
+        "endpoint": {
+          "title": "Endpoint to materialize into.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MaterializationEndpoint"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "MaterializationEndpoint": {
+      "description": "An Endpoint connector used for Flow materializations.",
+      "anyOf": [
+        {
+          "title": "A PostgreSQL database.",
+          "type": "object",
+          "required": [
+            "postgres"
+          ],
+          "properties": {
+            "postgres": {
+              "$ref": "#/definitions/PostgresConfig"
+            }
+          }
+        },
+        {
+          "title": "A remote implementation of an endpoint gRPC driver.",
+          "type": "object",
+          "required": [
+            "remote"
+          ],
+          "properties": {
+            "remote": {
+              "$ref": "#/definitions/RemoteDriverConfig"
+            }
+          }
+        },
+        {
+          "title": "A SQLite database.",
+          "type": "object",
+          "required": [
+            "sqlite"
+          ],
+          "properties": {
+            "sqlite": {
+              "$ref": "#/definitions/SqliteConfig"
+            }
+          }
+        },
+        {
+          "title": "A Snowflake database.",
+          "type": "object",
+          "required": [
+            "snowflake"
+          ],
+          "properties": {
+            "snowflake": {
+              "$ref": "#/definitions/SnowflakeConfig"
+            }
+          }
+        },
+        {
+          "title": "A Webhook.",
+          "type": "object",
+          "required": [
+            "webhook"
+          ],
+          "properties": {
+            "webhook": {
+              "$ref": "#/definitions/WebhookConfig"
+            }
+          }
+        },
+        {
+          "title": "A Flow sink.",
+          "type": "object",
+          "required": [
+            "flowSink"
+          ],
+          "properties": {
+            "flowSink": {
+              "$ref": "#/definitions/FlowSinkConfig"
+            }
+          }
+        }
+      ]
     },
     "MaterializationFields": {
       "description": "MaterializationFields defines a selection of projections to materialize, as well as optional per-projection, driver-specific configuration.",
@@ -991,54 +977,6 @@
         "recommended": {
           "title": "Should recommended projections for the endpoint be used?",
           "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "MaterializationSource": {
-      "examples": [
-        {
-          "name": "source/collection",
-          "partitions": null
-        }
-      ],
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "title": "Name of the collection to be materialized.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
-        },
-        "partitions": {
-          "title": "Selector over partition of the source collection to read.",
-          "default": {
-            "exclude": {
-              "other_partition": [
-                32,
-                64
-              ]
-            },
-            "include": {
-              "a_partition": [
-                "A",
-                "B"
-              ]
-            }
-          },
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PartitionSelector"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       },
       "additionalProperties": false
@@ -1226,10 +1164,10 @@
     "RemoteDriverConfig": {
       "type": "object",
       "required": [
-        "endpoint"
+        "address"
       ],
       "properties": {
-        "endpoint": {
+        "address": {
           "title": "gRPC address of the driver.",
           "type": "string"
         }
@@ -1384,7 +1322,7 @@
       "examples": [
         {
           "ingest": {
-            "collection": "a/collection",
+            "collection": "acmeCo/collection",
             "documents": [
               {
                 "example": "document"
@@ -1397,7 +1335,7 @@
         },
         {
           "verify": {
-            "collection": "a/collection",
+            "collection": "acmeCo/collection",
             "documents": [
               {
                 "expected": "document"
@@ -1438,7 +1376,7 @@
       "description": "An ingestion test step ingests document fixtures into the named collection.",
       "examples": [
         {
-          "collection": "a/collection",
+          "collection": "acmeCo/collection",
           "documents": [
             {
               "example": "document"
@@ -1476,7 +1414,7 @@
       "description": "A verification test step verifies that the contents of the named collection match the expected fixtures, after fully processing all preceding ingestion test steps.",
       "examples": [
         {
-          "collection": "a/collection",
+          "collection": "acmeCo/collection",
           "documents": [
             {
               "expected": "document"
@@ -1718,11 +1656,11 @@
       "description": "Webhook configuration.",
       "type": "object",
       "required": [
-        "endpoint"
+        "address"
       ],
       "properties": {
-        "endpoint": {
-          "title": "URL endpoint of the Webhook.",
+        "address": {
+          "title": "URL address of the Webhook.",
           "type": "string"
         }
       },

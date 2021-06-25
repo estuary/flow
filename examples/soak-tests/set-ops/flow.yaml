@@ -207,24 +207,22 @@ tests:
         documents: *expected
 
 materializations:
-  - source:
-      name: soak/set-ops/sets
+  soak/set-ops/views:
     endpoint:
-      name: examples/example_database
-      config: { table: sets }
-    fields:
-      recommended: true
-      include:
-        derivedValues: {}
-        expectValues: {}
+      sqlite: { path: ../../examples.db?_journal=WAL }
+    bindings:
+      - source: soak/set-ops/sets
+        resource: { table: sets }
+        fields:
+          recommended: true
+          include:
+            derivedValues: {}
+            expectValues: {}
 
-  - source:
-      name: soak/set-ops/sets-register
-    endpoint:
-      name: examples/example_database
-      config: { table: sets_register }
-    fields:
-      recommended: true
-      include:
-        derivedValues: {}
-        expectValues: {}
+      - source: soak/set-ops/sets-register
+        resource: { table: sets_register }
+        fields:
+          recommended: true
+          include:
+            derivedValues: {}
+            expectValues: {}

@@ -17,10 +17,3 @@ collections:
           source: { name: examples/citi-bike/rides }
           publish:
             lambda: typescript
-
-materializations:
-  - source:
-      name: examples/citi-bike/last-seen
-    endpoint:
-      name: examples/example_database
-      config: { table: citi_last_seen }
