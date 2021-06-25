@@ -1,52 +1,52 @@
 test://example/catalog.yaml:
-  endpoints:
-    "my bucket":
-      airbyteSource:
-        image: an/image
-        config:
-          bucket: foobar
-          prefix: path/prefix
-
-    "my Postgres":
-      postgres:
-        host: localhost
-        user: somebody
-        password: whoops
-
-    "my sqlite":
-      sqlite:
-        path: relative/to/scope.db
-
   captures:
-    - target:
-        name: a/collection
+    first/capture:
       endpoint:
-        name: my bucket
-        spec: { stream: "contents" }
-    - target:
-        name: other/collection
+        airbyteSource:
+          image: an/image
+          config:
+            bucket: foobar
+            prefix: path/prefix
+      bindings:
+        - target: a/collection
+          resource: { stream: "contents" }
+        - target: other/collection
+          resource: { extra: "stuff" }
+    capture/second:
       endpoint:
-        name: my DB
-        spec: { extra: "stuff" }
+        remote:
+          address: http://example/driver
+      bindings:
+        - target: third/collection
+          resource: {}
 
   materializations:
-    # No partition selector and default fields behavior.
-    - source:
-        name: source/collection
+    a/materialization:
       endpoint:
-        name: my DB
-        spec: { table: "table_one" }
-    # Explicit selector and fields.
-    - source:
-        name: source/collection
-        partitions:
-          include: { "a_field": ["some-val"] }
-          exclude: { "other": [42] }
+        postgres:
+          host: localhost
+          user: somebody
+          password: whoops
+      bindings:
+        # No partition selector and default fields behavior.
+        - source: source/collection
+          resource: { table: "table_one" }
+        # Explicit selector and fields.
+        - source: other/source/collection
+          partitions:
+            include: { "a_field": ["some-val"] }
+            exclude: { "other": [42] }
+          resource: { table: "table_two" }
+          fields:
+            include:
+              add: {}
+            exclude: [del]
+            recommended: true
+
+    to/sqlite:
       endpoint:
-        name: my DB
-        spec: { table: "table_two" }
-      fields:
-        include:
-          add: {}
-        exclude: [del]
-        recommended: true
+        sqlite:
+          path: relative/to/scope.db
+      bindings:
+        - source: final/source/collection
+          resource: { table: "table_three" }

@@ -145,22 +145,13 @@ impl Schema {
     }
 }
 
-impl EndpointRef {
+impl MaterializationBinding {
     pub fn example() -> Self {
         Self {
-            name: names::Endpoint::example(),
-            spec: vec![("table".to_string(), json!("a_sql_table"))]
-                .into_iter()
-                .collect(),
-        }
-    }
-}
-
-impl MaterializationSource {
-    pub fn example() -> Self {
-        Self {
-            name: names::Collection::new("source/collection"),
+            resource: json!({"table": "a_table"}).as_object().unwrap().clone(),
+            source: names::Collection::new("source/collection"),
             partitions: None,
+            fields: MaterializationFields::default(),
         }
     }
 }
@@ -177,10 +168,11 @@ impl MaterializationFields {
     }
 }
 
-impl CaptureTarget {
+impl CaptureBinding {
     pub fn example() -> Self {
         Self {
-            name: names::Collection::new("target/collection"),
+            resource: json!({"stream": "a_stream"}).as_object().unwrap().clone(),
+            target: names::Collection::new("target/collection"),
         }
     }
 }

@@ -4,42 +4,45 @@ expression: tables
 
 ---
 Tables {
+    capture_bindings: [
+        CaptureBinding {
+            scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0,
+            capture: capture/second,
+            capture_index: 0,
+            resource_spec: {},
+            collection: third/collection,
+        },
+        CaptureBinding {
+            scope: test://example/catalog.yaml#/captures/first~1capture/bindings/0,
+            capture: first/capture,
+            capture_index: 0,
+            resource_spec: {"stream":"contents"},
+            collection: a/collection,
+        },
+        CaptureBinding {
+            scope: test://example/catalog.yaml#/captures/first~1capture/bindings/1,
+            capture: first/capture,
+            capture_index: 1,
+            resource_spec: {"extra":"stuff"},
+            collection: other/collection,
+        },
+    ],
     captures: [
         Capture {
-            scope: test://example/catalog.yaml#/captures/0,
-            collection: a/collection,
-            endpoint: my bucket,
-            endpoint_patch_spec: {"stream":"contents"},
+            scope: test://example/catalog.yaml#/captures/capture~1second,
+            capture: capture/second,
+            endpoint_type: "Remote",
+            endpoint_spec: {"address":"http://example/driver"},
         },
         Capture {
-            scope: test://example/catalog.yaml#/captures/1,
-            collection: other/collection,
-            endpoint: my DB,
-            endpoint_patch_spec: {"extra":"stuff"},
+            scope: test://example/catalog.yaml#/captures/first~1capture,
+            capture: first/capture,
+            endpoint_type: "AirbyteSource",
+            endpoint_spec: {"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"},
         },
     ],
     collections: [],
     derivations: [],
-    endpoints: [
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/my%20Postgres,
-            endpoint: my Postgres,
-            endpoint_type: "Postgresql",
-            base_spec: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
-        },
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/my%20bucket,
-            endpoint: my bucket,
-            endpoint_type: "AirbyteSource",
-            base_spec: {"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image","namespace":"","stream":""},
-        },
-        Endpoint {
-            scope: test://example/catalog.yaml#/endpoints/my%20sqlite,
-            endpoint: my sqlite,
-            endpoint_type: "Sqlite",
-            base_spec: {"path":"test://example/relative/to/scope.db"},
-        },
-    ],
     errors: [],
     fetches: [
         Fetch {
@@ -57,26 +60,53 @@ Tables {
         },
     ],
     journal_rules: [],
-    materializations: [
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/0,
+    materialization_bindings: [
+        MaterializationBinding {
+            scope: test://example/catalog.yaml#/materializations/a~1materialization/bindings/0,
+            materialization: a/materialization,
+            materialization_index: 0,
+            resource_spec: {"table":"table_one"},
             collection: source/collection,
-            endpoint: my DB,
-            endpoint_patch_spec: {"table":"table_one"},
             fields_exclude: [],
             fields_include: {},
             fields_recommended: 1,
             source_partitions: NULL,
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/1,
-            collection: source/collection,
-            endpoint: my DB,
-            endpoint_patch_spec: {"table":"table_two"},
+        MaterializationBinding {
+            scope: test://example/catalog.yaml#/materializations/a~1materialization/bindings/1,
+            materialization: a/materialization,
+            materialization_index: 1,
+            resource_spec: {"table":"table_two"},
+            collection: other/source/collection,
             fields_exclude: ["del"],
             fields_include: {"add":{}},
             fields_recommended: 1,
             source_partitions: {"include":{"a_field":["some-val"]},"exclude":{"other":[42]}},
+        },
+        MaterializationBinding {
+            scope: test://example/catalog.yaml#/materializations/to~1sqlite/bindings/0,
+            materialization: to/sqlite,
+            materialization_index: 0,
+            resource_spec: {"table":"table_three"},
+            collection: final/source/collection,
+            fields_exclude: [],
+            fields_include: {},
+            fields_recommended: 1,
+            source_partitions: NULL,
+        },
+    ],
+    materializations: [
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/a~1materialization,
+            materialization: a/materialization,
+            endpoint_type: "Postgresql",
+            endpoint_spec: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/to~1sqlite,
+            materialization: to/sqlite,
+            endpoint_type: "Sqlite",
+            endpoint_spec: {"path":"test://example/relative/to/scope.db"},
         },
     ],
     named_schemas: [],
