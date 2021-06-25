@@ -3,10 +3,11 @@
 use parser::{Input, ParseConfig};
 use serde_json::Value;
 use std::fs::File;
+use std::path::Path;
 
 use tempdir::TempDir;
 
-pub fn input_for_file(rel_path: &str) -> Input {
+pub fn input_for_file(rel_path: impl AsRef<Path>) -> Input {
     let file = File::open(rel_path).expect("failed to open file");
     Box::new(file)
 }

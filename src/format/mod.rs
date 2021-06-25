@@ -1,3 +1,4 @@
+mod json;
 mod jsonl;
 
 use crate::decorate::AddFieldError;
@@ -79,7 +80,7 @@ pub fn parse(
 ) -> Result<(), ParseError> {
     // TODO: peek at the content and remove this empty placeholder
     let config = resolve_config(config, Box::new(io::empty()))?;
-    tracing::debug!("resolved config: {:?}", config);
+    tracing::debug!(action = "resolved config", result = ?config);
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
     let output = parser.parse(&config, content)?;
@@ -89,6 +90,7 @@ pub fn parse(
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
         Format::Jsonl => jsonl::new_parser(),
+        Format::Json => json::new_parser(),
     }
 }
 

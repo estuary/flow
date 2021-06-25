@@ -1,3 +1,5 @@
+//! Parser for json-newline format. This parser is strict in that it does not tolerate newline characters
+//! within the documents.
 use super::{Input, Output, ParseError, Parser};
 use crate::decorate::Decorator;
 use crate::ParseConfig;

@@ -2,9 +2,10 @@ use crate::ParseConfig;
 use doc::ptr::{Pointer, Token};
 use serde_json::Value;
 
+/// Decorator adds properties to parsed JSON documents.
 pub struct Decorator {
     fields: Vec<(Pointer, Value)>,
-    line_number_location: Option<Pointer>,
+    offset_location: Option<Pointer>,
 }
 
 impl Decorator {
@@ -17,12 +18,14 @@ impl Decorator {
         let line_number_location = config.add_source_offset.as_ref().map(Pointer::from);
         Decorator {
             fields,
-            line_number_location,
+            offset_location: line_number_location,
         }
     }
 
+    /// Adds the properties to the given `doc`. If any field cannot be added, this function returns
+    /// immediately with the first error, and leaves the document in a partially modified state.
     pub fn add_fields(&self, line_num: Option<u64>, doc: &mut Value) -> Result<(), AddFieldError> {
-        if let Some((location, line)) = self.line_number_location.as_ref().zip(line_num) {
+        if let Some((location, line)) = self.offset_location.as_ref().zip(line_num) {
             let value = Value::from(line);
             add_field(doc, location, &value)?;
         }
@@ -54,6 +57,7 @@ pub struct AddFieldError {
     document: Value,
 }
 
+// TODO: move this impl into the doc crate
 fn display_ptr(ptr: &Pointer) -> String {
     use std::fmt::Write;
     let mut buf = String::new();

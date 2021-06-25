@@ -47,6 +47,7 @@ impl JsonPointer {
 #[serde(try_from = "String", into = "String")]
 pub enum Format {
     Jsonl,
+    Json,
 }
 
 impl std::convert::TryFrom<String> for Format {
@@ -82,11 +83,12 @@ impl Format {
     pub fn id(&self) -> &'static str {
         match *self {
             Format::Jsonl => "jsonl",
+            Format::Json => "json",
         }
     }
 
     pub fn all() -> &'static [Format] {
-        &[Format::Jsonl]
+        &[Format::Jsonl, Format::Json]
     }
 }
 impl fmt::Display for Format {
@@ -227,7 +229,7 @@ impl Default for ParseConfig {
 }
 
 fn default_file_extension_mappings() -> BTreeMap<String, Format> {
-    (&[("jsonl", Format::Jsonl)])
+    (&[("jsonl", Format::Jsonl), ("json", Format::Json)])
         .iter()
         .map(|(k, v)| (k.to_string(), *v))
         .collect()
