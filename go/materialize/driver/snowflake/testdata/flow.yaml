@@ -1,0 +1,22 @@
+collections:
+  key/value:
+    schema:
+      type: object
+      properties:
+        key1: { type: integer }
+        key2: { type: boolean }
+        boolean: { type: boolean }
+        integer: { type: integer }
+        number: { type: number }
+        string: { type: string }
+      required: [key1, key2]
+    key: [/key1, /key2]
+
+materializations:
+  test/sqlite:
+    endpoint:
+      sqlite:
+        path: ":memory:"
+    bindings:
+      - source: key/value
+        resource: { table: key_value }
