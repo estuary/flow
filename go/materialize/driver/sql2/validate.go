@@ -9,7 +9,7 @@ import (
 
 // ValidateSelectedFields validates a proposed MaterializationSpec against a set of constraints. If
 // any constraints would be violated, then an error is returned.
-func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.MaterializationSpec) error {
+func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.MaterializationSpec_Binding) error {
 	// Track all the location pointers for each included field so that we can verify all the
 	// LOCATION_REQUIRED constraints are met.
 	var includedPointers = make(map[string]bool)
@@ -85,7 +85,7 @@ func ValidateNewSQLProjections(proposed *pf.CollectionSpec) map[string]*pm.Const
 // CollectionSpec for a materialization that is already running, or has been Applied. The returned
 // constraints will explicitly require all fields that are currently materialized, as long as they
 // are not unsatisfiable, and forbid any fields that are not currently materialized.
-func ValidateMatchesExisting(existing *pf.MaterializationSpec, proposed *pf.CollectionSpec) map[string]*pm.Constraint {
+func ValidateMatchesExisting(existing *pf.MaterializationSpec_Binding, proposed *pf.CollectionSpec) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, field := range existing.FieldSelection.AllFields() {
 		var constraint = new(pm.Constraint)

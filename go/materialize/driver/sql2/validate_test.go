@@ -46,7 +46,7 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 		Values:   []string{"string", "bool", "int"},
 		Document: "flow_document",
 	}
-	var existingSpec = pf.MaterializationSpec{
+	var existingSpec = pf.MaterializationSpec_Binding{
 		Collection:     *collection,
 		FieldSelection: *existingFields,
 	}
@@ -81,7 +81,7 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	require.True(t, ok, "missing constraint for 'number' field")
 	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
-	var proposedSpec = pf.MaterializationSpec{
+	var proposedSpec = pf.MaterializationSpec_Binding{
 		Collection:     proposed,
 		FieldSelection: *existingFields,
 	}

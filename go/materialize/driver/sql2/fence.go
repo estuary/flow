@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -23,7 +24,7 @@ type Fence struct {
 	// instances of transactions rpcs.
 	fence int64
 	// Full name of the fenced materialization.
-	materialization string
+	materialization pf.Materialization
 	// [keyBegin, keyEnd) identify the range of keys covered by this Fence.
 	keyBegin uint32
 	keyEnd   uint32
@@ -44,7 +45,7 @@ func (f *Fence) LogEntry() *log.Entry {
 
 // NewFence installs and returns a new *Fence. On return, all older fences of
 // this |shardFqn| have been fenced off from committing further transactions.
-func (e *Endpoint) NewFence(materialization string, keyBegin, keyEnd uint32) (*Fence, error) {
+func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd uint32) (*Fence, error) {
 	var txn, err = e.DB.BeginTx(e.Context, nil)
 	if err != nil {
 		return nil, fmt.Errorf("db.BeginTx: %w", err)
