@@ -24,8 +24,10 @@ collections:
             lambda: typescript
 
 materializations:
-  - source:
-      name: examples/net-trace/services
+  examples/net-trace/views:
     endpoint:
-      name: examples/example_database
-      config: { table: net_services }
+      sqlite:
+        path: ../examples.db?_journal=WAL
+    bindings:
+      - source: examples/net-trace/services
+        resource: { table: net_services }

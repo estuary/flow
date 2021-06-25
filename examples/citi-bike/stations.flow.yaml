@@ -15,10 +15,3 @@ collections:
             name: examples/citi-bike/rides-and-relocations
           publish:
             lambda: typescript
-
-materializations:
-  - source:
-      name: examples/citi-bike/stations
-    endpoint:
-      name: examples/example_database
-      config: { table: citi_stations }

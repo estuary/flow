@@ -146,26 +146,13 @@ collections:
   #          lambda: typescript
 
 materializations:
-  - endpoint:
-      name: examples/example_database
-      config: { table: segment_memberships }
-    source:
-      name: examples/segment/memberships
+  examples/segment/views:
+    endpoint:
+      sqlite: { path: ../examples.db?_journal=WAL }
 
-  - endpoint:
-      name: examples/example_database
-      config: { table: segment_profiles }
-    source:
-      name: examples/segment/profiles
-  #
-  # Uncomment me to materialize Webhook calls from toggles.
-  #- endpoint:
-  #    name: examples/webhook-api
-  #  source:
-  #    name: examples/segment/toggles
-  #
-  # Uncomment me to materialize Webhook calls from profiles.
-  #- endpoint:
-  #    name: examples/webhook-api
-  #  source:
-  #    name: examples/segment/profiles
+    bindings:
+      - resource: { table: segment_memberships }
+        source: examples/segment/memberships
+
+      - resource: { table: segment_profiles }
+        source: examples/segment/profiles
