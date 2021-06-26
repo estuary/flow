@@ -24,7 +24,7 @@ fn assert_file_is_parsed(file: PathBuf) {
     config
         .add_values
         .insert(JsonPointer::from(canary_ptr), json!(true));
-    config.add_source_offset = Some(JsonPointer::from(offset_ptr));
+    config.add_record_offset = Some(JsonPointer::from(offset_ptr));
     config.filename = Some(file.display().to_string());
     let input = input_for_file(&file);
 

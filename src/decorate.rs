@@ -15,18 +15,18 @@ impl Decorator {
             .iter()
             .map(|(ptr, val)| (Pointer::from_str(ptr.as_ref()), val.clone()))
             .collect();
-        let line_number_location = config.add_source_offset.as_ref().map(Pointer::from);
+        let offset_location = config.add_record_offset.as_ref().map(Pointer::from);
         Decorator {
             fields,
-            offset_location: line_number_location,
+            offset_location,
         }
     }
 
     /// Adds the properties to the given `doc`. If any field cannot be added, this function returns
     /// immediately with the first error, and leaves the document in a partially modified state.
-    pub fn add_fields(&self, line_num: Option<u64>, doc: &mut Value) -> Result<(), AddFieldError> {
-        if let Some((location, line)) = self.offset_location.as_ref().zip(line_num) {
-            let value = Value::from(line);
+    pub fn add_fields(&self, record_offset: u64, doc: &mut Value) -> Result<(), AddFieldError> {
+        if let Some(location) = self.offset_location.as_ref() {
+            let value = Value::from(record_offset);
             add_field(doc, location, &value)?;
         }
         for (pointer, value) in self.fields.iter() {

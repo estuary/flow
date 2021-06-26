@@ -46,7 +46,6 @@ impl JsonPointer {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum Format {
-    Jsonl,
     Json,
 }
 
@@ -82,13 +81,12 @@ impl schemars::JsonSchema for Format {
 impl Format {
     pub fn id(&self) -> &'static str {
         match *self {
-            Format::Jsonl => "jsonl",
             Format::Json => "json",
         }
     }
 
     pub fn all() -> &'static [Format] {
-        &[Format::Jsonl, Format::Json]
+        &[Format::Json]
     }
 }
 impl fmt::Display for Format {
@@ -129,8 +127,9 @@ pub struct ParseConfig {
     pub content_type: Option<String>,
 
     #[serde(default)]
-    /// Add the source line number to each json document at the given location.
-    pub add_source_offset: Option<JsonPointer>,
+    /// Add the record offset as a property of each object at the location given. The offset is a
+    /// monotonic counter that starts at 0 and increases by 1 for each output document.
+    pub add_record_offset: Option<JsonPointer>,
 
     /// Static data to add to each output JSON document.
     #[serde(default)]
@@ -180,8 +179,8 @@ impl ParseConfig {
         if other.content_type.is_some() {
             self.content_type = other.content_type.clone();
         }
-        if other.add_source_offset.is_some() {
-            self.add_source_offset = other.add_source_offset.clone();
+        if other.add_record_offset.is_some() {
+            self.add_record_offset = other.add_record_offset.clone();
         }
         self.add_values.extend(
             other
@@ -219,7 +218,7 @@ impl Default for ParseConfig {
             format: None,
             filename: None,
             content_type: None,
-            add_source_offset: None,
+            add_record_offset: None,
             add_values: BTreeMap::new(),
             projections: BTreeMap::new(),
             schema: Value::Bool(true),
@@ -229,7 +228,7 @@ impl Default for ParseConfig {
 }
 
 fn default_file_extension_mappings() -> BTreeMap<String, Format> {
-    (&[("jsonl", Format::Jsonl), ("json", Format::Json)])
+    (&[("jsonl", Format::Json), ("json", Format::Json)])
         .iter()
         .map(|(k, v)| (k.to_string(), *v))
         .collect()

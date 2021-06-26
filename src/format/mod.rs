@@ -1,10 +1,9 @@
 mod json;
-mod jsonl;
 
-use crate::decorate::AddFieldError;
+use crate::decorate::{AddFieldError, Decorator};
 use crate::{Format, ParseConfig};
 use serde_json::Value;
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 
 /// Error type returned by all parse operations.
@@ -21,8 +20,6 @@ pub enum ParseError {
     #[error("unsupported format: '{0}'")]
     UnsupportedFormat(String),
 
-    #[error("at line number: {0}: {1}")]
-    AtLine(u64, Box<ParseError>),
     #[error("failed to read stream: {0}")]
     Io(#[from] io::Error),
 
@@ -31,15 +28,6 @@ pub enum ParseError {
 
     #[error("adding fields to json: {0}")]
     AddFields(#[from] AddFieldError),
-}
-
-impl ParseError {
-    fn locate_line(self, line: u64) -> Self {
-        match self {
-            ParseError::AtLine(_, err) => ParseError::AtLine(line, err),
-            other => ParseError::AtLine(line, Box::new(other)),
-        }
-    }
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -84,12 +72,11 @@ pub fn parse(
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
     let output = parser.parse(&config, content)?;
-    format_output(output, dest)
+    format_output(&config, output, dest)
 }
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
-        Format::Jsonl => jsonl::new_parser(),
         Format::Json => json::new_parser(),
     }
 }
@@ -113,27 +100,30 @@ pub trait Parser {
 }
 
 /// Takes the output of a parser and writes it to the given destination, generally stdout.
-fn format_output(output: Output, dest: &mut impl io::Write) -> Result<(), ParseError> {
-    let mut buffer = Vec::with_capacity(1024);
+fn format_output(
+    config: &ParseConfig,
+    output: Output,
+    dest: &mut impl io::Write,
+) -> Result<(), ParseError> {
+    let decorator = Decorator::from_config(config);
+    let mut buffer = io::BufWriter::new(dest);
     let mut record_count = 0u64;
     for result in output {
-        let value = match result {
-            Ok(value) => value,
-            Err(e) => {
-                tracing::warn!(
-                    record_count = record_count,
-                    "parsing failed after {} records",
-                    record_count
-                );
-                return Err(e);
-            }
-        };
-        record_count += 1;
-        buffer.clear();
+        let mut value = result.map_err(|e| {
+            tracing::warn!(
+                record_count = record_count,
+                "parsing failed after {} records",
+                record_count
+            );
+            e
+        })?;
+
+        decorator.add_fields(record_count, &mut value)?;
         serde_json::to_writer(&mut buffer, &value)?;
-        buffer.push(b'\n');
-        dest.write_all(buffer.as_slice())?;
+        buffer.write(&[b'\n'])?;
+        record_count += 1;
     }
+    buffer.flush()?;
     tracing::info!(record_count = record_count, "successfully finished parsing");
     Ok(())
 }
