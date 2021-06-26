@@ -76,7 +76,7 @@ pub fn resolve_config(config: &ParseConfig, _content: Input) -> Result<ParseConf
 pub fn parse(
     config: &ParseConfig,
     content: Input,
-    dest: Box<dyn io::Write>,
+    dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
     // TODO: peek at the content and remove this empty placeholder
     let config = resolve_config(config, Box::new(io::empty()))?;
@@ -113,7 +113,8 @@ pub trait Parser {
 }
 
 /// Takes the output of a parser and writes it to the given destination, generally stdout.
-fn format_output(output: Output, mut dest: Box<dyn io::Write>) -> Result<(), ParseError> {
+fn format_output(output: Output, dest: &mut impl io::Write) -> Result<(), ParseError> {
+    let mut buffer = Vec::with_capacity(1024);
     let mut record_count = 0u64;
     for result in output {
         let value = match result {
@@ -128,15 +129,10 @@ fn format_output(output: Output, mut dest: Box<dyn io::Write>) -> Result<(), Par
             }
         };
         record_count += 1;
-        serde_json::to_writer(&mut dest, &value)?;
-        dest.write_all(&[b'\n'])?;
-        // This flush is necessary in cases where the caller of the parser needs to associate lines
-        // of input and ouput. For example, the kinesis connector may expect that each kinesis
-        // records maps 1-1 with a single output line, so we need to ensure that every line is
-        // flushed, or else the caller may wait indefinitely on an output that's sitting in the
-        // stdout buffer. Eventually it will probably make sense to make this behavior configurable
-        // so we can avoid unnecessary calls to flush when possible.
-        dest.flush()?;
+        buffer.clear();
+        serde_json::to_writer(&mut buffer, &value)?;
+        buffer.push(b'\n');
+        dest.write_all(buffer.as_slice())?;
     }
     tracing::info!(record_count = record_count, "successfully finished parsing");
     Ok(())

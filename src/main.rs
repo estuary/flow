@@ -1,6 +1,9 @@
 use parser::{parse, Input, ParseConfig};
 use std::fs::File;
 use std::io;
+use std::mem::ManuallyDrop;
+use std::ops::DerefMut;
+use std::os::unix::io::FromRawFd;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -67,14 +70,17 @@ fn do_parse(parse_args: &ParseArgs) {
     let input: Input = if parse_args.file == "-" {
         Box::new(io::stdin())
     } else {
-        // TODO: maybe remove this?
         if config.filename.is_none() {
             config.filename = Some(parse_args.file.clone());
         }
         Box::new(File::open(parse_args.file.as_str()).or_bail("failed to open file"))
     };
-    let stdout = io::stdout();
-    parse(&config, input, Box::new(stdout)).or_bail("parsing failed");
+    // Rust's normal Stdout is line buffered and uses a mutex. We don't want any of that, so this
+    // creates a plain unbuffered writer from the raw file descriptor, which the internet assures
+    // me will always be 1. The ManuallyDrop is critical here, because you *can* close stdout,
+    // which would happen automatically when a File is dropped.
+    let mut stdout = ManuallyDrop::new(unsafe { File::from_raw_fd(1) });
+    parse(&config, input, stdout.deref_mut()).or_bail("parsing failed");
 }
 
 fn do_spec() {
