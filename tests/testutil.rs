@@ -18,6 +18,19 @@ pub struct CommandResult {
     pub exit_code: i32,
 }
 
+/// Returns the path to the parser executable, accounting for
+fn parser_exe() -> &'static str {
+    if cfg!(all(target_env = "musl", not(debug_assertions))) {
+        "./target/x86_64-unknown-linux-musl/release/parser"
+    } else if cfg!(all(target_env = "gnu", not(debug_assertions))) {
+        "./target/release/parser"
+    } else if cfg!(all(target_env = "gnu", debug_assertions)) {
+        "./target/debug/parser"
+    } else {
+        unimplemented!("unsupported compilation configuration")
+    }
+}
+
 pub fn run_test(config: &ParseConfig, mut input: Input) -> CommandResult {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
@@ -28,7 +41,7 @@ pub fn run_test(config: &ParseConfig, mut input: Input) -> CommandResult {
     serde_json::to_writer_pretty(&mut cfg_file, config).expect("failed to write config");
     std::mem::drop(cfg_file);
 
-    let mut process = Command::new("./target/debug/parser")
+    let mut process = Command::new(parser_exe())
         .args(&["parse", "--config-file", cfg_path.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
