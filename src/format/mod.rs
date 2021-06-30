@@ -128,20 +128,69 @@ fn format_output(
     Ok(())
 }
 
-/// Attempts to reoslve a Format using the remainder of the fields in the config.
+/// Attempts to reoslve a Format using the the fields in the config.
 fn determine_format(config: &ParseConfig) -> Option<Format> {
-    let from_ext = config
-        .filename
-        .as_deref()
-        .and_then(|filename| {
-            AsRef::<Path>::as_ref(filename)
-                .extension()
-                .map(|e| e.to_str().unwrap())
+    config
+        .format // If format is set, then use whatever it says
+        .clone()
+        .or_else(|| {
+            // Next try to lookup based on file extension. This will need to get a little more
+            // sophisticated in order to handle things like foo.json.gz, but that's being ignored
+            // for the moment since we don't handle decompression yet anyway.
+            config
+                .filename
+                .as_deref()
+                .and_then(|filename| {
+                    AsRef::<Path>::as_ref(filename)
+                        .extension()
+                        .map(|e| e.to_str().unwrap())
+                })
+                .and_then(|ext| config.file_extension_mappings.get(ext).cloned())
         })
-        .and_then(|ext| config.file_extension_mappings.get(ext).cloned());
-    if from_ext.is_some() {
-        return from_ext;
+        .or_else(|| {
+            config
+                .content_type
+                .as_deref()
+                .and_then(|content_type| config.content_type_mappings.get(content_type).cloned())
+        })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn format_is_determined_from_file_extension() {
+        let mut conf = ParseConfig {
+            filename: Some("whatever.json".to_string()),
+            content_type: Some("xml or something lol".to_string()),
+            ..Default::default()
+        };
+        assert_format_eq(Some(Format::Json), &conf);
+        conf.filename = Some("nope.jason".to_string());
+        assert_format_eq(None, &conf);
     }
 
-    None
+    #[test]
+    fn format_is_determined_from_content_type_when_it_cannot_be_determined_by_extension() {
+        let mut conf = ParseConfig {
+            filename: Some("whatever.whatever".to_string()),
+            content_type: Some("application/json".to_string()),
+            ..Default::default()
+        };
+        assert_format_eq(Some(Format::Json), &conf);
+        conf.content_type = Some("text/json".to_string());
+        assert_format_eq(Some(Format::Json), &conf);
+        conf.content_type = Some("wat".to_string());
+        assert_format_eq(None, &conf);
+    }
+
+    fn assert_format_eq(expected: Option<Format>, config: &ParseConfig) {
+        let actual = determine_format(config);
+        assert_eq!(
+            expected, actual,
+            "incorrect format determined from config: {:?}",
+            config
+        );
+    }
 }

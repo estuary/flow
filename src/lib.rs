@@ -151,6 +151,10 @@ pub struct ParseConfig {
     /// Mappings from file extensions to format identifiers.
     #[serde(default)]
     pub file_extension_mappings: BTreeMap<String, Format>,
+
+    /// Mappings from content types to format identifiers.
+    #[serde(default)]
+    pub content_type_mappings: BTreeMap<String, Format>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -221,10 +225,21 @@ impl Default for ParseConfig {
             add_record_offset: None,
             add_values: BTreeMap::new(),
             projections: BTreeMap::new(),
-            schema: Value::Bool(true),
+            schema: Value::Null,
             file_extension_mappings: default_file_extension_mappings(),
+            content_type_mappings: default_content_type_mappings(),
         }
     }
+}
+
+fn default_content_type_mappings() -> BTreeMap<String, Format> {
+    (&[
+        ("application/json", Format::Json),
+        ("text/json", Format::Json),
+    ])
+        .iter()
+        .map(|(k, v)| (k.to_string(), *v))
+        .collect()
 }
 
 fn default_file_extension_mappings() -> BTreeMap<String, Format> {
@@ -232,4 +247,64 @@ fn default_file_extension_mappings() -> BTreeMap<String, Format> {
         .iter()
         .map(|(k, v)| (k.to_string(), *v))
         .collect()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_override_from() {
+        let base: ParseConfig = serde_json::from_str(
+            r#"{
+            "format": "json",
+            "contentType": "nooooo",
+            "addValues": {
+                "/foo": "bar",
+                "/baz": 2
+            },
+            "projections": {
+                "weee": "wooo"
+            }
+        }"#,
+        )
+        .unwrap();
+        let actual = base.override_from(
+            &serde_json::from_str(
+                r#"{
+                    "contentType": "application/json",
+                    "addValues": {
+                        "/foo": "newFoo",
+                        "/new": "new"
+                    },
+                    "schema": true,
+                    "addRecordOffset": "/offset",
+                    "projections": {
+                        "fee": "fi"
+                    }
+                }"#,
+            )
+            .unwrap(),
+        );
+
+        let expected: ParseConfig = serde_json::from_str(
+            r#"{
+                "format": "json",
+                "contentType": "application/json",
+                "addValues": {
+                    "/baz": 2,
+                    "/foo": "newFoo",
+                    "/new": "new"
+                },
+                "schema": true,
+                "addRecordOffset": "/offset",
+                "projections": {
+                    "weee": "wooo",
+                    "fee": "fi"
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(expected, actual);
+    }
 }

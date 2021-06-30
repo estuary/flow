@@ -6,6 +6,8 @@ use std::ops::DerefMut;
 use std::os::unix::io::FromRawFd;
 use structopt::StructOpt;
 
+/// parser is a program that parses a variety of formats and emits records in jsonl format.
+/// Data can be passed either as a
 #[derive(Debug, StructOpt)]
 pub struct Args {
     #[structopt(long, global = true, default_value = "warn", env = "PARSER_LOG")]
@@ -17,14 +19,16 @@ pub struct Args {
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
+    /// Parse the given `--file` (stdin by default) and print the parsed records in jsonl format.
     Parse(ParseArgs),
-    //Detect(ParseArgs),
+    /// Prints a JSON schema of the configuration file.
     Spec,
 }
 
 #[derive(Debug, StructOpt)]
 pub struct ParseArgs {
-    /// Path to the configuration file to use for the parse operation
+    /// Path to the configuration file to use for the parse operation. Run the `spec` subcommand to
+    /// see the JSON schema of the config file, which includes descriptions of all the fields.
     #[structopt(long = "config-file", env = "PARSE_CONFIG_FILE")]
     pub config_file: Option<String>,
 
@@ -42,7 +46,7 @@ fn main() {
     let args = Args::from_args();
 
     // Logs are written to stderr in jsonl format, which seems appropriate given that the same
-    // format is used for everythign else too.
+    // format is used for parse output.
     tracing_subscriber::fmt()
         .json()
         .with_span_list(false) // excludes the "spans" array from the output
