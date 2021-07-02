@@ -1,6 +1,5 @@
-//! Parser for the json format. This is similar to jsonl, but more lax because it allows any amount
-//! of whitespace (including newlines) within and in between records. The source offset for this
-//! parser is in terms of bytes, not lines, unlike jsonl.
+//! Parser for the json format. This will accept any stream of JSON values separated by whitespace.
+//! It allows any amount of whitespace (including newlines) within and in between records.
 use super::{Input, Output, ParseError, Parser};
 use crate::ParseConfig;
 
