@@ -47,6 +47,8 @@ pub enum Error {
     },
     #[error("referenced schema fragment location {schema} does not exist")]
     NoSuchSchema { schema: Url },
+    #[error("collection {collection} key cannot be empty")]
+    CollectionKeyEmpty { collection: String },
     #[error(
         "keyed location {ptr} (having type {type_:?}) must be required to exist by schema {schema}"
     )]
