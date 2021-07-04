@@ -58,6 +58,13 @@ fn walk_collection(
         errors,
     );
 
+    if key.is_empty() {
+        Error::CollectionKeyEmpty {
+            collection: name.to_string(),
+        }
+        .push(scope, errors);
+    }
+
     let schema = schema_shapes.iter().find(|s| s.schema == *schema).unwrap();
     let _ = schema::walk_composite_key(scope, key, schema, errors);
 
