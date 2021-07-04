@@ -481,6 +481,19 @@ test://example/int-halve:
 }
 
 #[test]
+fn test_collection_key_empty() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      key: []
+"#,
+    );
+}
+
+#[test]
 fn test_shuffle_key_empty() {
     run_test_errors(
         &GOLDEN,
