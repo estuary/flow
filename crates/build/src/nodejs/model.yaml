@@ -77,4 +77,5 @@ test://example/int-number.schema:
   properties:
     int: { type: integer }
     num: { type: number }
+    need's esc"aping!: { type: boolean }
   required: [int, num]
