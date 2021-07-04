@@ -113,6 +113,7 @@ expression: intents
     // Referenced as schema of sub/module.yaml#/collections/local~1derivation.
     export type LocalDerivation = {
         int: number;
+        "need's esc\"aping!"?: boolean;
         num: number;
     };
     

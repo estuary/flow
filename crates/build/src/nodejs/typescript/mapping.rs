@@ -4,6 +4,7 @@ use doc::{
     SchemaIndex,
 };
 use json::schema::types;
+use regex::Regex;
 use std::collections::BTreeMap;
 
 pub struct Mapper<'a> {
@@ -104,8 +105,14 @@ impl<'a> Mapper<'a> {
         let mut props: Vec<ASTProperty> = Vec::new();
 
         for prop in &obj.properties {
+            let field = if TS_VARIABLE_RE.is_match(&prop.name) {
+                prop.name.clone()
+            } else {
+                format!("{:?}", prop.name)
+            };
+
             props.push(ASTProperty {
-                field: prop.name.clone(),
+                field,
                 value: self.to_ast(&prop.shape),
                 is_required: prop.is_required,
             });
@@ -185,4 +192,9 @@ impl<'a> Mapper<'a> {
             min_items: obj.min.unwrap_or(0),
         })
     }
+}
+
+lazy_static::lazy_static! {
+    // The set of allowed characters in a bare TypeScript variable name.
+    static ref TS_VARIABLE_RE : Regex = Regex::new(r"^\pL[\pL\pN_]*$").unwrap();
 }
