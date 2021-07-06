@@ -40,8 +40,8 @@ pub mod discover_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// A recommended display name for this discovered binding.
-        #[prost(string, repeated, tag="1")]
-        pub recommended_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(string, tag="1")]
+        pub recommended_name: ::prost::alloc::string::String,
         /// JSON-encoded object which specifies the endpoint resource to be captured.
         #[prost(string, tag="2")]
         pub resource_spec_json: ::prost::alloc::string::String,
@@ -120,6 +120,10 @@ pub struct CaptureRequest {
     /// Or empty, if the driver hasn't returned a checkpoint.
     #[prost(bytes="vec", tag="4")]
     pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
+    /// If true, perform a blocking tail of the capture.
+    /// If false, produce all ready output and then close the stream.
+    #[prost(bool, tag="5")]
+    pub tail: bool,
 }
 /// CaptureResponse is the response type of a Capture RPC.
 /// It will have exactly one top-level field set, which represents its message
