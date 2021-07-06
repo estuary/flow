@@ -17,7 +17,7 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Derive wires the high-level runtime of the derive consumer flow.
+// Derive is a top-level Application which implements the derivation workflow.
 type Derive struct {
 	// Derive binding that's used for the life of the derivation shard.
 	binding *bindings.Derive
@@ -29,7 +29,7 @@ type Derive struct {
 	recorder *recoverylog.Recorder
 	// Embedded task processing state scoped to a current task revision.
 	// Updated in RestoreCheckpoint.
-	taskTerm
+	shuffleTaskTerm
 }
 
 var _ Application = (*Derive)(nil)
@@ -45,11 +45,11 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 	}
 
 	var derive = &Derive{
-		binding:     binding,
-		coordinator: coordinator,
-		host:        host,
-		recorder:    recorder,
-		taskTerm:    taskTerm{},
+		binding:         binding,
+		coordinator:     coordinator,
+		host:            host,
+		recorder:        recorder,
+		shuffleTaskTerm: shuffleTaskTerm{},
 	}
 	return derive, nil
 }
@@ -58,7 +58,7 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 // configures the API binding delegate, and restores the last checkpoint.
 // It implements the consumer.Store interface.
 func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err error) {
-	if err = d.taskTerm.initTerm(shard, d.host); err != nil {
+	if err = d.initShuffleTerm(shard, d.host); err != nil {
 		return cp, err
 	} else if d.task.Derivation == nil {
 		return cp, fmt.Errorf("catalog task %q is not a derivation", d.task.Name())

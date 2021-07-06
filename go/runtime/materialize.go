@@ -19,7 +19,7 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Materialize is the high-level runtime of the materialization consumer workflow.
+// Materialize is a top-level Application which implements the materialization workflow.
 type Materialize struct {
 	// Combiners of the materialization, one for each current binding.
 	combiners []*bindings.Combine
@@ -50,7 +50,7 @@ type Materialize struct {
 	store *consumer.JSONFileStore
 	// Embedded task processing state scoped to a current task revision.
 	// Updated in RestoreCheckpoint.
-	taskTerm
+	shuffleTaskTerm
 }
 
 var _ Application = (*Materialize)(nil)
@@ -59,7 +59,7 @@ type storeState struct {
 	DriverCheckpoint json.RawMessage
 }
 
-// NewMaterializeApp returns a new Materialize, which implements Application
+// NewMaterializeApp returns a new Materialize, which implements Application.
 func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
 	var store, err = consumer.NewJSONFileStore(recorder, new(storeState))
@@ -72,17 +72,17 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	committed.Resolve(nil)
 
 	return &Materialize{
-		combiners:   nil,
-		committed:   committed,
-		coordinator: coordinator,
-		host:        host,
-		localDir:    recorder.Dir(),
-		driverRx:    nil,
-		driverTx:    nil,
-		flighted:    nil,
-		request:     nil,
-		store:       store,
-		taskTerm:    taskTerm{},
+		combiners:       nil,
+		committed:       committed,
+		coordinator:     coordinator,
+		host:            host,
+		localDir:        recorder.Dir(),
+		driverRx:        nil,
+		driverTx:        nil,
+		flighted:        nil,
+		request:         nil,
+		store:           store,
+		shuffleTaskTerm: shuffleTaskTerm{},
 	}, nil
 }
 
@@ -101,7 +101,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		_ = m.driverTx.CloseSend()
 	}
 
-	if err = m.taskTerm.initTerm(shard, m.host); err != nil {
+	if err = m.initShuffleTerm(shard, m.host); err != nil {
 		return cp, err
 	} else if m.task.Materialization == nil {
 		return cp, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
