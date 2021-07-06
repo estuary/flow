@@ -321,6 +321,9 @@ pub struct CaptureSpec {
     pub endpoint_spec_json: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="4")]
     pub bindings: ::prost::alloc::vec::Vec<capture_spec::Binding>,
+    /// Minimum interval of time between successive invocations of the capture.
+    #[prost(uint32, tag="5")]
+    pub interval_seconds: u32,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -348,13 +351,13 @@ pub struct MaterializationSpec {
     #[prost(string, tag="1")]
     pub materialization: ::prost::alloc::string::String,
     /// Type of the materialization's endpoint.
-    #[prost(enumeration="EndpointType", tag="3")]
+    #[prost(enumeration="EndpointType", tag="2")]
     pub endpoint_type: i32,
     /// JSON-encoded object which specifies this materialization with
     /// respect to the endpoint type driver.
-    #[prost(string, tag="4")]
+    #[prost(string, tag="3")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag="5")]
+    #[prost(message, repeated, tag="4")]
     pub bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
 }
 /// Nested message and enum types in `MaterializationSpec`.

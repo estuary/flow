@@ -62,7 +62,7 @@ message DiscoverResponse {
   // Bindings may be returned in any order.
   message Binding {
     // A recommended display name for this discovered binding.
-    repeated string recommended_name = 1;
+    string recommended_name = 1;
     // JSON-encoded object which specifies the endpoint resource to be captured.
     string resource_spec_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
@@ -135,6 +135,9 @@ message CaptureRequest {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "driverCheckpoint"
   ];
+  // If true, perform a blocking tail of the capture.
+  // If false, produce all ready output and then close the stream.
+  bool tail = 5;
 }
 
 // CaptureResponse is the response type of a Capture RPC.
