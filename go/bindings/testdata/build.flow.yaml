@@ -28,13 +28,14 @@ captures:
   example/capture:
     endpoint:
       airbyteSource:
-        image: estuary/s3
+        image: ghcr.io/estuary/source-hello-world:897f766-dirty
         config:
-          bucket: bucket
-          prefix: prefix
+          greetings: 1000
     bindings:
-      - target: a/collection
-        resource: { stream: a/stream }
+      - resource:
+          stream: greetings
+          syncMode: incremental
+        target: a/collection
 
 materializations:
   example/materialization:

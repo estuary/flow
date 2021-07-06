@@ -135,6 +135,7 @@ All {
                         ),
                     },
                 ],
+                interval_seconds: 300,
             },
         },
         BuiltCapture {
@@ -367,6 +368,7 @@ All {
                         ),
                     },
                 ],
+                interval_seconds: 600,
             },
         },
     ],
@@ -2097,12 +2099,14 @@ All {
             capture: testing/db-cdc,
             endpoint_type: "AirbyteSource",
             endpoint_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database"},
+            interval_seconds: 300,
         },
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
             endpoint_type: "AirbyteSource",
             endpoint_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"},
+            interval_seconds: 600,
         },
     ],
     collections: [

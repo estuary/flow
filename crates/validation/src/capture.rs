@@ -64,21 +64,28 @@ pub async fn walk_all_captures<D: Drivers>(
     }
 
     // Run all validations concurrently.
-    let validations = validations
-        .into_iter()
-        .map(|(scope, binding_models, request)| async move {
-            drivers
-                .validate_capture(request.clone())
-                .map(|response| (scope, binding_models, request, response))
-                .await
-        });
+    let validations =
+        validations
+            .into_iter()
+            .map(|(capture, binding_models, request)| async move {
+                drivers
+                    .validate_capture(request.clone())
+                    .map(|response| (capture, binding_models, request, response))
+                    .await
+            });
     let validations = futures::future::join_all(validations).await;
 
     let mut built_captures = tables::BuiltCaptures::new();
 
-    for (scope, binding_models, request, response) in validations {
+    for (capture, binding_models, request, response) in validations {
         match response {
             Ok(response) => {
+                let tables::Capture {
+                    scope,
+                    interval_seconds,
+                    ..
+                } = capture;
+
                 let capture::ValidateRequest {
                     endpoint_type,
                     endpoint_spec_json,
@@ -106,7 +113,7 @@ pub async fn walk_all_captures<D: Drivers>(
                 }
 
                 // Join requests, responses and models to produce tuples
-                // of (scope, built binding).
+                // of (binding scope, built binding).
                 let bindings: Vec<_> = binding_requests
                     .into_iter()
                     .zip(binding_responses.into_iter())
@@ -155,6 +162,7 @@ pub async fn walk_all_captures<D: Drivers>(
                     endpoint_type,
                     endpoint_spec_json,
                     bindings,
+                    interval_seconds: *interval_seconds,
                 };
                 built_captures.push_row(scope, name, spec);
             }
@@ -163,7 +171,7 @@ pub async fn walk_all_captures<D: Drivers>(
                     name: request.capture,
                     detail: err,
                 }
-                .push(scope, errors);
+                .push(&capture.scope, errors);
             }
         }
     }
@@ -180,15 +188,16 @@ fn walk_capture_request<'a>(
     imports: &[&tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<(
-    &'a url::Url,
+    &'a tables::Capture,
     Vec<&'a tables::CaptureBinding>,
     capture::ValidateRequest,
 )> {
     let tables::Capture {
-        scope,
+        scope: _,
         capture: name,
         endpoint_type,
         endpoint_spec,
+        interval_seconds: _,
     } = capture;
 
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
@@ -213,7 +222,7 @@ fn walk_capture_request<'a>(
         endpoint_spec_json: endpoint_spec.to_string(),
     };
 
-    Some((scope, binding_models, request))
+    Some((capture, binding_models, request))
 }
 
 fn walk_capture_binding<'a>(

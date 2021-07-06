@@ -48,6 +48,7 @@ test://example/int-string-captures:
           config:
             bucket: a-bucket
             prefix: and-prefix
+      interval: 10m
       bindings:
         - target: testing/int-string
           resource: { stream: a-stream }
