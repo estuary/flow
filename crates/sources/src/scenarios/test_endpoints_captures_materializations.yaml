@@ -7,15 +7,18 @@ test://example/catalog.yaml:
           config:
             bucket: foobar
             prefix: path/prefix
+      # Use default interval.
       bindings:
         - target: a/collection
           resource: { stream: "contents" }
         - target: other/collection
           resource: { extra: "stuff" }
+
     capture/second:
       endpoint:
         remote:
           address: http://example/driver
+      interval: 3m
       bindings:
         - target: third/collection
           resource: {}

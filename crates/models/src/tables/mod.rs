@@ -123,6 +123,8 @@ tables!(
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
         endpoint_spec: serde_json::Value,
+        // Interval between invocations of the capture.
+        interval_seconds: u32,
     }
 
     table CaptureBindings (row CaptureBinding, sql "capture_bindings") {

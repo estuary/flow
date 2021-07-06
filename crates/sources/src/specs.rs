@@ -505,6 +505,19 @@ pub struct CaptureDef {
     pub endpoint: CaptureEndpoint,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
+    /// # Interval of time between invocations of the capture.
+    /// Configured intervals are applicable only to connectors which are
+    /// unable to continuously tail their source, and which instead produce
+    /// a current quantity of output and then exit. Flow will start the
+    /// connector again after the given interval of time has passed.
+    ///
+    /// Intervals are relative to the start of an invocation and not its completion.
+    /// For example, if the interval is five minutes, and an invocation of the
+    /// capture finishes after two minutes, then the next invocation will be started
+    /// after three additional minutes.
+    #[serde(default = "CaptureDef::default_interval", with = "humantime_serde")]
+    #[schemars(schema_with = "CaptureDef::interval_schema")]
+    pub interval: Duration,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
