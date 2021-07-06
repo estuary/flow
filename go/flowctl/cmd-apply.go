@@ -120,6 +120,10 @@ func (cmd cmdApply) Execute(_ []string) error {
 	}).Debug("applied catalog to Etcd")
 
 	if !cmd.DryRun {
+		// Apply capture shard specs.
+		if err = applyCaptureShards(built, shards); err != nil {
+			return fmt.Errorf("applying capture shards: %w", err)
+		}
 		// Apply derivation shard specs.
 		if err = applyDerivationShards(built, shards); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
@@ -175,6 +179,55 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 		ptr = "<root>"
 	}
 	return path, ptr
+}
+
+func applyCaptureShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
+	var changes []pc.ApplyRequest_Change
+
+	for _, spec := range built.Captures {
+		var labels = pb.MustLabelSet(
+			labels.ManagedBy, flowLabels.ManagedByFlow,
+			flowLabels.TaskName, spec.Capture.String(),
+			flowLabels.TaskType, flowLabels.TaskTypeCapture,
+			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
+			flowLabels.KeyEnd, flowLabels.KeyEndMax,
+			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
+			flowLabels.RClockEnd, flowLabels.RClockEndMax,
+		)
+		var id, err = flowLabels.BuildShardID(labels)
+		if err != nil {
+			return fmt.Errorf("building shard ID: %w", err)
+		}
+
+		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
+		})
+		if err != nil {
+			return fmt.Errorf("listing shard %s: %w", id, err)
+		}
+
+		if len(resp.Shards) == 0 {
+			log.WithField("id", id).Debug("will create capture shard")
+			changes = append(changes, pc.ApplyRequest_Change{
+				Upsert: &pc.ShardSpec{
+					Id:                id,
+					Sources:           nil,
+					RecoveryLogPrefix: "recovery",
+					HintPrefix:        "/estuary/flow/hints",
+					HintBackups:       2,
+					MaxTxnDuration:    time.Minute,
+					MinTxnDuration:    0,
+					HotStandbys:       0,
+					LabelSet:          labels,
+				},
+				ExpectModRevision: 0, // Apply fails if it exists.
+			})
+		}
+	}
+
+	var _, err = consumer.ApplyShards(context.Background(),
+		shards, &pc.ApplyRequest{Changes: changes})
+	return err
 }
 
 func applyDerivationShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
