@@ -4,6 +4,7 @@ use models::names;
 use schemars::schema;
 use serde_json::{from_value, json, Value};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 impl Catalog {
     pub fn default_node_dependencies() -> BTreeMap<String, String> {
@@ -165,6 +166,16 @@ impl MaterializationFields {
             exclude: vec!["removed".to_string()],
             recommended: true,
         }
+    }
+}
+
+impl CaptureDef {
+    pub fn interval_schema(g: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
+        duration_schema(g)
+    }
+
+    pub fn default_interval() -> Duration {
+        Duration::from_secs(300) // 5 minutes.
     }
 }
 

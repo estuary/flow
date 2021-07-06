@@ -402,7 +402,11 @@ impl<F: Fetcher> Loader<F> {
         for (name, capture) in captures {
             let scope = scope.push_prop("captures");
             let scope = scope.push_prop(&name);
-            let specs::CaptureDef { endpoint, bindings } = capture;
+            let specs::CaptureDef {
+                endpoint,
+                bindings,
+                interval,
+            } = capture;
             let endpoint_type = endpoint.endpoint_type();
 
             if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint) {
@@ -411,6 +415,7 @@ impl<F: Fetcher> Loader<F> {
                     &name,
                     endpoint_type,
                     endpoint_spec,
+                    interval.as_secs() as u32,
                 );
             }
 
