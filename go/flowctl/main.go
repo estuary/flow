@@ -28,7 +28,22 @@ Split a Flow processing shard into two, either on shuffled key or rotated clock.
 `, &cmdSplit{})
 
 	addCmd(parser, "discover", "Discover available captures of an endpoint", `
-Discover available captures of an endpoint
+Inspect a configured endpoint, and generate a Flow catalog of collections,
+schemas, and capture bindings which reflect its available resources.
+
+Discover is a two-stage workflow:
+
+In the first invocation, the command will generate a stub
+configuration YAML derived from the connector's specification.
+The user reviews this YAML file, and updates it with appropriate
+credentials and configuration.
+
+In the second invocation, the command applies the completed
+configuration to the endpoint and determines its available resource
+bindings. It generates a Flow catalog YAML file with a Flow Capture
+and associated Collection definitions. The user may then review,
+update, refactor, and otherwise incorporate the generated entities
+into their broader Flow catalog.
 `, &cmdDiscover{})
 
 	addCmd(parser, "json-schema", "Print the catalog JSON schema", `

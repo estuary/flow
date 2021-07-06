@@ -134,6 +134,10 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	if err = applyMaterializations(built, false); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
+	// Apply capture shard specs.
+	if err = applyCaptureShards(built, cluster.Shards); err != nil {
+		return fmt.Errorf("applying capture shards: %w", err)
+	}
 	// Apply derivation shard specs.
 	if err = applyDerivationShards(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
