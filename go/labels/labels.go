@@ -38,6 +38,8 @@ const (
 	// TaskType of this shard's task.
 	// This is implied by the associated catalog task, and is informational.
 	TaskType = "estuary.dev/task-type"
+	// TaskTypeCapture is a "capture" TaskType.
+	TaskTypeCapture = "capture"
 	// TaskTypeDerivation is a "derivation" TaskType.
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
@@ -135,6 +137,8 @@ func BuildShardID(set pb.LabelSet) (pc.ShardID, error) {
 	}
 
 	switch type_ {
+	case TaskTypeCapture:
+		type_ = "capture"
 	case TaskTypeDerivation:
 		type_ = "derivation"
 	case TaskTypeMaterialization:

@@ -73,6 +73,8 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
+	case labels.TaskTypeCapture:
+		return NewCaptureApp(f, shard, rec)
 	case labels.TaskTypeDerivation:
 		return NewDeriveApp(f, shard, rec)
 	case labels.TaskTypeMaterialization:
