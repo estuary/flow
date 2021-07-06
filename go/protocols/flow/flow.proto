@@ -326,6 +326,8 @@ message CaptureSpec {
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
   }
   repeated Binding bindings = 4;
+  // Minimum interval of time between successive invocations of the capture.
+  uint32 interval_seconds = 5;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -334,10 +336,10 @@ message MaterializationSpec {
   // Name of this materialization.
   string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Type of the materialization's endpoint.
-  EndpointType endpoint_type = 3;
+  EndpointType endpoint_type = 2;
   // JSON-encoded object which specifies this materialization with
   // respect to the endpoint type driver.
-  string endpoint_spec_json = 4 [
+  string endpoint_spec_json = 3 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
@@ -361,7 +363,7 @@ message MaterializationSpec {
     // Shuffle applied to collection documents for this materialization binding.
     Shuffle shuffle = 6 [ (gogoproto.nullable) = false ];
   }
-  repeated Binding bindings = 5;
+  repeated Binding bindings = 4;
 }
 
 // TestSpec describes a catalog test.
