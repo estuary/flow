@@ -91,7 +91,16 @@ fn do_spec() {
     let mut settings = schemars::gen::SchemaSettings::draft07();
     settings.option_add_null_type = false;
     let generator = schemars::gen::SchemaGenerator::new(settings);
-    let schema = generator.into_root_schema_for::<ParseConfig>();
+    let mut schema = generator.into_root_schema_for::<ParseConfig>();
+
+    // Add a UUID as the $id of the schema. This allows the resulting schema to be nested within
+    // other schemas, since any $ref uris will be resolved relative to the $id.
+    let id = uuid::Uuid::new_v4().to_string();
+    if let Some(meta) = schema.schema.metadata.as_mut() {
+        meta.id = Some(id);
+    } else {
+        unreachable!("schema should always have metadata");
+    }
     serde_json::to_writer_pretty(io::stdout(), &schema).or_bail("failed to write schema");
 }
 

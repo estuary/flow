@@ -15,6 +15,7 @@ url = "*"
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = "*"
+uuid = {version = "*", features = ["v4"]}
 
 # TODO: update this depedency spec once we publish the json crate to crates.io
 json = {git = "https://github.com/estuary/flow"}
