@@ -7,14 +7,18 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-structopt = "*"
+bytes = "*"
+chardetng = "*"
+encoding_rs = "*"
+schemars = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
-schemars = "*"
-url = "*"
+structopt = "*"
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = "*"
+unicode-bom = "*"
+url = "*"
 uuid = {version = "*", features = ["v4"]}
 
 # TODO: update this depedency spec once we publish the json crate to crates.io

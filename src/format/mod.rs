@@ -1,6 +1,7 @@
 mod json;
 
 use crate::decorate::{AddFieldError, Decorator};
+use crate::input::Input;
 use crate::{Format, ParseConfig};
 use serde_json::Value;
 use std::io::{self, Write};
@@ -67,7 +68,7 @@ pub fn parse(
     dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
     // TODO: peek at the content and remove this empty placeholder
-    let config = resolve_config(config, Box::new(io::empty()))?;
+    let config = resolve_config(config, Input::Stream(Box::new(io::empty())))?;
     tracing::debug!(action = "resolved config", result = ?config);
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
@@ -80,11 +81,6 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::Json => json::new_parser(),
     }
 }
-
-/// Type of content input provided to parsers. We use a trait object here so that we have
-/// flexibility to read from different implementations without needing parsers to be generic over
-/// the type of input.
-pub type Input = Box<dyn io::Read>;
 
 /// Type of output returned by a parser, which will lazily return parsed JSON or an error. Once an
 /// error is returned, the iterator will not be polled again.

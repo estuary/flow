@@ -9,7 +9,7 @@ use tempdir::TempDir;
 
 pub fn input_for_file(rel_path: impl AsRef<Path>) -> Input {
     let file = File::open(rel_path).expect("failed to open file");
-    Box::new(file)
+    Input::File(file)
 }
 
 pub struct CommandResult {
@@ -31,7 +31,7 @@ fn parser_exe() -> &'static str {
     }
 }
 
-pub fn run_test(config: &ParseConfig, mut input: Input) -> CommandResult {
+pub fn run_test(config: &ParseConfig, input: Input) -> CommandResult {
     use std::io::BufRead;
     use std::process::{Command, Stdio};
 
@@ -50,6 +50,7 @@ pub fn run_test(config: &ParseConfig, mut input: Input) -> CommandResult {
         .spawn()
         .expect("failed to spawn parser process");
 
+    let mut input = input.into_buffered_stream(8192);
     let copy_result = std::io::copy(&mut input, &mut process.stdin.take().unwrap());
     let output = process
         .wait_with_output()

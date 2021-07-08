@@ -1,5 +1,6 @@
 mod decorate;
 mod format;
+mod input;
 
 use schemars::{gen, schema as schemagen};
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-pub use self::format::{parse, Input, Output, ParseError, Parser};
+pub use self::format::{parse, Output, ParseError, Parser};
+pub use self::input::Input;
 
 #[derive(
     Eq, PartialEq, Hash, PartialOrd, Ord, Clone, Debug, schemars::JsonSchema, Serialize, Deserialize,
