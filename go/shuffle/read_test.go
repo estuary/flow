@@ -22,7 +22,7 @@ func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
 		ranges                       = labels.MustParseRangeSpec(allShards[0].LabelSet)
-		shuffles                     = TaskShuffles(task)
+		shuffles                     = task.Shuffles()
 		rb, rbErr                    = NewReadBuilder(
 			nil, // Service is not used.
 			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
@@ -324,7 +324,7 @@ func TestReadSendBackoffAndCancel(t *testing.T) {
 
 func TestWalkingReads(t *testing.T) {
 	var journals, shards, task = buildReadTestJournalsAndTransforms()
-	var shuffles = TaskShuffles(task)
+	var shuffles = task.Shuffles()
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {

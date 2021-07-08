@@ -149,7 +149,7 @@ func TestConsumerIntegration(t *testing.T) {
 			App: &testApp{
 				journals:   journals,
 				catalog:    catalog,
-				shuffles:   TaskShuffles(&pf.CatalogTask{Derivation: &built.Derivations[0]}),
+				shuffles:   (&pf.CatalogTask{Derivation: &built.Derivations[0]}).Shuffles(),
 				commonsID:  commonsID,
 				commonsRev: commonsRev,
 			},
