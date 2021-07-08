@@ -86,7 +86,7 @@ func (t *shuffleTaskTerm) initShuffleTerm(shard consumer.Shard, host *FlowConsum
 		return err
 	}
 
-	t.shuffles = shuffle.TaskShuffles(t.task)
+	t.shuffles = t.task.Shuffles()
 	// Guard against a raced call to ReadThrough().
 	t.readThroughMu.Lock()
 	defer t.readThroughMu.Unlock()

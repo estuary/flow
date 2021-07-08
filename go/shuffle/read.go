@@ -18,26 +18,6 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// TaskShuffles extracts a []*pf.Shuffle slice from a CatalogTask.
-func TaskShuffles(task *pf.CatalogTask) []*pf.Shuffle {
-	if task.Derivation != nil {
-		var shuffles = make([]*pf.Shuffle, len(task.Derivation.Transforms))
-		for i := range task.Derivation.Transforms {
-			shuffles[i] = &task.Derivation.Transforms[i].Shuffle
-		}
-		return shuffles
-	}
-
-	if task.Materialization != nil {
-		var shuffles = make([]*pf.Shuffle, len(task.Materialization.Bindings))
-		for i := range task.Materialization.Bindings {
-			shuffles[i] = &task.Materialization.Bindings[i].Shuffle
-		}
-		return shuffles
-	}
-	return nil
-}
-
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
 	service    *consumer.Service

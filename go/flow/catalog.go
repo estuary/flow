@@ -161,6 +161,20 @@ func (c Catalog) SignalOnTaskUpdate(ctx context.Context, name string, revision i
 	}()
 }
 
+// AllTasks returns a slice of all CatalogTasks.
+func (c Catalog) AllTasks() []*pf.CatalogTask {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	var tasks = c.Prefixed(c.Root + TasksPrefix)
+	var out = make([]*pf.CatalogTask, len(tasks))
+
+	for i, kv := range tasks {
+		out[i] = kv.Decoded.(*pf.CatalogTask)
+	}
+	return out
+}
+
 // ApplyArgs are arguments to ApplyCatalogToEtcd.
 type ApplyArgs struct {
 	Ctx                  context.Context
