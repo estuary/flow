@@ -112,6 +112,29 @@ func (m *CatalogTask) Name() string {
 	}
 }
 
+// Shuffles returns the []*Shuffles of this CatalogTask.
+func (m *CatalogTask) Shuffles() []*Shuffle {
+	// Captures have no shuffles.
+
+	if m.Derivation != nil {
+		var shuffles = make([]*Shuffle, len(m.Derivation.Transforms))
+		for i := range m.Derivation.Transforms {
+			shuffles[i] = &m.Derivation.Transforms[i].Shuffle
+		}
+		return shuffles
+	}
+
+	if m.Materialization != nil {
+		var shuffles = make([]*Shuffle, len(m.Materialization.Bindings))
+		for i := range m.Materialization.Bindings {
+			shuffles[i] = &m.Materialization.Bindings[i].Shuffle
+		}
+		return shuffles
+	}
+
+	return nil
+}
+
 // Validate returns an error if the Commons is invalid.
 func (m *CatalogCommons) Validate() error {
 	if m.CommonsId == "" {

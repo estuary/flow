@@ -31,7 +31,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 			if err != nil {
 				return scope, fmt.Errorf("driver.Stat: %w", err)
 			}
-			graph.CompletedStat(stat.Derivation, read, write)
+			graph.CompletedStat(stat.TaskName, read, write)
 		}
 
 		// If we completed stats, loop again to look for more ready stats.
@@ -58,7 +58,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 
 		// Verify steps may run only if no dependent PendingStats remain.
 		if step != nil && step.StepType == pf.TestSpec_Step_VERIFY &&
-			!graph.HasPendingParent(step.Collection) {
+			!graph.HasPendingWrite(step.Collection) {
 
 			if err := driver.Verify(test, testStep, initial, graph.writeClock); err != nil {
 				return scope, fmt.Errorf("verify: %w", err)

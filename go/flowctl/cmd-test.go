@@ -150,7 +150,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return built.Tests[i].Steps[0].StepScope < built.Tests[j].Steps[0].StepScope
 	})
 
-	var graph = testing.NewGraph(built.Derivations)
+	var graph = testing.NewGraph(cluster.Consumer.Catalog.AllTasks())
 	var failed []string
 	fmt.Println("Running ", len(built.Tests), " tests...")
 

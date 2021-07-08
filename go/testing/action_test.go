@@ -30,7 +30,7 @@ func TestTestCaseExecution(t *testing.T) {
 
 	// Stat of B from "A-to-B-fast" is immediately ready.
 	driver.On("Stat", PendingStat{
-		Derivation:  "B",
+		TaskName:    "B",
 		ReadyAt:     0,
 		ReadThrough: clockFixtureOne(1, "A/data;derive/B/A-to-B-fast", 1),
 	}).Return(
@@ -44,7 +44,7 @@ func TestTestCaseExecution(t *testing.T) {
 
 	// "A-to-Y" unblocks first.
 	driver.On("Stat", PendingStat{
-		Derivation:  "Y",
+		TaskName:    "Y",
 		ReadyAt:     TestTime(2 * time.Second),
 		ReadThrough: clockFixtureOne(1, "A/data;derive/Y/A-to-Y", 1),
 	}).Return(
@@ -57,7 +57,7 @@ func TestTestCaseExecution(t *testing.T) {
 
 	// Now "A-to-B-slow" unblocks.
 	driver.On("Stat", PendingStat{
-		Derivation:  "B",
+		TaskName:    "B",
 		ReadyAt:     TestTime(3 * time.Second),
 		ReadThrough: clockFixtureOne(1, "A/data;derive/B/A-to-B-slow", 1),
 	}).Return(
@@ -77,7 +77,7 @@ func TestTestCaseExecution(t *testing.T) {
 
 	// "A-to-Z" unblocks.
 	driver.On("Stat", PendingStat{
-		Derivation:  "Z",
+		TaskName:    "Z",
 		ReadyAt:     TestTime(5 * time.Second),
 		ReadThrough: clockFixtureOne(1, "A/data;derive/Z/A-to-Z", 1),
 	}).Return(

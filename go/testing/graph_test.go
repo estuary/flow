@@ -24,18 +24,19 @@ func transformFixture(source pf.Collection, transform pf.Transform,
 	}
 }
 
-func derivationsFixture(transforms ...pf.TransformSpec) []pf.DerivationSpec {
+func derivationsFixture(transforms ...pf.TransformSpec) []*pf.CatalogTask {
 	var grouped = make(map[pf.Collection][]pf.TransformSpec)
 	for _, t := range transforms {
 		grouped[t.Derivation] = append(grouped[t.Derivation], t)
 	}
 
-	var out []pf.DerivationSpec
+	var out []*pf.CatalogTask
 	for _, group := range grouped {
-		out = append(out, pf.DerivationSpec{
-			Collection: pf.CollectionSpec{Collection: group[0].Derivation},
-			Transforms: group,
-		})
+		out = append(out, &pf.CatalogTask{
+			Derivation: &pf.DerivationSpec{
+				Collection: pf.CollectionSpec{Collection: group[0].Derivation},
+				Transforms: group,
+			}})
 	}
 	return out
 }
@@ -49,30 +50,30 @@ func TestGraphAntecedents(t *testing.T) {
 	)
 	var graph = NewGraph(derivations)
 
-	require.False(t, graph.HasPendingParent("A"))
-	require.False(t, graph.HasPendingParent("B"))
-	require.False(t, graph.HasPendingParent("C"))
-	require.False(t, graph.HasPendingParent("X"))
-	require.False(t, graph.HasPendingParent("Y"))
+	require.False(t, graph.HasPendingWrite("A"))
+	require.False(t, graph.HasPendingWrite("B"))
+	require.False(t, graph.HasPendingWrite("C"))
+	require.False(t, graph.HasPendingWrite("X"))
+	require.False(t, graph.HasPendingWrite("Y"))
 
 	graph.pending = append(graph.pending, PendingStat{
-		ReadyAt:    1,
-		Derivation: "B",
+		ReadyAt:  1,
+		TaskName: "B",
 	})
 
-	require.True(t, graph.HasPendingParent("A"))
-	require.True(t, graph.HasPendingParent("B"))
-	require.True(t, graph.HasPendingParent("C"))
-	require.False(t, graph.HasPendingParent("X"))
-	require.False(t, graph.HasPendingParent("Y"))
+	require.True(t, graph.HasPendingWrite("A"))
+	require.True(t, graph.HasPendingWrite("B"))
+	require.True(t, graph.HasPendingWrite("C"))
+	require.False(t, graph.HasPendingWrite("X"))
+	require.False(t, graph.HasPendingWrite("Y"))
 
 	graph.pending = append(graph.pending, PendingStat{
-		ReadyAt:    1,
-		Derivation: "Y",
+		ReadyAt:  1,
+		TaskName: "Y",
 	})
 
-	require.False(t, graph.HasPendingParent("X"))
-	require.True(t, graph.HasPendingParent("Y"))
+	require.False(t, graph.HasPendingWrite("X"))
+	require.True(t, graph.HasPendingWrite("Y"))
 }
 
 func TestGraphIngestProjection(t *testing.T) {
@@ -88,21 +89,21 @@ func TestGraphIngestProjection(t *testing.T) {
 
 	// Impose an ordering on (unordered) graph.pending.
 	sort.Slice(graph.pending, func(i, j int) bool {
-		return graph.pending[i].Derivation < graph.pending[j].Derivation
+		return graph.pending[i].TaskName < graph.pending[j].TaskName
 	})
 
 	// Expect PendingStats were created with reduced clocks.
 	require.Equal(t, []PendingStat{
 		{
-			ReadyAt:    TestTime(10 * time.Second),
-			Derivation: "B",
+			ReadyAt:  TestTime(10 * time.Second),
+			TaskName: "B",
 			ReadThrough: clockFixture(11,
 				[]string{"A/foo;derive/B/A-to-B", "A/bar;derive/B/A-to-B"},
 				[]int{2, 1}),
 		},
 		{
-			ReadyAt:    TestTime(5 * time.Second),
-			Derivation: "C",
+			ReadyAt:  TestTime(5 * time.Second),
+			TaskName: "C",
 			ReadThrough: clockFixture(11,
 				[]string{"A/foo;derive/C/A-to-C", "A/bar;derive/C/A-to-C"},
 				[]int{2, 1}),
@@ -139,7 +140,7 @@ func TestStatProjection(t *testing.T) {
 	require.Equal(t, []PendingStat{
 		{
 			ReadyAt:     0,
-			Derivation:  "C",
+			TaskName:    "C",
 			ReadThrough: clockFixtureOne(20, "B/data;derive/C/B-to-C", 2),
 		},
 	}, graph.pending)
@@ -183,8 +184,8 @@ func TestProjectionAlreadyRead(t *testing.T) {
 
 	require.Equal(t, []PendingStat{
 		{
-			ReadyAt:    0,
-			Derivation: "B",
+			ReadyAt:  0,
+			TaskName: "B",
 			ReadThrough: clockFixture(4,
 				[]string{"A/data;derive/B/A-to-B", "B/data;derive/B/B-to-B"}, []int{50, 60}),
 		},
@@ -204,9 +205,9 @@ func TestReadyStats(t *testing.T) {
 
 	// Install pending fixtures.
 	graph.pending = []PendingStat{
-		{ReadyAt: 10, Derivation: "A", ReadThrough: clockFixture(1, nil, nil)},
-		{ReadyAt: 10, Derivation: "B", ReadThrough: clockFixture(2, nil, nil)},
-		{ReadyAt: 5, Derivation: "C", ReadThrough: clockFixture(3, nil, nil)},
+		{ReadyAt: 10, TaskName: "A", ReadThrough: clockFixture(1, nil, nil)},
+		{ReadyAt: 10, TaskName: "B", ReadThrough: clockFixture(2, nil, nil)},
+		{ReadyAt: 5, TaskName: "C", ReadThrough: clockFixture(3, nil, nil)},
 	}
 
 	var ready, next = graph.PopReadyStats()
@@ -221,7 +222,7 @@ func TestReadyStats(t *testing.T) {
 
 	ready, next = graph.PopReadyStats()
 	require.Equal(t, []PendingStat{
-		{ReadyAt: 5, Derivation: "C", ReadThrough: clockFixture(3, nil, nil)},
+		{ReadyAt: 5, TaskName: "C", ReadThrough: clockFixture(3, nil, nil)},
 	}, ready)
 	require.Equal(t, TestTime(0), next)
 
@@ -232,12 +233,95 @@ func TestReadyStats(t *testing.T) {
 
 	ready, next = graph.PopReadyStats()
 	require.Equal(t, []PendingStat{
-		{ReadyAt: 10, Derivation: "A", ReadThrough: clockFixture(1, nil, nil)},
-		{ReadyAt: 10, Derivation: "B", ReadThrough: clockFixture(2, nil, nil)},
+		{ReadyAt: 10, TaskName: "A", ReadThrough: clockFixture(1, nil, nil)},
+		{ReadyAt: 10, TaskName: "B", ReadThrough: clockFixture(2, nil, nil)},
 	}, ready)
 	require.Equal(t, TestTime(0), next)
 
 	ready, next = graph.PopReadyStats()
 	require.Empty(t, ready)
 	require.Equal(t, TestTime(-1), next)
+}
+
+func TestTaskIndexing(t *testing.T) {
+	var tasks = []*pf.CatalogTask{
+		{
+			Capture: &pf.CaptureSpec{
+				Capture: "a/capture/task",
+				Bindings: []*pf.CaptureSpec_Binding{
+					{Collection: pf.CollectionSpec{Collection: "a/capture/one"}},
+					{Collection: pf.CollectionSpec{Collection: "a/capture/two"}},
+				},
+			},
+		},
+		{
+			Derivation: &pf.DerivationSpec{
+				Collection: pf.CollectionSpec{Collection: "a/derivation"},
+				Transforms: []pf.TransformSpec{
+					{
+						Shuffle: pf.Shuffle{
+							SourceCollection: "a/capture/one",
+							GroupName:        "derive/A",
+						},
+					},
+					{
+						Shuffle: pf.Shuffle{
+							SourceCollection: "a/capture/one",
+							GroupName:        "derive/AA",
+							ReadDelaySeconds: 5,
+						},
+					},
+					{
+						Shuffle: pf.Shuffle{
+							SourceCollection: "a/capture/two",
+							GroupName:        "derive/B",
+						},
+					},
+				},
+			},
+		},
+		{
+			Materialization: &pf.MaterializationSpec{
+				Materialization: "a/materialization",
+				Bindings: []*pf.MaterializationSpec_Binding{
+					{
+						Shuffle: pf.Shuffle{
+							SourceCollection: "a/derivation",
+							GroupName:        "mat/1",
+						},
+					},
+					{
+						Shuffle: pf.Shuffle{
+							SourceCollection: "a/capture/two",
+							GroupName:        "mat/2",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Build a Graph from the task fixtures, and verify the expected indices.
+	var graph = NewGraph(tasks)
+
+	require.Equal(t, map[TaskName][]pf.Collection{
+		"a/capture/task": {"a/capture/one", "a/capture/two"},
+		"a/derivation":   {"a/derivation"},
+	}, graph.outputs)
+
+	require.Equal(t, map[pf.Collection][]taskRead{
+		"a/capture/one": {
+			{task: "a/derivation", suffix: ";derive/A", delay: 0},
+			{task: "a/derivation", suffix: ";derive/AA", delay: TestTime(5 * time.Second)},
+		},
+		"a/capture/task": {
+			{task: "a/capture/task", suffix: "", delay: 0},
+		},
+		"a/capture/two": {
+			{task: "a/derivation", suffix: ";derive/B", delay: 0},
+			{task: "a/materialization", suffix: ";mat/2", delay: 0},
+		},
+		"a/derivation": {
+			{task: "a/materialization", suffix: ";mat/1", delay: 0},
+		}}, graph.readers)
 }
