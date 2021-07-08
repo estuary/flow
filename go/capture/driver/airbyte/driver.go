@@ -77,7 +77,7 @@ func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, 
 		nil,
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
-		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
+		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
 		func() interface{} { return new(airbyte.Message) },
 		func(i interface{}) error {
 			if rec := i.(*airbyte.Message); rec.Log != nil {
@@ -93,7 +93,7 @@ func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, 
 		},
 	)
 
-	// Expect connector spit out a successful ConnectionStatus.
+	// Expect connector spit out a successful ConnectorSpecification.
 	if err == nil && spec == nil {
 		err = fmt.Errorf("connector didn't produce a Specification")
 	}
@@ -349,6 +349,10 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 	}
 
 	// Write a final commit, followed by EOF.
+	// This happens only when a connector writes output and exits _without_
+	// writing a final state checkpoint. We generate a synthetic commit now,
+	// and the nil checkpoint means the assumed behavior of the next invocation
+	// will be "full refresh".
 	return lifecycle.WriteCommit(stream, &resp,
 		&pc.CaptureResponse_Commit{DriverCheckpointJson: nil})
 }

@@ -121,7 +121,7 @@ func RunConnector(
 			err, cmd.Stderr.(*connectorStderr).err.String()))
 	}
 
-	log.WithField("fe", fe.unwrap()).Info("connector exited")
+	log.WithField("err", fe.unwrap()).Info("connector exited")
 	_ = cmd.Stdout.(io.Closer).Close()
 
 	return fe.unwrap()
