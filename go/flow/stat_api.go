@@ -39,6 +39,9 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 
 	// Delegate to the underlying Stat implementation.
 	resp, err := consumer.ShardStat(ctx, svc, req)
+	if err != nil {
+		return nil, err
+	}
 
 	if resp.Extension != nil {
 		// We're returning a proxied response. Don't modify.
@@ -50,5 +53,5 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 		// Attach current journals keyspace header to the response.
 		resp.Extension, _ = reqJournalEtcd.Marshal()
 	}
-	return resp, err
+	return resp, nil
 }
