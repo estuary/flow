@@ -3,6 +3,7 @@ import:
   - acmeBank.flow.yaml
   - citi-bike/flow.yaml
   - derive-patterns/flow.yaml
+  - hello-world/flow.yaml
   - marketing/flow.yaml
   - net-trace/flow.yaml
   - re-key/flow.yaml
@@ -10,7 +11,7 @@ import:
   - segment/flow.yaml
   - shopping/flow.yaml
   - soak-tests/set-ops/flow.yaml
+  - source-schema/flow.yaml
   - stock-stats/flow.yaml
   - temp-sensors/flow.yaml
   - wiki/flow.yaml
-  - source-schema/flow.yaml

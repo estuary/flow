@@ -222,7 +222,7 @@ test-pg-driver: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 
 .PHONY: catalog-test
 catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml
+	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
@@ -261,4 +261,4 @@ docker-push-quay-dev:
 
 .PHONY: develop
 develop: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/local-sqlite.flow.yaml --log.level info
+	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/local-sqlite.flow.yaml --log.level info $(ARGS)

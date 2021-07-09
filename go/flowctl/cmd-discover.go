@@ -60,10 +60,15 @@ Creating a connector configuration stub at %s.
 Edit and update this file, and then run this command again.
 `, configPath)
 
-		return writeConfigStub(cmd.Image, w)
+		if err = writeConfigStub(cmd.Image, w); err != nil {
+			_ = os.Remove(configPath) // Don't leave an empty file behind.
+		}
+		return err
 	} else if !os.IsExist(err) {
 		return err
 	}
+
+	// Discover bindings and write the output catalog.
 
 	configYaml, configRaw, err := readConfig(configPath)
 	if err != nil {
