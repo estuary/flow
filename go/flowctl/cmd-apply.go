@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -121,15 +122,15 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	if !cmd.DryRun {
 		// Apply capture shard specs.
-		if err = applyCaptureShards(built, shards); err != nil {
+		if err = applyCaptureShards(built, shards, 1); err != nil {
 			return fmt.Errorf("applying capture shards: %w", err)
 		}
 		// Apply derivation shard specs.
-		if err = applyDerivationShards(built, shards); err != nil {
+		if err = applyDerivationShards(built, shards, 1); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
 		}
 		// Apply materialization shards.
-		if err = applyMaterializationShards(built, shards); err != nil {
+		if err = applyMaterializationShards(built, shards, 1); err != nil {
 			return fmt.Errorf("applying materialization shards: %w", err)
 		}
 		fmt.Println("Applied.")
@@ -181,151 +182,100 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	return path, ptr
 }
 
-func applyCaptureShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
-	var changes []pc.ApplyRequest_Change
-
+func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
 	for _, spec := range built.Captures {
-		var labels = pb.MustLabelSet(
-			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, spec.Capture.String(),
-			flowLabels.TaskType, flowLabels.TaskTypeCapture,
-			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-			flowLabels.KeyEnd, flowLabels.KeyEndMax,
-			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
-			flowLabels.RClockEnd, flowLabels.RClockEndMax,
-		)
-		var id, err = flowLabels.BuildShardID(labels)
-		if err != nil {
-			return fmt.Errorf("building shard ID: %w", err)
-		}
-
-		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
-			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
-		})
-		if err != nil {
-			return fmt.Errorf("listing shard %s: %w", id, err)
-		}
-
-		if len(resp.Shards) == 0 {
-			log.WithField("id", id).Debug("will create capture shard")
-			changes = append(changes, pc.ApplyRequest_Change{
-				Upsert: &pc.ShardSpec{
-					Id:                id,
-					Sources:           nil,
-					RecoveryLogPrefix: "recovery",
-					HintPrefix:        "/estuary/flow/hints",
-					HintBackups:       2,
-					MaxTxnDuration:    time.Minute,
-					MinTxnDuration:    0,
-					HotStandbys:       0,
-					LabelSet:          labels,
-				},
-				ExpectModRevision: 0, // Apply fails if it exists.
-			})
+		if err := createTaskShards(client,
+			flowLabels.TaskTypeCapture,
+			spec.Capture.String(),
+			shards,
+		); err != nil {
+			return err
 		}
 	}
-
-	var _, err = consumer.ApplyShards(context.Background(),
-		shards, &pc.ApplyRequest{Changes: changes})
-	return err
+	return nil
 }
 
-func applyDerivationShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
-	var changes []pc.ApplyRequest_Change
-
+func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
 	for _, spec := range built.Derivations {
-		var labels = pb.MustLabelSet(
-			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, spec.Collection.Collection.String(),
-			flowLabels.TaskType, flowLabels.TaskTypeDerivation,
-			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-			flowLabels.KeyEnd, flowLabels.KeyEndMax,
-			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
-			flowLabels.RClockEnd, flowLabels.RClockEndMax,
-		)
-		var id, err = flowLabels.BuildShardID(labels)
-		if err != nil {
-			return fmt.Errorf("building shard ID: %w", err)
-		}
-
-		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
-			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
-		})
-		if err != nil {
-			return fmt.Errorf("listing shard %s: %w", id, err)
-		}
-
-		if len(resp.Shards) == 0 {
-			log.WithField("id", id).Debug("will create derivation shard")
-			changes = append(changes, pc.ApplyRequest_Change{
-				Upsert: &pc.ShardSpec{
-					Id:                id,
-					Sources:           nil,
-					RecoveryLogPrefix: "recovery",
-					HintPrefix:        "/estuary/flow/hints",
-					HintBackups:       2,
-					MaxTxnDuration:    time.Minute,
-					MinTxnDuration:    0,
-					HotStandbys:       0,
-					LabelSet:          labels,
-				},
-				ExpectModRevision: 0, // Apply fails if it exists.
-			})
+		if err := createTaskShards(client,
+			flowLabels.TaskTypeDerivation,
+			spec.Collection.Collection.String(),
+			shards,
+		); err != nil {
+			return err
 		}
 	}
-
-	var _, err = consumer.ApplyShards(context.Background(),
-		shards, &pc.ApplyRequest{Changes: changes})
-	return err
+	return nil
 }
 
-func applyMaterializationShards(built *bindings.BuiltCatalog, shards pc.ShardClient) error {
-	var changes []pc.ApplyRequest_Change
-
+func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
 	for _, spec := range built.Materializations {
+		if err := createTaskShards(client,
+			flowLabels.TaskTypeMaterialization,
+			spec.Materialization.String(),
+			shards,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int) error {
+	// Query for existing shards of this catalog task.
+	if resp, err := consumer.ListShards(context.Background(), client, &pc.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet(
+			flowLabels.TaskType, taskType,
+			flowLabels.TaskName, taskName,
+		)},
+	}); err != nil {
+		return fmt.Errorf("listing shard: %w", err)
+	} else if len(resp.Shards) != 0 {
+		log.WithField("task", taskName).Debug("shards exist")
+		return nil
+	}
+
+	log.WithField("task", taskName).Debug("shard doesn't exist (will create)")
+
+	var changes []pc.ApplyRequest_Change
+	for p := 0; p != shards; p++ {
+
 		var labels = pb.MustLabelSet(
 			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, spec.Materialization.String(),
-			flowLabels.TaskType, flowLabels.TaskTypeMaterialization,
-			flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-			flowLabels.KeyEnd, flowLabels.KeyEndMax,
-			flowLabels.RClockBegin, flowLabels.RClockBeginMin,
-			flowLabels.RClockEnd, flowLabels.RClockEndMax,
+			flowLabels.TaskName, taskName,
+			flowLabels.TaskType, taskType,
 		)
+
+		labels = flowLabels.EncodeRange(pf.RangeSpec{
+			KeyBegin:    uint32((1 << 32) * (p + 0) / shards),
+			KeyEnd:      uint32(((1 << 32) * (p + 1) / shards) - 1),
+			RClockBegin: 0,
+			RClockEnd:   math.MaxUint32,
+		}, labels)
+
 		var id, err = flowLabels.BuildShardID(labels)
 		if err != nil {
 			return fmt.Errorf("building shard ID: %w", err)
 		}
 
-		resp, err := consumer.ListShards(context.Background(), shards, &pc.ListRequest{
-			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
+		changes = append(changes, pc.ApplyRequest_Change{
+			Upsert: &pc.ShardSpec{
+				Id:                id,
+				Sources:           nil,
+				RecoveryLogPrefix: "recovery",
+				HintPrefix:        "/estuary/flow/hints",
+				HintBackups:       2,
+				MaxTxnDuration:    time.Minute,
+				MinTxnDuration:    0,
+				HotStandbys:       0,
+				LabelSet:          labels,
+			},
+			ExpectModRevision: 0, // Apply fails if it exists.
 		})
-		if err != nil {
-			return fmt.Errorf("listing shard %s: %w", id, err)
-		}
-
-		if len(resp.Shards) == 0 {
-			log.WithField("id", id).Debug("will create materialization shard")
-
-			changes = append(changes, pc.ApplyRequest_Change{
-				Upsert: &pc.ShardSpec{
-					Id:                id,
-					Sources:           nil,
-					RecoveryLogPrefix: "recovery",
-					HintPrefix:        "/estuary/flow/hints",
-					HintBackups:       2,
-					MaxTxnDuration:    time.Minute,
-					MinTxnDuration:    0,
-					HotStandbys:       0,
-					LabelSet:          labels,
-				},
-				ExpectModRevision: 0, // Apply fails if it exists.
-			})
-		}
 	}
 
 	var _, err = consumer.ApplyShards(context.Background(),
-		shards, &pc.ApplyRequest{Changes: changes})
+		client, &pc.ApplyRequest{Changes: changes})
 	return err
 }
 

@@ -26,8 +26,9 @@ import (
 )
 
 type cmdTest struct {
-	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Shards      int                   `long:"shards" default:"1" description:"Number of shards for each tested derivation"`
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -141,7 +142,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 
 	// Apply derivation shard specs.
-	if err = applyDerivationShards(built, cluster.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 	cluster.WaitForShardsToAssign()
