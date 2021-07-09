@@ -34,4 +34,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210520182117-967e04cc03d7
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210709051950-433d90eaefb5
