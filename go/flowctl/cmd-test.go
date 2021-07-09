@@ -144,6 +144,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if err = applyDerivationShards(built, cluster.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
+	cluster.WaitForShardsToAssign()
 
 	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
 	sort.Slice(built.Tests, func(i, j int) bool {

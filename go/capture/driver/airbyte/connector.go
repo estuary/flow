@@ -41,6 +41,12 @@ func RunConnector(
 	newRecord func() interface{},
 	onRecord func(interface{}) error,
 ) error {
+	// Don't undertake expensive operations if we're already shutting down.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// Staging location for files mounted into the container.
 	var tempdir, err = ioutil.TempDir("", "connector-file")
@@ -77,10 +83,6 @@ func RunConnector(
 
 	var cmd = exec.Command(args[0], args[1:]...)
 	var fe = new(firstError)
-
-	// On context cancellation, signal the connector to exit.
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// Copy |writeLoop| into connector stdin.
 	wc, err := cmd.StdinPipe()

@@ -55,7 +55,9 @@ func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, er
 			Extension:   extension,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to stat shard: %w", err)
+			return nil, nil, fmt.Errorf("stating shard: %w", err)
+		} else if resp.Status != pc.Status_OK {
+			return nil, nil, fmt.Errorf("shard !OK: %v", resp.Status)
 		}
 
 		var journalEtcd pb.Header_Etcd
