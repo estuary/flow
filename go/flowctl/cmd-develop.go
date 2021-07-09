@@ -23,6 +23,7 @@ type cmdDevelop struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Poll        bool                  `long:"poll" description:"Process new, ready input from captures, and then exit"`
 	Port        uint16                `long:"port" env:"PORT" default:"8080" description:"Service port for HTTP and gRPC requests"`
+	Shards      int                   `long:"shards" default:"1" description:"Number of shards to create for each catalog task"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
@@ -138,15 +139,15 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 	// Apply capture shard specs.
-	if err = applyCaptureShards(built, cluster.Shards); err != nil {
+	if err = applyCaptureShards(built, cluster.Shards, cmd.Shards); err != nil {
 		return fmt.Errorf("applying capture shards: %w", err)
 	}
 	// Apply derivation shard specs.
-	if err = applyDerivationShards(built, cluster.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 	// Apply materialization shards.
-	if err = applyMaterializationShards(built, cluster.Shards); err != nil {
+	if err = applyMaterializationShards(built, cluster.Shards, cmd.Shards); err != nil {
 		return fmt.Errorf("applying materialization shards: %w", err)
 	}
 	cluster.WaitForShardsToAssign()
