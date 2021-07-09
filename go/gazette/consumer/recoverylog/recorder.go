@@ -298,11 +298,15 @@ func (r *Recorder) lockAndBeginTxn(waitFor client.OpFutures) *client.AsyncAppend
 		// A previous write has completed. Update our |writeHead|.
 		if r.recentTxn.Err() != nil {
 			// Aborted. Ignore.
-		} else if end := r.recentTxn.Response().Commit.End; end < r.writeHead {
-			log.WithFields(log.Fields{"writeHead": r.writeHead, "end": end, "log": r.log}).
-				Panic("invalid writeHead at lockAndBeginTxn")
+		} else if c := r.recentTxn.Response().Commit; c.Begin < r.writeHead {
+			log.WithFields(log.Fields{
+				"writeHead":    r.writeHead,
+				"commit.Begin": c.Begin,
+				"commit.End":   c.End,
+				"log":          r.log,
+			}).Panic("invalid writeHead vs commit range (broker data loss)?")
 		} else {
-			r.writeHead = end
+			r.writeHead = c.End
 			r.recentTxn = txn
 		}
 	default:
