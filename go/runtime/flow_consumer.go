@@ -34,6 +34,8 @@ type FlowConsumerConfig struct {
 
 	// DisableClockTicks is exposed for in-process testing, where we manually adjust the current Timepoint.
 	DisableClockTicks bool
+	// Poll is exposed for a non-blocking local develop / test workflow.
+	Poll bool
 }
 
 // Execute delegates to runconsumer.Cmd.Execute.

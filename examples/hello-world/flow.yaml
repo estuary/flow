@@ -1,0 +1,38 @@
+collections:
+  examples/greetings:
+    schema:
+      properties:
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+        - count
+        - message
+      type: object
+    key: [/count]
+
+captures:
+  examples/source-hello-world:
+    endpoint:
+      airbyteSource:
+        image: ghcr.io/estuary/source-hello-world:897f766-dirty
+        config:
+          # Number of greeting documents to produce
+          # [integer] (required)
+          greetings: 100
+    bindings:
+      - resource:
+          stream: greetings
+          syncMode: incremental
+        target: examples/greetings
+
+materializations:
+  examples/hello-world/views:
+    endpoint:
+      sqlite:
+        path: ../examples.db?_journal=WAL
+    bindings:
+      - resource:
+          table: greetings
+        source: examples/greetings

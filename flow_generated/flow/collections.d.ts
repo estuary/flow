@@ -225,6 +225,13 @@ export type ExamplesCitiBikeStations = /* A Citi Bike Station */ {
     };
 };
 
+// Generated from examples/hello-world/flow.yaml?ptr=/collections/examples~1greetings/schema.
+// Referenced as schema of examples/hello-world/flow.yaml#/collections/examples~1greetings.
+export type ExamplesGreetings = {
+    count: number;
+    message: string;
+};
+
 // Generated from examples/net-trace/pairs.flow.yaml?ptr=/collections/examples~1net-trace~1pairs/schema.
 // Referenced as schema of examples/net-trace/pairs.flow.yaml#/collections/examples~1net-trace~1pairs.
 export type ExamplesNetTracePairs = {

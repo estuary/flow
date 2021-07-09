@@ -116,7 +116,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 		KeyBegin:             c.range_.KeyBegin,
 		KeyEnd:               c.range_.KeyEnd,
 		DriverCheckpointJson: c.store.State.(*storeState).DriverCheckpoint,
-		Tail:                 true,
+		Tail:                 !c.host.Config.Poll,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("driver.Capture: %w", err)
@@ -173,14 +173,6 @@ func (c *Capture) serveDriverTransactions(
 
 		// Did the server gracefully close the stream?
 		if err == io.EOF {
-			// We have a deferred close of |envelopeTx|, and returning will drain
-			// the current task term and start another. That shouldn't happen until
-			// the configured polling interval is elapsed (or the context is cancelled).
-			select {
-			case <-pollCh:
-			case <-ctx.Done():
-			}
-
 			// Emit a no-op message. Its purpose is only to update the tracked EOF offset,
 			// which may unblock an associated shard Stat RPC.
 			envelopeTx <- consumer.EnvelopeOrError{
@@ -193,6 +185,14 @@ func (c *Capture) serveDriverTransactions(
 						eof:   true,
 					},
 				},
+			}
+
+			// We have a deferred close of |envelopeTx|, and returning will drain
+			// the current task term and start another. That shouldn't happen until
+			// the configured polling interval is elapsed (or the context is cancelled).
+			select {
+			case <-pollCh:
+			case <-ctx.Done():
 			}
 
 			return

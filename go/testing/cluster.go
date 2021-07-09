@@ -32,9 +32,10 @@ type ClusterConfig struct {
 	Context            context.Context
 	DisableClockTicks  bool
 	Etcd               *clientv3.Client
-	EtcdCatalogPrefix  string
 	EtcdBrokerPrefix   string
+	EtcdCatalogPrefix  string
 	EtcdConsumerPrefix string
+	Poll               bool
 }
 
 // Cluster is an in-process Flow cluster environment.
@@ -132,6 +133,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 		appConfig.Flow.BrokerRoot = c.EtcdBrokerPrefix
 		appConfig.Flow.CatalogRoot = c.EtcdCatalogPrefix
 		appConfig.DisableClockTicks = c.DisableClockTicks
+		appConfig.Poll = c.Poll
 
 		var (
 			spec = &pc.ConsumerSpec{
@@ -254,4 +256,39 @@ func resetJournalHead(ctx context.Context, rjc pb.RoutedJournalClient, name pb.J
 	}
 
 	return nil
+}
+
+// WaitForShardsToAssign blocks until all shards have a ready PRIMARY.
+func (c *Cluster) WaitForShardsToAssign() {
+	var state = c.Consumer.Service.State
+
+	state.KS.Mu.RLock()
+	defer state.KS.Mu.RUnlock()
+
+	for {
+		var wait bool
+
+		if state.ItemSlots != len(state.Assignments) {
+			wait = true
+		}
+
+		for _, a := range state.Assignments {
+			var (
+				decoded = a.Decoded.(allocator.Assignment)
+				status  = decoded.AssignmentValue.(*pc.ReplicaStatus)
+			)
+			if decoded.Slot == 0 && status.Code != pc.ReplicaStatus_PRIMARY {
+				wait = true
+			}
+		}
+
+		if !wait {
+			return
+		}
+
+		// Block for the next KeySpace update.
+		if err := state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1); err != nil {
+			panic(err)
+		}
+	}
 }
