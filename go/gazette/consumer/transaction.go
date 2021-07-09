@@ -190,20 +190,36 @@ func txnRead(s *shard, txn *transaction, env EnvelopeOrError, ok bool) error {
 		return errors.WithMessage(env.Error, "readMessage")
 	}
 	txn.readThrough[env.Journal.Name] = env.End
-	s.sequencer.QueueUncommitted(env.Envelope)
+
 	// DEPRECATED metrics to be removed:
 	bytesConsumedTotal.Add(float64(env.End - env.Begin))
 	readHeadGauge.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
 	// End DEPRECATED metrics.
 
+	if !s.sequencer.QueueUncommitted(env.Envelope) {
+		// Envelope is a continuation of an ongoing sequence of messages.
+		// No need to dequeue for committed messages (there are none).
+		return nil
+	}
+
 	for {
-		switch env, err := s.sequencer.DequeCommitted(); err {
+		switch deq, err := s.sequencer.DequeCommitted(); err {
 		case nil:
-			if err = txnConsume(s, txn, env); err != nil {
+			if err = txnConsume(s, txn, deq); err != nil {
 				return err
 			}
 
 		case io.EOF:
+			// If we're outside of a current transaction, then update progress
+			// to reflect |env| was read. If we didn't do this, then a Stat RPC
+			// could stall indefinitely if its read-through offsets include a
+			// message which doesn't cause a transaction to begin (such as a
+			// duplicate ACK), and no further messages are forthcoming.
+			if txn.consumedCount == 0 {
+				signalProgress(s, func(readThrough, _ pb.Offsets) {
+					readThrough[env.Journal.Name] = env.End
+				})
+			}
 			return nil
 
 		case message.ErrMustStartReplay:
@@ -211,10 +227,10 @@ func txnRead(s *shard, txn *transaction, env EnvelopeOrError, ok bool) error {
 			var it message.Iterator
 
 			if mp, ok := s.svc.App.(MessageProducer); ok {
-				it = mp.ReplayRange(s, s.store, env.Journal.Name, from, to)
+				it = mp.ReplayRange(s, s.store, deq.Journal.Name, from, to)
 			} else {
 				var rr = client.NewRetryReader(s.ctx, s.ajc, pb.ReadRequest{
-					Journal:    env.Journal.Name,
+					Journal:    deq.Journal.Name,
 					Offset:     from,
 					EndOffset:  to,
 					Block:      true,
@@ -312,21 +328,17 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 	prev.ackedAt = now
 	recordMetrics(s, prev)
 
-	// Update shard |progress| with results of |prev| transaction.
-	s.progress.Lock()
-	defer s.progress.Unlock()
-
-	for j, o := range prev.readThrough {
-		s.progress.readThrough[j] = o
-	}
-	for op := range prev.acks {
-		if ack, ok := op.(*client.AsyncAppend); ok {
-			s.progress.publishAt[ack.Request().Journal] = ack.Response().Commit.End
+	// Signal shard progress from results of |prev| transaction.
+	signalProgress(s, func(readThrough, publishAt pb.Offsets) {
+		for j, o := range prev.readThrough {
+			readThrough[j] = o
 		}
-	}
-
-	close(s.progress.signalCh)
-	s.progress.signalCh = make(chan struct{})
+		for op := range prev.acks {
+			if ack, ok := op.(*client.AsyncAppend); ok {
+				publishAt[ack.Request().Journal] = ack.Response().Commit.End
+			}
+		}
+	})
 
 	return nil
 }
@@ -383,6 +395,19 @@ func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
 		txn.acks[aa] = struct{}{}
 	}
 	return nil
+}
+
+// signalProgress of the shard in reading or publishing journals, as an atomic
+// update of shard-associated metadata which also awakes any blocking
+// tasks that process progress updates (such as the Shard Stat API).
+func signalProgress(s *shard, cb func(readThrough, publishAt pb.Offsets)) {
+	s.progress.Lock()
+	defer s.progress.Unlock()
+
+	cb(s.progress.readThrough, s.progress.publishAt)
+
+	close(s.progress.signalCh)
+	s.progress.signalCh = make(chan struct{})
 }
 
 // recordMetrics of a fully completed transaction.

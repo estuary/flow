@@ -82,7 +82,10 @@ type partialSeq struct {
 
 // QueueUncommitted applies the next read-uncommitted message Envelope to the
 // Sequencer. It panics if called while messages remain to dequeue.
-func (w *Sequencer) QueueUncommitted(env Envelope) {
+// It returns true if the Envelope completes a sequence of messages,
+// or is a duplicate or a roll-back, and false if the Envelope extends
+// a sequence of messages which is still pending.
+func (w *Sequencer) QueueUncommitted(env Envelope) bool {
 	if w.emit.ringIndex != -1 {
 		panic("committed messages remain to dequeue")
 	}
@@ -94,8 +97,8 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 			Journal:  env.Journal.Name,
 			Producer: GetProducerID(uuid),
 		}
-		clock       = GetClock(env.GetUUID())
-		flags       = GetFlags(env.GetUUID())
+		clock       = GetClock(uuid)
+		flags       = GetFlags(uuid)
 		partial, ok = w.partials[jp]
 	)
 	if !ok {
@@ -118,7 +121,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 		if clock <= partial.lastACK && clock != 0 {
 			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "OUTSIDE_TXN", "drop").Inc()
-			return
+			return true
 		}
 
 		if partial.begin != -1 {
@@ -137,20 +140,20 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "OUTSIDE_TXN", "emit").Inc()
-		return
+		return true
 
 	case Flag_CONTINUE_TXN:
 		// Duplicate of acknowledged message?
 		if clock < partial.lastACK {
 			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "CONTINUE_TXN", "drop").Inc()
-			return
+			return true
 		}
 		// Duplicate of message already in the ring?
 		if partial.ringStop != -1 && clock <= GetClock(w.ring[partial.ringStop].GetUUID()) {
 			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "CONTINUE_TXN", "drop-ring").Inc()
-			return
+			return true
 		}
 
 		// Does |env| implicitly begin the next span?
@@ -161,7 +164,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "CONTINUE_TXN", "queue").Inc()
-		return
+		return false
 
 	case Flag_ACK_TXN:
 
@@ -191,7 +194,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 			sequencerQueuedTotal.WithLabelValues(
 				env.Journal.Name.String(), "ACK_TXN", "rollback").Inc()
-			return
+			return true
 		}
 
 		if partial.begin == -1 {
@@ -207,7 +210,7 @@ func (w *Sequencer) QueueUncommitted(env Envelope) {
 
 		sequencerQueuedTotal.WithLabelValues(
 			env.Journal.Name.String(), "ACK_TXN", "emit").Inc()
-		return
+		return true
 	}
 	panic("not reached")
 }

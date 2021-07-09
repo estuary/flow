@@ -36,7 +36,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	require.Equal(t, 0, seq.head)
 	require.Equal(t, map[JournalProducer]partialSeq{}, seq.partials)
 
-	seq.QueueUncommitted(e1) // A.
+	require.False(t, seq.QueueUncommitted(e1)) // A.
 	require.Equal(t, []Envelope{e1}, seq.ring)
 	require.Equal(t, []int{-1}, seq.next)
 	require.Equal(t, 1, seq.head)
@@ -44,7 +44,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e2) // B.
+	require.False(t, seq.QueueUncommitted(e2)) // B.
 	require.Equal(t, []Envelope{e1, e2}, seq.ring)
 	require.Equal(t, []int{-1, -1}, seq.next)
 	require.Equal(t, 2, seq.head)
@@ -53,7 +53,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e3) // A.
+	require.False(t, seq.QueueUncommitted(e3)) // A.
 	require.Equal(t, []Envelope{e1, e2, e3}, seq.ring)
 	require.Equal(t, []int{2, -1, -1}, seq.next) // e1 => e3.
 	require.Equal(t, 3, seq.head)
@@ -62,7 +62,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e4) // A.
+	require.False(t, seq.QueueUncommitted(e4)) // A.
 	require.Equal(t, []Envelope{e1, e2, e3, e4}, seq.ring)
 	require.Equal(t, []int{2, -1, 3, -1}, seq.next) // e3 => e4.
 	require.Equal(t, 4, seq.head)
@@ -71,7 +71,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e5) // B.
+	require.False(t, seq.QueueUncommitted(e5)) // B.
 	require.Equal(t, []Envelope{e1, e2, e3, e4, e5}, seq.ring)
 	require.Equal(t, []int{2, 4, 3, -1, -1}, seq.next) // e2 => e5.
 	require.Equal(t, 0, seq.head)
@@ -80,7 +80,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e6) // B.
+	require.False(t, seq.QueueUncommitted(e6)) // B.
 	require.Equal(t, []Envelope{e6, e2, e3, e4, e5}, seq.ring)
 	require.Equal(t, []int{-1, 4, 3, -1, 0}, seq.next) // e5 => e6.
 	require.Equal(t, 1, seq.head)
@@ -89,8 +89,8 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e7) // B.
-	seq.QueueUncommitted(e8) // B.
+	require.False(t, seq.QueueUncommitted(e7)) // B.
+	require.False(t, seq.QueueUncommitted(e8)) // B.
 	require.Equal(t, []Envelope{e6, e7, e8, e4, e5}, seq.ring)
 	require.Equal(t, []int{1, 2, -1, -1, 0}, seq.next)
 	require.Equal(t, 3, seq.head)
@@ -99,7 +99,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 2, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e9) // B. Evicts final A entry.
+	require.False(t, seq.QueueUncommitted(e9)) // B. Evicts final A entry.
 	require.Equal(t, []Envelope{e6, e7, e8, e9, e5}, seq.ring)
 	require.Equal(t, []int{1, 2, 3, -1, 0}, seq.next)
 	require.Equal(t, 4, seq.head)
@@ -109,7 +109,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 3, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e10) // B.
+	require.False(t, seq.QueueUncommitted(e10)) // B.
 	require.Equal(t, []Envelope{e6, e7, e8, e9, e10}, seq.ring)
 	require.Equal(t, []int{1, 2, 3, 4, -1}, seq.next)
 	require.Equal(t, 0, seq.head)
@@ -118,7 +118,7 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 		jpB: {begin: e2.Begin, ringStart: 0, ringStop: 4, lastACK: 199},
 	}, seq.partials)
 
-	seq.QueueUncommitted(e11) // B.
+	require.False(t, seq.QueueUncommitted(e11)) // B.
 	require.Equal(t, []Envelope{e11, e7, e8, e9, e10}, seq.ring)
 	require.Equal(t, []int{-1, 2, 3, 4, 0}, seq.next)
 	require.Equal(t, 1, seq.head)
@@ -143,12 +143,13 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a2Dup = generate(A, 2, Flag_CONTINUE_TXN)
 		a3ACK = generate(A, 3, Flag_ACK_TXN)
 	)
-	queue(seq, a1, a2, a1Dup, a2Dup, a3ACK)
+	require.Equal(t, []bool{false, false, true, true, true},
+		queue(seq, a1, a2, a1Dup, a2Dup, a3ACK))
 	expectDeque(t, seq, a1, a2, a3ACK)
 
 	// Case: ACK w/o preceding CONTINUE. Unusual but allowed.
 	var a4ACK = generate(A, 4, Flag_ACK_TXN)
-	queue(seq, a4ACK)
+	require.Equal(t, []bool{true}, queue(seq, a4ACK))
 	expectDeque(t, seq, a4ACK)
 
 	// Case: Partial ACK of preceding messages.
@@ -157,7 +158,8 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a7NoACK = generate(A, 7, Flag_CONTINUE_TXN) // Not included in a6ACK.
 		a6ACK   = generate(A, 6, Flag_ACK_TXN)      // Served from ring.
 	)
-	queue(seq, a5, a7NoACK, a6ACK)
+	require.Equal(t, []bool{false, false, true},
+		queue(seq, a5, a7NoACK, a6ACK))
 	expectDeque(t, seq, a5, a6ACK)
 
 	// Case: Rollback with interleaved producer B.
@@ -168,12 +170,13 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b2         = generate(B, 2, Flag_CONTINUE_TXN)
 		a6Abort    = generate(A, 6, Flag_ACK_TXN) // Aborts back to SeqNo 6.
 	)
-	queue(seq, a7Rollback, b1, a7Rollback, a8Rollback, b2, a6Abort)
+	require.Equal(t, []bool{false, false, true, false, false, true},
+		queue(seq, a7Rollback, b1, a7Rollback, a8Rollback, b2, a6Abort))
 	expectDeque(t, seq) // No messages deque.
 
 	// Case: Interleaved producer ACKs. A replay is required due to eviction.
 	var b3ACK = generate(B, 3, Flag_ACK_TXN)
-	queue(seq, b3ACK)
+	require.Equal(t, []bool{true}, queue(seq, b3ACK))
 	expectReplay(t, seq, b1.Begin, b2.Begin, b1, a7Rollback, a8Rollback)
 	expectDeque(t, seq, b1, b2, b3ACK)
 
@@ -190,7 +193,8 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b7    = generate(B, 7, Flag_CONTINUE_TXN)
 		b8ACK = generate(B, 8, Flag_ACK_TXN)
 	)
-	queue(seq, b4, b1Dup, b4Dup, b5, b6, b2Dup, b7, b8ACK)
+	require.Equal(t, []bool{false, true, true, false, false, true, false, true},
+		queue(seq, b4, b1Dup, b4Dup, b5, b6, b2Dup, b7, b8ACK))
 	expectReplay(t, seq, b4.Begin, b6.Begin, b4, b1Dup, b4Dup, b5)
 	expectDeque(t, seq, b4, b5, b6, b7, b8ACK)
 
@@ -202,7 +206,8 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b13NoACK = generate(B, 13, Flag_CONTINUE_TXN)
 		b10ACK   = generate(B, 10, Flag_ACK_TXN)
 	)
-	queue(seq, b9, b11NoACK, b12NoACK, b13NoACK, b10ACK)
+	require.Equal(t, []bool{false, false, false, false, true},
+		queue(seq, b9, b11NoACK, b12NoACK, b13NoACK, b10ACK))
 	expectReplay(t, seq, b9.Begin, b12NoACK.Begin, b9, b11NoACK)
 	expectDeque(t, seq, b9, b10ACK)
 
@@ -215,11 +220,12 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a9ACK  = generate(A, 9, Flag_ACK_TXN)
 		b13ACK = generate(B, 13, Flag_ACK_TXN)
 	)
-	queue(seq, b11, a7, a8, b12, a9ACK)
+	require.Equal(t, []bool{false, false, false, false, true},
+		queue(seq, b11, a7, a8, b12, a9ACK))
 	expectReplay(t, seq, a7.Begin, a8.Begin, a7)
 	expectDeque(t, seq, a7, a8, a9ACK)
 
-	queue(seq, b13ACK)
+	require.Equal(t, []bool{true}, queue(seq, b13ACK))
 	expectReplay(t, seq, b11.Begin, b12.Begin, b11, a7, a8)
 	expectDeque(t, seq, b11, b12, b13ACK)
 
@@ -230,7 +236,8 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b10ACKReuse = generate(B, 10, Flag_ACK_TXN)
 	)
 
-	queue(seq, b8ACKReset, b9Reuse, b10ACKReuse)
+	require.Equal(t, []bool{true, false, true},
+		queue(seq, b8ACKReset, b9Reuse, b10ACKReuse))
 	expectDeque(t, seq, b9Reuse, b10ACKReuse)
 }
 
@@ -249,11 +256,13 @@ func TestSequencerTxnWithoutBuffer(t *testing.T) {
 		b2    = generate(B, 2, Flag_CONTINUE_TXN)
 		b3ACK = generate(B, 3, Flag_ACK_TXN)
 	)
-	queue(seq, a1, a2, b1, a1Dup, a2Dup, a3ACK)
+	require.Equal(t, []bool{false, false, false, false, false, true},
+		queue(seq, a1, a2, b1, a1Dup, a2Dup, a3ACK))
 	expectReplay(t, seq, a1.Begin, a3ACK.Begin, a1, a2, b1, a1Dup, a2Dup)
 	expectDeque(t, seq, a1, a2, a3ACK)
 
-	queue(seq, b2, b3ACK)
+	require.Equal(t, []bool{false, true},
+		queue(seq, b2, b3ACK))
 	expectReplay(t, seq, b1.Begin, b3ACK.Begin, b1, a1Dup, a2Dup, a3ACK, b2)
 	expectDeque(t, seq, b1, b2, b3ACK)
 }
@@ -270,9 +279,9 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a1 = generate(A, 1, Flag_OUTSIDE_TXN)
 		a2 = generate(A, 2, Flag_OUTSIDE_TXN)
 	)
-	queue(seq, a1)
+	require.Equal(t, []bool{true}, queue(seq, a1))
 	expectDeque(t, seq, a1)
-	queue(seq, a2)
+	require.Equal(t, []bool{true}, queue(seq, a2))
 	expectDeque(t, seq, a2)
 
 	// Case: Duplicates are ignored.
@@ -280,7 +289,7 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a1Dup = generate(A, 1, Flag_OUTSIDE_TXN)
 		a2Dup = generate(A, 2, Flag_OUTSIDE_TXN)
 	)
-	queue(seq, a1Dup, a2Dup)
+	require.Equal(t, []bool{true, true}, queue(seq, a1Dup, a2Dup))
 	expectDeque(t, seq)
 
 	// Case: Any preceding CONTINUE_TXN messages are aborted.
@@ -289,7 +298,8 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a4Discard = generate(A, 4, Flag_CONTINUE_TXN)
 		a5        = generate(A, 5, Flag_OUTSIDE_TXN)
 	)
-	queue(seq, a3Discard, a4Discard, a5)
+	require.Equal(t, []bool{false, false, true},
+		queue(seq, a3Discard, a4Discard, a5))
 	expectDeque(t, seq, a5)
 
 	// Case: Messages with unknown flags are treated as OUTSIDE_TXN.
@@ -298,9 +308,9 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a7BadBits    = generate(A, 7, 0x100)
 		a7BadBitsDup = generate(A, 7, 0x100)
 	)
-	queue(seq, a6Discard, a7BadBits)
+	require.Equal(t, []bool{false, true}, queue(seq, a6Discard, a7BadBits))
 	expectDeque(t, seq, a7BadBits)
-	queue(seq, a7BadBitsDup)
+	require.Equal(t, []bool{true}, queue(seq, a7BadBitsDup))
 	expectDeque(t, seq)
 
 	// Case: Messages with a zero UUID always deque.
@@ -311,9 +321,9 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 	z1.SetUUID(UUID{})
 	z2.SetUUID(UUID{})
 
-	queue(seq, z1)
+	require.Equal(t, []bool{true}, queue(seq, z1))
 	expectDeque(t, seq, z1)
-	queue(seq, z2)
+	require.Equal(t, []bool{true}, queue(seq, z2))
 	expectDeque(t, seq, z2)
 }
 
@@ -336,7 +346,8 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 		c1Rollback = generate(C, 1, Flag_ACK_TXN)
 		a3ACK      = generate(A, 3, Flag_ACK_TXN)
 	)
-	queue(seq1, a1, a2, b1, b2, c1ACK)
+	require.Equal(t, []bool{false, false, false, false, true},
+		queue(seq1, a1, a2, b1, b2, c1ACK))
 	expectDeque(t, seq1, c1ACK)
 
 	var states = seq1.ProducerStates(0)
@@ -358,21 +369,21 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 
 	// Expect both Sequencers produce the same output from here,
 	// though |seq2| requires replays while |seq1| does not.
-	queue(seq1, b3ACK)
-	queue(seq2, b3ACK)
+	require.Equal(t, []bool{true}, queue(seq1, b3ACK))
+	require.Equal(t, []bool{true}, queue(seq2, b3ACK))
 	expectReplay(t, seq2, b1.Begin, b3ACK.Begin, b1, b2, c1ACK)
 
 	expectDeque(t, seq1, b1, b2, b3ACK)
 	expectDeque(t, seq2, b1, b2, b3ACK)
 
-	queue(seq1, c2, c1Rollback)
-	queue(seq2, c2, c1Rollback)
+	require.Equal(t, []bool{false, true}, queue(seq1, c2, c1Rollback))
+	require.Equal(t, []bool{false, true}, queue(seq2, c2, c1Rollback))
 
 	expectDeque(t, seq1)
 	expectDeque(t, seq2)
 
-	queue(seq1, a3ACK)
-	queue(seq2, a3ACK)
+	require.Equal(t, []bool{true}, queue(seq1, a3ACK))
+	require.Equal(t, []bool{true}, queue(seq2, a3ACK))
 	expectReplay(t, seq2, a1.Begin, a3ACK.Begin, a1, a2, b1, b2, c1ACK)
 
 	expectDeque(t, seq1, a1, a2, a3ACK)
@@ -394,9 +405,9 @@ func TestSequencerProducerPruning(t *testing.T) {
 		bACK  = generate(B, 20<<4, Flag_ACK_TXN)
 		cCont = generate(C, 30<<4, Flag_CONTINUE_TXN)
 	)
-	queue(seq1, aCont, bCont, bACK)
+	require.Equal(t, []bool{false, false, true}, queue(seq1, aCont, bCont, bACK))
 	expectDeque(t, seq1, bCont, bACK)
-	queue(seq1, cCont)
+	require.Equal(t, []bool{false}, queue(seq1, cCont))
 
 	var expect = func(a, b []ProducerState) {
 		sort.Slice(a, func(i, j int) bool {
@@ -483,12 +494,12 @@ func TestSequencerReplayReaderErrors(t *testing.T) {
 		var (
 			generate = newTestMsgGenerator()
 			seq      = NewSequencer(nil, 0)
-			b0       = generate(B, 0, Flag_CONTINUE_TXN)
-			a1       = generate(A, 1, Flag_CONTINUE_TXN)
-			a2ACK    = generate(A, 2, Flag_ACK_TXN)
+			b1       = generate(B, 1, Flag_CONTINUE_TXN)
+			a2       = generate(A, 2, Flag_CONTINUE_TXN)
+			a3ACK    = generate(A, 3, Flag_ACK_TXN)
 		)
-		queue(seq, b0, a1, a2ACK)
-		expectReplay(t, seq, a1.Begin, a2ACK.Begin, a1)
+		require.Equal(t, []bool{false, false, true}, queue(seq, b1, a2, a3ACK))
+		expectReplay(t, seq, a2.Begin, a3ACK.Begin, a2)
 
 		seq.replay = fnIterator(tc.wrap(seq.replay))
 		var _, err = seq.DequeCommitted()
@@ -505,10 +516,12 @@ type fnIterator func() (Envelope, error)
 
 func (fn fnIterator) Next() (Envelope, error) { return fn() }
 
-func queue(seq *Sequencer, envs ...Envelope) {
-	for _, e := range envs {
-		seq.QueueUncommitted(e)
+func queue(seq *Sequencer, envs ...Envelope) []bool {
+	var out = make([]bool, len(envs))
+	for i, e := range envs {
+		out[i] = seq.QueueUncommitted(e)
 	}
+	return out
 }
 
 func expectDeque(t *testing.T, seq *Sequencer, expect ...Envelope) {
