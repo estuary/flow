@@ -227,23 +227,6 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
 // Referenced as register_schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type StockDailyStats = unknown;
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempToLocationRegister.
-// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation/derivation.
-export type TemperatureAverageByLocation = {
-    avgC?: number;
-    lastReading?: /* Timestamp of the most recent reading for this named location */ string;
-    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
-        bbox?: number[];
-        coordinates: number[];
-        type: 'Point';
-    };
-    locationName?: string | null;
-    maxTempC?: number;
-    minTempC?: number;
-    numReadings?: number;
-    totalC?: number;
-};
-
-// Generated from examples/temp-sensors/flow.yaml?ptr=/collections/temperature~1averageTemps/derivation/register/schema.
-// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps/derivation.
-export type TemperatureAverageTemps = unknown;
+// Generated from examples/temp-sensors/flow.yaml?ptr=/collections/temperature~1averages/derivation/register/schema.
+// Referenced as register_schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averages/derivation.
+export type TemperatureAverages = unknown;
