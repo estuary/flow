@@ -1,53 +1,27 @@
 collections:
-  # Stream of readings that come from temperature sensors.
-  # Aggregate of temperature readings by sensor
-  temperature/readings:
-    schema: schemas.yaml#/$defs/tempReading
-    key: [/sensorId, /timestamp]
-
-  # Derive the average temps at any time given sensor readings
-  temperature/averageTemps:
-    schema: schemas.yaml#/$defs/averageTemps
-    key: [/sensorId]
-    derivation:
-      transform:
-        averageTemps:
-          source:
-            name: temperature/readings
-          publish: { lambda: typescript }
-
-  # Information about a temperature sensor, which may produce many temperature readings
+  # A temperature sensor, which may produce many temperature readings
   temperature/sensors:
-    schema: schemas.yaml#/$defs/tempSensor
+    schema: schemas.yaml#/$defs/sensor
     key: [/id]
 
-  # Reactive join to update this collection when either a new sensor is added or a
-  # temperature reading comes in.
-  temperature/averageByLocation:
-    schema: schemas.yaml#/$defs/avgTempsWithLocation
-    key: [/sensorId]
-    derivation:
-      register:
-        schema: schemas.yaml#/$defs/tempToLocationRegister
-        # All registers will start out with a default locationName. This allows us to publish
-        # aggregates based on readings that are received before the sensor information has been
-        # processed.
-        initial: { locationName: null }
+  # Stream of readings that come from temperature sensors.
+  temperature/readings:
+    schema: schemas.yaml#/$defs/reading
+    key: [/sensorId, /timestamp]
 
+  # Aggregate of temperature readings by sensor, enriched with sensor metadata.
+  temperature/averages:
+    schema: schemas.yaml#/$defs/average
+    key: [/sensor/id]
+    derivation:
       transform:
-        avgTempLocationSensors:
-          source:
-            name: temperature/sensors
-          # Update the register when a new sensor location arrives.
-          update: { lambda: typescript }
-          # Update the collection if a new sensor arrived which had readings.
+        fromSensors:
+          source: { name: temperature/sensors }
           publish: { lambda: typescript }
-        avgTempLocationTemps:
-          source:
-            name: temperature/averageTemps
-          # Update the register when a new reading arrives.
-          update: { lambda: typescript }
-          # Update the collection when a new reading arrives.
+        fromReadings:
+          shuffle:
+            key: [/sensorId]
+          source: { name: temperature/readings }
           publish: { lambda: typescript }
 
 materializations:
@@ -55,7 +29,7 @@ materializations:
     endpoint:
       sqlite: { path: ../examples.db?_journal=WAL }
     bindings:
-      - source: temperature/averageTemps
+      - source: temperature/averages
         resource: { table: temperatures }
 
 tests:
@@ -70,70 +44,47 @@ tests:
           - { sensorId: 2, timestamp: "2020-08-26T19:26:53Z", tempC: 20.9 }
 
     - verify: &expected
-        collection: temperature/averageTemps
+        collection: temperature/averages
         documents:
-          - sensorId: 1
+          - sensor: { id: 1 }
             numReadings: 3
             totalC: 61
             minTempC: 18.9
             maxTempC: 21.1
             lastReading: "2020-08-26T17:19:00Z"
-          - sensorId: 2
+
+          - sensor: { id: 2 }
             numReadings: 2
             totalC: 44.1
             minTempC: 20.9
             maxTempC: 23.2
             lastReading: "2020-08-26T19:26:53Z"
+
   "test ingestion of sensors then readings":
     - ingest: &sensors
         collection: temperature/sensors
         documents:
-          - { id: 1, locationName: "Office" }
-          - { id: 2, locationName: "Workshop" }
+          - { id: 1, locationName: Office }
+          - { id: 2, locationName: Workshop }
     - ingest: *readings
 
     - verify: &expected1
-        collection: temperature/averageByLocation
+        collection: temperature/averages
         documents:
-          - sensorId: 1
-            locationName: "Office"
+          - sensor:
+              id: 1
+              locationName: Office
             numReadings: 3
             totalC: 61
-            avgC: 20.33
             minTempC: 18.9
             maxTempC: 21.1
             lastReading: "2020-08-26T17:19:00Z"
-          - sensorId: 2
-            locationName: "Workshop"
-            numReadings: 2
-            totalC: 44.1
-            avgC: 22.05
-            minTempC: 20.9
-            maxTempC: 23.2
-            lastReading: "2020-08-26T19:26:53Z"
 
-  "test readings produced before sensor info":
-    - ingest: *readings
-    # Expect that the same results are produced, only without the location name
-    - verify:
-        collection: temperature/averageByLocation
-        documents:
-          - sensorId: 1
-            locationName: null
-            numReadings: 3
-            totalC: 61
-            minTempC: 18.9
-            maxTempC: 21.1
-            avgC: 20.33
-            lastReading: "2020-08-26T17:19:00Z"
-          - sensorId: 2
-            locationName: null
+          - sensor:
+              id: 2
+              locationName: Workshop
             numReadings: 2
-            avgC: 22.05
             totalC: 44.1
             minTempC: 20.9
             maxTempC: 23.2
             lastReading: "2020-08-26T19:26:53Z"
-    - ingest: *sensors
-    # Expect that the locationNames have been added
-    - verify: *expected1

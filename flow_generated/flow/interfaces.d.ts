@@ -321,29 +321,17 @@ export interface StockDailyStats {
     ): collections.StockDailyStats[];
 }
 
-// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation/derivation.
+// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averages/derivation.
 // Required to be implemented by examples/temp-sensors/flow.ts.
-export interface TemperatureAverageByLocation {
-    avgTempLocationSensorsUpdate(source: collections.TemperatureSensors): registers.TemperatureAverageByLocation[];
-    avgTempLocationSensorsPublish(
-        source: collections.TemperatureSensors,
-        register: registers.TemperatureAverageByLocation,
-        previous: registers.TemperatureAverageByLocation,
-    ): collections.TemperatureAverageByLocation[];
-    avgTempLocationTempsUpdate(source: collections.TemperatureAverageTemps): registers.TemperatureAverageByLocation[];
-    avgTempLocationTempsPublish(
-        source: collections.TemperatureAverageTemps,
-        register: registers.TemperatureAverageByLocation,
-        previous: registers.TemperatureAverageByLocation,
-    ): collections.TemperatureAverageByLocation[];
-}
-
-// Generated from derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps/derivation.
-// Required to be implemented by examples/temp-sensors/flow.ts.
-export interface TemperatureAverageTemps {
-    averageTempsPublish(
+export interface TemperatureAverages {
+    fromReadingsPublish(
         source: collections.TemperatureReadings,
-        register: registers.TemperatureAverageTemps,
-        previous: registers.TemperatureAverageTemps,
-    ): collections.TemperatureAverageTemps[];
+        register: registers.TemperatureAverages,
+        previous: registers.TemperatureAverages,
+    ): collections.TemperatureAverages[];
+    fromSensorsPublish(
+        source: collections.TemperatureSensors,
+        register: registers.TemperatureAverages,
+        previous: registers.TemperatureAverages,
+    ): collections.TemperatureAverages[];
 }
