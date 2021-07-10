@@ -9,7 +9,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator/push_relabel"
 	"go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/keyspace"
@@ -91,10 +91,12 @@ func Allocate(args AllocateArgs) error {
 					}
 				}
 
-				var dur = time.Now().Sub(startTime)
+				var dur = time.Since(startTime)
 				allocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
 
 				log.WithFields(log.Fields{
+					"root":        state.KS.Root,
+					"rev":         state.KS.Header.Revision,
 					"hash":        state.NetworkHash,
 					"lastHash":    lastNetworkHash,
 					"items":       len(state.Items),
@@ -296,6 +298,16 @@ func (b *batchedTxn) Then(o ...clientv3.Op) checkpointTxn {
 }
 
 func (b *batchedTxn) Checkpoint() error {
+	if len(b.nextOps) == 0 {
+		if len(b.nextCmps) != 0 {
+			panic("comparisons must be accompanied by mutations")
+		}
+		return nil // This checkpoint is a no-op.
+	}
+
+	// Checkpoint may be called multiple times in the course of building an
+	// amortized, applied Etcd transaction. On the first Checkpoint (only),
+	// include fixed comparisons which must run with every transaction.
 	if len(b.cmps) == 0 {
 		b.cmps = append(b.cmps, b.fixedCmps...)
 	}
@@ -318,37 +330,53 @@ func (b *batchedTxn) Checkpoint() error {
 func (b *batchedTxn) Commit() (*clientv3.TxnResponse, error) {
 	if len(b.nextCmps) != 0 || len(b.nextOps) != 0 {
 		panic("must call Checkpoint before Commit")
+	} else if len(b.ops) == 0 {
+		return nil, nil // No-op.
 	}
 
-	if r, err := b.txnDo(clientv3.OpTxn(b.cmps, b.ops, nil)); err != nil {
+	var response, err = b.txnDo(clientv3.OpTxn(b.cmps, b.ops, nil))
+
+	if log.GetLevel() >= log.DebugLevel {
+		b.debugLogTxn(response, err)
+	}
+
+	if err != nil {
 		return nil, err
-	} else if !r.Succeeded {
-		return r, fmt.Errorf("transaction checks did not succeed")
+	} else if !response.Succeeded {
+		return response, fmt.Errorf("transaction checks did not succeed")
 	} else {
 		if len(b.ops) > 0 {
 			b.noop = false
 		}
 		b.cmps, b.ops = b.cmps[:0], b.ops[:0]
-		return r, nil
+		return response, nil
 	}
 }
 
-func debugLogTxn(cmps []clientv3.Cmp, ops []clientv3.Op) {
-	for _, c := range cmps {
-		log.WithField("cmp", proto.CompactTextString((*etcdserverpb.Compare)(&c))).Info("cmp")
+func (b *batchedTxn) debugLogTxn(response *clientv3.TxnResponse, err error) {
+	var dbgCmps, dbgOps []string
+	for _, c := range b.cmps {
+		dbgCmps = append(dbgCmps, proto.CompactTextString((*etcdserverpb.Compare)(&c)))
 	}
-	for _, o := range ops {
+	for _, o := range b.ops {
 		if o.IsPut() {
-			log.WithFields(log.Fields{
-				"key":   string(o.KeyBytes()),
-				"value": string(o.ValueBytes()),
-			}).Info("put")
+			dbgOps = append(dbgOps, fmt.Sprintf("PUT %q", string(o.KeyBytes())))
 		} else if o.IsDelete() {
-			log.WithFields(log.Fields{
-				"key": string(o.KeyBytes()),
-			}).Info("delete")
+			dbgOps = append(dbgOps, fmt.Sprintf("DEL %q", string(o.KeyBytes())))
 		}
 	}
+
+	var rev int64
+	if err == nil {
+		rev = response.Header.Revision
+	}
+
+	log.WithFields(log.Fields{
+		"cmps": dbgCmps,
+		"ops":  dbgOps,
+		"rev":  rev,
+		"err":  err,
+	}).Debug("leader etcd txn")
 }
 
 // maxTxnOps is set to etcd's `embed/config.go.DefaultMaxTxnOps`. Etcd allows

@@ -4,10 +4,9 @@ import (
 	"context"
 	"testing"
 
-	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	"go.etcd.io/etcd/client/v3"
-
 	gc "github.com/go-check/check"
+	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/etcdtest"
 )
 
@@ -170,7 +169,15 @@ func (s *AllocatorSuite) TestTxnBatching(c *gc.C) {
 		nil,
 	))
 
-	// Commit that fails checks. Expect it's mapped to an error.
+	// Empty Checkpoint, then Commit. Expect it's treated as a no-op.
+	c.Check(txn.Checkpoint(), gc.IsNil)
+
+	r, err = txn.Commit()
+	c.Check(r, gc.IsNil)
+	c.Check(err, gc.IsNil)
+
+	// Non-empty commit that fails checks. Expect it's mapped to an error.
+	c.Check(txn.Then(testOp).Checkpoint(), gc.IsNil)
 	txnResp.Succeeded = false
 
 	r, err = txn.Commit()
