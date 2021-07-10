@@ -157,13 +157,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
 		if r.readDelay != 0 && readTime > g.wallTime {
-			log.WithFields(log.Fields{
-				"journal":   r.req.Shuffle.Journal,
-				"tailing":   r.resp.Tailing(),
-				"readyDocs": len(r.resp.DocsJson),
-				"wallTime":  g.wallTime,
-				"readTime":  readTime,
-			}).Debug("gated reads of journal")
+			r.log().Debug("gated reads of journal")
 
 			g.gated = append(g.gated, r)
 			continue
@@ -251,7 +245,8 @@ func (g *governor) poll(ctx context.Context) error {
 			return fmt.Errorf(r.resp.TerminalError)
 		} else if len(r.resp.DocsJson) == 0 && r.resp.Tailing() {
 			// This is an empty read which informed us the reader is now tailing.
-			// Leave it in pending.
+			// Leave it in pending, but return to attempt another read of the channel.
+			return errPollAgain
 		} else if len(r.resp.DocsJson) == 0 {
 			return fmt.Errorf("unexpected non-tailing empty ShuffleResponse")
 		} else {
@@ -290,6 +285,7 @@ func (g *governor) onTick() error {
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
+		r.log().Debug("un-gated reads of journal")
 		heap.Push(&g.queued, r)
 	}
 	g.gated = g.gated[:0]
