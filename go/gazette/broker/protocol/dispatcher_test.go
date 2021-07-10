@@ -252,10 +252,10 @@ func (c *mockClientConn) RemoveSubConn(sc balancer.SubConn) {
 	c.removed = append(c.removed, sc.(mockSubConn))
 }
 
-func (c *mockClientConn) UpdateBalancerState(s connectivity.State, p balancer.Picker) {}
-func (c *mockClientConn) ResolveNow(resolver.ResolveNowOptions)                       {}
-func (c *mockClientConn) UpdateState(balancer.State)                                  {}
-func (c *mockClientConn) Target() string                                              { return "default.addr" }
+func (c *mockClientConn) UpdateAddresses(balancer.SubConn, []resolver.Address) {}
+func (c *mockClientConn) UpdateState(balancer.State)                           {}
+func (c *mockClientConn) ResolveNow(resolver.ResolveNowOptions)                {}
+func (c *mockClientConn) Target() string                                       { return "default.addr" }
 
 type mockRouter struct{ invalidated string }
 
