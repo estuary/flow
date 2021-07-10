@@ -56,7 +56,7 @@ import { ExamplesSourceSchemaRestrictive } from '../../examples/source-schema/fl
 
 import { StockDailyStats } from '../../examples/stock-stats/flow';
 
-import { TemperatureAverageByLocation, TemperatureAverageTemps } from '../../examples/temp-sensors/flow';
+import { TemperatureAverages } from '../../examples/temp-sensors/flow';
 
 import { ExamplesWikiPages } from '../../examples/wiki/pages.flow';
 
@@ -88,8 +88,7 @@ const __PatternsZeroCrossing: interfaces.PatternsZeroCrossing = new PatternsZero
 const __SoakSetOpsSets: interfaces.SoakSetOpsSets = new SoakSetOpsSets();
 const __SoakSetOpsSetsRegister: interfaces.SoakSetOpsSetsRegister = new SoakSetOpsSetsRegister();
 const __StockDailyStats: interfaces.StockDailyStats = new StockDailyStats();
-const __TemperatureAverageByLocation: interfaces.TemperatureAverageByLocation = new TemperatureAverageByLocation();
-const __TemperatureAverageTemps: interfaces.TemperatureAverageTemps = new TemperatureAverageTemps();
+const __TemperatureAverages: interfaces.TemperatureAverages = new TemperatureAverages();
 
 // Now build the router that's used for transformation lambda dispatch.
 const routes: { [path: string]: Lambda | undefined } = {
@@ -239,20 +238,11 @@ const routes: { [path: string]: Lambda | undefined } = {
         __SoakSetOpsSetsRegister,
     ) as Lambda,
     '/derive/stock/daily-stats/fromTicks/Publish': __StockDailyStats.fromTicksPublish.bind(__StockDailyStats) as Lambda,
-    '/derive/temperature/averageByLocation/avgTempLocationSensors/Update': __TemperatureAverageByLocation.avgTempLocationSensorsUpdate.bind(
-        __TemperatureAverageByLocation,
+    '/derive/temperature/averages/fromReadings/Publish': __TemperatureAverages.fromReadingsPublish.bind(
+        __TemperatureAverages,
     ) as Lambda,
-    '/derive/temperature/averageByLocation/avgTempLocationSensors/Publish': __TemperatureAverageByLocation.avgTempLocationSensorsPublish.bind(
-        __TemperatureAverageByLocation,
-    ) as Lambda,
-    '/derive/temperature/averageByLocation/avgTempLocationTemps/Update': __TemperatureAverageByLocation.avgTempLocationTempsUpdate.bind(
-        __TemperatureAverageByLocation,
-    ) as Lambda,
-    '/derive/temperature/averageByLocation/avgTempLocationTemps/Publish': __TemperatureAverageByLocation.avgTempLocationTempsPublish.bind(
-        __TemperatureAverageByLocation,
-    ) as Lambda,
-    '/derive/temperature/averageTemps/averageTemps/Publish': __TemperatureAverageTemps.averageTempsPublish.bind(
-        __TemperatureAverageTemps,
+    '/derive/temperature/averages/fromSensors/Publish': __TemperatureAverages.fromSensorsPublish.bind(
+        __TemperatureAverages,
     ) as Lambda,
 };
 

@@ -27,11 +27,6 @@ collections:
             name: stock/ticks
             schema: "schemas/L1-tick.schema.yaml#/$defs/withRequired"
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
-
-          # readDelay that's temporarily set on this transform just to have one,
-          # awaiting a more wholesale refactoring of `examples` into
-          # a proper integration test suite.
-          readDelay: 24h
           publish: { lambda: typescript }
 
 tests:

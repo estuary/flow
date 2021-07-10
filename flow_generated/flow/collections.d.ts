@@ -697,44 +697,34 @@ export type StockTicks = /* Level-one market tick of a security. */ {
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/avgTempsWithLocation.
-// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageByLocation.
-export type TemperatureAverageByLocation = /* Average temperature with location added */ {
-    avgC?: number;
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/average.
+// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averages.
+export type TemperatureAverages = /* Average temperature information for a particular sensor */ {
     lastReading?: /* Timestamp of the most recent reading for this named location */ string;
-    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
-        bbox?: number[];
-        coordinates: number[];
-        type: 'Point';
-    };
-    locationName?: string | null;
     maxTempC?: number;
     minTempC?: number;
     numReadings?: number;
-    sensorId: number;
+    sensor: /* A sensor that produces temperature readings */ {
+        id: /* The unique id of this sensor */ number;
+        location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+            bbox?: number[];
+            coordinates: number[];
+            type: 'Point';
+        };
+        locationName?: /* Human readable name of the sensor location */ string;
+    };
     totalC?: number;
 };
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/averageTemps.
-// Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1averageTemps.
-export type TemperatureAverageTemps = /* Average temperature information for a particular sensor */ {
-    lastReading: /* Timestamp of the most recent reading for this named location */ string;
-    maxTempC: number;
-    minTempC: number;
-    numReadings: number;
-    sensorId: number;
-    totalC: number;
-};
-
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempReading.
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/reading.
 // Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1readings.
 export type TemperatureReadings = /* A reading of a temperature from a sensor */ {
     sensorId: /* The id of the sensor that produced the reading */ number;
-    tempC: /* The temperature in degrees celcius */ number;
+    tempC: /* The temperature in degrees celsius */ number;
     timestamp: /* An RFC-3339 formatted string holding the time of the reading */ string;
 };
 
-// Generated from examples/temp-sensors/schemas.yaml#/$defs/tempSensor.
+// Generated from examples/temp-sensors/schemas.yaml#/$defs/sensor.
 // Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1sensors.
 export type TemperatureSensors = /* A sensor that produces temperature readings */ {
     id: /* The unique id of this sensor */ number;
@@ -743,5 +733,5 @@ export type TemperatureSensors = /* A sensor that produces temperature readings 
         coordinates: number[];
         type: 'Point';
     };
-    locationName: /* Human readable name of the sensor location */ string;
+    locationName?: /* Human readable name of the sensor location */ string;
 };

@@ -3,13 +3,6 @@ import { collections, interfaces, transforms } from 'flow/modules';
 import * as moment from 'moment';
 
 export class StockDailyStats implements interfaces.StockDailyStats {
-    whippiePublish(
-        _source: collections.StockTicks,
-        _register: unknown,
-        _previous: unknown,
-    ): collections.StockDailyStats[] {
-        return [];
-    }
     fromTicksPublish(
         tick: transforms.StockDailyStatsfromTicksSource,
         _register: unknown,
