@@ -72,10 +72,6 @@ fn do_parse(parse_args: &ParseArgs) {
         .map(|file| ParseConfig::load(file).or_bail("failed to load config file"))
         .unwrap_or_default();
     let input: Input = if parse_args.file == "-" {
-        // Rust's std Stdin is a mutex around a buffered stdin handle. We use a raw stdin so that
-        // we don't pay the cost of locking the mutex on every read.
-        //let stdin = ManuallyDrop::new(unsafe { File::from_raw_fd(0) });
-        // TODO: figure out why this doesn't work
         Input::Stream(Box::new(io::stdin()))
     } else {
         if config.filename.is_none() {
@@ -92,11 +88,7 @@ fn do_parse(parse_args: &ParseArgs) {
 }
 
 fn do_spec() {
-    let mut settings = schemars::gen::SchemaSettings::draft07();
-    settings.option_add_null_type = false;
-    let generator = schemars::gen::SchemaGenerator::new(settings);
-    let mut schema = generator.into_root_schema_for::<ParseConfig>();
-
+    let mut schema = ParseConfig::json_schema();
     // Add a UUID as the $id of the schema. This allows the resulting schema to be nested within
     // other schemas, since any $ref uris will be resolved relative to the $id.
     let id = uuid::Uuid::new_v4().to_string();

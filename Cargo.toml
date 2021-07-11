@@ -9,7 +9,8 @@ edition = "2018"
 [dependencies]
 bytes = "*"
 chardetng = "*"
-encoding_rs = "*"
+csv = "*"
+encoding_rs = {version = "*", features = ["serde"]}
 schemars = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
@@ -27,3 +28,4 @@ doc = {git = "https://github.com/estuary/flow"}
 
 [dev-dependencies]
 tempdir = "*"
+insta = "*"

@@ -2,11 +2,10 @@ mod encoding;
 
 use crate::config::EncodingRef;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use encoding_rs::UTF_8;
 use std::fs::File;
 use std::io::{self, Read, Seek};
 
-pub use self::encoding::detect_encoding;
+pub use self::encoding::{detect_encoding, TranscodingReader};
 
 /// Type of content input provided to parsers.
 pub enum Input {
@@ -86,7 +85,7 @@ impl Input {
         //   a String.
         // - It would be nice to avoid duplicating the work of utf-8 validation, especially since this
         //   is likely to be by far the most common input encoding.
-        if resolved_encoding.encoding().name() == UTF_8.name() {
+        if resolved_encoding.is_utf8() {
             Ok(input)
         } else {
             let reader = self::encoding::TranscodingReader::with_buffer_size(

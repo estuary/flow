@@ -1,4 +1,6 @@
+mod csv;
 mod json;
+mod projection;
 
 use crate::decorate::{AddFieldError, Decorator};
 use crate::input::Input;
@@ -29,6 +31,12 @@ pub enum ParseError {
 
     #[error("adding fields to json: {0}")]
     AddFields(#[from] AddFieldError),
+
+    #[error("failed to build projections: {0}")]
+    BuildingProjections(#[from] projection::BuildError),
+
+    #[error("failed to parse content: {0}")]
+    Parse(#[from] Box<dyn std::error::Error>),
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -79,6 +87,8 @@ pub fn parse(
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
         Format::Json => json::new_parser(),
+        Format::Csv => csv::new_csv_parser(),
+        Format::Tsv => csv::new_tsv_parser(),
     }
 }
 

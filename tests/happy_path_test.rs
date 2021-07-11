@@ -31,7 +31,6 @@ fn assert_file_is_parsed(file: PathBuf) {
     let result = run_test(&config, input);
     assert_eq!(0, result.exit_code);
     assert!(!result.parsed.is_empty());
-    let mut last_offset = 0u64;
     for (i, doc) in result.parsed.into_iter().enumerate() {
         assert_eq!(
             Some(&json!(true)),
@@ -44,8 +43,6 @@ fn assert_file_is_parsed(file: PathBuf) {
             .expect("document missing offset")
             .as_u64()
             .expect("offset was not a u64");
-        assert!(offset >= i as u64);
-        assert!(offset >= last_offset);
-        last_offset = offset;
+        assert!(offset == i as u64);
     }
 }

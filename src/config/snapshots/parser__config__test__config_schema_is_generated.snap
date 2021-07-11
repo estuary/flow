@@ -1,0 +1,194 @@
+---
+source: src/config/mod.rs
+expression: schema
+
+---
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ParseConfig",
+  "type": "object",
+  "properties": {
+    "addRecordOffset": {
+      "description": "Add the record offset as a property of each object at the location given. The offset is a monotonic counter that starts at 0 and increases by 1 for each output document.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/JsonPointer"
+        }
+      ]
+    },
+    "addValues": {
+      "description": "Static data to add to each output JSON document.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": true
+    },
+    "contentType": {
+      "description": "The mime type of the data, if known. This will be used for format inference, or ignored if `format` is specified.",
+      "default": null,
+      "type": "string"
+    },
+    "contentTypeMappings": {
+      "description": "Mappings from content types to format identifiers.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/format"
+      }
+    },
+    "csv": {
+      "description": "Configures handling of comma-separated values (CSV) format.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/CharacterSeparatedConfig"
+        }
+      ]
+    },
+    "fileExtensionMappings": {
+      "description": "Mappings from file extensions to format identifiers.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/format"
+      }
+    },
+    "filename": {
+      "description": "filename is used for format inference. It will be ignored if `format` is specified.",
+      "default": null,
+      "type": "string"
+    },
+    "format": {
+      "description": "format forces the use of the given parser and disables automatic format detection. If unspecified, then the format will be inferred from the filename, content-type, or file contents.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/format"
+        }
+      ]
+    },
+    "projections": {
+      "description": "Projections control how tabular data like CSV gets transformed into potentially nested JSON structures. The keys are field names, which may match column names in the source data, and the values are json pointers indicating where to place the values within the output JSON document.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/JsonPointer"
+      }
+    },
+    "schema": {
+      "description": "JSON schema describing the desired shape of the output JSON documents. Output documents will not be validated against this schema, but it can be used to automatically infer projections for mapping tabular data to nested JSON structures.",
+      "default": null
+    },
+    "tsv": {
+      "description": "Configures handling of tab-separated values (TSV) format.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/CharacterSeparatedConfig"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "Char": {
+      "description": "A single character in the range 0-127",
+      "type": "string",
+      "maxLength": 1,
+      "minLength": 1
+    },
+    "CharacterSeparatedConfig": {
+      "type": "object",
+      "properties": {
+        "delimiter": {
+          "description": "The delimiter that separates values within each row. Only single-byte delimiters are supported.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Char"
+            }
+          ]
+        },
+        "encoding": {
+          "description": "The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/encoding"
+            }
+          ]
+        },
+        "escape": {
+          "description": "The escape character, used to escape quotes within fields.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Char"
+            }
+          ]
+        },
+        "headers": {
+          "description": "Manually specified headers, which can be used in cases where the file itself doesn't contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "line_ending": {
+          "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/LineEnding"
+            }
+          ]
+        },
+        "quote": {
+          "description": "The character used to quote fields.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/Char"
+            }
+          ]
+        }
+      }
+    },
+    "JsonPointer": {
+      "examples": [
+        "/json/pointer"
+      ],
+      "type": "string",
+      "pattern": "^(/[^/]+)*$"
+    },
+    "LineEnding": {
+      "description": "the character(s) that separates lines, which must either be a single character or '\r\n'",
+      "oneOf": [
+        {
+          "enum": [
+            "\r\n"
+          ]
+        },
+        {
+          "$ref": "#/definitions/Char"
+        }
+      ]
+    },
+    "encoding": {
+      "title": "encoding",
+      "description": "An encoding scheme, identified by WHATWG label. The list of allowable values is available at: https://encoding.spec.whatwg.org/#names-and-labels",
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-:]{2,20}$"
+    },
+    "format": {
+      "title": "format",
+      "description": "Specifies the format to use for parsing, which overrides the default behavior of infering the format.",
+      "type": "string",
+      "enum": [
+        "json",
+        "csv",
+        "tsv"
+      ]
+    }
+  }
+}

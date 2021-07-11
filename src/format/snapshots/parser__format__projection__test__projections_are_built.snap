@@ -1,0 +1,274 @@
+---
+source: src/format/projection.rs
+expression: result
+
+---
+{
+    "/bee": TypeInfo {
+        possible_types: "object",
+        must_exist: true,
+        target_location: [
+            Property(
+                "bee",
+            ),
+        ],
+    },
+    "/bee/loc": TypeInfo {
+        possible_types: "string",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "loc",
+            ),
+        ],
+    },
+    "/bee/rock": TypeInfo {
+        possible_types: "object",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+        ],
+    },
+    "/bee/rock/flower": TypeInfo {
+        possible_types: "boolean",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+            Property(
+                "flower",
+            ),
+        ],
+    },
+    "/locationa": TypeInfo {
+        possible_types: "integer",
+        must_exist: true,
+        target_location: [
+            Property(
+                "locationa",
+            ),
+        ],
+    },
+    "Bee": TypeInfo {
+        possible_types: "object",
+        must_exist: true,
+        target_location: [
+            Property(
+                "bee",
+            ),
+        ],
+    },
+    "BeeLoc": TypeInfo {
+        possible_types: "integer",
+        must_exist: true,
+        target_location: [
+            Property(
+                "locationa",
+            ),
+        ],
+    },
+    "BeeRock": TypeInfo {
+        possible_types: "object",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+        ],
+    },
+    "BeeRockFlower": TypeInfo {
+        possible_types: "boolean",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+            Property(
+                "flower",
+            ),
+        ],
+    },
+    "Locationa": TypeInfo {
+        possible_types: "integer",
+        must_exist: true,
+        target_location: [
+            Property(
+                "locationa",
+            ),
+        ],
+    },
+    "bee": TypeInfo {
+        possible_types: "object",
+        must_exist: true,
+        target_location: [
+            Property(
+                "bee",
+            ),
+        ],
+    },
+    "bee/loc": TypeInfo {
+        possible_types: "string",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "loc",
+            ),
+        ],
+    },
+    "bee/rock": TypeInfo {
+        possible_types: "object",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+        ],
+    },
+    "bee/rock/flower": TypeInfo {
+        possible_types: "boolean",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+            Property(
+                "flower",
+            ),
+        ],
+    },
+    "beeLoc": TypeInfo {
+        possible_types: "string",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "loc",
+            ),
+        ],
+    },
+    "beeRock": TypeInfo {
+        possible_types: "object",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+        ],
+    },
+    "beeRockFlower": TypeInfo {
+        possible_types: "boolean",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+            Property(
+                "flower",
+            ),
+        ],
+    },
+    "bee_loc": TypeInfo {
+        possible_types: "string",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "loc",
+            ),
+        ],
+    },
+    "bee_rock": TypeInfo {
+        possible_types: "object",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+        ],
+    },
+    "bee_rock_flower": TypeInfo {
+        possible_types: "boolean",
+        must_exist: false,
+        target_location: [
+            Property(
+                "bee",
+            ),
+            Property(
+                "rock",
+            ),
+            Property(
+                "flower",
+            ),
+        ],
+    },
+    "fieldA": TypeInfo {
+        possible_types: "integer",
+        must_exist: true,
+        target_location: [
+            Property(
+                "locationa",
+            ),
+        ],
+    },
+    "fieldB": TypeInfo {
+        possible_types: "array", "boolean", "null", "number", "object", "string",
+        must_exist: false,
+        target_location: [
+            Property(
+                "b",
+            ),
+            Property(
+                "loc",
+            ),
+        ],
+    },
+    "locationa": TypeInfo {
+        possible_types: "integer",
+        must_exist: true,
+        target_location: [
+            Property(
+                "locationa",
+            ),
+        ],
+    },
+}

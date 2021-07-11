@@ -15,6 +15,7 @@ impl Parser for JsonParser {
         // for UTF-16 and 32 encoding schemes in addition to the default of UTF-8. Technically,
         // we're being too permissive here since `transcode_non_utf8` will accept basically any
         // encoding, but I don't see the value of restricting the possible source encodings.
+        // Unfortunately, encoding_rs doesn't actually handle utf-32, though
         let input = content
             // only look at the first 32 bytes to determine encoding, since it's most likely only
             // going to look for a BOM.
