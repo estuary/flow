@@ -258,7 +258,7 @@ func resetJournalHead(ctx context.Context, rjc pb.RoutedJournalClient, name pb.J
 	return nil
 }
 
-// WaitForShardsToAssign blocks until all shards have a ready PRIMARY.
+// WaitForShardsToAssign blocks until all shards have reached PRIMARY.
 func (c *Cluster) WaitForShardsToAssign() {
 	var state = c.Consumer.Service.State
 
@@ -268,6 +268,9 @@ func (c *Cluster) WaitForShardsToAssign() {
 	for {
 		var wait bool
 
+		// This is subtly wrong, in the general case but not the local-cluster
+		// testing case, because assignments can also include non-primary replicas.
+		// TODO(johnny): Should allocator.State better surface this?
 		if state.ItemSlots != len(state.Assignments) {
 			wait = true
 		}
@@ -277,7 +280,7 @@ func (c *Cluster) WaitForShardsToAssign() {
 				decoded = a.Decoded.(allocator.Assignment)
 				status  = decoded.AssignmentValue.(*pc.ReplicaStatus)
 			)
-			if decoded.Slot == 0 && status.Code != pc.ReplicaStatus_PRIMARY {
+			if decoded.Slot == 0 && status.Code < pc.ReplicaStatus_PRIMARY {
 				wait = true
 			}
 		}
