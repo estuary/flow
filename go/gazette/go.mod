@@ -22,7 +22,7 @@ require (
 	github.com/gorilla/schema v1.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/golang-lru v0.5.4
-	github.com/jessevdk/go-flags v1.4.1-0.20181221193153-c0795c8afcf4
+	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/cockroach-encoding v1.1.0
 	github.com/jgraettinger/urkel v0.1.2
 	github.com/klauspost/compress v1.10.3

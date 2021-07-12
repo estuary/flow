@@ -22,7 +22,7 @@ type cmdJournalsFragments struct {
 	Format   string        `long:"format" short:"o" choice:"table" choice:"json" choice:"proto" default:"table" description:"Output format"`
 	FromUnix int64         `long:"from" description:"Restrict to fragments created at or after this time, in unix seconds since epoch"`
 	ToUnix   int64         `long:"to" description:"Restrict to fragments created before this time, in unix seconds since epoch"`
-	SigTTL   time.Duration `long:"url-ttl" default:"" description:"Provide a signed GET URL with the given TTL"`
+	SigTTL   time.Duration `long:"url-ttl" default:"0s" description:"Provide a signed GET URL with the given TTL"`
 }
 
 func init() {
