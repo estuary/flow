@@ -17,6 +17,10 @@ RUN apt-get update -y \
       unzip \
  && rm -rf /var/lib/apt/lists/*
 
+RUN curl -o docker-cli.deb 'https://download.docker.com/linux/debian/dists/bullseye/pool/stable/amd64/docker-ce-cli_20.10.7~3-0~debian-bullseye_amd64.deb' && \
+    dpkg -i docker-cli.deb && \
+    rm docker-cli.deb
+
 # Create a non-privileged "flow" user.
 RUN useradd flow --create-home --shell /usr/sbin/nologin
 
