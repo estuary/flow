@@ -121,7 +121,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
-	if _, _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	_, catalogRevision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  cfg.Context,
 		Etcd:                 cfg.Etcd,
 		Root:                 cfg.EtcdCatalogPrefix,
@@ -129,7 +129,8 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		TypeScriptUDS:        lambdaJSUDS,
 		TypeScriptPackageURL: "",
 		DryRun:               false,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
 
@@ -142,7 +143,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 
 	// Apply derivation shard specs.
-	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 	cluster.WaitForShardsToAssign()
