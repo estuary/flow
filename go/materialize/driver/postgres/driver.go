@@ -290,6 +290,9 @@ func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded 
 			return fmt.Errorf("load at index %d: %w", i, err)
 		}
 	}
+	if err = results.Close(); err != nil {
+		return fmt.Errorf("closing batch: %w", err)
+	}
 
 	// Issue a union join of the target tables and their (now staged) load keys,
 	// and send results to the |loaded| callback.
