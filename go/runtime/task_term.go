@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
@@ -42,8 +43,13 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	}
 	var taskName = spec.LabelSet.ValueOf(labels.TaskName)
 
+	var revisionStr = spec.LabelSet.ValueOf(labels.TaskCreated)
+	minTaskRevision, err := strconv.ParseInt(revisionStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parsing %s: %w", labels.TaskCreated, err)
+	}
 	var lastRevision = t.revision
-	t.task, t.commons, t.revision, err = host.Catalog.GetTask(taskName)
+	t.task, t.commons, t.revision, err = host.Catalog.GetTask(shard.Context(), taskName, minTaskRevision)
 	if err != nil {
 		return err
 	}

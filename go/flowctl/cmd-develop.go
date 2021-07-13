@@ -115,7 +115,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
 	// Apply catalog task specifications to the cluster.
-	if _, _, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
+	_, catalogRevision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  cfg.Context,
 		Etcd:                 cfg.Etcd,
 		Root:                 cfg.EtcdCatalogPrefix,
@@ -123,7 +123,8 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		TypeScriptUDS:        lambdaJSUDS,
 		TypeScriptPackageURL: "",
 		DryRun:               false,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
 	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
@@ -139,15 +140,15 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 	// Apply capture shard specs.
-	if err = applyCaptureShards(built, cluster.Shards, cmd.Shards); err != nil {
+	if err = applyCaptureShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying capture shards: %w", err)
 	}
 	// Apply derivation shard specs.
-	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards); err != nil {
+	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	}
 	// Apply materialization shards.
-	if err = applyMaterializationShards(built, cluster.Shards, cmd.Shards); err != nil {
+	if err = applyMaterializationShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying materialization shards: %w", err)
 	}
 	cluster.WaitForShardsToAssign()

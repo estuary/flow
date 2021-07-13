@@ -122,15 +122,15 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	if !cmd.DryRun {
 		// Apply capture shard specs.
-		if err = applyCaptureShards(built, shards, 1); err != nil {
+		if err = applyCaptureShards(built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying capture shards: %w", err)
 		}
 		// Apply derivation shard specs.
-		if err = applyDerivationShards(built, shards, 1); err != nil {
+		if err = applyDerivationShards(built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
 		}
 		// Apply materialization shards.
-		if err = applyMaterializationShards(built, shards, 1); err != nil {
+		if err = applyMaterializationShards(built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying materialization shards: %w", err)
 		}
 		fmt.Println("Applied.")
@@ -182,12 +182,13 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	return path, ptr
 }
 
-func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
+func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Captures {
 		if err := createTaskShards(client,
 			flowLabels.TaskTypeCapture,
 			spec.Capture.String(),
 			shards,
+			commonsRevision,
 		); err != nil {
 			return err
 		}
@@ -195,12 +196,13 @@ func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, sha
 	return nil
 }
 
-func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
+func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Derivations {
 		if err := createTaskShards(client,
 			flowLabels.TaskTypeDerivation,
 			spec.Collection.Collection.String(),
 			shards,
+			commonsRevision,
 		); err != nil {
 			return err
 		}
@@ -208,12 +210,13 @@ func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, 
 	return nil
 }
 
-func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int) error {
+func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Materializations {
 		if err := createTaskShards(client,
 			flowLabels.TaskTypeMaterialization,
 			spec.Materialization.String(),
 			shards,
+			commonsRevision,
 		); err != nil {
 			return err
 		}
@@ -221,7 +224,7 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardCli
 	return nil
 }
 
-func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int) error {
+func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int, commonsRevision int64) error {
 	// Query for existing shards of this catalog task.
 	if resp, err := consumer.ListShards(context.Background(), client, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet(
@@ -244,6 +247,7 @@ func createTaskShards(client pc.ShardClient, taskType, taskName string, shards i
 			labels.ManagedBy, flowLabels.ManagedByFlow,
 			flowLabels.TaskName, taskName,
 			flowLabels.TaskType, taskType,
+			flowLabels.TaskCreated, fmt.Sprintf("%d", commonsRevision),
 		)
 
 		labels = flowLabels.EncodeRange(pf.RangeSpec{

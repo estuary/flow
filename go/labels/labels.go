@@ -44,6 +44,8 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
+	// TaskCreated is a base-10 integer of the ETCD revision of the task.
+	TaskCreated = "estuary.dev/task-created"
 	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
