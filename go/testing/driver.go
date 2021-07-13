@@ -192,7 +192,9 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Now feed documents into a combiner, filtering documents which are ACKs.
-	task, commons, _, err := c.Consumer.Catalog.GetTask(step.Collection.String())
+	// The waitForRevision parameter is 0 here because it's already guaranteed that the
+	// keyspace has observed the task because WaitForShardsToAssign has already been called.
+	task, commons, _, err := c.Consumer.Catalog.GetTask(ctx, step.Collection.String(), 0)
 	if err != nil {
 		return fmt.Errorf("mapping step collection to commons: %w", err)
 	}

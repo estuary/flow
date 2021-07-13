@@ -106,10 +106,13 @@ func NewCatalog(ctx context.Context, etcd *clientv3.Client, root string) (Catalo
 	return catalog, nil
 }
 
-// GetTask returns the named CatalogTask, Commons, and its Commons ModRevision.
-func (c Catalog) GetTask(name string) (_ *pf.CatalogTask, _ *Commons, revision int64, _ error) {
+// GetTask returns the named CatalogTask, Commons, and its Commons ModRevision. It first ensures
+// that the given revision has been observed by the keyspace so that the caller can guarantee that a
+// task update has been observed if its revision is known.
+func (c Catalog) GetTask(ctx context.Context, name string, waitForRevision int64) (_ *pf.CatalogTask, _ *Commons, revision int64, _ error) {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
+	c.KeySpace.WaitForRevision(ctx, waitForRevision)
 	return c.getTask(name)
 }
 
