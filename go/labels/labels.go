@@ -44,6 +44,9 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
+	// CatalogRevision is a base-10 integer of the minimum ETCD revision that must be observed
+	// before this catalog task can be started.
+	CatalogRevision = "estuary.dev/catalog-revision"
 	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"

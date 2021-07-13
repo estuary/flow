@@ -106,6 +106,21 @@ func NewCatalog(ctx context.Context, etcd *clientv3.Client, root string) (Catalo
 	return catalog, nil
 }
 
+// GetTaskWithRevision returns the named CatalogTask, Commons, and its Commons ModRevision. It will
+// first wait for the named task to be at the given revision.
+func (c Catalog) GetTaskWithRevision(ctx context.Context, name string, minRevision int64) (*pf.CatalogTask, *Commons, int64, error) {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	var task, commons, revision, err = c.getTask(name)
+	if revision < minRevision {
+		if err = c.KeySpace.WaitForRevision(ctx, minRevision); err != nil {
+			return nil, nil, 0, err
+		}
+		task, commons, revision, err = c.getTask(name)
+	}
+	return task, commons, revision, err
+}
+
 // GetTask returns the named CatalogTask, Commons, and its Commons ModRevision.
 func (c Catalog) GetTask(name string) (_ *pf.CatalogTask, _ *Commons, revision int64, _ error) {
 	c.Mu.RLock()
