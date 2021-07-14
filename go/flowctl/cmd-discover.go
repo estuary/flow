@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -242,14 +243,20 @@ func writeConfigStub(image string, w io.WriteCloser) error {
 
 	var config interface{}
 
+	// Visit leaf-most schema locations first.
+	// Because we're creating yaml.Nodes instead of []interface{}
+	// or map[string]interface{}, ptr.Create() is unable to create
+	// a sub-location after visiting its parent.
+	sort.Slice(built.Locations, func(i int, j int) bool {
+		return len(built.Locations[i].Location) > len(built.Locations[j].Location)
+	})
+
 	for _, loc := range built.Locations {
 		if ptr, err := flow.NewPointer(loc.Location); err != nil {
 			return fmt.Errorf("build pointer: %w", err)
-		} else if ptr.IsEmpty() {
-			continue // Ignore document root.
 		} else if node, err := ptr.Create(&config); err != nil {
 			return fmt.Errorf("creating location %q: %w", loc.Location, err)
-		} else {
+		} else if *node == nil {
 
 			var nn = new(yaml.Node)
 			nn.Style = yaml.FoldedStyle
