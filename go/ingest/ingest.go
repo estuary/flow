@@ -325,7 +325,7 @@ var ErrIngesterExiting = fmt.Errorf("this ingester is exiting")
 func getIngestion(catalog flow.Catalog, name string) (*pf.CollectionSpec, *flow.Commons, error) {
 	// We don't care about the context or min revision here, since we aren't looking for any
 	// specific revision of the task.
-	var task, commons, _, err = catalog.GetTask(context.Background(), name, 0)
+	var task, commons, _, err = catalog.GetTask(context.Background(), name, "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching ingest specification: %w", err)
 	} else if task.Ingestion == nil {
