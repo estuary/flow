@@ -798,7 +798,7 @@ where
 
         use Application as App;
         match match app {
-            App::Def { .. } => panic!("unexpected Def"),
+            App::Def { .. } | App::Definition { .. } => panic!("unexpected Def"),
 
             // In-place keywords which must always validate.
             App::AllOf { .. } | App::Ref(_) | App::RecursiveRef(_) | App::Not => RequiredInPlace,
