@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -298,12 +297,8 @@ func shardApply(ctx context.Context, svc *consumer.Service,
 		if nextSpec != nil && logSpec == nil {
 			// Grab labeled catalog task and its journal rules.
 			var name = nextSpec.LabelSet.ValueOf(labels.TaskName)
-			var revisionStr = nextSpec.LabelSet.ValueOf(labels.TaskCreated)
-			var minTaskRevision, err = strconv.ParseInt(revisionStr, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("parsing %s: %w", labels.TaskCreated, err)
-			}
-			_, commons, _, err := catalog.GetTask(ctx, name, minTaskRevision)
+			var taskCreated = nextSpec.LabelSet.ValueOf(labels.TaskCreated)
+			_, commons, _, err := catalog.GetTask(ctx, name, taskCreated)
 			if err != nil {
 				return nil, fmt.Errorf("looking up catalog task %q: %w", name, err)
 			}

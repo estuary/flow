@@ -192,9 +192,10 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Now feed documents into a combiner, filtering documents which are ACKs.
-	// The waitForRevision parameter is 0 here because it's already guaranteed that the
-	// keyspace has observed the task because WaitForShardsToAssign has already been called.
-	task, commons, _, err := c.Consumer.Catalog.GetTask(ctx, step.Collection.String(), 0)
+	// The taskCreated parameter is empty here because we're assuming that the Catalog keyspace has
+	// already observed the task. This seems to always be true in practice, though I haven't
+	// actually _proven_ that it will always be so.
+	task, commons, _, err := c.Consumer.Catalog.GetTask(ctx, step.Collection.String(), "")
 	if err != nil {
 		return fmt.Errorf("mapping step collection to commons: %w", err)
 	}
