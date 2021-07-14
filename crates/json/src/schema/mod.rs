@@ -84,6 +84,11 @@ pub enum Application {
     Def {
         key: String,
     },
+    // definitions is the legacy name for the $def keyword,
+    // having identical semantics, which we continue to support.
+    Definition {
+        key: String,
+    },
 
     // In-place applications.
     Ref(url::Url),
@@ -133,6 +138,7 @@ impl Application {
         use Application::*;
         match self {
             Def { .. } => parent.push_prop(keywords::DEF),
+            Definition { .. } => parent.push_prop(keywords::DEFINITIONS),
 
             // In-place keywords.
             Ref(_) => parent.push_prop(keywords::REF),
@@ -171,6 +177,7 @@ impl Application {
         use Application::*;
         match self {
             Def { key } => parent.push_prop(key),
+            Definition { key } => parent.push_prop(key),
 
             // In-place keywords.
             Ref(_) => *parent,

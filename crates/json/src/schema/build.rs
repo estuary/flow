@@ -172,10 +172,18 @@ where
                 }
                 _ => return Err(ExpectedString),
             },
-            keywords::DEF | keywords::DEFINITIONS => match v {
+            keywords::DEF => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
                         self.add_application(App::Def { key: prop.clone() }, child)?;
+                    }
+                }
+                _ => return Err(ExpectedObject),
+            },
+            keywords::DEFINITIONS => match v {
+                sj::Value::Object(m) => {
+                    for (prop, child) in m {
+                        self.add_application(App::Definition { key: prop.clone() }, child)?;
                     }
                 }
                 _ => return Err(ExpectedObject),
