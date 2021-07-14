@@ -71,10 +71,14 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
         let projection = if let Some((shape, exists)) = shape.locate(&target_location) {
             TypeInfo::from_shape(target_location, shape, exists)
         } else {
+            // This isn't a hard error because there may be files that we can still parse correctly
+            // even without knowing the types from the schema. For example, this could be a
+            // location that simply allows any valid JSON, and the projection may be only for the
+            // sake of putting things into the right shape.
             tracing::warn!(
                 field = field.as_str(),
                 pointer = pointer.as_ref(),
-                "could not location projection within schema"
+                "could not locate projection within schema, so allowing any type"
             );
             TypeInfo {
                 target_location,
