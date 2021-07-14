@@ -315,7 +315,7 @@ mod test {
             // cases that aren't properly detected, since in the real world we'd probably peek at
             // at least a couple of kilobytes.
             let (contents, _) = Input::File(file)
-                .peek_at(512)
+                .peek(512)
                 .expect("failed to read file contents");
             let guess = detect_encoding(&contents);
             assert_eq!(

@@ -73,7 +73,7 @@ impl Parser for CsvParser {
         // Transcode into UTF-8 before attempting to parse the CSV. This simplifies a lot, since
         // our ultimate target is JSON in UTF-8, and since the configuration is also provided as
         // JSON in UTF-8.
-        let (content_peek, input) = content.peek_at(2148)?;
+        let (content_peek, input) = content.peek(2148)?;
         let encoding = detect_encoding(&content_peek);
         let input = if encoding.is_utf8() {
             input

@@ -35,7 +35,7 @@ impl Input {
     /// the beginning of the stream. The returned `Input` can be read as normal without missing any
     /// bytes. The returned `Bytes` will contain a duplicate of the first `max_bytes` (at most)
     /// from `self`.
-    pub fn peek_at(self, max_bytes: usize) -> io::Result<(Bytes, Input)> {
+    pub fn peek(self, max_bytes: usize) -> io::Result<(Bytes, Input)> {
         match self {
             Input::File(mut f) => {
                 let result = read_at_most(&mut f, max_bytes)?;
@@ -73,7 +73,7 @@ impl Input {
             (e, self)
         } else {
             // There's no encoding specified, so we'll try to detect it.
-            let (first_bytes, new_input) = self.peek_at(max_peek)?;
+            let (first_bytes, new_input) = self.peek(max_peek)?;
             let detected = detect_encoding(&first_bytes);
             (detected, new_input)
         };
