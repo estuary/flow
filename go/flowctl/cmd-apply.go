@@ -224,7 +224,7 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardCli
 	return nil
 }
 
-func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int, commonsRevision int64) error {
+func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int, taskCreated int64) error {
 	// Query for existing shards of this catalog task.
 	if resp, err := consumer.ListShards(context.Background(), client, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet(
@@ -247,7 +247,7 @@ func createTaskShards(client pc.ShardClient, taskType, taskName string, shards i
 			labels.ManagedBy, flowLabels.ManagedByFlow,
 			flowLabels.TaskName, taskName,
 			flowLabels.TaskType, taskType,
-			flowLabels.TaskCreated, fmt.Sprintf("%d", commonsRevision),
+			flowLabels.TaskCreated, fmt.Sprintf("%d", taskCreated),
 		)
 
 		labels = flowLabels.EncodeRange(pf.RangeSpec{
