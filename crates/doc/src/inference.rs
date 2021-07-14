@@ -553,6 +553,7 @@ impl Shape {
                 kw,
                 Keyword::Application(Application::Ref(_), _)
                 | Keyword::Application(Application::Def{ .. }, _)
+                | Keyword::Application(Application::Definition{ .. }, _)
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
                 // An in-place application doesn't *by itself* make this an inline
@@ -2171,8 +2172,10 @@ mod test {
     fn test_provenance_cases() {
         infer_test(
             &[r#"
+                # Mix of $defs and definitions.
                 $defs:
                     thing: {type: string}
+                definitions:
                     in-place: {type: object}
 
                 properties:
@@ -2191,7 +2194,7 @@ mod test {
                             - $ref: '#/properties/multi/items/2'
                             - {type: integer}
 
-                $ref: '#/$defs/in-place'
+                $ref: '#/definitions/in-place'
                 "#],
             Shape {
                 type_: types::OBJECT,
