@@ -325,7 +325,7 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 			if rec := i.(*airbyte.Message); rec.Log != nil {
 				log.StandardLogger().WithFields(log.Fields{
 					"image":   source.Image,
-					"capture": req.Capture,
+					"capture": req.Capture.Capture,
 				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
 			} else if rec.State != nil {
 				return lifecycle.WriteCommit(stream, &resp,
