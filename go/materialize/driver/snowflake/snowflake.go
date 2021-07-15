@@ -25,7 +25,6 @@ import (
 type config struct {
 	sf.Config
 
-	Schema    string
 	StageName string
 	StagePath string
 	tempdir   string
@@ -38,14 +37,16 @@ func (c config) Validate() error {
 	if c.Database == "" {
 		return fmt.Errorf("expected database")
 	}
+	if c.Schema == "" {
+		return fmt.Errorf("expected schema")
+	}
 	return nil
 }
 
 type tableConfig struct {
-	base   *config
-	Schema string
-	Table  string
-	Delta  bool `json:"delta_updates"`
+	base  *config
+	Table string
+	Delta bool `json:"delta_updates"`
 }
 
 func (c tableConfig) Validate() error {
@@ -56,11 +57,7 @@ func (c tableConfig) Validate() error {
 }
 
 func (c tableConfig) Path() sqlDriver.ResourcePath {
-	var schema = c.Schema
-	if schema == "" {
-		schema = c.base.Schema
-	}
-	return []string{schema, c.Table}
+	return []string{c.Table}
 }
 
 func (c tableConfig) DeltaUpdates() bool {
@@ -137,6 +134,7 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			var d = &transactor{
 				ctx: ep.Context,
 				cfg: ep.Config.(*config),
+				gen: &ep.Generator,
 			}
 			d.store.fence = fence
 
