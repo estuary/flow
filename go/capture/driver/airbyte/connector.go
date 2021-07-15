@@ -48,31 +48,32 @@ func RunConnector(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Staging location for files mounted into the container.
-	var tempdir, err = ioutil.TempDir("", "connector-file")
-	if err != nil {
-		return fmt.Errorf("creating tempdir: %w", err)
-	}
-	defer os.RemoveAll(tempdir)
-
 	var imageArgs = []string{
 		"docker",
 		"run",
 		"--rm",
 	}
 	for name, m := range jsonFiles {
-		var hostPath = filepath.Join(tempdir, name)
-		var containerPath = filepath.Join("/tmp", name)
 
-		if content, err := json.Marshal(m); err != nil {
+		// Staging location for file mounted into the container.
+		var tempfile, err = ioutil.TempFile("", "connector-file")
+		if err != nil {
+			return fmt.Errorf("creating tempfile: %w", err)
+		}
+
+		var hostPath = tempfile.Name()
+		var containerPath = filepath.Join("/tmp", name)
+		defer os.RemoveAll(hostPath)
+
+		if err := json.NewEncoder(tempfile).Encode(m); err != nil {
 			return fmt.Errorf("encoding json file %q content: %w", name, err)
-		} else if err = os.WriteFile(hostPath, content, 0644); err != nil {
-			return fmt.Errorf("staging temporary file %s: %w", name, err)
+		} else if err = tempfile.Close(); err != nil {
+			return err
+		} else if err = os.Chmod(hostPath, 0644); err != nil {
+			return err
 		} else {
-			log.WithFields(log.Fields{
-				"name":    name,
-				"content": string(content),
-			}).Debug("wrote connector file")
+			log.WithFields(log.Fields{"name": name, "content": m}).
+				Debug("wrote connector file")
 
 			imageArgs = append(imageArgs,
 				"--mount",
