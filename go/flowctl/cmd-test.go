@@ -219,9 +219,19 @@ func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 		return nil, nil, fmt.Errorf("building etcd client: %w", err)
 	}
 
-	// Verify the client works.
-	if _, err = etcdClient.Get(context.Background(), "test-key"); err != nil {
-		return nil, nil, fmt.Errorf("verifying etcd client: %w", err)
+	var ctx = context.Background()
+
+	// Look for any left-over leases of a prior invocation, and remove them.
+	leases, err := etcdClient.Leases(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching existing leases: %w", err)
+	}
+	for _, lease := range leases.Leases {
+		if _, err := etcdClient.Revoke(ctx, lease.ID); err != nil {
+			return nil, nil, fmt.Errorf("revoking existing lease: %w", err)
+		}
+		log.WithField("lease", lease.ID).
+			Warn("removed an existing Etcd lease (unclean shutdown?)")
 	}
 
 	// Arrange to close the |etcdClient| as soon as the process completes.
