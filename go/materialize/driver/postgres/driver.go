@@ -119,10 +119,9 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ lifecycle.Transactor, err error) {
-			var sqlGen = sqlDriver.PostgresSQLGenerator()
 			var d = &transactor{
 				ctx: ep.Context,
-				gen: &sqlGen,
+				gen: &ep.Generator,
 			}
 			d.store.fence = fence
 
