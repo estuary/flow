@@ -127,6 +127,12 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
 	}
+
+	// Apply materializations to drivers.
+	if err = applyMaterializations(built, false); err != nil {
+		return fmt.Errorf("applying materializations: %w", err)
+	}
+
 	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
 	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
 
@@ -135,10 +141,6 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return fmt.Errorf("NewCluster: %w", err)
 	}
 
-	// Apply materializations to drivers.
-	if err = applyMaterializations(built, false); err != nil {
-		return fmt.Errorf("applying materializations: %w", err)
-	}
 	// Apply capture shard specs.
 	if err = applyCaptureShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying capture shards: %w", err)
