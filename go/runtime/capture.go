@@ -55,20 +55,29 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 // RestoreCheckpoint initializes a catalog task term and restores the last
 // persisted checkpoint, if any, by delegating to its JsonStore.
 func (m *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pgc.Checkpoint, err error) {
-	if err = m.taskTerm.initTerm(shard, m.host); err != nil {
-		return cp, err
-	} else if m.task.Capture == nil {
-		return cp, fmt.Errorf("catalog task %q is not a capture", m.task.Name())
-	}
-
 	if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
 		return pgc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 	}
 
-	// A `nil` driver checkpoint will round-trip through JSON encoding as []byte("null").
-	// Restore it's nil-ness after deserialization.
-	if bytes.Equal([]byte("null"), m.store.State.(*storeState).DriverCheckpoint) {
-		m.store.State.(*storeState).DriverCheckpoint = nil
+	if m.taskTerm.revision == 0 {
+		// This is our first task term of this shard assignment.
+		// Captures don't have real journals. They synthesize pseudo-journals
+		// which are used for consumer transaction plumbing, and to support use
+		// with the Stat RPC (so we can Stat to block until a connector exits).
+		// Reset these source checkpoints.
+		cp.Sources = nil
+
+		// A `nil` driver checkpoint will round-trip through JSON encoding as []byte("null").
+		// Restore it's nil-ness after deserialization.
+		if bytes.Equal([]byte("null"), m.store.State.(*storeState).DriverCheckpoint) {
+			m.store.State.(*storeState).DriverCheckpoint = nil
+		}
+	}
+
+	if err = m.taskTerm.initTerm(shard, m.host); err != nil {
+		return cp, err
+	} else if m.task.Capture == nil {
+		return cp, fmt.Errorf("catalog task %q is not a capture", m.task.Name())
 	}
 
 	return cp, nil
@@ -171,8 +180,19 @@ func (c *Capture) serveDriverTransactions(
 		var combiners, checkpoint, err = c.readTransaction(fqn, driverRx)
 		clock.Tick()
 
-		// Did the server gracefully close the stream?
-		if err == io.EOF {
+		if err != nil {
+
+			switch err {
+			case io.EOF, context.Canceled:
+				// No-op.
+			default:
+				// For now, we log these (only), and will retry the connector at its usual cadence.
+				log.WithFields(log.Fields{
+					"shard": fqn,
+					"err":   err,
+				}).Error("capture connector failed")
+			}
+
 			// Emit a no-op message. Its purpose is only to update the tracked EOF offset,
 			// which may unblock an associated shard Stat RPC.
 			envelopeTx <- consumer.EnvelopeOrError{
@@ -195,11 +215,6 @@ func (c *Capture) serveDriverTransactions(
 			case <-ctx.Done():
 			}
 
-			return
-		}
-
-		if err != nil {
-			envelopeTx <- consumer.EnvelopeOrError{Error: err}
 			return
 		}
 
