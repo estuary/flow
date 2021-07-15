@@ -23,6 +23,20 @@ expression: schema
       "type": "object",
       "additionalProperties": true
     },
+    "compression": {
+      "description": "compression forces the use of the given compression format to decompress the contents. If unspecified, then the compression (or lack thereof) will be inferred from the filename, content-encoding, content-type, or file contents.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/compression"
+        }
+      ]
+    },
+    "contentEncoding": {
+      "description": "The content-encoding of the data, if known. This is used in determining how to decompress files. If your file contents came from a web server that sets the `Content-Encoding` header, then that header value can be used directly here.",
+      "default": null,
+      "type": "string"
+    },
     "contentType": {
       "description": "The mime type of the data, if known. This will be used for format inference, or ignored if `format` is specified.",
       "default": null,
@@ -172,6 +186,15 @@ expression: schema
         {
           "$ref": "#/definitions/Char"
         }
+      ]
+    },
+    "compression": {
+      "title": "compression",
+      "description": "Specifies the compression format to use to decompress contents. If left undefined, then the compression will be determined automatically, which is probably what you want.",
+      "type": "string",
+      "enum": [
+        "gzip",
+        "zip"
       ]
     },
     "encoding": {

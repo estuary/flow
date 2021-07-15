@@ -11,16 +11,20 @@ bytes = "*"
 chardetng = "*"
 csv = "*"
 encoding_rs = {version = "*", features = ["serde"]}
+flate2 = "*"
+mime = "*"
 schemars = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
 structopt = "*"
+tempfile = "*"
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = "*"
 unicode-bom = "*"
 url = "*"
 uuid = {version = "*", features = ["v4"]}
+zip = "*"
 
 # TODO: update this depedency spec once we publish the json crate to crates.io
 json = {git = "https://github.com/estuary/flow"}

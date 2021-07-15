@@ -1,10 +1,13 @@
+mod compression;
 mod encoding;
 
-use crate::config::EncodingRef;
+use crate::config::{Compression, EncodingRef};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::fs::File;
 use std::io::{self, Read, Seek};
+use tempfile::tempfile;
 
+pub use self::compression::{detect_compression, CompressionError};
 pub use self::encoding::{detect_encoding, TranscodingReader};
 
 /// Type of content input provided to parsers.
@@ -15,6 +18,21 @@ pub enum Input {
 }
 
 impl Input {
+    pub fn into_file(self) -> io::Result<File> {
+        match self {
+            Input::File(f) => Ok(f),
+            Input::Stream(mut s) => {
+                // This file will be automatically deleted by the OS as soon as the last handle to
+                // it is closed.
+                let mut file = tempfile()?;
+                io::copy(&mut s, &mut file)?;
+                // Ensure that the caller starts reading from the beginning of the file.
+                // I'm not actually positive whether this is needed.
+                file.seek(io::SeekFrom::Start(0))?;
+                Ok(file)
+            }
+        }
+    }
     pub fn into_buffered_stream(self, buffer_size: usize) -> Box<dyn io::BufRead> {
         match self {
             Input::File(f) => Box::new(io::BufReader::with_capacity(buffer_size, f)),
@@ -95,6 +113,11 @@ impl Input {
             );
             Ok(Input::Stream(Box::new(reader)))
         }
+    }
+
+    pub fn decompressed(self, compression: Compression) -> Result<Self, CompressionError> {
+        let decompressed = self::compression::decompress_input(self, compression)?;
+        Ok(Input::Stream(decompressed))
     }
 }
 

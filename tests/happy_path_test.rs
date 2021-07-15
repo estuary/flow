@@ -29,7 +29,7 @@ fn assert_file_is_parsed(file: PathBuf) {
     let input = input_for_file(&file);
 
     let result = run_test(&config, input);
-    assert_eq!(0, result.exit_code);
+    assert_eq!(0, result.exit_code, "parser exited with non-0 status");
     assert!(!result.parsed.is_empty());
     for (i, doc) in result.parsed.into_iter().enumerate() {
         assert_eq!(

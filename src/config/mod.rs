@@ -166,6 +166,75 @@ impl std::str::FromStr for Format {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum Compression {
+    Gzip,
+    ZipArchive,
+}
+
+impl Compression {
+    pub const ALL: &'static [Compression] = &[Compression::Gzip, Compression::ZipArchive];
+
+    pub fn id(&self) -> &'static str {
+        match *self {
+            Compression::Gzip => "gzip",
+            Compression::ZipArchive => "zip",
+        }
+    }
+}
+
+impl fmt::Display for Compression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.id())
+    }
+}
+
+impl Into<String> for Compression {
+    fn into(self) -> String {
+        self.id().to_owned()
+    }
+}
+
+impl std::convert::TryFrom<String> for Compression {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        std::str::FromStr::from_str(&s)
+    }
+}
+
+impl std::str::FromStr for Compression {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        for compression in Compression::ALL {
+            if s == compression.id() {
+                return Ok(*compression);
+            }
+        }
+        Err(format!("no supported compress called: {:?}", s))
+    }
+}
+
+impl schemars::JsonSchema for Compression {
+    fn schema_name() -> String {
+        "compression".to_string()
+    }
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        let possible_values = Compression::ALL
+            .iter()
+            .map(|c| Value::String(c.id().to_owned()))
+            .collect::<Vec<_>>();
+        serde_json::from_value(serde_json::json!({
+            "type": "string",
+            "enum": possible_values,
+            "title": "compression",
+            "description": "Specifies the compression format to use to decompress contents. If left undefined, then the compression will be determined automatically, which is probably what you want.",
+        }))
+        .unwrap()
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ParseConfig {
@@ -175,6 +244,12 @@ pub struct ParseConfig {
     #[serde(default)]
     pub format: Option<Format>,
 
+    /// compression forces the use of the given compression format to decompress the contents.
+    /// If unspecified, then the compression (or lack thereof) will be inferred from the filename,
+    /// content-encoding, content-type, or file contents.
+    #[serde(default)]
+    pub compression: Option<Compression>,
+
     /// filename is used for format inference. It will be ignored if `format` is specified.
     #[serde(default)]
     pub filename: Option<String>,
@@ -183,6 +258,12 @@ pub struct ParseConfig {
     /// `format` is specified.
     #[serde(default)]
     pub content_type: Option<String>,
+
+    /// The content-encoding of the data, if known. This is used in determining how to decompress
+    /// files. If your file contents came from a web server that sets the `Content-Encoding`
+    /// header, then that header value can be used directly here.
+    #[serde(default)]
+    pub content_encoding: Option<String>,
 
     #[serde(default)]
     /// Add the record offset as a property of each object at the location given. The offset is a
@@ -297,6 +378,8 @@ impl Default for ParseConfig {
             format: None,
             filename: None,
             content_type: None,
+            content_encoding: None,
+            compression: None,
             add_record_offset: None,
             add_values: BTreeMap::new(),
             projections: BTreeMap::new(),

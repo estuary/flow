@@ -3,11 +3,10 @@ mod json;
 mod projection;
 
 use crate::decorate::{AddFieldError, Decorator};
-use crate::input::Input;
-use crate::{Format, ParseConfig};
+use crate::input::{detect_compression, CompressionError, Input};
+use crate::{Compression, Format, ParseConfig};
 use serde_json::Value;
 use std::io::{self, Write};
-use std::path::Path;
 
 /// Error type returned by all parse operations.
 #[derive(Debug, thiserror::Error)]
@@ -37,6 +36,9 @@ pub enum ParseError {
 
     #[error("failed to parse content: {0}")]
     Parse(#[from] Box<dyn std::error::Error>),
+
+    #[error("unable to decompress input: {0}")]
+    Decompression(#[from] CompressionError),
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -45,26 +47,36 @@ pub enum ParseError {
 /// parser may inspect the content to determine the separator character, and return a base
 /// ParseConfig including the inferred separator, which the user-provided config will be merged
 /// onto.
-#[tracing::instrument(level = "debug", skip(_content))]
-pub fn resolve_config(config: &ParseConfig, _content: Input) -> Result<ParseConfig, ParseError> {
-    let format = match config.format {
-        Some(f) => f,
-        None => {
-            let tmp_config = ParseConfig::default().override_from(config);
-            let resolved =
-                determine_format(&tmp_config).ok_or_else(|| ParseError::CannotInferFormat)?;
-            tracing::info!("inferred format: {}", resolved);
-            resolved
+#[tracing::instrument(level = "debug", skip(content))]
+pub fn resolve_config(
+    config: &ParseConfig,
+    mut content: Input,
+) -> Result<(ParseConfig, Input), ParseError> {
+    let mut resolved = ParseConfig::default().override_from(config);
+    if let Some(f) = config.format {
+        tracing::debug!("using provided format: {}", f);
+    } else {
+        let inferred = determine_format(&resolved).ok_or_else(|| ParseError::CannotInferFormat)?;
+        tracing::info!("inferred format: {}", inferred);
+        resolved.format = Some(inferred);
+    }
+
+    if let Some(c) = config.compression {
+        tracing::debug!("using provided compression: {}", c);
+    } else {
+        let mut inferred = determine_compression(&resolved);
+        if inferred.is_none() {
+            let (bytes, new_input) = content.peek(32)?;
+            content = new_input;
+            inferred = detect_compression(&bytes);
         }
-    };
+        tracing::debug!("inferred compression: {:?}", inferred);
+        resolved.compression = inferred;
+    }
 
     // TODO: lookup parser and ask it for a recommended ParseConfig based on the current config and
     // the content.
-    // let recommended_config = parser_for(format).resolve_config(config, content)?;
-    // ParseConfig::default().override_from(&recommended_config).with_format(format).override_from(config)
-    Ok(ParseConfig::default()
-        .with_format(format)
-        .override_from(config))
+    Ok((resolved, content))
 }
 
 /// Drives the parsing process using the given configuration, input, and output streams. The
@@ -75,12 +87,18 @@ pub fn parse(
     content: Input,
     dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
-    // TODO: peek at the content and remove this empty placeholder
-    let config = resolve_config(config, Input::Stream(Box::new(io::empty())))?;
+    let (config, content) = resolve_config(config, content)?;
     tracing::debug!(action = "resolved config", result = ?config);
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
-    let output = parser.parse(&config, content)?;
+
+    let input = if parser.decompress() && config.compression.is_some() {
+        content.decompressed(config.compression.unwrap())?
+    } else {
+        content
+    };
+
+    let output = parser.parse(&config, input)?;
     format_output(&config, output, dest)
 }
 
@@ -100,6 +118,14 @@ pub type Output = Box<dyn Iterator<Item = Result<Value, ParseError>>>;
 /// Implementations live in the various sub-modules.
 pub trait Parser {
     //fn resolve_config<I>(config: &ParseConfig, content: Input) -> Result<ParseConfig, ParseError>;
+
+    /// Returns true if the contents should be decompressed before being passed to the parser.
+    /// Parsers that work directly with compressed file formats should implement this function to
+    /// return `false`, so that files like .xlsx don't get automatically decompressed prior to
+    /// being given to the parser.
+    fn decompress(&self) -> bool {
+        true
+    }
 
     /// Parse the given `content` using the `config`, which will already have been fully resolved.
     fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError>;
@@ -140,20 +166,14 @@ fn determine_format(config: &ParseConfig) -> Option<Format> {
         .format // If format is set, then use whatever it says
         .clone()
         .or_else(|| {
-            // Next try to lookup based on file extension. This will need to get a little more
-            // sophisticated in order to handle things like foo.json.gz, but that's being ignored
-            // for the moment since we don't handle decompression yet anyway.
-            config
-                .filename
-                .as_deref()
-                .and_then(|filename| {
-                    AsRef::<Path>::as_ref(filename)
-                        .extension()
-                        .map(|e| e.to_str().unwrap())
-                })
-                .and_then(|ext| config.file_extension_mappings.get(ext).cloned())
+            // Try to determine based on file extension
+            config.filename.as_deref().and_then(|filename| {
+                extensions(filename)
+                    .find_map(|ext| config.file_extension_mappings.get(ext).cloned())
+            })
         })
         .or_else(|| {
+            // Try to determine based on content-type
             config
                 .content_type
                 .as_deref()
@@ -161,9 +181,121 @@ fn determine_format(config: &ParseConfig) -> Option<Format> {
         })
 }
 
+fn extensions(filename: &str) -> impl Iterator<Item = &str> {
+    let start = filename
+        .char_indices()
+        .skip(1)
+        .next()
+        .map(|(i, _)| i)
+        .unwrap_or_default();
+    (&filename[start..]).split('.').rev()
+}
+
+fn determine_compression(config: &ParseConfig) -> Option<Compression> {
+    if config.compression.is_some() {
+        return config.compression.clone();
+    }
+    config
+        .compression
+        .clone()
+        .or_else(|| {
+            config
+                .filename
+                .as_deref()
+                .and_then(compression_from_filename)
+        })
+        .or_else(|| {
+            config
+                .content_encoding
+                .as_deref()
+                .and_then(compression_from_content_encoding)
+        })
+        .or_else(|| {
+            config
+                .content_type
+                .as_deref()
+                .and_then(compression_from_content_type)
+        })
+}
+
+fn compression_from_content_encoding(content_encoding: &str) -> Option<Compression> {
+    match content_encoding.trim() {
+        "gzip" => Some(Compression::Gzip),
+        // TODO: Add support for deflate, br, and compress
+        // deflate, confusingly, actually maps to zlib (rfc 1950)
+        other => {
+            if !other.is_empty() {
+                tracing::warn!("ignoring unsupported content-encoding: {:?}", other);
+            }
+            None
+        }
+    }
+}
+
+fn compression_from_content_type(content_type: &str) -> Option<Compression> {
+    // TODO: hoist the parsed Mime into the ParseConfig, so we can error when deserializing if
+    // the content type string is invalid.
+    content_type
+        .parse::<mime::Mime>()
+        .ok()
+        .and_then(|ct| match ct.essence_str() {
+            "application/gzip" => Some(Compression::Gzip),
+            "application/zip" => Some(Compression::ZipArchive),
+            _ => None,
+        })
+}
+
+fn compression_from_filename(filename: &str) -> Option<Compression> {
+    extensions(filename).find_map(|ext| match ext {
+        "gz" => Some(Compression::Gzip),
+        "zip" => Some(Compression::ZipArchive),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn compression_is_determined_from_filename() {
+        let conf = ParseConfig {
+            filename: Some("some.csv.zip".to_string()),
+            // content encoding disagrees, but we ignore it
+            content_encoding: Some("gzip".to_string()),
+            // content_type disagrees, but we ignore it
+            content_type: Some("application/gzip".to_string()),
+            ..Default::default()
+        };
+        let result = determine_compression(&conf).expect("failed to determine compression");
+        assert_eq!(Compression::ZipArchive, result);
+    }
+
+    #[test]
+    fn compression_is_determined_from_content_encoding() {
+        let conf = ParseConfig {
+            // filename has no compression extension, so we look at content encoding
+            filename: Some("some.csv".to_string()),
+            content_encoding: Some("gzip".to_string()),
+            // content type disagrees, but we ignore it
+            content_type: Some("application/zip".to_string()),
+            ..Default::default()
+        };
+        let result = determine_compression(&conf).expect("failed to determine compression");
+        assert_eq!(Compression::Gzip, result);
+    }
+
+    #[test]
+    fn compression_is_determined_from_content_type() {
+        let conf = ParseConfig {
+            filename: Some("some.csv".to_string()),
+            content_encoding: Some("not-a-real-encoding".to_string()),
+            content_type: Some("application/zip".to_string()),
+            ..Default::default()
+        };
+        let result = determine_compression(&conf).expect("failed to determine compression");
+        assert_eq!(Compression::ZipArchive, result);
+    }
 
     #[test]
     fn format_is_determined_from_file_extension() {
