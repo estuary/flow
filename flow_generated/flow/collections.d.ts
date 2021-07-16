@@ -351,18 +351,20 @@ export type ExamplesSegmentToggles = /* A segment event adds or removes a user i
 
 // Generated from examples/shopping/cart-purchase-requests.flow.yaml?ptr=/collections/examples~1shopping~1cartPurchaseRequests/schema.
 // Referenced as schema of examples/shopping/cart-purchase-requests.flow.yaml#/collections/examples~1shopping~1cartPurchaseRequests.
-export type ExamplesShoppingCartPurchaseRequests = /* Represents a request from a user to purchase the items in their cart. */ {
-    timestamp: string;
-    userId: number;
-};
+export type ExamplesShoppingCartPurchaseRequests =
+    /* Represents a request from a user to purchase the items in their cart. */ {
+        timestamp: string;
+        userId: number;
+    };
 
 // Generated from examples/shopping/cart-update.schema.yaml.
 // Referenced as schema of examples/shopping/cart-updates.flow.yaml#/collections/examples~1shopping~1cartUpdates.
-export type ExamplesShoppingCartUpdates = /* Represents a request from a user to add or remove a product in their cart. */ {
-    productId: number;
-    quantity: /* The amount to adjust, which can be negative to remove items. */ number;
-    userId: number;
-};
+export type ExamplesShoppingCartUpdates =
+    /* Represents a request from a user to add or remove a product in their cart. */ {
+        productId: number;
+        quantity: /* The amount to adjust, which can be negative to remove items. */ number;
+        userId: number;
+    };
 
 // Generated from examples/shopping/cart-updates-with-products.flow.yaml?ptr=/collections/examples~1shopping~1cartUpdatesWithProducts/schema.
 // Referenced as schema of examples/shopping/cart-updates-with-products.flow.yaml#/collections/examples~1shopping~1cartUpdatesWithProducts.
@@ -610,20 +612,21 @@ export type PatternsZeroCrossing = anchors.Int;
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
 // Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
-export type SoakSetOpsOperations = /* Mutates a set and provides the values that are expected after this operation is applied */ {
-    author: number;
-    expectValues: /* Final values that are expected after this operation has been applied */ {
-        [k: string]: number;
+export type SoakSetOpsOperations =
+    /* Mutates a set and provides the values that are expected after this operation is applied */ {
+        author: number;
+        expectValues: /* Final values that are expected after this operation has been applied */ {
+            [k: string]: number;
+        };
+        id: number;
+        ones: number;
+        op: number;
+        timestamp: string;
+        type: 'add' | 'remove';
+        values: {
+            [k: string]: number;
+        };
     };
-    id: number;
-    ones: number;
-    op: number;
-    timestamp: string;
-    type: 'add' | 'remove';
-    values: {
-        [k: string]: number;
-    };
-};
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/outputWithReductions.
 // Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets.

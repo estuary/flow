@@ -2786,10 +2786,7 @@ func (m *Constraint) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -2957,10 +2954,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3186,7 +3180,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthMaterialize
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3203,10 +3197,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3291,10 +3282,7 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3457,7 +3445,7 @@ func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthMaterialize
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3526,10 +3514,7 @@ func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3668,10 +3653,7 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3754,10 +3736,7 @@ func (m *ApplyResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -3988,10 +3967,7 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4164,10 +4140,7 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4305,10 +4278,7 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4393,10 +4363,7 @@ func (m *TransactionRequest_Prepare) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4672,10 +4639,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4726,10 +4690,7 @@ func (m *TransactionRequest_Commit) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -4924,10 +4885,7 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -5012,10 +4970,7 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -5153,10 +5108,7 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -5241,10 +5193,7 @@ func (m *TransactionResponse_Prepared) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {
@@ -5295,10 +5244,7 @@ func (m *TransactionResponse_Committed) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if (iNdEx + skippy) > l {

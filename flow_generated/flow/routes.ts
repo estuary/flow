@@ -64,17 +64,20 @@ import { ExamplesWikiPages } from '../../examples/wiki/pages.flow';
 const __AcmeBankBalances: interfaces.AcmeBankBalances = new AcmeBankBalances();
 const __ExamplesCitiBikeIdleBikes: interfaces.ExamplesCitiBikeIdleBikes = new ExamplesCitiBikeIdleBikes();
 const __ExamplesCitiBikeLastSeen: interfaces.ExamplesCitiBikeLastSeen = new ExamplesCitiBikeLastSeen();
-const __ExamplesCitiBikeRidesAndRelocations: interfaces.ExamplesCitiBikeRidesAndRelocations = new ExamplesCitiBikeRidesAndRelocations();
+const __ExamplesCitiBikeRidesAndRelocations: interfaces.ExamplesCitiBikeRidesAndRelocations =
+    new ExamplesCitiBikeRidesAndRelocations();
 const __ExamplesCitiBikeStations: interfaces.ExamplesCitiBikeStations = new ExamplesCitiBikeStations();
 const __ExamplesNetTraceServices: interfaces.ExamplesNetTraceServices = new ExamplesNetTraceServices();
 const __ExamplesReKeyStableEvents: interfaces.ExamplesReKeyStableEvents = new ExamplesReKeyStableEvents();
 const __ExamplesSegmentMemberships: interfaces.ExamplesSegmentMemberships = new ExamplesSegmentMemberships();
 const __ExamplesSegmentProfiles: interfaces.ExamplesSegmentProfiles = new ExamplesSegmentProfiles();
 const __ExamplesSegmentToggles: interfaces.ExamplesSegmentToggles = new ExamplesSegmentToggles();
-const __ExamplesShoppingCartUpdatesWithProducts: interfaces.ExamplesShoppingCartUpdatesWithProducts = new ExamplesShoppingCartUpdatesWithProducts();
+const __ExamplesShoppingCartUpdatesWithProducts: interfaces.ExamplesShoppingCartUpdatesWithProducts =
+    new ExamplesShoppingCartUpdatesWithProducts();
 const __ExamplesShoppingCarts: interfaces.ExamplesShoppingCarts = new ExamplesShoppingCarts();
 const __ExamplesShoppingPurchases: interfaces.ExamplesShoppingPurchases = new ExamplesShoppingPurchases();
-const __ExamplesSourceSchemaRestrictive: interfaces.ExamplesSourceSchemaRestrictive = new ExamplesSourceSchemaRestrictive();
+const __ExamplesSourceSchemaRestrictive: interfaces.ExamplesSourceSchemaRestrictive =
+    new ExamplesSourceSchemaRestrictive();
 const __ExamplesWikiPages: interfaces.ExamplesWikiPages = new ExamplesWikiPages();
 const __MarketingClicksWithViews: interfaces.MarketingClicksWithViews = new MarketingClicksWithViews();
 const __MarketingPurchaseWithOffers: interfaces.MarketingPurchaseWithOffers = new MarketingPurchaseWithOffers();
@@ -101,96 +104,82 @@ const routes: { [path: string]: Lambda | undefined } = {
     '/derive/examples/citi-bike/idle-bikes/liveRides/Update': __ExamplesCitiBikeIdleBikes.liveRidesUpdate.bind(
         __ExamplesCitiBikeIdleBikes,
     ) as Lambda,
-    '/derive/examples/citi-bike/last-seen/locationFromRide/Publish': __ExamplesCitiBikeLastSeen.locationFromRidePublish.bind(
-        __ExamplesCitiBikeLastSeen,
-    ) as Lambda,
-    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update': __ExamplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(
-        __ExamplesCitiBikeRidesAndRelocations,
-    ) as Lambda,
-    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish': __ExamplesCitiBikeRidesAndRelocations.fromRidesPublish.bind(
-        __ExamplesCitiBikeRidesAndRelocations,
-    ) as Lambda,
+    '/derive/examples/citi-bike/last-seen/locationFromRide/Publish':
+        __ExamplesCitiBikeLastSeen.locationFromRidePublish.bind(__ExamplesCitiBikeLastSeen) as Lambda,
+    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update':
+        __ExamplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(__ExamplesCitiBikeRidesAndRelocations) as Lambda,
+    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish':
+        __ExamplesCitiBikeRidesAndRelocations.fromRidesPublish.bind(__ExamplesCitiBikeRidesAndRelocations) as Lambda,
     '/derive/examples/citi-bike/stations/ridesAndMoves/Publish': __ExamplesCitiBikeStations.ridesAndMovesPublish.bind(
         __ExamplesCitiBikeStations,
     ) as Lambda,
     '/derive/examples/net-trace/services/fromPairs/Publish': __ExamplesNetTraceServices.fromPairsPublish.bind(
         __ExamplesNetTraceServices,
     ) as Lambda,
-    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Update': __ExamplesReKeyStableEvents.fromAnonymousEventsUpdate.bind(
-        __ExamplesReKeyStableEvents,
-    ) as Lambda,
-    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Publish': __ExamplesReKeyStableEvents.fromAnonymousEventsPublish.bind(
-        __ExamplesReKeyStableEvents,
-    ) as Lambda,
-    '/derive/examples/re-key/stable_events/fromIdMappings/Update': __ExamplesReKeyStableEvents.fromIdMappingsUpdate.bind(
-        __ExamplesReKeyStableEvents,
-    ) as Lambda,
-    '/derive/examples/re-key/stable_events/fromIdMappings/Publish': __ExamplesReKeyStableEvents.fromIdMappingsPublish.bind(
-        __ExamplesReKeyStableEvents,
-    ) as Lambda,
-    '/derive/examples/segment/memberships/fromSegmentation/Publish': __ExamplesSegmentMemberships.fromSegmentationPublish.bind(
-        __ExamplesSegmentMemberships,
-    ) as Lambda,
-    '/derive/examples/segment/profiles/fromSegmentation/Publish': __ExamplesSegmentProfiles.fromSegmentationPublish.bind(
-        __ExamplesSegmentProfiles,
-    ) as Lambda,
+    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Update':
+        __ExamplesReKeyStableEvents.fromAnonymousEventsUpdate.bind(__ExamplesReKeyStableEvents) as Lambda,
+    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Publish':
+        __ExamplesReKeyStableEvents.fromAnonymousEventsPublish.bind(__ExamplesReKeyStableEvents) as Lambda,
+    '/derive/examples/re-key/stable_events/fromIdMappings/Update':
+        __ExamplesReKeyStableEvents.fromIdMappingsUpdate.bind(__ExamplesReKeyStableEvents) as Lambda,
+    '/derive/examples/re-key/stable_events/fromIdMappings/Publish':
+        __ExamplesReKeyStableEvents.fromIdMappingsPublish.bind(__ExamplesReKeyStableEvents) as Lambda,
+    '/derive/examples/segment/memberships/fromSegmentation/Publish':
+        __ExamplesSegmentMemberships.fromSegmentationPublish.bind(__ExamplesSegmentMemberships) as Lambda,
+    '/derive/examples/segment/profiles/fromSegmentation/Publish':
+        __ExamplesSegmentProfiles.fromSegmentationPublish.bind(__ExamplesSegmentProfiles) as Lambda,
     '/derive/examples/segment/toggles/fromSegmentation/Update': __ExamplesSegmentToggles.fromSegmentationUpdate.bind(
         __ExamplesSegmentToggles,
     ) as Lambda,
     '/derive/examples/segment/toggles/fromSegmentation/Publish': __ExamplesSegmentToggles.fromSegmentationPublish.bind(
         __ExamplesSegmentToggles,
     ) as Lambda,
-    '/derive/examples/shopping/cartUpdatesWithProducts/cartUpdates/Publish': __ExamplesShoppingCartUpdatesWithProducts.cartUpdatesPublish.bind(
-        __ExamplesShoppingCartUpdatesWithProducts,
-    ) as Lambda,
-    '/derive/examples/shopping/cartUpdatesWithProducts/products/Update': __ExamplesShoppingCartUpdatesWithProducts.productsUpdate.bind(
-        __ExamplesShoppingCartUpdatesWithProducts,
-    ) as Lambda,
-    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Update': __ExamplesShoppingCarts.cartUpdatesWithProductsUpdate.bind(
-        __ExamplesShoppingCarts,
-    ) as Lambda,
-    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Publish': __ExamplesShoppingCarts.cartUpdatesWithProductsPublish.bind(
-        __ExamplesShoppingCarts,
-    ) as Lambda,
+    '/derive/examples/shopping/cartUpdatesWithProducts/cartUpdates/Publish':
+        __ExamplesShoppingCartUpdatesWithProducts.cartUpdatesPublish.bind(
+            __ExamplesShoppingCartUpdatesWithProducts,
+        ) as Lambda,
+    '/derive/examples/shopping/cartUpdatesWithProducts/products/Update':
+        __ExamplesShoppingCartUpdatesWithProducts.productsUpdate.bind(
+            __ExamplesShoppingCartUpdatesWithProducts,
+        ) as Lambda,
+    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Update':
+        __ExamplesShoppingCarts.cartUpdatesWithProductsUpdate.bind(__ExamplesShoppingCarts) as Lambda,
+    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Publish':
+        __ExamplesShoppingCarts.cartUpdatesWithProductsPublish.bind(__ExamplesShoppingCarts) as Lambda,
     '/derive/examples/shopping/carts/clearAfterPurchase/Update': __ExamplesShoppingCarts.clearAfterPurchaseUpdate.bind(
         __ExamplesShoppingCarts,
     ) as Lambda,
-    '/derive/examples/shopping/carts/clearAfterPurchase/Publish': __ExamplesShoppingCarts.clearAfterPurchasePublish.bind(
-        __ExamplesShoppingCarts,
-    ) as Lambda,
+    '/derive/examples/shopping/carts/clearAfterPurchase/Publish':
+        __ExamplesShoppingCarts.clearAfterPurchasePublish.bind(__ExamplesShoppingCarts) as Lambda,
     '/derive/examples/shopping/purchases/carts/Update': __ExamplesShoppingPurchases.cartsUpdate.bind(
         __ExamplesShoppingPurchases,
     ) as Lambda,
-    '/derive/examples/shopping/purchases/purchaseActions/Publish': __ExamplesShoppingPurchases.purchaseActionsPublish.bind(
-        __ExamplesShoppingPurchases,
-    ) as Lambda,
-    '/derive/examples/source-schema/restrictive/fromPermissive/Publish': __ExamplesSourceSchemaRestrictive.fromPermissivePublish.bind(
-        __ExamplesSourceSchemaRestrictive,
-    ) as Lambda,
+    '/derive/examples/shopping/purchases/purchaseActions/Publish':
+        __ExamplesShoppingPurchases.purchaseActionsPublish.bind(__ExamplesShoppingPurchases) as Lambda,
+    '/derive/examples/source-schema/restrictive/fromPermissive/Publish':
+        __ExamplesSourceSchemaRestrictive.fromPermissivePublish.bind(__ExamplesSourceSchemaRestrictive) as Lambda,
     '/derive/examples/wiki/pages/rollUpEdits/Publish': __ExamplesWikiPages.rollUpEditsPublish.bind(
         __ExamplesWikiPages,
     ) as Lambda,
     '/derive/marketing/clicks-with-views/indexViews/Update': __MarketingClicksWithViews.indexViewsUpdate.bind(
         __MarketingClicksWithViews,
     ) as Lambda,
-    '/derive/marketing/clicks-with-views/joinClickWithIndexedViews/Publish': __MarketingClicksWithViews.joinClickWithIndexedViewsPublish.bind(
-        __MarketingClicksWithViews,
-    ) as Lambda,
+    '/derive/marketing/clicks-with-views/joinClickWithIndexedViews/Publish':
+        __MarketingClicksWithViews.joinClickWithIndexedViewsPublish.bind(__MarketingClicksWithViews) as Lambda,
     '/derive/marketing/purchase-with-offers/indexClicks/Update': __MarketingPurchaseWithOffers.indexClicksUpdate.bind(
         __MarketingPurchaseWithOffers,
     ) as Lambda,
     '/derive/marketing/purchase-with-offers/indexViews/Update': __MarketingPurchaseWithOffers.indexViewsUpdate.bind(
         __MarketingPurchaseWithOffers,
     ) as Lambda,
-    '/derive/marketing/purchase-with-offers/joinPurchaseWithViewsAndClicks/Publish': __MarketingPurchaseWithOffers.joinPurchaseWithViewsAndClicksPublish.bind(
-        __MarketingPurchaseWithOffers,
-    ) as Lambda,
-    '/derive/marketing/views-with-campaign/indexCampaigns/Update': __MarketingViewsWithCampaign.indexCampaignsUpdate.bind(
-        __MarketingViewsWithCampaign,
-    ) as Lambda,
-    '/derive/marketing/views-with-campaign/joinViewWithIndexedCampaign/Publish': __MarketingViewsWithCampaign.joinViewWithIndexedCampaignPublish.bind(
-        __MarketingViewsWithCampaign,
-    ) as Lambda,
+    '/derive/marketing/purchase-with-offers/joinPurchaseWithViewsAndClicks/Publish':
+        __MarketingPurchaseWithOffers.joinPurchaseWithViewsAndClicksPublish.bind(
+            __MarketingPurchaseWithOffers,
+        ) as Lambda,
+    '/derive/marketing/views-with-campaign/indexCampaigns/Update':
+        __MarketingViewsWithCampaign.indexCampaignsUpdate.bind(__MarketingViewsWithCampaign) as Lambda,
+    '/derive/marketing/views-with-campaign/joinViewWithIndexedCampaign/Publish':
+        __MarketingViewsWithCampaign.joinViewWithIndexedCampaignPublish.bind(__MarketingViewsWithCampaign) as Lambda,
     '/derive/patterns/inner-join/fromInts/Update': __PatternsInnerJoin.fromIntsUpdate.bind(
         __PatternsInnerJoin,
     ) as Lambda,

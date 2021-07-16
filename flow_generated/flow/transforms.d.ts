@@ -6,12 +6,13 @@ export type __anchors_module = anchors.__module;
 
 // Generated from examples/source-schema/flow.yaml?ptr=/collections/examples~1source-schema~1restrictive/derivation/transform/fromPermissive/source/schema.
 // Referenced as source schema of transform examples/source-schema/flow.yaml#/collections/examples~1source-schema~1restrictive/derivation/transform/fromPermissive.
-export type ExamplesSourceSchemaRestrictivefromPermissiveSource = /* Require that the documents from permissive all have these fields */ {
-    a: number;
-    b: boolean;
-    c: number;
-    id: string;
-};
+export type ExamplesSourceSchemaRestrictivefromPermissiveSource =
+    /* Require that the documents from permissive all have these fields */ {
+        a: number;
+        b: boolean;
+        c: number;
+        id: string;
+    };
 
 // Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/withRequired.
 // Referenced as source schema of transform examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation/transform/fromTicks.
