@@ -31,9 +31,10 @@ import (
 )
 
 type cmdApply struct {
-	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	Additive    bool                  `long:"additive" description:"Add and update catalog tasks, but don't remove existing tasks not in this applied catalog"`
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	DryRun      bool                  `long:"dry-run" description:"Dry run, don't actually apply"`
+	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Flow        runtime.FlowConfig    `group:"Flow" namespace:"flow" env-namespace:"FLOW"`
 	Etcd        mbp.EtcdConfig        `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
 	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
@@ -85,7 +86,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 		return fmt.Errorf("dialing Etcd: %w", err)
 	}
 
-	// Apply all database materializations first, before we create
+	// Apply all database materializations first, before we create or update
 	// catalog entities that reference the applied tables / topics / targets.
 	if err := applyMaterializations(built, cmd.DryRun); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
@@ -111,6 +112,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 		TypeScriptUDS:        "",
 		TypeScriptPackageURL: "etcd://" + packageKey,
 		DryRun:               cmd.DryRun,
+		Prune:                !cmd.Additive,
 	})
 	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
@@ -118,7 +120,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 	log.WithFields(log.Fields{
 		"commons":  commons,
 		"revision": revision,
-	}).Debug("applied catalog to Etcd")
+	}).Info("applied catalog to Etcd")
 
 	if !cmd.DryRun {
 		// Apply capture shard specs.

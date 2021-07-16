@@ -122,13 +122,11 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Apply catalog task specifications to the cluster.
 	_, catalogRevision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:                  cfg.Context,
-		Etcd:                 cfg.Etcd,
-		Root:                 cfg.EtcdCatalogPrefix,
-		Build:                built,
-		TypeScriptUDS:        lambdaJSUDS,
-		TypeScriptPackageURL: "",
-		DryRun:               false,
+		Ctx:           cfg.Context,
+		Etcd:          cfg.Etcd,
+		Root:          cfg.EtcdCatalogPrefix,
+		Build:         built,
+		TypeScriptUDS: lambdaJSUDS,
 	})
 	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)

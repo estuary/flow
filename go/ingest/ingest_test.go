@@ -43,13 +43,11 @@ func TestIngesterLifecycle(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	_, _, err = flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:                  ctx,
-		Etcd:                 etcd,
-		Root:                 "/flow/catalog",
-		Build:                built,
-		TypeScriptUDS:        "/not/used",
-		TypeScriptPackageURL: "",
-		DryRun:               false,
+		Ctx:           ctx,
+		Etcd:          etcd,
+		Root:          "/flow/catalog",
+		Build:         built,
+		TypeScriptUDS: "/not/used",
 	})
 	require.NoError(t, err)
 	catalog, err := flow.NewCatalog(ctx, etcd, "/flow/catalog")
