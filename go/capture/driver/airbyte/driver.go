@@ -275,19 +275,36 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 			return fmt.Errorf("parsing stream configuration: %w", err)
 		}
 
+		var projections = make(map[string]string)
+		for _, p := range binding.Collection.Projections {
+			projections[p.Field] = p.Ptr
+		}
+
 		catalog.Streams = append(catalog.Streams,
 			airbyte.ConfiguredStream{
 				SyncMode:            resource.SyncMode,
 				DestinationSyncMode: airbyte.DestinationSyncModeAppend,
 				Stream: airbyte.Stream{
-					Name:       resource.Stream,
-					Namespace:  resource.Namespace,
-					JSONSchema: binding.Collection.SchemaJson,
-					// TODO(johnny): Do we need to actually plumb this through?
+					Name:               resource.Stream,
+					Namespace:          resource.Namespace,
+					JSONSchema:         binding.Collection.SchemaJson,
 					SupportedSyncModes: []airbyte.SyncMode{resource.SyncMode},
 				},
+				Projections: projections,
 			})
 		streamToBinding[resource.Stream] = i
+	}
+
+	if log.GetLevel() >= log.DebugLevel {
+		var catalogJSON, err = json.Marshal(&catalog)
+		if err != nil {
+			return fmt.Errorf("encoding catalog: %w", err)
+		}
+
+		log.WithFields(log.Fields{
+			"capture": req.Capture.Capture,
+			"catalog": string(catalogJSON),
+		}).Debug("using configured catalog")
 	}
 
 	var invokeArgs = []string{
