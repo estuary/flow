@@ -207,12 +207,13 @@ type binding struct {
 func (t *transactor) addBinding(spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var bind = new(binding)
+	var index = len(t.bindings)
 	var target = sqlDriver.TableForMaterialization(strings.Join(spec.ResourcePath, "."), "", &t.gen.IdentifierQuotes, spec)
 
 	// Build all SQL statements and parameter converters.
 	var keyCreateSQL string
 	keyCreateSQL, bind.load.insert.sql, bind.load.query.sql, err = BuildSQL(
-		t.gen, len(t.bindings), target, spec.FieldSelection)
+		t.gen, index, target, spec.FieldSelection)
 	if err != nil {
 		return fmt.Errorf("building SQL: %w", err)
 	}
@@ -245,10 +246,30 @@ func (t *transactor) addBinding(spec *pf.MaterializationSpec_Binding) error {
 		sql  string
 		stmt **pgconn.StatementDescription
 	}{
-		{t.load.conn, "load-insert", bind.load.insert.sql, &bind.load.insert.stmt},
-		{t.load.conn, "load-join", bind.load.query.sql, &bind.load.query.stmt},
-		{t.store.conn, "store-insert", bind.store.insert.sql, &bind.store.insert.stmt},
-		{t.store.conn, "store-update", bind.store.update.sql, &bind.store.update.stmt},
+		{
+			t.load.conn,
+			fmt.Sprintf("load-insert-%d", index),
+			bind.load.insert.sql,
+			&bind.load.insert.stmt,
+		},
+		{
+			t.load.conn,
+			fmt.Sprintf("load-join-%d", index),
+			bind.load.query.sql,
+			&bind.load.query.stmt,
+		},
+		{
+			t.store.conn,
+			fmt.Sprintf("store-insert-%d", index),
+			bind.store.insert.sql,
+			&bind.store.insert.stmt,
+		},
+		{
+			t.store.conn,
+			fmt.Sprintf("store-update-%d", index),
+			bind.store.update.sql,
+			&bind.store.update.stmt,
+		},
 	} {
 		*s.stmt, err = s.conn.Prepare(t.ctx, s.name, s.sql)
 		if err != nil {
