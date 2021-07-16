@@ -187,13 +187,22 @@ func (c Catalog) AllTasks() []*pf.CatalogTask {
 
 // ApplyArgs are arguments to ApplyCatalogToEtcd.
 type ApplyArgs struct {
-	Ctx                  context.Context
-	Etcd                 *clientv3.Client
-	Root                 string
-	Build                *bindings.BuiltCatalog
-	TypeScriptUDS        string
+	Ctx  context.Context
+	Etcd *clientv3.Client
+	// Root of the catalog keyspace in Etcd.
+	Root string
+	// BuiltCatalog to apply.
+	Build *bindings.BuiltCatalog
+	// TypeScriptUDS is a Unix domain socket at which the catalog's TypeScript
+	// runtime can be reached. If empty, TypeScriptPackageURL must be set.
+	TypeScriptUDS string
+	// TypeScriptPackageURL is a URL at which the catalog's TypeScript package
+	// may be found. If empty, TypeScriptUDS must be set.
 	TypeScriptPackageURL string
-	DryRun               bool
+	// Prepare all apply actions without actually running them.
+	DryRun bool
+	// Prune entities in Etcd which aren't in Build.
+	Prune bool
 }
 
 // ApplyCatalogToEtcd inserts a CatalogCommons and updates CatalogTasks
@@ -275,24 +284,26 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 		var key = args.Root + TasksPrefix + task.Name()
 
 		if rev, ok := oldKeys[key]; ok {
-			log.WithField("key", key).Debug("updating CatalogTask")
+			log.WithField("key", key).Info("updating catalog task")
 			cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", rev))
 			delete(oldKeys, key)
 		} else {
-			log.WithField("key", key).Debug("inserting CatalogTask")
+			log.WithField("key", key).Info("inserting catalog task")
 			cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", 0))
 		}
 		ops = append(ops, clientv3.OpPut(key, marshalString(&task)))
 	}
 	var key = args.Root + CommonsPrefix + commons.CommonsId
 	ops = append(ops, clientv3.OpPut(key, marshalString(&commons)))
-	log.WithField("key", key).Debug("inserting CatalogCommons")
+	log.WithField("key", key).Debug("inserting catalog commons")
 
-	// Delete remaining old keys.
-	for key, rev := range oldKeys {
-		cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", rev))
-		ops = append(ops, clientv3.OpDelete(key))
-		log.WithField("key", key).Debug("removing dropped catalog item")
+	// If pruning, then delete remaining old keys.
+	if args.Prune {
+		for key, rev := range oldKeys {
+			cmps = append(cmps, clientv3.Compare(clientv3.ModRevision(key), "=", rev))
+			ops = append(ops, clientv3.OpDelete(key))
+			log.WithField("key", key).Info("removing catalog task")
+		}
 	}
 
 	if args.DryRun {

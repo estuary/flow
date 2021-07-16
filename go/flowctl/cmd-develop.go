@@ -114,6 +114,12 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	}
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
+	// Apply all database materializations first, before we create or update
+	// catalog entities that reference the applied tables / topics / targets.
+	if err := applyMaterializations(built, false); err != nil {
+		return fmt.Errorf("applying materializations: %w", err)
+	}
+
 	// Apply catalog task specifications to the cluster.
 	_, catalogRevision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
 		Ctx:                  cfg.Context,
@@ -126,11 +132,6 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("applying catalog to Etcd: %w", err)
-	}
-
-	// Apply materializations to drivers.
-	if err = applyMaterializations(built, false); err != nil {
-		return fmt.Errorf("applying materializations: %w", err)
 	}
 
 	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
