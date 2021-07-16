@@ -55,13 +55,11 @@ func TestConsumerIntegration(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	commonsID, commonsRev, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:                  ctx,
-		Etcd:                 etcd,
-		Root:                 "/flow/catalog",
-		Build:                built,
-		TypeScriptUDS:        "/not/used",
-		TypeScriptPackageURL: "",
-		DryRun:               false,
+		Ctx:           ctx,
+		Etcd:          etcd,
+		Root:          "/flow/catalog",
+		Build:         built,
+		TypeScriptUDS: "/not/used",
 	})
 	require.NoError(t, err)
 	catalog, err := flow.NewCatalog(ctx, etcd, "/flow/catalog")

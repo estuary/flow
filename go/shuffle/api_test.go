@@ -44,13 +44,11 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	commonsID, commonsRev, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:                  backgroundCtx,
-		Etcd:                 etcd,
-		Root:                 "/flow/catalog",
-		Build:                built,
-		TypeScriptUDS:        "/not/used",
-		TypeScriptPackageURL: "",
-		DryRun:               false,
+		Ctx:           backgroundCtx,
+		Etcd:          etcd,
+		Root:          "/flow/catalog",
+		Build:         built,
+		TypeScriptUDS: "/not/used",
 	})
 	require.NoError(t, err)
 	catalog, err := flow.NewCatalog(backgroundCtx, etcd, "/flow/catalog")
