@@ -7688,10 +7688,7 @@ func (m *Slice) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -7761,10 +7758,7 @@ func (m *UUIDParts) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -7878,10 +7872,7 @@ func (m *LambdaSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -8279,10 +8270,7 @@ func (m *Shuffle) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -8504,10 +8492,7 @@ func (m *JournalShuffle) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -8715,10 +8700,7 @@ func (m *Projection) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -8921,10 +8903,7 @@ func (m *Inference) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -9078,10 +9057,7 @@ func (m *Inference_String) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -9390,10 +9366,7 @@ func (m *CollectionSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -9613,10 +9586,7 @@ func (m *TransformSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -9798,10 +9768,7 @@ func (m *DerivationSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10058,7 +10025,7 @@ func (m *FieldSelection) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthFlow
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -10075,10 +10042,7 @@ func (m *FieldSelection) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10265,10 +10229,7 @@ func (m *CaptureSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10416,10 +10377,7 @@ func (m *CaptureSpec_Binding) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10587,10 +10545,7 @@ func (m *MaterializationSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10824,10 +10779,7 @@ func (m *MaterializationSpec_Binding) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -10944,10 +10896,7 @@ func (m *TestSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11261,10 +11210,7 @@ func (m *TestSpec_Step) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11355,10 +11301,7 @@ func (m *RangeSpec) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11443,10 +11386,7 @@ func (m *JournalRules) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11595,10 +11535,7 @@ func (m *JournalRules_Rule) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11683,10 +11620,7 @@ func (m *ShardRules) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11835,10 +11769,7 @@ func (m *ShardRules_Rule) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -11999,7 +11930,7 @@ func (m *SchemaBundle) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthFlow
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -12016,10 +11947,7 @@ func (m *SchemaBundle) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -12210,10 +12138,7 @@ func (m *ShuffleRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -12601,10 +12526,7 @@ func (m *ShuffleResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -12727,10 +12649,7 @@ func (m *SplitRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -12941,10 +12860,7 @@ func (m *SplitResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13171,10 +13087,7 @@ func (m *CatalogTask) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13420,10 +13333,7 @@ func (m *CatalogCommons) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13474,10 +13384,7 @@ func (m *SchemaAPI) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13538,10 +13445,7 @@ func (m *SchemaAPI_BuiltIndex) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13592,10 +13496,7 @@ func (m *ExtractAPI) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13752,10 +13653,7 @@ func (m *ExtractAPI_Config) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13806,10 +13704,7 @@ func (m *CombineAPI) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -13998,10 +13893,7 @@ func (m *CombineAPI_Config) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14052,10 +13944,7 @@ func (m *DeriveAPI) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14148,10 +14037,7 @@ func (m *DeriveAPI_Open) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14248,10 +14134,7 @@ func (m *DeriveAPI_Config) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14391,10 +14274,7 @@ func (m *DeriveAPI_DocHeader) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14522,10 +14402,7 @@ func (m *DeriveAPI_Invoke) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14609,10 +14486,7 @@ func (m *DeriveAPI_Prepare) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14663,10 +14537,7 @@ func (m *BuildAPI) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -14964,10 +14835,7 @@ func (m *BuildAPI_Config) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -15069,10 +14937,7 @@ func (m *BuildAPI_Fetch) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -15157,10 +15022,7 @@ func (m *IngestRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -15277,10 +15139,7 @@ func (m *IngestRequest_Collection) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
@@ -15427,7 +15286,7 @@ func (m *IngestResponse) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthFlow
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -15477,10 +15336,7 @@ func (m *IngestResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthFlow
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthFlow
 			}
 			if (iNdEx + skippy) > l {
