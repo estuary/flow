@@ -74,9 +74,13 @@ jobs:
       - run: make rust-test
       - run: make go-test-ci
       - run: make catalog-test
-      # catalog-test dirties the branch by creating examples/examples.db.
-      # Tidy up before further invocations using `git describe --dirty`
-      - run: git clean -f -d && git status && git diff
+      - name: Tidy up, and ensure that generated files are unchanged.
+        run: |
+          # catalog-test dirties the branch by creating examples/examples.db.
+          git clean --force -d
+          git diff
+          [[ -z "$(git status --porcelain)" ]] || exit 1
+        shell: bash
       - run: make package
       - run: make docker-image
       - run: make docker-push-to-quay
