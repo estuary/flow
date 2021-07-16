@@ -72,9 +72,6 @@ func RunConnector(
 		} else if err = os.Chmod(hostPath, 0644); err != nil {
 			return err
 		} else {
-			log.WithFields(log.Fields{"name": name, "content": m}).
-				Debug("wrote connector file")
-
 			imageArgs = append(imageArgs,
 				"--mount",
 				fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
