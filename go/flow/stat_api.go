@@ -17,7 +17,9 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 	var err error
 	var reqJournalEtcd pb.Header_Etcd
 
-	if err = reqJournalEtcd.Unmarshal(req.Extension); err != nil {
+	if len(req.Extension) == 0 {
+		// Extension is authored by Flow, but not other Gazette tooling (like `gazctl`).
+	} else if err = reqJournalEtcd.Unmarshal(req.Extension); err != nil {
 		return new(pc.StatResponse), fmt.Errorf("failed to unmarshal journals Etcd extension: %w", err)
 	} else if err = reqJournalEtcd.Validate(); err != nil {
 		return new(pc.StatResponse), fmt.Errorf("extension journals Etcd: %w", err)
@@ -25,7 +27,7 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 
 	// Sanity check journals ClusterId, and block on a future revision.
 	journals.Mu.RLock()
-	if reqJournalEtcd.ClusterId != journals.Header.ClusterId {
+	if cid := reqJournalEtcd.ClusterId; cid != 0 && cid != journals.Header.ClusterId {
 		err = fmt.Errorf("request journals Etcd ClusterId doesn't match our own (%d vs %d)",
 			reqJournalEtcd.ClusterId, journals.Header.ClusterId)
 	} else {
