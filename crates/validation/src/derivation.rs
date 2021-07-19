@@ -83,6 +83,7 @@ fn walk_derivation(
     // We'll collect TransformSpecs and types of each transform's shuffle key (if known).
     let mut built_transforms = Vec::new();
     let mut shuffle_types: Vec<(Vec<types::Set>, &tables::Transform)> = Vec::new();
+    let mut strict_shuffle = false;
 
     // Walk transforms of this derivation.
     for transform in transforms {
@@ -97,6 +98,20 @@ fn walk_derivation(
         ) {
             shuffle_types.push((type_set, transform));
         }
+
+        // In the trivial case of a publish-only derivation which has no shuffles,
+        // we don't require that shuffle keys align on types and length.
+        // This is because it doesn't matter for correctness, and the user probably
+        // wants the default behavior of shuffling each collection on it's native key
+        // (which minimizes data movement).
+        // If the derivation is stateful, or if the user showed intent towards a
+        // particular means of shuffling, then we *do* require that shuffle keys match.
+        if transform.update_lambda.is_some()
+            || transform.shuffle_key.is_some()
+            || transform.shuffle_lambda.is_some()
+        {
+            strict_shuffle = true;
+        }
     }
 
     indexed::walk_duplicates(
@@ -108,7 +123,7 @@ fn walk_derivation(
 
     // Verify that shuffle key types & lengths align.
     for ((l_types, l_transform), (r_types, r_transform)) in shuffle_types.iter().tuple_windows() {
-        if l_types != r_types {
+        if strict_shuffle && l_types != r_types {
             Error::ShuffleKeyMismatch {
                 lhs_name: l_transform.transform.to_string(),
                 lhs_types: l_types.clone(),
