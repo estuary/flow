@@ -481,6 +481,29 @@ test://example/int-halve:
 }
 
 #[test]
+fn test_shuffle_key_relaxed() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      key: [/bit, /str]
+      derivation:
+        transform:
+          reverseIntString:
+            source:
+              name: testing/int-string
+            publish: { lambda: typescript }
+          selfCycle:
+            source:
+              name: testing/int-reverse
+            publish: { lambda: typescript }
+"#,
+    );
+}
+
+#[test]
 fn test_collection_key_empty() {
     run_test_errors(
         &GOLDEN,
