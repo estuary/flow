@@ -12,6 +12,7 @@ RUN apt-get update -y \
       liblz4-1 \
       libsnappy1v5 \
       libzstd1 \
+      jq \
       nodejs \
       npm \
       unzip \
