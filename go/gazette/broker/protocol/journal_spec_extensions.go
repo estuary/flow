@@ -53,7 +53,7 @@ func (n Journal) Validate() error {
 		return err
 	} else if meta == "" {
 		// No metadata segment to validate.
-	} else if err = ValidateToken(meta[1:], TokenSymbols, 1, maxJournalNameLen); err != nil {
+	} else if err = ValidatePathComponent(meta[1:], 1, maxJournalNameLen); err != nil {
 		return ExtendContext(err, "metadata path segment")
 	}
 	return nil

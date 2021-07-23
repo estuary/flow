@@ -25,7 +25,8 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 
 		// Journals may have a metadata path segment.
 		{"foo/bar;baz/bing", ""},
-		// Metadata segments must consist of the token.
+		// Metadata segments must consist of a valid path.
+		{"foo/bar/webhook;foo/bar/webhook/http%3A%2F%2Fexample.com%3A9000%2F", ""},
 		{"foo/bar;disallowed#rune", `metadata path segment: not a valid token \(disallowed#rune\)`},
 		// If ';' is present, the following segment must be non-empty.
 		{"foo/bar;", `metadata path segment: invalid length \(0; expected 1 <= length <= 512\)`},
