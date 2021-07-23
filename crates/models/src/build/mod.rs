@@ -225,7 +225,7 @@ pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
     for c in parts.join("/").chars() {
         match c {
             // Note that '%' is not included (it must be escaped).
-            '-' | '_' | '+' | '/' | '.' | '=' => name.push(c),
+            '-' | '_' | '+' | '.' | '=' => name.push(c),
             _ if c.is_alphanumeric() => name.push(c),
             c => name.extend(percent_encoding::utf8_percent_encode(
                 &c.to_string(),
@@ -248,7 +248,15 @@ mod test {
             "a/part%".to_string(),
             "_¾the-=res+.".to_string(),
         ]);
-        assert_eq!(&out, "he%21lo৬/a/part%25/_¾the-=res+.");
+        assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+.");
+    }
+
+    #[test]
+    fn test_arbitrary_webhook_urls() {
+        let url =
+            "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
+        let out = encode_resource_path(&vec![url.to_string()]);
+        assert_eq!(&out, "http%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
     }
 }
 
