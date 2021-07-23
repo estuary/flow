@@ -2,14 +2,3 @@
 
 import:
   - all-collections.flow.yaml
-
-journalRules:
-  00_fragment_store:
-    template:
-      fragment:
-        compression_codec: GZIP
-        stores:
-          # Default is to persist to the local file system as a stand-in for cloud storage.
-          - file:///
-        # Max time to wait before writing a fragment file
-        flush_interval: 5m
