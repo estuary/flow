@@ -61,7 +61,7 @@ Creating a connector configuration stub at %s.
 Edit and update this file, and then run this command again.
 `, configPath)
 
-		if err = writeConfigStub(cmd.Image, w); err != nil {
+		if err = writeConfigStub(context.Background(), cmd.Image, w); err != nil {
 			_ = os.Remove(configPath) // Don't leave an empty file behind.
 		}
 		return err
@@ -75,7 +75,7 @@ Edit and update this file, and then run this command again.
 	if err != nil {
 		return err
 	}
-	discovered, err := discoverBindings(cmd.Image, configRaw)
+	discovered, err := discoverBindings(context.Background(), cmd.Image, configRaw)
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func readConfig(path string) (root *yaml.Node, raw json.RawMessage, err error) {
 	return root, raw, nil
 }
 
-func writeConfigStub(image string, w io.WriteCloser) error {
+func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error {
 	spec, err := json.Marshal(airbyte.EndpointSpec{
 		Image:  image,
 		Config: nil,
@@ -208,12 +208,12 @@ func writeConfigStub(image string, w io.WriteCloser) error {
 		return fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(context.Background(), pf.EndpointType_AIRBYTE_SOURCE, spec, "")
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "")
 	if err != nil {
 		return fmt.Errorf("building client: %w", err)
 	}
 
-	specResponse, err := client.Spec(context.Background(),
+	specResponse, err := client.Spec(ctx,
 		&pc.SpecRequest{
 			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
 			EndpointSpecJson: spec,
@@ -231,7 +231,7 @@ func writeConfigStub(image string, w io.WriteCloser) error {
 	var tmpfile = filepath.Join(tmpdir, "schema.yaml")
 	mbp.Must(ioutil.WriteFile(tmpfile, specResponse.SpecSchemaJson, 0600), "writing spec")
 
-	built, err := buildCatalog(pf.BuildAPI_Config{
+	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath: filepath.Join(tmpdir, "catalog.db"),
 		Directory:   tmpdir,
 		Source:      tmpfile,
@@ -286,7 +286,7 @@ func writeConfigStub(image string, w io.WriteCloser) error {
 	return nil
 }
 
-func discoverBindings(image string, config json.RawMessage) (*pc.DiscoverResponse, error) {
+func discoverBindings(ctx context.Context, image string, config json.RawMessage) (*pc.DiscoverResponse, error) {
 	spec, err := json.Marshal(airbyte.EndpointSpec{
 		Image:  image,
 		Config: config,
@@ -295,12 +295,12 @@ func discoverBindings(image string, config json.RawMessage) (*pc.DiscoverRespons
 		return nil, fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(context.Background(), pf.EndpointType_AIRBYTE_SOURCE, spec, "")
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "")
 	if err != nil {
 		return nil, fmt.Errorf("building client: %w", err)
 	}
 
-	discovered, err := client.Discover(context.Background(),
+	discovered, err := client.Discover(ctx,
 		&pc.DiscoverRequest{
 			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
 			EndpointSpecJson: spec,

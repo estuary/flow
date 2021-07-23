@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 func TestSQLGeneration(t *testing.T) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",

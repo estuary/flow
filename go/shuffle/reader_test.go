@@ -30,6 +30,7 @@ import (
 
 func TestConsumerIntegration(t *testing.T) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",

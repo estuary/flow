@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,6 +30,7 @@ type cmdTest struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Shards      int                   `long:"shards" default:"1" description:"Number of shards for each tested derivation"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	Timeout     time.Duration         `long:"timeout" default:"10m" description:"Maximum time for a test invocation"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -54,13 +56,25 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	}
 	defer os.RemoveAll(runDir)
 
+	var ctx, cancel = context.WithTimeout(context.Background(), cmd.Timeout)
+
+	// Install a signal handler which will cancel our base context.
+	var signalCh = make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		<-signalCh
+		log.Info("caught signal; shutting down")
+		cancel()
+	}()
+
 	// Temporary running directory, used for:
 	// * Storing our built catalog database.
 	// * Etcd storage and UDS sockets.
 	// * NPM worker UDS socket.
 	// * Backing persisted file:/// fragments.
 
-	built, err := buildCatalog(pf.BuildAPI_Config{
+	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(runDir, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
@@ -106,7 +120,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Configure and start the cluster.
 	var cfg = testing.ClusterConfig{
-		Context:            context.Background(),
+		Context:            ctx,
 		DisableClockTicks:  true, // Test driver advances synthetic time.
 		Etcd:               etcdClient,
 		EtcdCatalogPrefix:  "/flowctl/test/catalog",
@@ -139,12 +153,20 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("NewCluster: %w", err)
 	}
+	defer func() {
+		if err := cluster.Stop(); err != nil {
+			log.WithField("err", err).Error("stopping local test cluster")
+		} else {
+			log.Info("local test cluster stopped")
+		}
+	}()
 
 	// Apply derivation shard specs.
-	if err = applyDerivationShards(built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
+	if err = applyDerivationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
+	} else if err = cluster.WaitForShardsToAssign(); err != nil {
+		return err
 	}
-	cluster.WaitForShardsToAssign()
 
 	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
 	sort.Slice(built.Tests, func(i, j int) bool {
@@ -156,7 +178,11 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	fmt.Println("Running ", len(built.Tests), " tests...")
 
 	for _, testCase := range built.Tests {
-		if scope, err := testing.RunTestCase(graph, cluster, &testCase); err != nil {
+		if ctx.Err() != nil {
+			break
+		} else if err = cluster.Consumer.ClearRegistersForTest(cfg.Context); err != nil {
+			return fmt.Errorf("clearing registers ahead of test case: %w", err)
+		} else if scope, err := testing.RunTestCase(graph, cluster, &testCase); err != nil {
 			var path, ptr = scopeToPathAndPtr(cmd.Directory, scope)
 			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
 			fmt.Println(err)
@@ -165,15 +191,11 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 			var path, _ = scopeToPathAndPtr(cmd.Directory, testCase.Steps[0].StepScope)
 			fmt.Println("✔️", path, "::", green(testCase.Test))
 		}
-		cluster.Consumer.ClearRegistersForTest(cfg.Context)
 	}
 
 	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
 		len(built.Tests), len(built.Tests)-len(failed), len(failed))
 
-	if err := cluster.Stop(); err != nil {
-		return fmt.Errorf("stopping cluster: %w", err)
-	}
 	if failed != nil {
 		return fmt.Errorf("failed tests: [%s]", strings.Join(failed, ", "))
 	}

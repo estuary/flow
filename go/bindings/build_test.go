@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 func TestBuildCatalog(t *testing.T) {
 	var tempdir = t.TempDir()
 	built, err := BuildCatalog(BuildArgs{
+		Context:             context.Background(),
 		FileRoot:            "./testdata",
 		CaptureDriverFn:     capture.NewDriver,
 		MaterializeDriverFn: materialize.NewDriver,
@@ -53,6 +55,7 @@ func TestBuildCatalog(t *testing.T) {
 func TestBuildSchema(t *testing.T) {
 	var tempdir = t.TempDir()
 	built, err := BuildCatalog(BuildArgs{
+		Context:             context.Background(),
 		FileRoot:            "./testdata",
 		CaptureDriverFn:     nil, // Not needed.
 		MaterializeDriverFn: nil, // Not needed.
