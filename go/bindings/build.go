@@ -54,6 +54,8 @@ type MaterializeDriverFn func(
 // BuildArgs are arguments of the BuildCatalog function.
 type BuildArgs struct {
 	pf.BuildAPI_Config
+	// Context of asynchronous tasks undertaken during the build.
+	Context context.Context
 	// Directory which roots fetched file:// resolutions.
 	FileRoot string
 	// Builder of capture DriverClients
@@ -75,7 +77,8 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 		panic(err) // Cannot fail to marshal.
 	}
 
-	var trampoline, resolvedCh = newTrampolineServer(context.Background(),
+	var trampoline, resolvedCh = newTrampolineServer(
+		args.Context,
 		trampolineHandler{
 			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_FETCH),
 			decode: func(request []byte) (interface{}, error) {

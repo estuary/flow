@@ -26,6 +26,7 @@ import (
 
 func TestSQLGeneration(t *testing.T) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
@@ -76,6 +77,7 @@ func TestSQLiteDriver(t *testing.T) {
 	var driver = materialize.AdaptServerToClient(sqlite.NewSQLiteDriver())
 
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  ctx,
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",

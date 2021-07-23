@@ -212,13 +212,15 @@ func (c *Cluster) Stop() error {
 		c.ProcessSpec.Id.Zone,
 		c.ProcessSpec.Id.Suffix)
 
+	// We don't use c.Config.Context because it's presumably already done
+	// (since we're stopping).
 	var _, err = c.Config.Etcd.Delete(context.Background(), memberKey)
 	if err != nil {
 		return fmt.Errorf("attempting to delete member key: %w", err)
 	}
 
 	err = c.Tasks.Wait()
-	if strings.Contains(err.Error(), "member key not found in Etcd") {
+	if err != nil && strings.Contains(err.Error(), "member key not found in Etcd") {
 		err = nil // Expected given our tear-down behavior.
 	}
 
@@ -259,7 +261,7 @@ func resetJournalHead(ctx context.Context, rjc pb.RoutedJournalClient, name pb.J
 }
 
 // WaitForShardsToAssign blocks until all shards have reached PRIMARY.
-func (c *Cluster) WaitForShardsToAssign() {
+func (c *Cluster) WaitForShardsToAssign() error {
 	var state = c.Consumer.Service.State
 
 	state.KS.Mu.RLock()
@@ -286,12 +288,12 @@ func (c *Cluster) WaitForShardsToAssign() {
 		}
 
 		if !wait {
-			return
+			return nil
 		}
 
 		// Block for the next KeySpace update.
-		if err := state.KS.WaitForRevision(context.Background(), state.KS.Header.Revision+1); err != nil {
-			panic(err)
+		if err := state.KS.WaitForRevision(c.Config.Context, state.KS.Header.Revision+1); err != nil {
+			return err
 		}
 	}
 }

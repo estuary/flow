@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 func TestValidations(t *testing.T) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
