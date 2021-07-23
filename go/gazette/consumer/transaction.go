@@ -150,7 +150,7 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	if txnBlocks(s, txn, prev) {
 		select {
 		case env, ok := <-txn.readCh:
-			return false, txnRead(s, txn, env, ok)
+			return false, txnRead(s, txn, prev, env, ok)
 		case tick := <-txn.timer.C:
 			return false, txnTick(s, txn, tick)
 		case <-txn.barrierCh:
@@ -159,7 +159,7 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	} else {
 		select {
 		case env, ok := <-txn.readCh:
-			return false, txnRead(s, txn, env, ok)
+			return false, txnRead(s, txn, prev, env, ok)
 		case tick := <-txn.timer.C:
 			return false, txnTick(s, txn, tick)
 		default:
@@ -182,7 +182,7 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	return true, nil
 }
 
-func txnRead(s *shard, txn *transaction, env EnvelopeOrError, ok bool) error {
+func txnRead(s *shard, txn, prev *transaction, env EnvelopeOrError, ok bool) error {
 	if !ok {
 		txn.readCh = nil // Channel is closed, don't select it again.
 		return nil
@@ -210,12 +210,19 @@ func txnRead(s *shard, txn *transaction, env EnvelopeOrError, ok bool) error {
 			}
 
 		case io.EOF:
-			// If we're outside of a current transaction, then update progress
-			// to reflect |env| was read. If we didn't do this, then a Stat RPC
-			// could stall indefinitely if its read-through offsets include a
-			// message which doesn't cause a transaction to begin (such as a
-			// duplicate ACK), and no further messages are forthcoming.
-			if txn.consumedCount == 0 {
+			if txn.consumedCount != 0 {
+				// We're inside a current transaction. Take no action.
+			} else if txn.barrierCh != nil {
+				// We're outside of a current transaction, but a previous one is still
+				// committing. Extend it's readThrough, which hasn't yet been reported
+				// as progress, to include this no-op envelope.
+				prev.readThrough[env.Journal.Name] = env.End
+			} else {
+				// We're currently idle, and must update progress to reflect that
+				// |env| was read. If we didn't do this, then a Stat RPC
+				// could stall indefinitely if its read-through offsets include a
+				// message which doesn't cause a transaction to begin (such as a
+				// duplicate ACK), and no further messages are forthcoming.
 				signalProgress(s, func(readThrough, _ pb.Offsets) {
 					readThrough[env.Journal.Name] = env.End
 				})
