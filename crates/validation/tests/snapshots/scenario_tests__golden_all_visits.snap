@@ -1686,7 +1686,7 @@ All {
                         delta_updates: true,
                         shuffle: Some(
                             Shuffle {
-                                group_name: "materialize/testing/webhook/deliveries/Web%21hook/foo%20bar",
+                                group_name: "materialize/testing/webhook/deliveries/Web%21hook%2Ffoo%20bar",
                                 source_collection: "testing/int-string",
                                 source_partitions: Some(
                                     LabelSelector {
@@ -1954,7 +1954,7 @@ All {
                         delta_updates: true,
                         shuffle: Some(
                             Shuffle {
-                                group_name: "materialize/testing/webhook/deliveries/targe+/two",
+                                group_name: "materialize/testing/webhook/deliveries/targe+%2Ftwo",
                                 source_collection: "testing/int-halve",
                                 source_partitions: Some(
                                     LabelSelector {

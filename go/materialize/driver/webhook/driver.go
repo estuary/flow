@@ -90,6 +90,7 @@ func (driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Valida
 			Constraints: constraints,
 			// Only delta updates are supported by webhooks.
 			DeltaUpdates: true,
+			ResourcePath: []string{resolved.String()},
 		})
 	}
 
