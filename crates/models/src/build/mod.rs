@@ -211,11 +211,16 @@ pub fn derivation_spec(
     }
 }
 
-// encode_resource_path encodes path components into a string which
-// is suitable for use within a Gazette token, such as a Journal
-// name or suffix, or a Shard ID. Tokens are restricted to
-// unicode letters and numbers, plus the symbols `-_+/.=%`.
-// All other runes are percent-encoded.
+/// `encode_resource_path` encodes path components into a string which is
+/// suitable for use within a Gazette path, such as a Journal name or suffix, or
+/// a Shard ID.
+///
+/// Paths are restricted to unicode letters and numbers, plus the symbols
+/// `-_+/.=%`.  All other runes are percent-encoded.
+///
+/// See Gazette for more details:
+/// - Path Tokens: broker/protocol/validator.go
+/// - Path Validation Rules: broker/protocol/journal_spec_extensions.go
 pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
     let mut parts = Vec::new();
     parts.extend(resource_path.iter().map(AsRef::as_ref));
@@ -224,7 +229,11 @@ pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
 
     for c in parts.join("/").chars() {
         match c {
-            // Note that '%' is not included (it must be escaped).
+            // This *must* conform the set of path validation rules in the
+            // Gazette. Notably, a Path allows `/` characters, but only in
+            // certain positions, no repeats, etc. As a resource_path
+            // potentially contains arbitrary user input, we percent encode any
+            // `/` characters here to avoid duplicating that validation logic.
             '-' | '_' | '+' | '.' | '=' => name.push(c),
             _ if c.is_alphanumeric() => name.push(c),
             c => name.extend(percent_encoding::utf8_percent_encode(
