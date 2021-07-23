@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 
 func TestDeriveWithIntStrings(t *testing.T) {
 	var built, err = BuildCatalog(BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
@@ -117,6 +119,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 
 func TestDeriveWithIncResetPublish(t *testing.T) {
 	var built, err = BuildCatalog(BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",

@@ -57,8 +57,9 @@ func (cmd cmdApply) Execute(_ []string) error {
 	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
+	var ctx = context.Background()
 
-	built, err := buildCatalog(pf.BuildAPI_Config{
+	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
@@ -71,7 +72,6 @@ func (cmd cmdApply) Execute(_ []string) error {
 		panic("built with TypescriptPackage: true but NPM package is empty")
 	}
 
-	var ctx = context.Background()
 	var shards = cmd.Consumer.MustRoutedShardClient(ctx)
 
 	// We don't use Etcd.MustDial because that syncs the Etcd cluster,
@@ -88,7 +88,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	// Apply all database materializations first, before we create or update
 	// catalog entities that reference the applied tables / topics / targets.
-	if err := applyMaterializations(built, cmd.DryRun); err != nil {
+	if err := applyMaterializations(ctx, built, cmd.DryRun); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 
@@ -124,15 +124,15 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	if !cmd.DryRun {
 		// Apply capture shard specs.
-		if err = applyCaptureShards(built, shards, 1, revision); err != nil {
+		if err = applyCaptureShards(ctx, built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying capture shards: %w", err)
 		}
 		// Apply derivation shard specs.
-		if err = applyDerivationShards(built, shards, 1, revision); err != nil {
+		if err = applyDerivationShards(ctx, built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying derivation shards: %w", err)
 		}
 		// Apply materialization shards.
-		if err = applyMaterializationShards(built, shards, 1, revision); err != nil {
+		if err = applyMaterializationShards(ctx, built, shards, 1, revision); err != nil {
 			return fmt.Errorf("applying materialization shards: %w", err)
 		}
 		fmt.Println("Applied.")
@@ -143,8 +143,9 @@ func (cmd cmdApply) Execute(_ []string) error {
 	return err
 }
 
-func buildCatalog(config pf.BuildAPI_Config) (*bindings.BuiltCatalog, error) {
+func buildCatalog(ctx context.Context, config pf.BuildAPI_Config) (*bindings.BuiltCatalog, error) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:             ctx,
 		BuildAPI_Config:     config,
 		FileRoot:            "/",
 		CaptureDriverFn:     capture.NewDriver,
@@ -184,9 +185,10 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	return path, ptr
 }
 
-func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
+func applyCaptureShards(ctx context.Context, built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Captures {
-		if err := createTaskShards(client,
+		if err := createTaskShards(ctx,
+			client,
 			flowLabels.TaskTypeCapture,
 			spec.Capture.String(),
 			shards,
@@ -198,9 +200,10 @@ func applyCaptureShards(built *bindings.BuiltCatalog, client pc.ShardClient, sha
 	return nil
 }
 
-func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
+func applyDerivationShards(ctx context.Context, built *bindings.BuiltCatalog,
+	client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Derivations {
-		if err := createTaskShards(client,
+		if err := createTaskShards(ctx, client,
 			flowLabels.TaskTypeDerivation,
 			spec.Collection.Collection.String(),
 			shards,
@@ -212,9 +215,10 @@ func applyDerivationShards(built *bindings.BuiltCatalog, client pc.ShardClient, 
 	return nil
 }
 
-func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
+func applyMaterializationShards(ctx context.Context, built *bindings.BuiltCatalog,
+	client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Materializations {
-		if err := createTaskShards(client,
+		if err := createTaskShards(ctx, client,
 			flowLabels.TaskTypeMaterialization,
 			spec.Materialization.String(),
 			shards,
@@ -226,9 +230,10 @@ func applyMaterializationShards(built *bindings.BuiltCatalog, client pc.ShardCli
 	return nil
 }
 
-func createTaskShards(client pc.ShardClient, taskType, taskName string, shards int, taskCreated int64) error {
+func createTaskShards(ctx context.Context, client pc.ShardClient,
+	taskType, taskName string, shards int, taskCreated int64) error {
 	// Query for existing shards of this catalog task.
-	if resp, err := consumer.ListShards(context.Background(), client, &pc.ListRequest{
+	if resp, err := consumer.ListShards(ctx, client, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet(
 			flowLabels.TaskType, taskType,
 			flowLabels.TaskName, taskName,
@@ -280,20 +285,20 @@ func createTaskShards(client pc.ShardClient, taskType, taskName string, shards i
 		})
 	}
 
-	var _, err = consumer.ApplyShards(context.Background(),
+	var _, err = consumer.ApplyShards(ctx,
 		client, &pc.ApplyRequest{Changes: changes})
 	return err
 }
 
-func applyMaterializations(built *bindings.BuiltCatalog, dryRun bool) error {
+func applyMaterializations(ctx context.Context, built *bindings.BuiltCatalog, dryRun bool) error {
 	for _, spec := range built.Materializations {
-		driver, err := materialize.NewDriver(context.Background(),
+		driver, err := materialize.NewDriver(ctx,
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}
 
-		response, err := driver.Apply(context.Background(), &pm.ApplyRequest{
+		response, err := driver.Apply(ctx, &pm.ApplyRequest{
 			Materialization: &spec,
 			Version:         built.ID.String(), // Use catalog commons ID.
 			DryRun:          dryRun,

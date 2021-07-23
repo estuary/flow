@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 func TestCombineBindings(t *testing.T) {
 	built, err := BuildCatalog(BuildArgs{
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
