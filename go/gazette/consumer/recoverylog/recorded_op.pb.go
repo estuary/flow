@@ -1440,10 +1440,7 @@ func (m *RecordedOp) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -1525,10 +1522,7 @@ func (m *RecordedOp_Create) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -1629,10 +1623,7 @@ func (m *RecordedOp_Link) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -1739,10 +1730,7 @@ func (m *RecordedOp_Write) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -1856,10 +1844,7 @@ func (m *Property) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -2037,10 +2022,7 @@ func (m *Segment) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -2143,10 +2125,7 @@ func (m *FnodeSegments) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
@@ -2296,10 +2275,7 @@ func (m *FSMHints) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRecordedOp
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRecordedOp
 			}
 			if (iNdEx + skippy) > l {
