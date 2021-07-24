@@ -37,5 +37,5 @@ module_path = $(shell go list -f '{{ .Dir }}' -m $(module))
 # and run against against our copy of Rocks.
 export CGO_CFLAGS      = -I${ROCKSDIR}/include
 export CGO_CPPFLAGS    = -I${ROCKSDIR}/include
-export CGO_LDFLAGS     = -L${ROCKSDIR} -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd
+export CGO_LDFLAGS     = -L${ROCKSDIR} -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd -ldl
 export LD_LIBRARY_PATH =   ${ROCKSDIR}
