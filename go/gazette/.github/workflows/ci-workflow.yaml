@@ -22,7 +22,7 @@ env:
   # This is only used as the cache key to prevent rebuilding rocksdb every time. Eventually
   # we'll need to figure out a solution that doesn't duplicate this version everywhere.
   # For now, ensure that it's changed both here and in mk/common-config.mk.
-  ROCKSDB_VERSION: "6.7.3"
+  ROCKSDB_VERSION: "6.22.1"
 
 jobs:
   build:

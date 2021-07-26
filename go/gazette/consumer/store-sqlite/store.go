@@ -24,7 +24,7 @@ import (
 	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/tecbot/gorocksdb"
+	"github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"

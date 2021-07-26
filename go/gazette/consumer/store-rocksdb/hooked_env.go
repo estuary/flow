@@ -13,7 +13,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/tecbot/gorocksdb"
+	"github.com/jgraettinger/gorocksdb"
 )
 
 // EnvObserver allows for observation of mutating Env operations.

@@ -9,7 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	rocks "github.com/tecbot/gorocksdb"
+	rocks "github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"

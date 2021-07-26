@@ -25,7 +25,7 @@ import (
 	"github.com/jgraettinger/cockroach-encoding/encoding"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	rocks "github.com/tecbot/gorocksdb"
+	rocks "github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"

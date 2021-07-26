@@ -11,7 +11,7 @@ NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
 # Version of Rocks to build against.
 # - This is tightly coupled github.com/tecbot/gorocksdb (update them together).
 # - Also update .github/workflows/ci-workflow.yaml
-ROCKSDB_VERSION = 6.7.3
+ROCKSDB_VERSION = 6.22.1
 
 # Repository root (the directory of the invoked Makefile).
 ROOTDIR  = $(abspath $(dir $(firstword $(MAKEFILE_LIST))))

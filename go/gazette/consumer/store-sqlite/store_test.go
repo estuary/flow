@@ -16,7 +16,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
-	"github.com/tecbot/gorocksdb"
+	"github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"

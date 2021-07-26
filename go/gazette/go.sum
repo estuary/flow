@@ -198,6 +198,8 @@ github.com/jessevdk/go-flags v1.5.0 h1:1jKYvbxEjfUl0fmqTCOfonvskHHXMjBySTLW4y9LF
 github.com/jessevdk/go-flags v1.5.0/go.mod h1:Fw0T6WPc1dYxT4mKEZRfG5kJhaTDP9pj1c2EWnYs/m4=
 github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa8VHifsKj3gj8cD6E=
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
+github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b h1:ilFm/Eo4sAeoQ9O3r8WT9w8NWy+SwvHRhesnMjLGLdQ=
+github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b/go.mod h1:pF+aV5pQJlgi8ZKGnuUhEzLF1Z74ONYqrn0O2UXLjeQ=
 github.com/jgraettinger/urkel v0.1.2 h1:0mJa16Fst91r0tDECKnZsSBYs53IIxisSsJiiIWbuQ4=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0 h1:OS12ieG61fsCg5+qLJ+SsW9NicxNkg3b25OyT2yCeUc=

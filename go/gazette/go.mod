@@ -24,6 +24,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/cockroach-encoding v1.1.0
+	github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b // indirect
 	github.com/jgraettinger/urkel v0.1.2
 	github.com/klauspost/compress v1.10.3
 	github.com/kr/text v0.2.0 // indirect
@@ -38,7 +39,6 @@ require (
 	github.com/soheilhy/cmux v0.1.5-0.20210205191134-5ec6847320e5
 	github.com/spf13/afero v1.2.2
 	github.com/stretchr/testify v1.7.0
-	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
 	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0 // indirect

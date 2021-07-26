@@ -12,7 +12,7 @@ import (
 	"bytes"
 	"unsafe"
 
-	"github.com/tecbot/gorocksdb"
+	"github.com/jgraettinger/gorocksdb"
 )
 
 // ArenaIterator adapts a gorocksdb.Iterator to amortize CGO calls by

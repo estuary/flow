@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	rocks "github.com/tecbot/gorocksdb"
+	rocks "github.com/jgraettinger/gorocksdb"
 )
 
 func TestArenaIterator(t *testing.T) {
