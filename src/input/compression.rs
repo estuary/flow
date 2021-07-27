@@ -4,6 +4,7 @@ use flate2::read::GzDecoder;
 use std::boxed::Box;
 use std::fs::File;
 use std::io::{self, Read};
+use std::path::Path;
 use std::pin::Pin;
 use zip::read::{ZipArchive, ZipFile};
 use zip::result::ZipError;
@@ -145,11 +146,21 @@ fn zip_into_io_err(zip_err: ZipError) -> io::Error {
 }
 
 fn should_include_archive_member(entry: &ZipFile) -> bool {
-    // It's common for .DS_Store files to get included in zip archives unintentionally when mac
-    // users create archives. This is a very common footgun, and one that can easily make for a
-    // difficult experience when new users are trying out the product, so it makes sense to try to
-    // save the user from themselves. A more principled solution might be to return a descriptive
-    // error message, or maybe even just log a warning. But this may be common enough to justify
-    // us filtering these entries.
-    entry.is_file() && !entry.name().ends_with(".DS_Store")
+    // OSX users will often end up with extra hidden files in their archives. An example is the
+    // `.DS_Store` files that apple puts everywhere, but we've also seen `__MACOSX/.*`. So we
+    // filter out any hidden files (those whose name begins with a '.').
+    entry.is_file()
+        && Path::new(entry.name())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|name| !name.starts_with("."))
+            .unwrap_or_else(|| {
+                // If we got here, it's because the zip entry has a path that ends with '..' or
+                // something like that, which seems unusual enough to be worth logging.
+                tracing::warn!(
+                    "skipping zip entry: {:?} since the filename does not appear to be valid",
+                    entry.name()
+                );
+                false
+            })
 }

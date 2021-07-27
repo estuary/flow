@@ -154,8 +154,9 @@ impl Parser for CsvParser {
                     target_location: Pointer::from_str(&location),
                 }
             });
-            columns.push(Header { name, projection })
+            columns.push(Header { name, projection });
         }
+        tracing::info!("Resolved column headers: {:?}", columns);
 
         Ok(Box::new(CsvOutput {
             headers: columns,
