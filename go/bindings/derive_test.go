@@ -12,7 +12,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
-	"github.com/tecbot/gorocksdb"
 	"go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
 )
@@ -59,7 +58,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		derivation.Collection.GetProjection(field).IsPartitionKey = true
 	}
 
-	derive, err := NewDerive(gorocksdb.NewDefaultEnv(), t.TempDir())
+	derive, err := NewDerive(nil, t.TempDir())
 	require.NoError(t, err)
 
 	// Loop to exercise multiple transactions.
@@ -254,7 +253,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	}
 
 	var build = func(t *testing.T) *Derive {
-		d, err := NewDerive(gorocksdb.NewDefaultEnv(), t.TempDir())
+		d, err := NewDerive(nil, t.TempDir())
 		require.NoError(t, err)
 		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, &built.Derivations[0], lambdaClient))
 		return d

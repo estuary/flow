@@ -316,7 +316,7 @@ macro_rules! tables {
 
             fn load_all(&mut self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
                 let mut stmt = db.prepare(&Self::select_sql())?;
-                self.0.extend(stmt.query_map(rusqlite::NO_PARAMS, $row::scan)?
+                self.0.extend(stmt.query_map([], $row::scan)?
                               .collect::<Result<Vec<_>, _>>()?);
                 Ok(())
             }
@@ -351,7 +351,7 @@ macro_rules! tables {
             fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self> {
                 let mut _idx = 0;
                 $(
-                let $field = <$rust_type as SQLType>::column_result(row.get_raw(_idx))?;
+                let $field = <$rust_type as SQLType>::column_result(row.get_ref_unwrap(_idx))?;
                 _idx += 1;
                 )*
 
