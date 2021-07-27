@@ -13,7 +13,6 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
-	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/message"
 )
 
@@ -38,8 +37,7 @@ var _ Application = (*Derive)(nil)
 func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
 
-	var env = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
-	var binding, err = bindings.NewDerive(env, recorder.Dir())
+	var binding, err = bindings.NewDerive(recorder, recorder.Dir())
 	if err != nil {
 		return nil, err
 	}
