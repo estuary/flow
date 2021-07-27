@@ -15,9 +15,10 @@ anyhow = "*"
 bytes = "*"
 futures = "*"
 itertools = "*"
+librocksdb-sys = { version = "*", features = ["lz4", "rtti"] }
 pin-utils = "*"
 prost = "*"
-rocksdb = { version = "*", default-features = false }
+rocksdb = { version = "*", default-features = false, features = ["lz4", "rtti"] }
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}

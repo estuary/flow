@@ -1,0 +1,8 @@
+[package]
+name = "librocks-exp"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+librocksdb-sys = { version = "*", features = ["lz4", "rtti"] }

@@ -289,8 +289,10 @@ github.com/jessevdk/go-flags v1.5.0 h1:1jKYvbxEjfUl0fmqTCOfonvskHHXMjBySTLW4y9LF
 github.com/jessevdk/go-flags v1.5.0/go.mod h1:Fw0T6WPc1dYxT4mKEZRfG5kJhaTDP9pj1c2EWnYs/m4=
 github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa8VHifsKj3gj8cD6E=
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
-github.com/jgraettinger/gazette v0.0.0-20210723215434-4a4814d42263 h1:VffUxG80THflwiltZ0CO25DKSgdwS+nBuMnbsSsfKv0=
-github.com/jgraettinger/gazette v0.0.0-20210723215434-4a4814d42263/go.mod h1:mLiMduRn0QAZdBbVIzXu3Mv6Dq5UsivgZ7Kcy6J7Ucc=
+github.com/jgraettinger/gazette v0.0.0-20210726192503-178f10d4ba3d h1:TkliPbm4UzmtpK6ZaHD6slvBM7lKc2ACSbU6mhoK9k8=
+github.com/jgraettinger/gazette v0.0.0-20210726192503-178f10d4ba3d/go.mod h1:p1wEVX/yXrOrUbCevLB0exKEFI9Ys4rZt/JPxbZvSFU=
+github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b h1:ilFm/Eo4sAeoQ9O3r8WT9w8NWy+SwvHRhesnMjLGLdQ=
+github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b/go.mod h1:pF+aV5pQJlgi8ZKGnuUhEzLF1Z74ONYqrn0O2UXLjeQ=
 github.com/jgraettinger/urkel v0.1.2/go.mod h1:PQ2/GQdeAtepWvfbEczTdzYM+bmB0qgB0L23qeUaKbA=
 github.com/jmespath/go-jmespath v0.3.0/go.mod h1:9QtRXoHjLGCJ5IBSaohpXITPlowMeeYCZ7fLUTSywik=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=

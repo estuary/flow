@@ -70,9 +70,11 @@ impl cgo::Service for API {
                     "opening registers database"
                 );
 
-                // Re-hydrate a &rocksdb::Env from a provided memory address.
-                let env_ptr = rocksdb_env_memptr as usize;
-                let env: &rocksdb::Env = unsafe { std::mem::transmute(&env_ptr) };
+                // Re-hydrate the provided memory address into rocksdb::Env wrapping
+                // an owned *mut librocksdb_sys::rocksdb_env_t.
+                let env = unsafe {
+                    rocksdb::Env::from_raw(rocksdb_env_memptr as *mut librocksdb_sys::rocksdb_env_t)
+                };
 
                 let mut opts = rocksdb::Options::default();
                 opts.set_env(&env);

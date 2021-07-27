@@ -61,15 +61,8 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Cache/Restore RocksDB build.
-        uses: actions/cache@v2
-        with:
-          path: .build/rocksdb-v6.11.4
-          key: rocksdb-v6.11.4
-
       - run: make install-tools
       - run: go mod download
-      - run: make rocks-build
       - run: make rust-build
       - run: make rust-test
       - run: make go-test-ci

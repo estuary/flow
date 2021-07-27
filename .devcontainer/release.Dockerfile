@@ -8,10 +8,6 @@ RUN apt-get update -y \
  && apt-get install --no-install-recommends -y \
       ca-certificates \
       curl \
-      libjemalloc2 \
-      liblz4-1 \
-      libsnappy1v5 \
-      libzstd1 \
       jq \
       nodejs \
       npm \
@@ -53,8 +49,6 @@ RUN curl -o /tmp/snowsql-${SNOWSQL_FULL_VERSION}-linux_x86_64.bash \
 # Copy binaries & libraries to the image, owned by root.
 USER root
 COPY bin/* /usr/local/bin/
-COPY lib/* /usr/local/lib/
-RUN ldconfig
 
 USER flow
 WORKDIR /home/flow/project

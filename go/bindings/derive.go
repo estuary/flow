@@ -19,11 +19,13 @@ import (
 	"unsafe"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/jgraettinger/gorocksdb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
-	"github.com/tecbot/gorocksdb"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/consumer/recoverylog"
+	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/message"
 	"golang.org/x/net/trace"
 )
@@ -36,10 +38,9 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	pinnedEnv *gorocksdb.Env // Used from Rust.
-	svc       *service
-	metrics   combineMetrics
-	stats     combineStats
+	svc     *service
+	metrics combineMetrics
+	stats   combineStats
 
 	// Fields which are re-initialized with each reconfiguration.
 	runningTasks int               // Number of trampoline tasks.
@@ -49,7 +50,14 @@ type Derive struct {
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
-func NewDerive(rocksEnv *gorocksdb.Env, localDir string) (*Derive, error) {
+func NewDerive(recorder *recoverylog.Recorder, localDir string) (*Derive, error) {
+	var rocksEnv *gorocksdb.Env
+	if recorder != nil {
+		rocksEnv = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
+	} else {
+		rocksEnv = gorocksdb.NewDefaultEnv()
+	}
+
 	// gorocksdb.Env has private field, so we must re-interpret to access.
 	if unsafe.Sizeof(&gorocksdb.Env{}) != unsafe.Sizeof(&gorocksdbEnv{}) ||
 		unsafe.Alignof(&gorocksdb.Env{}) != unsafe.Alignof(&gorocksdbEnv{}) {
@@ -65,16 +73,19 @@ func NewDerive(rocksEnv *gorocksdb.Env, localDir string) (*Derive, error) {
 			LocalDir:         localDir,
 		})
 
+	// At this point, ownership of |rocksEnv| has passed to the derive service.
+	// It cannot be accessed or freed from Go.
+	rocksEnv = nil
+
 	if err := pollExpectNoOutput(svc); err != nil {
 		svc.destroy()
 		return nil, err
 	}
 
 	var derive = &Derive{
-		pinnedEnv: rocksEnv,
-		svc:       svc,
-		metrics:   combineMetrics{},
-		stats:     combineStats{},
+		svc:     svc,
+		metrics: combineMetrics{},
+		stats:   combineStats{},
 
 		// Fields updated by Configure:
 		runningTasks: 0,
@@ -290,11 +301,6 @@ func (d *Derive) Destroy() {
 	if d.svc != nil {
 		d.svc.destroy()
 		d.svc = nil
-	}
-	// Similarly, we cannot destroy the RocksDB environment ahead of its usage by |d.svc|.
-	if d.pinnedEnv != nil {
-		d.pinnedEnv.Destroy()
-		d.pinnedEnv = nil
 	}
 }
 

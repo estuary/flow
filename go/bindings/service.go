@@ -1,8 +1,6 @@
 package bindings
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lbindings -lcrypto -lssl -ldl -lm -lstdc++ -lrocksdb
-
 #include "../../crates/bindings/flow_bindings.h"
 */
 import "C"
@@ -15,12 +13,6 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
-
-// TODO(johnny): Other linker flags we'll probably need when we begin linking
-// to a shared RocksDB. Keeping these handy here so I don't have to hunt them
-// down again.
-//
-//   -lz -lbz2 -lsnappy -llz4 -lzstd
 
 // service is a Go handle to an instantiated service binding.
 type service struct {

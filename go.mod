@@ -14,6 +14,7 @@ require (
 	github.com/jackc/pgconn v1.8.0
 	github.com/jackc/pgx/v4 v4.10.1
 	github.com/jessevdk/go-flags v1.5.0
+	github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b // indirect
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/minio/highwayhash v1.0.2
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
@@ -22,7 +23,6 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/snowflakedb/gosnowflake v1.4.2-0.20210318070613-b0c023e3afd7
 	github.com/stretchr/testify v1.7.0
-	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
 	go.gazette.dev/core v0.88.0
@@ -33,4 +33,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )
 
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210723215434-4a4814d42263
+replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210726192503-178f10d4ba3d
