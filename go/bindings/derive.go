@@ -172,7 +172,7 @@ func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformIndex uint32, doc j
 	// If we have no resolved tasks to send, AND we don't have many unsent
 	// frames, AND it's not an ACK, THEN skip polling.
 	if !d.sendResolvedTasks() &&
-		d.svc.queuedFrames() >= 128 &&
+		d.svc.queuedFrames() < 128 &&
 		message.Flags(uuid.ProducerAndFlags)&message.Flag_ACK_TXN == 0 {
 		return nil
 	}
