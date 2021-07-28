@@ -1,26 +1,28 @@
 collections:
-  # Transfers between accounts, e.x. {id: 123, from: alice, to: bob, amount: 32.50}.
+  # Collection of 💲 transfers between accounts:
+  #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
   acmeBank/transfers:
     schema:
-      # Inline JSON Schema of collection documents.
+      # JSON Schema of collection's documents.
       type: object
       properties:
         id: { type: integer }
-        from: { type: string }
-        to: { type: string }
+        sender: { type: string }
+        recipient: { type: string }
         amount: { type: number }
-      required: [id, from, to, amount]
+      required: [id, sender, recipient, amount]
     key: [/id]
 
-  # Derived balances of each account, e.x. {account: alice, amount: 67.35}.
+  # Derived balances of each account:
+  #   {account: alice, amount: 67.35}
   acmeBank/balances:
     schema:
       type: object
       properties:
         account: { type: string }
         amount:
-          # "reduce" keyword extends JSON Schema with annotated reduction
-          # behaviors at document locations.
+          # Flow extends JSON schema with "reduce" annotations.
+          # These tell Flow how to combine each document location.
           reduce: { strategy: sum }
           type: number
       required: [account, amount]
@@ -31,16 +33,39 @@ collections:
       transform:
         fromTransfers:
           source: { name: acmeBank/transfers }
-          # Update balances from source transfers.
+          # Lambdas are functions that map input documents into output documents.
+          # Here we declare a lambda that will map a bank transfer document
+          # into a balance update.
+          # This declaration tells Flow to look for an associated TypeScript module.
           publish: { lambda: typescript }
+
+# Uncomment when updating README:
+#
+#materializations:
+#  acmeBank/database:
+#    endpoint:
+#      postgres:
+#        # Try this by standing up a local PostgreSQL database.
+#        # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+#        # (Use host: host.docker.internal when running Docker for Windows/Mac).
+#        host: localhost
+#        password: password
+#        dbname: postgres
+#        user: postgres
+#        port: 5432
+#    bindings:
+#      # Create and materialize into table `account_balances`.
+#      - resource:
+#          table: account_balances
+#        source: acmeBank/balances
 
 tests:
   Balances reflect transfers:
     - ingest:
         collection: acmeBank/transfers
         documents:
-          - { id: 1, from: alice, to: bob, amount: 32.50 }
-          - { id: 2, from: bob, to: carly, amount: 10.75 }
+          - { id: 1, sender: alice, recipient: bob, amount: 32.50 }
+          - { id: 2, sender: bob, recipient: carly, amount: 10.75 }
     - verify:
         collection: acmeBank/balances
         documents:

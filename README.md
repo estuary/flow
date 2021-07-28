@@ -10,24 +10,25 @@ so that your systems
 are synchronized around the same data sets, updating in milliseconds.
 With Flow, you:
 
--   📷 **Capture** data sources into _collections_: schematized continuous
-    datasets that are represented using regular files of JSON in your cloud storage bucket.
-    Collections are designed to directly plug into to your existing tools: Spark, Snowflake,
-    BigQuery, and others, keeping your data portable, flexible, and... yours!
+-   📷 **Capture** data from your systems, services, and SaaS into _collections_:
+    continuous datasets that are stored as regular files of your JSON data,
+    right in your cloud storage bucket.
+    Collections plug into your existing tools:
+    Spark, Snowflake, BigQuery, and others, keeping your data portable, flexible, and... yours!
 
--   🌊 Declare transformations over collections and **materialize** them
-    into your systems: databases, key/value stores, Webhooks, pub/sub, and more.
+-   🎯 **Materialize** a collection as a view within another system,
+    such as a database, key/value store, Webhook API, or pub/sub service.
+    Flow back-fills from the collection's history
+    and then keeps your system fresh using precise, low-latency updates.
 
-    Views are repeatable:
-    they always reflect entire collections, not just ongoing updates.
-    Flow back-fills from history and then keeps your systems fresh using
-    precise, low-latency updates driven by your writes.
+-   🌊 **Derive** new collections by transforming from other collections.
+    As with materializations, Flow back-fills an added derivation from the history
+    of its source collections, and thereafter keeps it up to date.
 
     Transformations are uniquely powerful.
     You can tackle the full gamut of stateful stream workflows,
-    including joins and aggregations,
-    without being subject to the windowing and scaling
-    limitations that plague other systems.
+    including aggregations and non-temporal joins,
+    and Flow is able to scale to match your data volume without downtime.
 
 ![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
 
@@ -44,17 +45,17 @@ Write declarative YAML and [JSON Schema](https://json-schema.org/):
 ```YAML
 collections:
   # Collection of 💲 transfers between accounts:
-  #   {id: 123, from: alice, to: bob, amount: 32.50}
+  #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
   acmeBank/transfers:
     schema:
       # JSON Schema of collection's documents.
       type: object
       properties:
         id: { type: integer }
-        from: { type: string }
-        to: { type: string }
+        sender: { type: string }
+        recipient: { type: string }
         amount: { type: number }
-      required: [id, from, to, amount]
+      required: [id, sender, recipient, amount]
     key: [/id]
 
   # Derived balances of each account:
@@ -77,50 +78,43 @@ collections:
       transform:
         fromTransfers:
           source: { name: acmeBank/transfers }
-          # Lambdas are pure functions.
-          # This one maps a transfer into balance updates.
+          # Lambdas are functions that map input documents into output documents.
+          # Here we declare a lambda that will map a bank transfer document
+          # into a balance update.
+          # This declaration tells Flow to look for an associated TypeScript module.
           publish: { lambda: typescript }
 
-endpoints:
-  acmeBank/database:
-    postgres:
-      # Try this by standing up a local PostgreSQL database.
-      # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
-      # (Use host: host.docker.internal when running Docker for Windows/Mac).
-      host: localhost
-      password: password
-      dbname: postgres
-      user: postgres
-      port: 5432
-
 materializations:
-  # Materialize the current balance for each account.
-  # Flow creates the table for us:
-  # CREATE TABLE "account_balances" (
-  #      account TEXT PRIMARY KEY NOT NULL,
-  #      amount  DOUBLE PRECISION NOT NULL,
-  #      flow_document JSON NOT NULL
-  #);
-  - source:
-      name: acmeBank/balances
+  acmeBank/database:
     endpoint:
-      name: acmeBank/database
-      config: { table: account_balances }
+      postgres:
+        # Try this by standing up a local PostgreSQL database.
+        # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+        # (Use host: host.docker.internal when running Docker for Windows/Mac).
+        host: localhost
+        password: password
+        dbname: postgres
+        user: postgres
+        port: 5432
+    bindings:
+      # Create and materialize into table `account_balances`.
+      - resource:
+          table: account_balances
+        source: acmeBank/balances
 
 tests:
-  Expect that balances update with transfers:
+  Balances reflect transfers:
     - ingest:
         collection: acmeBank/transfers
         documents:
-          - { id: 1, from: alice, to: bob, amount: 32.50 }
-          - { id: 2, from: bob, to: carly, amount: 10.75 }
+          - { id: 1, sender: alice, recipient: bob, amount: 32.50 }
+          - { id: 2, sender: bob, recipient: carly, amount: 10.75 }
     - verify:
         collection: acmeBank/balances
         documents:
           - { account: alice, amount: -32.50 }
           - { account: bob, amount: 21.75 }
           - { account: carly, amount: 10.75 }
-
 ```
 
 This file `acmeBank.flow.yaml` declares a `{ lambda: typescript }`, so Flow expects a
@@ -142,10 +136,9 @@ export class AcmeBankBalances implements interfaces.AcmeBankBalances {
         _previous: registers.AcmeBankBalances,
     ): collections.AcmeBankBalances[] {
         return [
-            // Map each transfer into a balance decrement
-            // of the sender and increment of the receiver.
-            {account: source.from, amount: -source.amount},
-            {account: source.to, amount: source.amount},
+            // A transfer removes from the sender and adds to the recipient.
+            { account: source.sender, amount: -source.amount },
+            { account: source.recipient, amount: source.amount },
         ];
     }
 }

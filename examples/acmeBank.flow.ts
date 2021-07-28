@@ -4,13 +4,15 @@ import { collections, interfaces, registers } from 'flow/modules';
 export class AcmeBankBalances implements interfaces.AcmeBankBalances {
     fromTransfersPublish(
         source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankBalances, // Registers enable stateful derivations,
-        _previous: registers.AcmeBankBalances, // but aren't needed here.
+        // Registers enable stateful workflows, and are part of
+        // the interface Flow expects, but aren't used here.
+        _register: registers.AcmeBankBalances,
+        _previous: registers.AcmeBankBalances,
     ): collections.AcmeBankBalances[] {
         return [
-            // A transfer removes from the sender and adds to the receiver.
-            { account: source.from, amount: -source.amount },
-            { account: source.to, amount: source.amount },
+            // A transfer removes from the sender and adds to the recipient.
+            { account: source.sender, amount: -source.amount },
+            { account: source.recipient, amount: source.amount },
         ];
     }
 }
