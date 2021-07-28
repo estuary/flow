@@ -15,9 +15,9 @@ export type AcmeBankBalances = {
 // Referenced as schema of examples/acmeBank.flow.yaml#/collections/acmeBank~1transfers.
 export type AcmeBankTransfers = {
     amount: number;
-    from: string;
     id: number;
-    to: string;
+    recipient: string;
+    sender: string;
 };
 
 // Generated from examples/reduction-types/append.flow.yaml?ptr=/collections/example~1reductions~1append/schema.
