@@ -344,16 +344,21 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			if err != nil {
 				return fmt.Errorf("unpacking partitions: %w", err)
 			}
+
 			_, err = pub.PublishUncommitted(mapper.Map, flow.Mappable{
 				Spec:       &binding.Collection,
 				Doc:        doc,
 				PackedKey:  packedKey,
 				Partitions: partitions,
 			})
-			return err
+			if err != nil {
+				return fmt.Errorf("publishing document: %w", err)
+			}
+
+			return nil
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("combiner.Drain: %w", err)
 		}
 	}
 	c.store.State.(*storeState).DriverCheckpoint = msg.checkpoint
