@@ -199,12 +199,16 @@ func invokeConnector(
 ) error {
 
 	/*
-		return exec.Command(
-			"docker",
-			"run",
-			"--rm",
-			c.Image,
-		)
+	   return exec.Command(
+	       "docker",
+	       "run",
+	       // Without the --interactive flag, running connectors with docker-for-mac will sometimes
+	       // result in no output on stdout. I have absolutely no idea why. If you ever learn the
+	       // reason for this, please explain to Phil.
+	       "--interactive",
+	       "--rm",
+	       c.Image,
+	   )
 	*/
 	var parts = strings.Split(image, " ")
 	var cmd = exec.Command(parts[0], parts[1:]...)
