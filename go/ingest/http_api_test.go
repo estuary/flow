@@ -97,5 +97,5 @@ func testHTTPSingleMalformed(t *testing.T, addr string) {
 
 	require.Equal(t, 400, resp.StatusCode)
 	var body, _ = ioutil.ReadAll(resp.Body)
-	require.Equal(t, "ingestion of collection \"testing/int-string\": JSON error: expected value at line 2 column 11\n\nCaused by:\n    expected value at line 2 column 11\n", string(body))
+	require.Regexp(t, "ingestion of collection \"testing/int-string\": JSON error .*", string(body))
 }
