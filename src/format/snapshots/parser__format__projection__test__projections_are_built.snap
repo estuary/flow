@@ -251,7 +251,7 @@ expression: result
         ],
     },
     "fieldB": TypeInfo {
-        possible_types: "array", "boolean", "null", "number", "object", "string",
+        possible_types: ,
         must_exist: false,
         target_location: [
             Property(

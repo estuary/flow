@@ -106,6 +106,10 @@ impl Input {
         if resolved_encoding.is_utf8() {
             Ok(input)
         } else {
+            tracing::debug!(
+                "transcoding from '{}' into utf-8",
+                resolved_encoding.encoding().name()
+            );
             let reader = self::encoding::TranscodingReader::with_buffer_size(
                 input.into_stream(),
                 resolved_encoding,

@@ -149,7 +149,7 @@ impl Parser for CsvParser {
             let projection = projections.remove(&name).unwrap_or_else(|| {
                 let location = String::from("/") + name.as_str();
                 TypeInfo {
-                    possible_types: types::ANY,
+                    possible_types: types::INVALID,
                     must_exist: false,
                     target_location: Pointer::from_str(&location),
                 }
@@ -192,7 +192,7 @@ const PARSE_ORDER: &[TargetType] = &[
     TargetType::Null,
     // Always attempt integer before fractional.
     TargetType::Integer,
-    TargetType::Number,
+    TargetType::Float,
     TargetType::Boolean,
     TargetType::Array,
     TargetType::Object,
@@ -206,7 +206,7 @@ enum TargetType {
     Object,
     Array,
     Integer,
-    Number,
+    Float,
     Boolean,
     String,
 }
@@ -218,7 +218,7 @@ impl TargetType {
             TargetType::Array => types::ARRAY,
             TargetType::Object => types::OBJECT,
             TargetType::Integer => types::INTEGER,
-            TargetType::Number => types::INT_OR_FRAC,
+            TargetType::Float => types::FRACTIONAL,
             TargetType::String => types::STRING,
             TargetType::Boolean => types::BOOLEAN,
         }
@@ -234,12 +234,17 @@ struct Header {
 
 impl Header {
     fn parse(&self, value: &str) -> Result<Value, Error> {
+        // If we don't know any actual type information about this field, then always treat it as a
+        // string.
+        if self.projection.possible_types == types::INVALID {
+            return Ok(Value::String(value.to_string()));
+        }
         for possible_type in PARSE_ORDER {
             if possible_type
                 .to_set()
                 .overlaps(self.projection.possible_types)
             {
-                if let Ok(parsed) = self.parse_as_type(value, *possible_type) {
+                if let Some(parsed) = self.parse_as_type(value, *possible_type) {
                     return Ok(parsed);
                 }
             }
@@ -250,27 +255,43 @@ impl Header {
         ))
     }
 
-    fn parse_as_type(
-        &self,
-        value: &str,
-        target_type: TargetType,
-    ) -> Result<Value, serde_json::Error> {
+    fn parse_as_type(&self, value: &str, target_type: TargetType) -> Option<Value> {
         match target_type {
             TargetType::Null => {
                 if value.is_empty() {
-                    Ok(Value::Null)
+                    Some(Value::Null)
                 } else {
-                    Err(serde::de::Error::custom("expected empty value"))
+                    None
                 }
             }
-            TargetType::Array => serde_json::from_str::<Vec<Value>>(value).map(|a| Value::Array(a)),
+            TargetType::Array => serde_json::from_str::<Vec<Value>>(value)
+                .ok()
+                .map(|a| Value::Array(a)),
             TargetType::Object => serde_json::from_str::<serde_json::Map<String, Value>>(value)
+                .ok()
                 .map(|o| Value::Object(o)),
-            TargetType::Integer | TargetType::Number => {
-                serde_json::from_str::<serde_json::Number>(value).map(|n| Value::Number(n))
-            }
-            TargetType::Boolean => serde_json::from_str::<bool>(value).map(|b| Value::Bool(b)),
-            TargetType::String => Ok(Value::String(value.to_string())),
+            TargetType::Integer => serde_json::from_str::<serde_json::Number>(value)
+                .ok()
+                .and_then(|n| {
+                    if n.is_i64() || n.is_u64() {
+                        Some(Value::Number(n))
+                    } else {
+                        None
+                    }
+                }),
+            TargetType::Float => serde_json::from_str::<serde_json::Number>(value)
+                .ok()
+                .and_then(|n| {
+                    if n.is_f64() {
+                        Some(Value::Number(n))
+                    } else {
+                        None
+                    }
+                }),
+            TargetType::Boolean => serde_json::from_str::<bool>(value)
+                .ok()
+                .map(|b| Value::Bool(b)),
+            TargetType::String => Some(Value::String(value.to_string())),
         }
     }
 }
@@ -344,5 +365,81 @@ impl Iterator for CsvOutput {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn values_parsed_as_strings_when_numbers_would_overflow() {
+        let conf = ParseConfig {
+            format: Some(Format::Csv),
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "ride_id": {
+                        "type": ["number", "string"]
+                    }
+                }
+            }),
+            ..Default::default()
+        };
+
+        // This file was created by pulling out some of the naughty rows from: '202102-citibike-tripdata.csv.zip' in the publicly available
+        // 'tripdata' bucket. The ride_id column there contains some ids that just so happen to be
+        // all numeric digits with a single 'E' character in them, and so serde will parse them as
+        // numbers, since the `arbitrary_precision` feature flag is enabled. This test is asserting
+        // that the numbers that would overflow are parsed as strings.
+        let file =
+            std::fs::File::open("tests/examples/valid-big-nums.csv").expect("failed to open file");
+        let input = Input::File(file);
+        let mut result_iter = new_csv_parser()
+            .parse(&conf, input)
+            .expect("failed to init parser");
+        for i in 0..3 {
+            let parsed = result_iter
+                .next()
+                .unwrap()
+                .expect(&format!("failed to parse row: {}", i));
+            assert_is_string(&parsed, "/ride_id");
+        }
+    }
+
+    #[test]
+    fn values_parsed_as_strings_when_missing_type_info() {
+        let conf = ParseConfig {
+            format: Some(Format::Csv),
+            ..Default::default()
+        };
+
+        // This file was created by pulling out some of the naughty rows from: '202102-citibike-tripdata.csv.zip' in the publicly available
+        // 'tripdata' bucket. The ride_id column there contains some ids that just so happen to be
+        // all numeric digits with a single 'E' character in them, and so serde will parse them as
+        // numbers, since the `arbitrary_precision` feature flag is enabled. This test is asserting
+        // that the numbers that would overflow are parsed as strings.
+        let file = std::fs::File::open("tests/examples/valid-mixed-types.csv")
+            .expect("failed to open file");
+        let input = Input::File(file);
+        let mut result_iter = new_csv_parser()
+            .parse(&conf, input)
+            .expect("failed to init parser");
+        for i in 0..4 {
+            let parsed = result_iter
+                .next()
+                .unwrap()
+                .expect(&format!("failed to parse row: {}", i));
+            assert_is_string(&parsed, "/int_or_string");
+            assert_is_string(&parsed, "/bool_or_string");
+        }
+    }
+
+    fn assert_is_string(value: &Value, pointer: &str) {
+        let actual = value
+            .pointer(pointer)
+            .expect(&format!("missing: {} in: {}", pointer, value));
+        assert!(actual.is_string(), "expected a string, got: {:?}", actual);
     }
 }

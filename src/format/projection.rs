@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 /// Information known about a specific location within a JSON document.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeInfo {
+    /// The possible JSON types for this location. If the types are unknown, this will be
+    /// `types::INVALID`.
     pub possible_types: types::Set,
     pub must_exist: bool,
     pub target_location: Pointer,
@@ -78,12 +80,12 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
             tracing::warn!(
                 field = field.as_str(),
                 pointer = pointer.as_ref(),
-                "could not locate projection within schema, so allowing any type"
+                "could not locate projection within schema"
             );
             TypeInfo {
                 target_location,
                 must_exist: false,
-                possible_types: types::ANY,
+                possible_types: types::INVALID,
             }
         };
         results.insert(field.clone(), projection);
