@@ -51,10 +51,11 @@ func RunConnector(
 	var imageArgs = []string{
 		"docker",
 		"run",
-		// Without the --interactive flag, running connectors with docker-for-mac will sometimes
-		// result in no output on stdout. I have absolutely no idea why. If you ever learn the
-		// reason for this, please explain to Phil.
+		// Without the --interactive and --tty flags, running connectors with docker-for-mac will
+		// sometimes result in no output on stdout. I have absolutely no idea why. If you ever learn
+		// the reason for this, please explain to Phil.
 		"--interactive",
+		"--tty",
 		"--rm",
 	}
 	for name, m := range jsonFiles {
