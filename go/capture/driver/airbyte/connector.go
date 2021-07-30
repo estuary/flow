@@ -135,16 +135,31 @@ type connectorStdout struct {
 }
 
 func (r *connectorStdout) Write(p []byte) (int, error) {
-	if len(r.rem) == 0 {
-		r.rem = append([]byte(nil), p...) // Clone.
-	} else {
-		r.rem = append(r.rem, p...)
+	var n = len(p)
+
+	// Consume a remainder of |rem| stiched with |p|.
+	if len(r.rem) != 0 {
+		if ind := bytes.IndexByte(p, '\n') + 1; ind == 0 {
+			r.rem = append(r.rem, p...) // No newline.
+			return n, nil
+		} else {
+			// Copy in |p| through its first newline, and parse.
+			r.parse(append(r.rem, p[:ind]...))
+			p = p[ind:]
+		}
 	}
+	// Consume newline frames of |p|.
+	if ind := bytes.LastIndexByte(p, '\n') + 1; ind != 0 {
+		r.parse(p[:ind])
+		p = p[ind:]
+	}
+	// Preserve any remainder of |p|.
+	r.rem = append(r.rem[:0], p...)
 
-	var ind = bytes.LastIndexByte(r.rem, '\n') + 1
-	var chunk = r.rem[:ind]
-	r.rem = r.rem[ind:]
+	return n, nil
+}
 
+func (r *connectorStdout) parse(chunk []byte) {
 	var dec = json.NewDecoder(bytes.NewReader(chunk))
 	dec.DisallowUnknownFields()
 
@@ -152,13 +167,13 @@ func (r *connectorStdout) Write(p []byte) (int, error) {
 		var rec = r.onNew()
 
 		if err := dec.Decode(rec); err == io.EOF {
-			return len(p), nil
+			return
 		} else if err != nil {
 			r.onError(fmt.Errorf("decoding connector record: %w", err))
-			return len(p), nil
+			return
 		} else if err = r.onDecode(rec); err != nil {
 			r.onError(err)
-			return len(p), nil
+			return
 		}
 	}
 }
