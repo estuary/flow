@@ -5,7 +5,9 @@ expression: result
 ---
 {
     "/bee": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -14,7 +16,9 @@ expression: result
         ],
     },
     "/bee/loc": TypeInfo {
-        possible_types: "string",
+        possible_types: Some(
+            "string",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -26,7 +30,9 @@ expression: result
         ],
     },
     "/bee/rock": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -38,7 +44,9 @@ expression: result
         ],
     },
     "/bee/rock/flower": TypeInfo {
-        possible_types: "boolean",
+        possible_types: Some(
+            "boolean",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -53,7 +61,9 @@ expression: result
         ],
     },
     "/locationa": TypeInfo {
-        possible_types: "integer",
+        possible_types: Some(
+            "integer",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -62,7 +72,9 @@ expression: result
         ],
     },
     "Bee": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -71,7 +83,9 @@ expression: result
         ],
     },
     "BeeLoc": TypeInfo {
-        possible_types: "integer",
+        possible_types: Some(
+            "integer",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -80,7 +94,9 @@ expression: result
         ],
     },
     "BeeRock": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -92,7 +108,9 @@ expression: result
         ],
     },
     "BeeRockFlower": TypeInfo {
-        possible_types: "boolean",
+        possible_types: Some(
+            "boolean",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -107,7 +125,9 @@ expression: result
         ],
     },
     "Locationa": TypeInfo {
-        possible_types: "integer",
+        possible_types: Some(
+            "integer",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -116,7 +136,9 @@ expression: result
         ],
     },
     "bee": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -125,7 +147,9 @@ expression: result
         ],
     },
     "bee/loc": TypeInfo {
-        possible_types: "string",
+        possible_types: Some(
+            "string",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -137,7 +161,9 @@ expression: result
         ],
     },
     "bee/rock": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -149,7 +175,9 @@ expression: result
         ],
     },
     "bee/rock/flower": TypeInfo {
-        possible_types: "boolean",
+        possible_types: Some(
+            "boolean",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -164,7 +192,9 @@ expression: result
         ],
     },
     "beeLoc": TypeInfo {
-        possible_types: "string",
+        possible_types: Some(
+            "string",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -176,7 +206,9 @@ expression: result
         ],
     },
     "beeRock": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -188,7 +220,9 @@ expression: result
         ],
     },
     "beeRockFlower": TypeInfo {
-        possible_types: "boolean",
+        possible_types: Some(
+            "boolean",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -203,7 +237,9 @@ expression: result
         ],
     },
     "bee_loc": TypeInfo {
-        possible_types: "string",
+        possible_types: Some(
+            "string",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -215,7 +251,9 @@ expression: result
         ],
     },
     "bee_rock": TypeInfo {
-        possible_types: "object",
+        possible_types: Some(
+            "object",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -227,7 +265,9 @@ expression: result
         ],
     },
     "bee_rock_flower": TypeInfo {
-        possible_types: "boolean",
+        possible_types: Some(
+            "boolean",
+        ),
         must_exist: false,
         target_location: [
             Property(
@@ -242,7 +282,9 @@ expression: result
         ],
     },
     "fieldA": TypeInfo {
-        possible_types: "integer",
+        possible_types: Some(
+            "integer",
+        ),
         must_exist: true,
         target_location: [
             Property(
@@ -251,7 +293,7 @@ expression: result
         ],
     },
     "fieldB": TypeInfo {
-        possible_types: ,
+        possible_types: None,
         must_exist: false,
         target_location: [
             Property(
@@ -263,7 +305,9 @@ expression: result
         ],
     },
     "locationa": TypeInfo {
-        possible_types: "integer",
+        possible_types: Some(
+            "integer",
+        ),
         must_exist: true,
         target_location: [
             Property(

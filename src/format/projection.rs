@@ -11,9 +11,8 @@ use std::collections::BTreeMap;
 /// Information known about a specific location within a JSON document.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeInfo {
-    /// The possible JSON types for this location. If the types are unknown, this will be
-    /// `types::INVALID`.
-    pub possible_types: types::Set,
+    /// The possible JSON types for this location, if any type information could be inferred.
+    pub possible_types: Option<types::Set>,
     pub must_exist: bool,
     pub target_location: Pointer,
 }
@@ -23,7 +22,7 @@ impl TypeInfo {
         TypeInfo {
             target_location,
             must_exist: exists == Exists::Must,
-            possible_types: shape.type_,
+            possible_types: Some(shape.type_),
         }
     }
 }
@@ -85,7 +84,7 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
             TypeInfo {
                 target_location,
                 must_exist: false,
-                possible_types: types::INVALID,
+                possible_types: None,
             }
         };
         results.insert(field.clone(), projection);

@@ -149,7 +149,7 @@ impl Parser for CsvParser {
             let projection = projections.remove(&name).unwrap_or_else(|| {
                 let location = String::from("/") + name.as_str();
                 TypeInfo {
-                    possible_types: types::INVALID,
+                    possible_types: None,
                     must_exist: false,
                     target_location: Pointer::from_str(&location),
                 }
@@ -234,25 +234,25 @@ struct Header {
 
 impl Header {
     fn parse(&self, value: &str) -> Result<Value, Error> {
-        // If we don't know any actual type information about this field, then always treat it as a
-        // string.
-        if self.projection.possible_types == types::INVALID {
-            return Ok(Value::String(value.to_string()));
-        }
-        for possible_type in PARSE_ORDER {
-            if possible_type
-                .to_set()
-                .overlaps(self.projection.possible_types)
-            {
-                if let Some(parsed) = self.parse_as_type(value, *possible_type) {
-                    return Ok(parsed);
+        if let Some(possible_types) = self.projection.possible_types {
+            // Since we have type information about this field, try to parse it as one of the
+            // allowable types.
+            for possible_type in PARSE_ORDER {
+                if possible_type.to_set().overlaps(possible_types) {
+                    if let Some(parsed) = self.parse_as_type(value, *possible_type) {
+                        return Ok(parsed);
+                    }
                 }
             }
+            Err(Error::InvalidType(
+                value.to_string(),
+                self.projection.clone(),
+            ))
+        } else {
+            // If we don't know any actual type information about this field, then always treat it
+            // as a string.
+            Ok(Value::String(value.to_string()))
         }
-        Err(Error::InvalidType(
-            value.to_string(),
-            self.projection.clone(),
-        ))
     }
 
     fn parse_as_type(&self, value: &str, target_type: TargetType) -> Option<Value> {
