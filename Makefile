@@ -160,7 +160,7 @@ install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd
 
 .PHONY: rust-build
 rust-build:
-	FLOW_VERSION=${VERSION} cargo build --release --locked -p bindings
+	FLOW_VERSION=${VERSION} cargo build --release --locked
 
 .PHONY: rust-test
 rust-test:
