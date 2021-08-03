@@ -87,7 +87,7 @@ func (projection *Projection) IsRootDocumentProjection() bool {
 func (i *Inference) IsSingleType() bool {
 	var nTypes = 0
 	for _, ty := range i.Types {
-		if ty != "null" {
+		if ty != JsonTypeNull {
 			nTypes++
 		}
 	}
@@ -100,8 +100,8 @@ func (i *Inference) IsSingleScalarType() bool {
 	var nTypes = 0
 	for _, ty := range i.Types {
 		switch ty {
-		case "null":
-		case "integer", "number", "boolean", "string":
+		case JsonTypeNull:
+		case JsonTypeInteger, JsonTypeNumber, JsonTypeBoolean, JsonTypeString:
 			isScalar = true
 			nTypes++
 		default:
@@ -110,6 +110,17 @@ func (i *Inference) IsSingleScalarType() bool {
 	}
 	return isScalar && nTypes == 1
 }
+
+// Type_ constants for each type name used in JSON schemas.
+const (
+	JsonTypeNull    = "null"
+	JsonTypeInteger = "integer"
+	JsonTypeNumber  = "number"
+	JsonTypeBoolean = "boolean"
+	JsonTypeString  = "string"
+	JsonTypeObject  = "object"
+	JsonTypeArray   = "array"
+)
 
 // Validate returns an error if the Inference is invalid.
 func (i *Inference) Validate() error {
