@@ -76,11 +76,17 @@ func (m *DerivationSpec) Validate() error {
 	return nil
 }
 
-// IsSingleType returns true if this projection may only hold a single type besides null For
+// IsRootDocumentProjection returns true only if this is a projection of the entire document,
+// meaning that the json pointer is the empty string.
+func (projection *Projection) IsRootDocumentProjection() bool {
+	return len(projection.Ptr) == 0
+}
+
+// IsSingleType returns true if this inference may only hold a single type besides null For
 // example, if the types are ["string", "null"] or just ["string"], then this would return true.
-func (projection *Projection) IsSingleType() bool {
+func (i *Inference) IsSingleType() bool {
 	var nTypes = 0
-	for _, ty := range projection.Inference.Types {
+	for _, ty := range i.Types {
 		if ty != "null" {
 			nTypes++
 		}
@@ -88,18 +94,11 @@ func (projection *Projection) IsSingleType() bool {
 	return nTypes == 1
 }
 
-// IsRootDocumentProjection returns true only if this is a projection of the entire document,
-// meaning that the json pointer is the empty string.
-func (projection *Projection) IsRootDocumentProjection() bool {
-	return len(projection.Ptr) == 0
-}
-
-// IsSingleScalarType returns true if this projection may hold a single scalar type besides null.
-func (projection *Projection) IsSingleScalarType() bool {
-	var types = projection.Inference.Types
+// IsSingleScalarType returns true if this inference may hold a single scalar type besides null.
+func (i *Inference) IsSingleScalarType() bool {
 	var isScalar = false
 	var nTypes = 0
-	for _, ty := range types {
+	for _, ty := range i.Types {
 		switch ty {
 		case "null":
 		case "integer", "number", "boolean", "string":
@@ -113,6 +112,6 @@ func (projection *Projection) IsSingleScalarType() bool {
 }
 
 // Validate returns an error if the Inference is invalid.
-func (m *Inference) Validate() error {
+func (i *Inference) Validate() error {
 	return nil
 }
