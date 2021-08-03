@@ -259,7 +259,8 @@ func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error 
 		} else if *node == nil {
 
 			var nn = new(yaml.Node)
-			nn.Style = yaml.FoldedStyle
+			nn.Style = yaml.FlowStyle // renders values inline with the keys instead of on the next line
+			nn.Kind = yaml.ScalarNode // seems required to get numbers and bools to render correctly
 
 			nn.FootComment =
 				fmt.Sprintf("%s\n%s", loc.Spec.Description, loc.Spec.Types)
@@ -267,7 +268,29 @@ func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error 
 			if loc.Spec.MustExist {
 				nn.FootComment += " (required)"
 			}
-			nn.SetString("")
+			// The explicit tags are necessary for the encoder to know how to render these. They
+			// will not be included in the final output.
+			switch getDefaultType(&loc.Spec) {
+			case pf.JsonTypeString:
+				nn.SetString("")
+			case pf.JsonTypeInteger:
+				nn.Value = "0"
+				nn.Tag = "!!int"
+			case pf.JsonTypeNumber:
+				nn.Value = "0.0"
+				nn.Tag = "!!float"
+			case pf.JsonTypeBoolean:
+				nn.Value = "false"
+				nn.Tag = "!!bool"
+			case pf.JsonTypeObject:
+				nn.Value = "{}"
+				nn.Tag = "!!map"
+			case pf.JsonTypeArray:
+				nn.Value = "[]"
+				nn.Tag = "!!seq"
+			case pf.JsonTypeNull:
+				nn.Tag = "!!null"
+			}
 
 			*node = nn
 		}
@@ -284,6 +307,20 @@ func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error 
 	}
 
 	return nil
+}
+
+// getDefaultType returns the type to use for generating a default value for endpoint configuration.
+// It will always prefer a scalar type if a location allows multiple types.
+func getDefaultType(inference *pf.Inference) string {
+	var fallback string
+	for _, ty := range inference.Types {
+		if ty == pf.JsonTypeString || ty == pf.JsonTypeBoolean || ty == pf.JsonTypeInteger || ty == pf.JsonTypeNumber {
+			return ty
+		} else {
+			fallback = ty
+		}
+	}
+	return fallback
 }
 
 func discoverBindings(ctx context.Context, image string, config json.RawMessage) (*pc.DiscoverResponse, error) {
