@@ -36,7 +36,7 @@ func TestIsSingleScalarType(t *testing.T) {
 			Inference: inference,
 		}
 
-		var result = projection.IsSingleScalarType()
+		var result = projection.Inference.IsSingleScalarType()
 		require.True(t, result, "expected projection to be a single scalar type %v", projection)
 	}
 
@@ -71,7 +71,7 @@ func TestIsSingleScalarType(t *testing.T) {
 			Ptr:       "/foo/bar",
 			Inference: inference,
 		}
-		var result = projection.IsSingleScalarType()
+		var result = projection.Inference.IsSingleScalarType()
 		require.False(t, result, "expected projection to not be a single scalar type: %v", projection)
 	}
 

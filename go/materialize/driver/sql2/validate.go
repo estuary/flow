@@ -61,11 +61,11 @@ func ValidateNewSQLProjections(proposed *pf.CollectionSpec) map[string]*pm.Const
 		case projection.IsRootDocumentProjection():
 			constraint.Type = pm.Constraint_LOCATION_REQUIRED
 			constraint.Reason = "The root document must be materialized"
-		case projection.IsSingleScalarType():
+		case projection.Inference.IsSingleScalarType():
 			constraint.Type = pm.Constraint_LOCATION_RECOMMENDED
 			constraint.Reason = "The projection has a single scalar type"
 
-		case projection.IsSingleType():
+		case projection.Inference.IsSingleType():
 			constraint.Type = pm.Constraint_FIELD_OPTIONAL
 			constraint.Reason = "This field is able to be materialized"
 		default:
