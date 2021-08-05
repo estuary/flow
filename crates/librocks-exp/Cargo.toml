@@ -5,4 +5,4 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-librocksdb-sys = { version = "*", features = ["lz4", "rtti"] }
+librocksdb-sys = { version = "*", default-features = false, features = ["snappy", "rtti"] }

@@ -2,7 +2,7 @@
 
 PROFILE=release
 
-export CGO_LDFLAGS="-L $(pwd)/target/${PROFILE} -L $(pwd)/target/${PROFILE}/librocksdb-exp -lbindings -lrocksdb -lzstd -lstdc++ -ldl -lm"
+export CGO_LDFLAGS="-L $(pwd)/target/${PROFILE} -L $(pwd)/target/${PROFILE}/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm"
 export CGO_CFLAGS="-I $(pwd)/target/${PROFILE}/librocksdb-exp/include"
 export CGO_CPPFLAGS="-I $(pwd)/target/${PROFILE}/librocksdb-exp/include"
 
