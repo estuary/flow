@@ -29,11 +29,7 @@ PATH := ${TOOLBIN}:${RUSTBIN}:${GOBIN}:${PATH}
 
 # Extra apt packages that we require.
 EXTRA_APT_PACKAGES = \
-	libbz2-dev \
-	liblz4-dev \
 	libprotobuf-dev \
-	libsnappy-dev \
-	libzstd-dev \
 	protobuf-compiler
 
 # Etcd release we pin within Flow distributions.
