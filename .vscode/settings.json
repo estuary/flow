@@ -1,7 +1,6 @@
 {
     "files.watcherExclude": {
         "**/.build/**": true,
-        "**/.build-ci/**": true,
         "**/target/**": true
     },
     "yaml.schemas": {

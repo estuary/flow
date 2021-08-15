@@ -1,17 +1,27 @@
-version: "3"
+version: "3.7"
 
 services:
   develop:
     build:
       context: .
-      dockerfile: github-ubuntu-1804.Dockerfile
+      dockerfile: github-ubuntu-2004.Dockerfile
 
     volumes:
-      # Forwards the local Docker socket to the container.
-      - /var/run/docker.sock:/var/run/docker.sock
       - ..:/workspace:cached
-    # Overrides default command so things don't shut down after the process ends.
-    command: sleep infinity
+      # Map the host docker socket into the container.
+      - /var/run/docker.sock:/var/run/docker-host.sock
+      # Map /var/tmp of the host into the container, such that files staged into
+      # /var/tmp are accessible on the host, and from there through started docker
+      # invocations which pass files via bind-mounts.
+      #
+      # TODO(johnny): For reasons I don't understand, doing this with /tmp doesn't
+      # work on Github Codespaces (but works fine in VSCode Remote Containers).
+      - /var/tmp:/var/tmp
+
+    # Use /var/tmp as the default temporary directory, rather than /tmp.
+    environment:
+      TMPDIR: /var/tmp
+
     # Wrap in an init process that reaps defunct child processes.
     init: true
     # Run app on the same network as the database container; allows "forwardPorts" in devcontainer.json function.
