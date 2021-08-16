@@ -947,6 +947,9 @@ pub mod build_api {
         /// Implies generation and compilation.
         #[prost(bool, tag="9")]
         pub typescript_package: bool,
+        /// The Docker network the connectors are given access to during catalog builds.
+        #[prost(string, tag="10")]
+        pub connector_network: ::prost::alloc::string::String,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Fetch {

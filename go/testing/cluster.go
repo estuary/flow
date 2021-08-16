@@ -36,6 +36,7 @@ type ClusterConfig struct {
 	EtcdCatalogPrefix  string
 	EtcdConsumerPrefix string
 	Poll               bool
+	ConnectorNetwork   string
 }
 
 // Cluster is an in-process Flow cluster environment.
@@ -134,6 +135,7 @@ func NewCluster(c ClusterConfig) (*Cluster, error) {
 		appConfig.Flow.CatalogRoot = c.EtcdCatalogPrefix
 		appConfig.DisableClockTicks = c.DisableClockTicks
 		appConfig.Poll = c.Poll
+		appConfig.ConnectorNetwork = c.ConnectorNetwork
 
 		var (
 			spec = &pc.ConsumerSpec{

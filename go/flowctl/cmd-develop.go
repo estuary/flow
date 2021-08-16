@@ -21,6 +21,7 @@ import (
 
 type cmdDevelop struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Poll        bool                  `long:"poll" description:"Process new, ready input from captures, and then exit"`
 	Port        uint16                `long:"port" env:"PORT" default:"8080" description:"Service port for HTTP and gRPC requests"`
 	Shards      int                   `long:"shards" default:"1" description:"Number of shards to create for each catalog task"`
@@ -68,6 +69,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 
 	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(runDir, "catalog.db"),
+		ConnectorNetwork:  cmd.Network,
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		SourceType:        pf.ContentType_CATALOG_SPEC,
@@ -136,7 +138,8 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 			Host:       "localhost",
 			Port:       cmd.Port,
 		},
-		Poll: cmd.Poll,
+		Poll:             cmd.Poll,
+		ConnectorNetwork: cmd.Network,
 	}
 	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
 
