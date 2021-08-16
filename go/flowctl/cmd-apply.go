@@ -34,6 +34,7 @@ type cmdApply struct {
 	Additive    bool                  `long:"additive" description:"Add and update catalog tasks, but don't remove existing tasks not in this applied catalog"`
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	DryRun      bool                  `long:"dry-run" description:"Dry run, don't actually apply"`
+	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Flow        runtime.FlowConfig    `group:"Flow" namespace:"flow" env-namespace:"FLOW"`
 	Etcd        mbp.EtcdConfig        `group:"Etcd" namespace:"etcd" env-namespace:"ETCD"`
@@ -61,6 +62,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(cmd.Directory, "catalog.db"),
+		ConnectorNetwork:  cmd.Network,
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		SourceType:        pf.ContentType_CATALOG_SPEC,

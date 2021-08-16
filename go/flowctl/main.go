@@ -59,7 +59,7 @@ and auto-completions.
 serve a Flow consumer with the provided configuration, until signaled to
 exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
 its responsible shards and will exit only when it can safely do so.
-`, new(runtime.FlowConsumerConfig))
+`, &runtime.FlowConsumerConfig{ConnectorNetwork: ""})
 
 	addCmd(serve, "ingester", "Serve the Flow ingester", `
 Serve a Flow ingester with the provided configuration, until signaled to
