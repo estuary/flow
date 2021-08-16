@@ -36,6 +36,11 @@ type FlowConsumerConfig struct {
 	DisableClockTicks bool
 	// Poll is exposed for a non-blocking local develop / test workflow.
 	Poll bool
+	// PermissiveConnectorNetworking controls the network access of launched
+	// connectors. When `true`, connectors will be permitted to access the host
+	// network. This is useful for local develop / test workflows where
+	// connector sources/sinks may be running on localhost.
+	PermissiveConnectorNetworking bool
 }
 
 // Execute delegates to runconsumer.Cmd.Execute.

@@ -30,6 +30,12 @@ type cmdDiscover struct {
 	Prefix      string                `long:"prefix" default:"acmeCo" description:"Prefix of generated catalog entities. For example, an organization or company name."`
 }
 
+// We currently run all discovery from a developer's local machine, not from
+// inside the cluster. This is a temporary state of affairs, as we'll need to
+// support discovery of resources that are not accessible from a developer's
+// machine. Once that happens, we won't be able to hardcode this to `true` here.
+const permissiveConnectorNetworking = true
+
 func (cmd cmdDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
@@ -208,7 +214,7 @@ func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error 
 		return fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "")
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "", permissiveConnectorNetworking)
 	if err != nil {
 		return fmt.Errorf("building client: %w", err)
 	}
@@ -332,7 +338,7 @@ func discoverBindings(ctx context.Context, image string, config json.RawMessage)
 		return nil, fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "")
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "", permissiveConnectorNetworking)
 	if err != nil {
 		return nil, fmt.Errorf("building client: %w", err)
 	}

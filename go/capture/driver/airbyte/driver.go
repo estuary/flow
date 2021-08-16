@@ -57,12 +57,16 @@ func (c ResourceSpec) Validate() error {
 }
 
 // driver implements the pm.DriverServer interface.
-type driver struct{}
+type driver struct {
+	PermissiveConnectorNetworking bool
+}
 
 // NewDriver returns a new JSON docker image driver.
-func NewDriver() pc.DriverServer { return driver{} }
+func NewDriver(PermissiveConnectorNetworking bool) pc.DriverServer {
+	return driver{PermissiveConnectorNetworking: PermissiveConnectorNetworking}
+}
 
-func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, error) {
+func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
@@ -71,7 +75,7 @@ func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, 
 	}
 
 	var spec *airbyte.Spec
-	var err = RunConnector(ctx, source.Image,
+	var err = RunConnector(ctx, source.Image, d.PermissiveConnectorNetworking,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
@@ -107,7 +111,7 @@ func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, 
 	}, nil
 }
 
-func (driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
+func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
@@ -116,7 +120,7 @@ func (driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Discov
 	}
 
 	var catalog *airbyte.Catalog
-	var err = RunConnector(ctx, source.Image,
+	var err = RunConnector(ctx, source.Image, d.PermissiveConnectorNetworking,
 		[]string{
 			"discover",
 			"--config",
@@ -189,7 +193,7 @@ func (driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Discov
 	return resp, nil
 }
 
-func (driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.ValidateResponse, error) {
+func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.ValidateResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
@@ -198,7 +202,7 @@ func (driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Valida
 	}
 
 	var status *airbyte.ConnectionStatus
-	var err = RunConnector(ctx, source.Image,
+	var err = RunConnector(ctx, source.Image, d.PermissiveConnectorNetworking,
 		[]string{
 			"check",
 			"--config",
@@ -250,7 +254,7 @@ func (driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Valida
 	return resp, nil
 }
 
-func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) error {
+func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) error {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
 		return fmt.Errorf("validating request: %w", err)
@@ -331,7 +335,7 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 	var resp *pc.CaptureResponse
 
 	// Invoke the connector for reading.
-	if err := RunConnector(stream.Context(), source.Image,
+	if err := RunConnector(stream.Context(), source.Image, d.PermissiveConnectorNetworking,
 		invokeArgs,
 		invokeFiles,
 		// No stdin is sent to the connector.

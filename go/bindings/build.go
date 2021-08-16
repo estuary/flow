@@ -40,6 +40,7 @@ type CaptureDriverFn func(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	tempdir string,
+	permissiveConnectorNetworking bool,
 ) (pc.DriverClient, error)
 
 // MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
@@ -63,6 +64,13 @@ type BuildArgs struct {
 	// Builder of materialization DriverClients
 	MaterializeDriverFn MaterializeDriverFn
 }
+
+// We currently run all validations of a catalog spec from a developer's local
+// machine, not from inside the cluster. This is a temporary state of affairs,
+// as we'll need to support validation of resources that are not accessible from
+// a developer's machine. Once that happens, we won't be able to hardcode this
+// to `true` here.
+const permissiveConnectorNetworking = true
 
 // BuildCatalogNew runs the configured build.
 func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
@@ -122,7 +130,7 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 				log.WithField("request", request).Debug("capture validation requested")
 
 				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					json.RawMessage(request.EndpointSpecJson), "")
+					json.RawMessage(request.EndpointSpecJson), "", permissiveConnectorNetworking)
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}

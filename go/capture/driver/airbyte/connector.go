@@ -35,6 +35,7 @@ import (
 func RunConnector(
 	ctx context.Context,
 	image string,
+	permissiveConnectorNetworking bool,
 	args []string,
 	jsonFiles map[string]interface{},
 	writeLoop func(io.Writer) error,
@@ -53,6 +54,12 @@ func RunConnector(
 		"run",
 		"--rm",
 	}
+
+	if permissiveConnectorNetworking {
+		imageArgs = append(imageArgs, "--network=host")
+		log.Infof("Granting host network access to %s container", image)
+	}
+
 	for name, m := range jsonFiles {
 
 		// Staging location for file mounted into the container.

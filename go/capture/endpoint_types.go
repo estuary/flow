@@ -18,11 +18,12 @@ func NewDriver(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	tempdir string,
+	PermissiveConnectorNetworking bool,
 ) (pc.DriverClient, error) {
 
 	switch endpointType {
 	case pf.EndpointType_AIRBYTE_SOURCE:
-		return AdaptServerToClient(airbyte.NewDriver()), nil
+		return AdaptServerToClient(airbyte.NewDriver(PermissiveConnectorNetworking)), nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
 			Address protocol.Endpoint
