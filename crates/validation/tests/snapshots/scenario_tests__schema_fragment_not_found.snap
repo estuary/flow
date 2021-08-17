@@ -1,6 +1,7 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
@@ -14,6 +15,10 @@ expression: errors
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
         error: location /int is unknown in schema test://example/int-string.schema#/not/found,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: collection testing/int-string schema must be an object,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/Int,

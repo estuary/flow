@@ -1,6 +1,7 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
@@ -14,6 +15,10 @@ expression: errors
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
         error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: collection testing/int-halve schema must be an object,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/projections/Len,
