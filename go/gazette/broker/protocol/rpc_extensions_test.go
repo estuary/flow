@@ -24,13 +24,13 @@ func (s *RPCSuite) TestReadRequestValidation(c *gc.C) {
 	req.Journal = "good"
 	c.Check(req.Validate(), gc.ErrorMatches, `invalid Offset \(-2; expected -1 <= Offset <= MaxInt64\)`)
 	req.Offset = -1
-	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(-1; expected 0 <= EndOffset <= Offset\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(-1; expected 0 or Offset <= EndOffset\)`)
 	req.EndOffset = 100
 
 	c.Check(req.Validate(), gc.IsNil)
 
 	req.Offset = 101
-	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(100; expected 0 <= EndOffset <= Offset\)`)
+	c.Check(req.Validate(), gc.ErrorMatches, `invalid EndOffset \(100; expected 0 or Offset <= EndOffset\)`)
 
 	req.EndOffset = 101
 	c.Check(req.Validate(), gc.IsNil)

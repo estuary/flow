@@ -32,8 +32,11 @@ func (s *SpecSuite) TestShardValidationCases(c *gc.C) {
 
 func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 	var spec = ShardSpec{
-		Id:                "bad id",
-		Sources:           nil,
+		Id: "bad id",
+		Sources: []ShardSpec_Source{
+			{Journal: "journal 2"},
+			{Journal: "journal/1", MinOffset: -1},
+		},
 		RecoveryLogPrefix: "bad prefix",
 		HintPrefix:        "not empty",
 		HintBackups:       -1,
@@ -44,11 +47,6 @@ func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 
 	c.Check(spec.Validate(), gc.ErrorMatches, `Id: not a valid token \(bad id\)`)
 	spec.Id = "a-shard-id"
-	c.Check(spec.Validate(), gc.ErrorMatches, `Sources cannot be empty`)
-	spec.Sources = []ShardSpec_Source{
-		{Journal: "journal 2"},
-		{Journal: "journal/1", MinOffset: -1},
-	}
 	c.Check(spec.Validate(), gc.ErrorMatches, `RecoveryLogPrefix: not a valid token \(bad prefix/a-shard-id\)`)
 	spec.RecoveryLogPrefix = ""
 	c.Check(spec.Validate(), gc.ErrorMatches, `invalid non-empty HintPrefix with empty RecoveryLogPrefix \(not empty\)`)

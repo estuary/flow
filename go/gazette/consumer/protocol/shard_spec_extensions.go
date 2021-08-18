@@ -39,8 +39,6 @@ func (id ShardID) String() string { return string(id) }
 func (m *ShardSpec) Validate() error {
 	if err := m.Id.Validate(); err != nil {
 		return pb.ExtendContext(err, "Id")
-	} else if len(m.Sources) == 0 {
-		return pb.NewValidationError("Sources cannot be empty")
 	} else if m.RecoveryLogPrefix != "" && m.RecoveryLog().Validate() != nil {
 		return pb.ExtendContext(m.RecoveryLog().Validate(), "RecoveryLogPrefix")
 	} else if m.RecoveryLogPrefix == "" && m.HintPrefix != "" {

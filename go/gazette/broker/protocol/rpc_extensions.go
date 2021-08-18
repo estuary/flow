@@ -34,7 +34,7 @@ func (m *ReadRequest) Validate() error {
 	} else if m.Offset < -1 {
 		return NewValidationError("invalid Offset (%d; expected -1 <= Offset <= MaxInt64)", m.Offset)
 	} else if m.EndOffset < 0 || m.EndOffset != 0 && m.EndOffset < m.Offset {
-		return NewValidationError("invalid EndOffset (%d; expected 0 <= EndOffset <= Offset)", m.EndOffset)
+		return NewValidationError("invalid EndOffset (%d; expected 0 or Offset <= EndOffset)", m.EndOffset)
 	}
 
 	// Block, DoNotProxy, and MetadataOnly (each type bool) require no extra validation.
