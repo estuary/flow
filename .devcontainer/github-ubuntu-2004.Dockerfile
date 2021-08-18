@@ -82,8 +82,9 @@ RUN rustup set profile default \
  && rustup component add clippy rustfmt rust-docs
 
 ## Install Go.
-ARG GOLANG_VERSION=1.16.7
-ARG GOLANG_SHA256=7fe7a73f55ba3e2285da36f8b085e5c0159e9564ef5f63ee0ed6b818ade8ef04
+## TODO(johnny): Downgrade from 1.16.7 => 1.16.6 (#191)
+ARG GOLANG_VERSION=1.16.6
+ARG GOLANG_SHA256=be333ef18b3016e9d7cb7b1ff1fdb0cac800ca0be4cf2290fe613b3d069dfe0d
 ENV PATH=/usr/local/go/bin:$PATH
 
 RUN curl -L -o /tmp/golang.tgz \
