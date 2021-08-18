@@ -52,7 +52,7 @@
 	// Run extra environment setup required to build & test Flow.
 	// We're using a base image which is compatible with our CI runner,
 	// and thus use the same make target.
-	"postCreateCommand": "make extra-ci-runner-setup && go mod download",
+	"postCreateCommand": "make extra-ci-runner-setup && make package",
 	// This user matches the user that's created inside the flow image
 	"remoteUser": "flow",
 	"overrideCommand": false

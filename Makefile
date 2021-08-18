@@ -75,8 +75,11 @@ GO_BUILD_DEPS = \
 # Build rules:
 
 # `protoc-gen-gogo` is used to compile Go protobufs.
+# We use the go module system to pull down, locate, and include additional
+# protobuf sources during the build. For example, Flow protobufs include
+# Gazette protobufs, which are located via the `go mod` tool.
 ${TOOLBIN}/protoc-gen-gogo:
-	./go.sh mod download github.com/golang/protobuf
+	./go.sh mod download
 	./go.sh build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
 
 # `etcd` is used for testing, and packaged as a release artifact.
