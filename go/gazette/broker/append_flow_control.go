@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -51,18 +52,24 @@ type appendFlowControl struct {
 }
 
 // start a flow control session over a single Append RPC stream.
-func (fc *appendFlowControl) start(res *resolution, recv func() (*pb.AppendRequest, error)) func() (*pb.AppendRequest, error) {
+func (fc *appendFlowControl) start(ctx context.Context, res *resolution,
+	recv func() (*pb.AppendRequest, error)) func() (*pb.AppendRequest, error) {
+
 	fc.reset(res, timeNow().UnixNano()/1e6)
 	fc.ticker = time.NewTicker(flowControlQuantum)
 
 	// Pump calls to |recv| in a goroutine, as they may block indefinitely.
-	// We expect that |recv| is tied to a Context which will be cancelled
-	// upon the returned closure returning an error, so these don't actually
-	// hang around indefinitely.
+	// We expect that |recv| is tied to |ctx|, which is in turn cancelled upon
+	// the return of the Append RPC handler, so these don't leak.
 	go func(ch chan<- appendChunk) {
 		for {
 			var req, err = recv()
-			ch <- appendChunk{req: req, err: err}
+			select {
+			case ch <- appendChunk{req: req, err: err}:
+				// Pass.
+			case <-ctx.Done():
+				return
+			}
 			if err != nil {
 				return
 			}

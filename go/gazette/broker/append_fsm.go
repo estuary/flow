@@ -68,7 +68,7 @@ func (b *appendFSM) run(recv func() (*pb.AppendRequest, error)) {
 	}
 
 	var fc = &b.resolved.replica.appendFlowControl
-	recv = fc.start(b.resolved, recv)
+	recv = fc.start(b.ctx, b.resolved, recv)
 
 	// Consume chunks from the client.
 	for b.state == stateStreamContent {
