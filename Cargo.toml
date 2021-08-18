@@ -2,11 +2,6 @@
 resolver = "2"
 members = [ "crates/*"]
 
-[profile.dev]
-# Disabling debug info speeds up builds a bunch,
-# and we don't rely on it for debugging that much.
-debug = 0
-
 [profile.release]
 incremental = true
 debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
