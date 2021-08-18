@@ -1,4 +1,5 @@
 use super::{ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
+use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
     json_cmp,
@@ -6,7 +7,6 @@ use json::{
     LocatedProperty, Location,
 };
 use lazy_static::lazy_static;
-use regex::Regex;
 use serde_json::Value;
 use url::Url;
 
@@ -352,7 +352,7 @@ impl ObjShape {
             .into_iter()
             .map(|mut prop| {
                 for pattern in patterns.iter() {
-                    if !pattern.re.is_match(&prop.name) {
+                    if !regex_matches(&pattern.re, &prop.name) {
                         continue;
                     }
                     prop.shape = Shape::intersect(prop.shape, pattern.shape.clone());
@@ -375,7 +375,7 @@ impl ObjShape {
     ) -> Option<Shape> {
         // Compute the intersection of all matching property patterns.
         let pattern = patterns.iter().fold(None, |prior, pattern| {
-            if !pattern.re.is_match(property) {
+            if !regex_matches(&pattern.re, property) {
                 prior
             } else if let Some(prior) = prior {
                 Some(Shape::intersect(prior, pattern.shape.clone()))
@@ -1088,7 +1088,7 @@ impl Shape {
                     .object
                     .patterns
                     .iter()
-                    .find(|p| p.re.is_match(property))
+                    .find(|p| regex_matches(&p.re, property))
                 {
                     Some((&pattern.shape, Exists::May))
                 } else if let Some(addl) = &self.object.additional {
@@ -1280,7 +1280,8 @@ impl Shape {
             .chain(patterns)
             .chain(addl_props)
         {
-            if matches!(loc, Location::Property(prop) if ARRAY_PROPERTY.is_match(prop.name)) {
+            if matches!(loc, Location::Property(prop) if regex_matches(&*ARRAY_PROPERTY, prop.name))
+            {
                 out.push(Error::DigitInvalidProperty(loc.pointer_str().to_string()));
             }
 
@@ -1295,6 +1296,19 @@ impl Shape {
             child.inspect_inner(loc, must_exist && child_must_exist, out);
         }
     }
+}
+
+/// Returns true if the text is a match for the given regex. This function exists primarily so we
+/// have a common place to put logging, since there's a weird edge case where `is_match` returns an
+/// `Err`. This can happen if a regex uses backtracking and overflows the `backtracking_limit` when
+/// matching. We _could_ return an error when that happens, but it's not clear what the caller
+/// would do with such an error besides consider the document invalid. The logging might be
+/// important, though, since some jerk could potentially use this in a DDOS attack.
+fn regex_matches(re: &fancy_regex::Regex, text: &str) -> bool {
+    re.is_match(text).unwrap_or_else(|err| {
+        tracing::warn!("error testing for regex match during inference: {}", err);
+        false
+    })
 }
 
 #[cfg(test)]
@@ -1565,7 +1579,7 @@ mod test {
                         },
                     ],
                     patterns: vec![ObjPattern {
-                        re: regex::Regex::new("fo.+").unwrap(),
+                        re: fancy_regex::Regex::new("fo.+").unwrap(),
                         shape: enum_fixture(json!(["b"])),
                     }],
                     additional: None,
@@ -1888,7 +1902,7 @@ mod test {
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
                     patterns: vec![ObjPattern {
-                        re: regex::Regex::new("bar").unwrap(),
+                        re: fancy_regex::Regex::new("bar").unwrap(),
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional: Some(Box::new(enum_fixture(json!([1, 2])))),
