@@ -911,6 +911,23 @@ test://example/int-string:
     );
 }
 
+#[test]
+fn test_collection_schema_string() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  import:
+    - test://example/string-schema
+test://example/string-schema:
+  collections:
+    testing/string-schema:
+      schema: {type: string}
+      key: ['']
+"#,
+    );
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {

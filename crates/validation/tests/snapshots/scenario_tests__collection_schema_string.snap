@@ -1,0 +1,11 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+
+---
+[
+    Error {
+        scope: test://example/string-schema#/collections/testing~1string-schema,
+        error: collection testing/string-schema schema must be an object,
+    },
+]
