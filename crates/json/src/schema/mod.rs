@@ -118,7 +118,7 @@ pub enum Application {
         name_interned: intern::Set,
     },
     PatternProperties {
-        re: regex::Regex,
+        re: fancy_regex::Regex,
     },
     AdditionalProperties,
     UnevaluatedProperties,
@@ -231,7 +231,7 @@ pub enum Validation {
     // String-specific validations.
     MaxLength(usize),
     MinLength(usize),
-    Pattern(regex::Regex),
+    Pattern(fancy_regex::Regex),
     // Format(String),
 
     // Number-specific validations.
