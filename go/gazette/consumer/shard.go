@@ -221,7 +221,11 @@ func servePrimary(s *shard) (err error) {
 		return errors.WithMessage(err, "completeRecovery")
 	}
 	// Spawn loops to read decoded messages.
-	startReadingMessages(s, cp, msgCh)
+	if mp, ok := s.svc.App.(MessageProducer); ok {
+		mp.StartReadingMessages(s, s.store, cp, msgCh)
+	} else {
+		startReadingMessages(s, cp, msgCh)
+	}
 	updateStatusWithRetry(s, pc.ReplicaStatus{Code: pc.ReplicaStatus_PRIMARY})
 
 	// If the shard store records to a log, arrange to periodically write FSMHints.

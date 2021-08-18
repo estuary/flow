@@ -260,6 +260,21 @@ type BeginFinisher interface {
 	FinishedTxn(Shard, Store, OpFuture)
 }
 
+// MessageProducer is an optional interface of Application which controls the
+// means by which messages to process are identified and produced into the
+// provided channel, for processing by consumer transactions.
+type MessageProducer interface {
+	// StartReadingMessages identifies journals and messages to be processed
+	// by this consumer Shard, and dispatches them to the provided channel.
+	StartReadingMessages(Shard, Store, pc.Checkpoint, chan<- EnvelopeOrError)
+	// ReplayRange builds and returns a read-uncommitted Iterator over the
+	// identified byte-range of the journal. The Journal and offset range are
+	// guaranteed to be a journal segment which was previously produced via
+	// StartReadingMessages. The returned Iterator must re-produce the exact
+	// set and ordering of Messages from the identified Journal.
+	ReplayRange(_ Shard, _ Store, journal pb.Journal, begin, end pb.Offset) message.Iterator
+}
+
 var (
 	shardUpDesc = prometheus.NewDesc(
 		"gazette_shard_up",

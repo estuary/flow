@@ -19,6 +19,12 @@ type Iterator interface {
 	Next() (Envelope, error)
 }
 
+// IteratorFunc adapts a function to an Iterator.
+type IteratorFunc func() (Envelope, error)
+
+// Next invokes the IteratorFunc and returns its result.
+func (ifn IteratorFunc) Next() (Envelope, error) { return ifn() }
+
 // NewReadUncommittedIter returns a ReadUncommittedIter over message Envelopes
 // read from the RetryReader. The reader's journal must have an appropriate
 // labels.ContentType label, which is used to determine the message Framing.

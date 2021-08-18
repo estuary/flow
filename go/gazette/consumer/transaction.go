@@ -65,15 +65,15 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 
 // transaction models a single consumer shard transaction.
 type transaction struct {
-	minDur, maxDur time.Duration      // Min/max processing durations. Set to -1 when elapsed.
-	waitForAck     bool               // Wait for ACKs of pending messages read this txn?
-	barrierCh      <-chan struct{}    // Next barrier of previous transaction to resolve.
+	minDur, maxDur time.Duration          // Min/max processing durations. Set to -1 when elapsed.
+	waitForAck     bool                   // Wait for ACKs of pending messages read this txn?
+	barrierCh      <-chan struct{}        // Next barrier of previous transaction to resolve.
 	readCh         <-chan EnvelopeOrError // Message source. Nil'd upon reaching |maxDur|.
-	readThrough    pb.Offsets         // Offsets read through this transaction.
-	consumedCount  int                // Number of acknowledged Messages consumed.
-	consumedBytes  int64              // Number of acknowledged Message bytes consumed.
-	commitBarrier  OpFuture           // Barrier at which this transaction commits.
-	acks           OpFutures          // ACKs of published messages, queued on |commitBarrier|.
+	readThrough    pb.Offsets             // Offsets read through this transaction.
+	consumedCount  int                    // Number of acknowledged Messages consumed.
+	consumedBytes  int64                  // Number of acknowledged Message bytes consumed.
+	commitBarrier  OpFuture               // Barrier at which this transaction commits.
+	acks           OpFutures              // ACKs of published messages, queued on |commitBarrier|.
 
 	timer             txnTimer
 	prevPrepareDoneAt time.Time // Time at which previous transaction finished preparing.
@@ -192,14 +192,21 @@ func txnRead(s *shard, txn *transaction, env EnvelopeOrError) error {
 
 		case message.ErrMustStartReplay:
 			var from, to = s.sequencer.ReplayRange()
-			var rr = client.NewRetryReader(s.ctx, s.ajc, pb.ReadRequest{
-				Journal:    env.Journal.Name,
-				Offset:     from,
-				EndOffset:  to,
-				Block:      true,
-				DoNotProxy: !s.ajc.IsNoopRouter(),
-			})
-			s.sequencer.StartReplay(message.NewReadUncommittedIter(rr, s.svc.App.NewMessage))
+			var it message.Iterator
+
+			if mp, ok := s.svc.App.(MessageProducer); ok {
+				it = mp.ReplayRange(s, s.store, env.Journal.Name, from, to)
+			} else {
+				var rr = client.NewRetryReader(s.ctx, s.ajc, pb.ReadRequest{
+					Journal:    env.Journal.Name,
+					Offset:     from,
+					EndOffset:  to,
+					Block:      true,
+					DoNotProxy: !s.ajc.IsNoopRouter(),
+				})
+				it = message.NewReadUncommittedIter(rr, s.svc.App.NewMessage)
+			}
+			s.sequencer.StartReplay(it)
 
 		default:
 			return errors.WithMessage(err, "dequeCommitted")

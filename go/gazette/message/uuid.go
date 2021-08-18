@@ -90,10 +90,10 @@ func (c *Clock) Tick() Clock {
 
 // GetClock returns the clock timestamp and sequence as a Clock.
 func GetClock(uuid UUID) Clock {
-	var t = uint64(binary.BigEndian.Uint32(uuid[0:4])) << 4    // Clock low bits.
-	t |= uint64(binary.BigEndian.Uint16(uuid[4:6])) << 36      // Clock middle bits.
-	t |= uint64(binary.BigEndian.Uint16(uuid[6:8])) << 52      // Clock high bits.
-	t |= uint64(binary.BigEndian.Uint16(uuid[8:10])>>10) & 0xf // Clock sequence.
+	var t = uint64(binary.BigEndian.Uint32(uuid[0:4])) << 4 // Clock low bits.
+	t |= uint64(binary.BigEndian.Uint16(uuid[4:6])) << 36   // Clock middle bits.
+	t |= uint64(binary.BigEndian.Uint16(uuid[6:8])) << 52   // Clock high bits.
+	t |= uint64(uuid[8]>>2) & 0xf                           // Clock sequence.
 	return Clock(t)
 }
 
