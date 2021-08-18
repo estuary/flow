@@ -68,6 +68,13 @@ fn walk_collection(
     let schema = schema_shapes.iter().find(|s| s.schema == *schema).unwrap();
     let _ = schema::walk_composite_key(scope, key, schema, errors);
 
+    if schema.shape.type_ != types::OBJECT {
+        Error::CollectionSchemaNotObject {
+            collection: name.to_string(),
+        }
+        .push(scope, errors);
+    }
+
     let projections = walk_collection_projections(
         collection,
         projections,
