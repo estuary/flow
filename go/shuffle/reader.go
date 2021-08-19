@@ -107,6 +107,8 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 
 			if env, err = r.next(); err == nil {
 				return env, err
+			} else if ctx.Err() != nil {
+				return message.Envelope{}, ctx.Err()
 			} else if r.resp.TerminalError != "" {
 				return message.Envelope{}, fmt.Errorf(r.resp.TerminalError)
 			} else if err == io.EOF {
