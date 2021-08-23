@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 # Pick run-time library packages which match the development packages
 # used by the ci-builder image. "curl" is included, to allow node-zone.sh

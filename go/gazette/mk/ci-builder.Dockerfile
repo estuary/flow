@@ -1,11 +1,8 @@
-# 18.04 (bionic) is latest Ubuntu LTS release. We require some of its updated
-# packages (notably libzstd) over Debian stretch.
-#
 # Note that this image will be cached in Github Actions, and the cache key is computed by hashing
 # this file. This works only so long as there are no _other_ files that go into the final image.
-# So if you add any ADD or COPY directives, be sure to update the cache key in the github actions 
+# So if you add any ADD or COPY directives, be sure to update the cache key in the github actions
 # workflow yaml
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 RUN apt-get update -y \
  && apt-get upgrade -y \
@@ -26,14 +23,14 @@ RUN apt-get update -y \
       zip \
  && rm -rf /var/lib/apt/lists/*
 
-ARG GOLANG_VERSION=1.14.2
-ARG GOLANG_SHA256=6272d6e940ecb71ea5636ddb5fab3933e087c1356173c61f4a803895e947ebb3
+ARG GOLANG_VERSION=1.16.6
+ARG GOLANG_SHA256=be333ef18b3016e9d7cb7b1ff1fdb0cac800ca0be4cf2290fe613b3d069dfe0d
 
 ARG DOCKER_VERSION=19.03.8
 ARG DOCKER_SHA256=7f4115dc6a3c19c917f8b9664d7b51c904def1c984e082c4600097433323cf6f
 
-ARG ETCD_VERSION=v3.4.7
-ARG ETCD_SHA256=4ad86e663b63feb4855e1f3a647e719d6d79cf6306410c52b7f280fa56f8eb6b
+ARG ETCD_VERSION=v3.5.0
+ARG ETCD_SHA256=864baa0437f8368e0713d44b83afe21dce1fb4ee7dae4ca0f9dd5f0df22d01c4
 
 ENV PATH=/usr/local/go/bin:$PATH
 
