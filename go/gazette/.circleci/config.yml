@@ -1,6 +1,5 @@
 version: 2
 jobs:
-
   build:
     docker:
       - image: gazette/ci-builder:20200421
@@ -10,7 +9,7 @@ jobs:
       GOPATH: /root/project/.build/go-path
       # RocksDB version to build. Keep in sync with mk/config.mk
       # Also be sure to update the save_cache step below.
-      ROCKSDB_VERSION: 6.7.3
+      ROCKSDB_VERSION: 6.22.1
       # `nproc` on CircleCI docker runners returns the number of host cores,
       # not provisioned cores (eg, 36 cores when only 2 are available).
       NPROC: 2
@@ -22,17 +21,17 @@ jobs:
       - restore_cache:
           # We can't use a variable here :( Must be hard-coded.
           # https://discuss.circleci.com/t/cannot-use-circle-yml-environment-variables-in-cache-keys/10994
-          key: rocksdb-v1-v6.7.3
+          key: rocksdb-v1-v6.22.1
       - run:
           name: Build RocksDB
           command: make $(pwd)/.build/rocksdb-v${ROCKSDB_VERSION}/librocksdb.so
       - save_cache:
           name: Cache RocksDB
-          key: rocksdb-v1-v6.7.3
+          key: rocksdb-v1-v6.22.1
           paths:
             # We *also* can't use a variable here (seriously?!).
             # https://discuss.circleci.com/t/can-i-use-variables-in-cache-paths/11393
-            - .build/rocksdb-v6.7.3/
+            - .build/rocksdb-v6.22.1/
       - restore_cache:
           keys:
             - go-mod-v1-{{ checksum "go.sum" }}
