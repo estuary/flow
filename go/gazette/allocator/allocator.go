@@ -345,9 +345,7 @@ func (b *batchedTxn) Commit() (*clientv3.TxnResponse, error) {
 	} else if !response.Succeeded {
 		return response, fmt.Errorf("transaction checks did not succeed")
 	} else {
-		if len(b.ops) > 0 {
-			b.noop = false
-		}
+		b.noop = false
 		b.cmps, b.ops = b.cmps[:0], b.ops[:0]
 		return response, nil
 	}
