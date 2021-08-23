@@ -5,8 +5,8 @@ import (
 	"math"
 	"testing"
 
-	gc "github.com/go-check/check"
 	"go.gazette.dev/core/etcdtest"
+	gc "gopkg.in/check.v1"
 )
 
 type AllocStateSuite struct{}

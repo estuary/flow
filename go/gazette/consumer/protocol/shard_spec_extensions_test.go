@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/labels"
+	gc "gopkg.in/check.v1"
 )
 
 type SpecSuite struct{}

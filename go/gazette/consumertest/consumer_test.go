@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -16,6 +15,7 @@ import (
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
+	gc "gopkg.in/check.v1"
 )
 
 type ConsumerSuite struct{}

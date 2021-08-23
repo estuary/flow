@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"testing"
 
-	gc "github.com/go-check/check"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
+	gc "gopkg.in/check.v1"
 )
 
 func BenchmarkAll(b *testing.B) {

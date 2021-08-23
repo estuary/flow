@@ -3,7 +3,7 @@ package protocol
 import (
 	"time"
 
-	gc "github.com/go-check/check"
+	gc "gopkg.in/check.v1"
 )
 
 // RPCSuite tests RPC Request & Response validation cases by building instances

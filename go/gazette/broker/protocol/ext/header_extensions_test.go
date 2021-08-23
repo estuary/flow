@@ -1,11 +1,11 @@
 package ext
 
 import (
-	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/keyspace"
+	gc "gopkg.in/check.v1"
 )
 
 type HeaderSuite struct{}

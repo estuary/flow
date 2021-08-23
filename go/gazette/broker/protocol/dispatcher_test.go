@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	gc "github.com/go-check/check"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
+	gc "gopkg.in/check.v1"
 )
 
 type DispatcherSuite struct{}

@@ -3,9 +3,9 @@ package allocator
 import (
 	"context"
 
-	gc "github.com/go-check/check"
 	pr "go.gazette.dev/core/allocator/push_relabel"
 	"go.gazette.dev/core/etcdtest"
+	gc "gopkg.in/check.v1"
 )
 
 type FlowNetworkSuite struct{}

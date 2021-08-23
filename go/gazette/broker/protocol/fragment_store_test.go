@@ -3,7 +3,7 @@ package protocol
 import (
 	"net/url"
 
-	gc "github.com/go-check/check"
+	gc "gopkg.in/check.v1"
 )
 
 type FragmentStoreSuite struct{}

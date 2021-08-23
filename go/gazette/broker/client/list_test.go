@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	gc "github.com/go-check/check"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
+	gc "gopkg.in/check.v1"
 )
 
 type ListSuite struct{}

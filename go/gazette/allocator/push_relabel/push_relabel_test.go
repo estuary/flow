@@ -3,7 +3,7 @@ package push_relabel
 import (
 	"testing"
 
-	gc "github.com/go-check/check"
+	gc "gopkg.in/check.v1"
 )
 
 type PushRelabelSuite struct{}

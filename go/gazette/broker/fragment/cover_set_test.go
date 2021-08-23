@@ -3,8 +3,8 @@ package fragment
 import (
 	"testing"
 
-	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/protocol"
+	gc "gopkg.in/check.v1"
 )
 
 type CoverSetSuite struct{}

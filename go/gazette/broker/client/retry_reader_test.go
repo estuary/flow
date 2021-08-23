@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing/iotest"
 
-	gc "github.com/go-check/check"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
+	gc "gopkg.in/check.v1"
 )
 
 type RetrySuite struct{}

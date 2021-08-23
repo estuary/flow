@@ -3,7 +3,7 @@ package recoverylog
 import (
 	"strconv"
 
-	gc "github.com/go-check/check"
+	gc "gopkg.in/check.v1"
 )
 
 type FSMSuite struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	gc "github.com/go-check/check"
+	gc "gopkg.in/check.v1"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
 )

@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	gc "github.com/go-check/check"
 	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/message"
+	gc "gopkg.in/check.v1"
 )
 
 type PlaybackSuite struct{}

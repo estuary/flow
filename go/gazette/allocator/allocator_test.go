@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	gc "github.com/go-check/check"
 	epb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/etcdtest"
+	gc "gopkg.in/check.v1"
 )
 
 type AllocatorSuite struct{}

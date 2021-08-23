@@ -3,10 +3,10 @@ package allocator
 import (
 	"context"
 
-	gc "github.com/go-check/check"
 	pr "go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/keyspace"
+	gc "gopkg.in/check.v1"
 )
 
 type SparseSuite struct{}

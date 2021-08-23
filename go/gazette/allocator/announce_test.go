@@ -5,10 +5,10 @@ import (
 	"os"
 	"time"
 
-	gc "github.com/go-check/check"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/task"
+	gc "gopkg.in/check.v1"
 )
 
 type AnnounceSuite struct{}

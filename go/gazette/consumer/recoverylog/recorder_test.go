@@ -8,11 +8,11 @@ import (
 	"os"
 	"testing"
 
-	gc "github.com/go-check/check"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/message"
+	gc "gopkg.in/check.v1"
 )
 
 type RecorderSuite struct{}
