@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/estuary/flow/go/fdb/tuple"
 	flowLabels "github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"

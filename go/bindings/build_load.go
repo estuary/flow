@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	pc "github.com/estuary/flow/go/protocols/capture"
+	pc "github.com/estuary/protocols/capture"
 	"google.golang.org/grpc"
 )
 

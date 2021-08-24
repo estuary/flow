@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
 	flowLabels "github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"

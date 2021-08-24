@@ -9,10 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
-	"github.com/estuary/flow/go/materialize/lifecycle"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	log "github.com/sirupsen/logrus"
 )
@@ -116,7 +115,7 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 			spec *pf.MaterializationSpec,
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
-		) (_ lifecycle.Transactor, err error) {
+		) (_ pm.Transactor, err error) {
 			var d = &transactor{
 				ctx: ep.Context,
 				gen: &ep.Generator,
@@ -265,7 +264,7 @@ func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_
 	return nil
 }
 
-func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
+func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
 	// Remove rows left over from the last transaction.
 	for _, b := range d.bindings {
 		if _, err := b.load.truncate.stmt.Exec(); err != nil {
@@ -319,7 +318,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (*pm.Transa
 	}, nil
 }
 
-func (d *transactor) Store(it *lifecycle.StoreIterator) error {
+func (d *transactor) Store(it *pm.StoreIterator) error {
 	var err error
 
 	if d.store.txn, err = d.store.conn.BeginTx(d.ctx, nil); err != nil {

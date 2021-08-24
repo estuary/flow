@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 )
 
 // service is a Go handle to an instantiated service binding.

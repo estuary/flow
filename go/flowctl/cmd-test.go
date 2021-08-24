@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/testing"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"

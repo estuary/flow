@@ -10,9 +10,9 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/driver/snowflake"
-	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/capture/driver/airbyte"
-	pc "github.com/estuary/flow/go/protocols/capture"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pc "github.com/estuary/protocols/capture"
+	pf "github.com/estuary/protocols/flow"
 	"go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
 )

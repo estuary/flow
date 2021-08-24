@@ -9,8 +9,8 @@ import (
 	"syscall"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/testing"
+	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
