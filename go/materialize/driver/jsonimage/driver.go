@@ -11,9 +11,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/estuary/flow/go/fdb/tuple"
-	"github.com/estuary/flow/go/materialize/lifecycle"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/protocols/fdb/tuple"
+	pm "github.com/estuary/protocols/materialize"
 )
 
 // driver implements the pm.DriverServer interface.
@@ -132,7 +131,7 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		}
 
 		for round := 0; true; round++ {
-			var loadIt = lifecycle.NewLoadIterator(stream)
+			var loadIt = pm.NewLoadIterator(stream)
 
 			for loadIt.Next() {
 				if err := enc.Encode(TxnRequest{
@@ -156,7 +155,7 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 				return fmt.Errorf("encoding Prepare: %w", err)
 			}
 
-			var storeIt = lifecycle.NewStoreIterator(stream)
+			var storeIt = pm.NewStoreIterator(stream)
 			for storeIt.Next() {
 				if err := enc.Encode(TxnRequest{
 					Store: &StoreRequest{
@@ -190,17 +189,17 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		var r = i.(*TxnResponse)
 
 		if r.Opened != nil {
-			return lifecycle.WriteOpened(
+			return pm.WriteOpened(
 				stream,
 				&response,
 				r.Opened,
 			)
 		} else if r.Loaded != nil {
-			return lifecycle.StageLoaded(stream, &response, r.Loaded.Binding, r.Loaded.Document)
+			return pm.StageLoaded(stream, &response, r.Loaded.Binding, r.Loaded.Document)
 		} else if r.Prepared != nil {
-			return lifecycle.WritePrepared(stream, &response, r.Prepared)
+			return pm.WritePrepared(stream, &response, r.Prepared)
 		} else if r.Committed != nil {
-			return lifecycle.WriteCommitted(stream, &response)
+			return pm.WriteCommitted(stream, &response)
 		} else {
 			return fmt.Errorf("unexpected connector output record: %#v", r)
 		}

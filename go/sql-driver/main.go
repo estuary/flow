@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
-	"github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/protocols/materialize"
 	flags "github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"

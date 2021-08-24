@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"golang.org/x/net/http2"

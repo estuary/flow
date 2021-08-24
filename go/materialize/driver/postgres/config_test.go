@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
 	"github.com/stretchr/testify/require"
 )
 

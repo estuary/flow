@@ -5,12 +5,11 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/materialize"
-	"github.com/estuary/flow/go/materialize/lifecycle"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -123,7 +122,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	m.driverRx = materialize.TransactionResponseChannel(m.driverTx)
 
 	// Write Open request with locally persisted DriverCheckpoint.
-	if err = lifecycle.WriteOpen(
+	if err = pm.WriteOpen(
 		m.driverTx,
 		&m.request,
 		m.task.Materialization,
@@ -188,7 +187,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
 	// Write our intent to close the transaction and prepare for commit.
 	// This signals the driver to send remaining Loaded responses, if any.
-	if err := lifecycle.WritePrepare(m.driverTx, &m.request, checkpoint); err != nil {
+	if err := pm.WritePrepare(m.driverTx, &m.request, checkpoint); err != nil {
 		return client.FinishedOperation(fmt.Errorf("sending Prepare: %w", err))
 	}
 
@@ -239,7 +238,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 		}
 	}
 
-	if err := lifecycle.WriteCommit(m.driverTx, &m.request); err != nil {
+	if err := pm.WriteCommit(m.driverTx, &m.request); err != nil {
 		return client.FinishedOperation(err)
 	}
 
@@ -284,7 +283,7 @@ func drainBinding(
 		// document was provided by Loaded or was retained from a previous
 		// transaction's Store.
 
-		if err := lifecycle.StageStore(driverTx, request, binding,
+		if err := pm.StageStore(driverTx, request, binding,
 			packedKey, packedValues, docRaw, full,
 		); err != nil {
 			return err
@@ -446,7 +445,7 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	} else {
 		// This is a novel key.
 		if !deltaUpdates {
-			if err := lifecycle.StageLoad(m.driverTx, &m.request, binding, packedKey); err != nil {
+			if err := pm.StageLoad(m.driverTx, &m.request, binding, packedKey); err != nil {
 				return err
 			}
 		}

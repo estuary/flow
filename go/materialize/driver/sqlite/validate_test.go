@@ -1,4 +1,4 @@
-package sql
+package sqlite
 
 import (
 	"context"
@@ -9,8 +9,9 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
+	"github.com/estuary/protocols/materialize/sql"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,22 +21,20 @@ func TestValidations(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			Directory:   "testdata",
-			Source:      "file:///flow.yaml",
+			Source:      "file:///validate.flow.yaml",
 			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
 		}})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)
-
 	for _, spec := range built.Collections {
 		t.Run(
 			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
 			func(t *testing.T) {
-				var constraints = ValidateNewSQLProjections(&spec)
+				var constraints = sql.ValidateNewSQLProjections(&spec)
 				cupaloy.SnapshotT(t, constraints)
 			})
 	}
-
 	t.Run("MatchesExisting", func(t *testing.T) {
 		// Test body wants "weird-types/optionals", which orders as 1 alphabetically.
 		testMatchesExisting(t, &built.Collections[1])
@@ -68,7 +67,7 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	var stringProjection = proposed.GetProjection("string")
 	stringProjection.Inference.MustExist = true
 
-	var constraints = ValidateMatchesExisting(&existingSpec, &proposed)
+	var constraints = sql.ValidateMatchesExisting(&existingSpec, &proposed)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
 	for _, field := range req {
 		var constraint, ok = constraints[field]
@@ -87,6 +86,6 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 		Collection:     proposed,
 		FieldSelection: *existingFields,
 	}
-	var constraintsError = ValidateSelectedFields(constraints, &proposedSpec)
+	var constraintsError = sql.ValidateSelectedFields(constraints, &proposedSpec)
 	require.Error(t, constraintsError)
 }

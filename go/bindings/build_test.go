@@ -8,7 +8,7 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/materialize"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"

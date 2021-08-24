@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
