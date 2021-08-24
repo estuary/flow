@@ -8,8 +8,8 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/driver/postgres"
-	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	"github.com/stretchr/testify/require"
 )
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 )
 
 type fieldMapping struct {

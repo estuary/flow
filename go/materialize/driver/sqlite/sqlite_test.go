@@ -14,12 +14,12 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/materialize"
-	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )

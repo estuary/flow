@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"runtime"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 )
 
 // Extractor extracts UUIDs and packed field tuples from Documents.

@@ -3,7 +3,7 @@ package testing
 import (
 	"fmt"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 )
 
 // Driver executes test actions.

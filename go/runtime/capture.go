@@ -10,10 +10,10 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
-	"github.com/estuary/flow/go/fdb/tuple"
 	"github.com/estuary/flow/go/flow"
-	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/shuffle"
+	pfc "github.com/estuary/protocols/capture"
+	"github.com/estuary/protocols/fdb/tuple"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"

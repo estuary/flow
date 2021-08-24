@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )

@@ -27,30 +27,9 @@ PKGDIR = ${WORKDIR}/package
 # Each takes precedence over the configured $PATH
 PATH := ${TOOLBIN}:${RUSTBIN}:${GOBIN}:${PATH}
 
-# Extra apt packages that we require.
-EXTRA_APT_PACKAGES = \
-	libprotobuf-dev \
-	protobuf-compiler
-
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
 ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
-
-# PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
-# with `protoc` invocations
-PROTOC_INC_GO_MODULES = \
-	github.com/golang/protobuf \
-	github.com/gogo/protobuf \
-	go.gazette.dev/core
-# Targets of Go protobufs which must be compiled.
-GO_PROTO_TARGETS = \
-	./go/protocols/capture/capture.pb.go \
-	./go/protocols/flow/flow.pb.go \
-	./go/protocols/materialize/materialize.pb.go
-# GO_MODULE_PATH expands a $(module), like "go.gazette.dev/core", to the local path
-# of its respository as currently specified by go.mod. The `go list` tool
-# is used to map submodules to corresponding go.mod versions and paths.
-GO_MODULE_PATH = $(shell go list -f '{{ .Dir }}' -m $(module))
 
 PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
@@ -66,21 +45,12 @@ GO_BUILD_TAGS += json1
 
 # Targets which Go targets rely on in order to build.
 GO_BUILD_DEPS = \
-	$(GO_PROTO_TARGETS) \
 	${RUSTBIN}/libbindings.a \
 	${RUSTBIN}/librocks-exp/librocksdb.a \
 	crates/bindings/flow_bindings.h
 
 ##########################################################################
 # Build rules:
-
-# `protoc-gen-gogo` is used to compile Go protobufs.
-# We use the go module system to pull down, locate, and include additional
-# protobuf sources during the build. For example, Flow protobufs include
-# Gazette protobufs, which are located via the `go mod` tool.
-${TOOLBIN}/protoc-gen-gogo:
-	./go.sh mod download
-	./go.sh build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
 
 # `etcd` is used for testing, and packaged as a release artifact.
 ${TOOLBIN}/etcd:
@@ -96,12 +66,6 @@ ${TOOLBIN}/etcd:
 		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
 		&& rm /tmp/etcd.tgz \
 		&& $@ --version
-
-# Run the protobuf compiler to generate message and gRPC service implementations.
-# Invoke protoc with local and third-party include paths set.
-%.pb.go: %.proto ${TOOLBIN}/protoc-gen-gogo
-	protoc -I . $(foreach module, $(PROTOC_INC_GO_MODULES), -I$(GO_MODULE_PATH)) \
-	--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
 
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
@@ -140,7 +104,6 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 # We use LLVM for faster linking. See .cargo/config.
 .PHONY: extra-ci-setup
 extra-ci-runner-setup:
-	sudo apt install -y $(EXTRA_APT_PACKAGES)
 	sudo ln --force --symbolic /usr/bin/ld.lld-11 /usr/bin/ld.lld
 
 .PHONY: print-versions
@@ -155,7 +118,7 @@ print-versions:
 		&& /usr/bin/ld.lld --version
 
 .PHONY: install-tools
-install-tools: ${TOOLBIN}/protoc-gen-gogo ${TOOLBIN}/etcd
+install-tools: ${TOOLBIN}/etcd
 
 .PHONY: rust-build
 rust-build:
@@ -173,10 +136,6 @@ go-test-fast: $(GO_BUILD_DEPS) ${TOOLBIN}/etcd
 go-test-ci:   $(GO_BUILD_DEPS) ${TOOLBIN}/etcd
 	GORACE="halt_on_error=1" \
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
-
-.PHONY: test-pg-driver
-test-pg-driver: $(GO_BUILD_DEPS)
-	./go.sh test -v --tags pgdrivertest,${GO_BUILD_TAGS} ./go/materialize/driver/postgres/test
 
 .PHONY: catalog-test
 catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd

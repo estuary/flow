@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"strings"
 
-	pc "github.com/estuary/flow/go/protocols/capture"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pc "github.com/estuary/protocols/capture"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 )
 

@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/alecthomas/jsonschema"
-	"github.com/estuary/flow/go/materialize/lifecycle"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -158,7 +157,7 @@ func (driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	return lifecycle.RunTransactions(stream, transactor, log)
+	return pm.RunTransactions(stream, transactor, log)
 }
 
 type transactor struct {
@@ -168,7 +167,7 @@ type transactor struct {
 }
 
 // Load should not be called and panics.
-func (d *transactor) Load(_ *lifecycle.LoadIterator, _ <-chan struct{}, _ func(int, json.RawMessage) error) error {
+func (d *transactor) Load(_ *pm.LoadIterator, _ <-chan struct{}, _ func(int, json.RawMessage) error) error {
 	panic("Load should never be called for webhook.Driver")
 }
 
@@ -181,7 +180,7 @@ func (d *transactor) Prepare(req *pm.TransactionRequest_Prepare) (*pm.Transactio
 }
 
 // Store invokes the Webhook URL, with a body containing StoreIterator documents.
-func (d *transactor) Store(it *lifecycle.StoreIterator) error {
+func (d *transactor) Store(it *pm.StoreIterator) error {
 	for it.Next() {
 		var b = &d.bodies[it.Binding]
 
