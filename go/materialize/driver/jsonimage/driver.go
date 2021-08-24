@@ -40,6 +40,30 @@ func newConfig(spec json.RawMessage) (*config, error) {
 	return cfg, nil
 }
 
+// Spec returns the specification of the connector.
+func (driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
+	var cfg, err = newConfig(req.EndpointSpecJson)
+	if err != nil {
+		return nil, err
+	}
+
+	type respType struct {
+		Spec *pm.SpecResponse `json:"spec"`
+	}
+	var resp *pm.SpecResponse
+
+	err = invokeConnector(ctx, cfg.Image, nil,
+		func(w io.Writer) error {
+			return json.NewEncoder(w).Encode(struct {
+				Spec *pm.SpecRequest `json:"spec"`
+			}{req})
+		},
+		func() interface{} { return new(respType) },
+		func(i interface{}) error { resp = i.(*respType).Spec; return nil },
+	)
+	return resp, err
+}
+
 // Validate validates the configuration.
 func (driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 	var cfg, err = newConfig(req.EndpointSpecJson)

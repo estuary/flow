@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -49,6 +50,23 @@ func (r resource) URL() *url.URL {
 		panic(err)
 	}
 	return u
+}
+
+func (driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
+	endpointSchema, err := jsonschema.Reflect(new(config)).MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("generating endpoint schema: %w", err)
+	}
+	resourceSchema, err := jsonschema.Reflect(new(resource)).MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("generating resource schema: %w", err)
+	}
+
+	return &pm.SpecResponse{
+		EndpointSpecSchemaJson: json.RawMessage(endpointSchema),
+		ResourceSpecSchemaJson: json.RawMessage(resourceSchema),
+		DocumentationUrl:       "https://docs.estuary.dev",
+	}, nil
 }
 
 // Validate validates the Webhook configuration and constrains projections

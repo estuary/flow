@@ -1,8 +1,13 @@
 package postgres
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/bradleyjkemp/cupaloy"
+	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/stretchr/testify/require"
 )
 
@@ -12,7 +17,7 @@ func TestPostgresConfig(t *testing.T) {
 		Port:     1234,
 		User:     "youser",
 		Password: "shmassword",
-		DBName:   "namegame",
+		Database: "namegame",
 	}
 	require.NoError(t, validConfig.Validate())
 	var uri = validConfig.ToURI()
@@ -20,7 +25,7 @@ func TestPostgresConfig(t *testing.T) {
 
 	var minimal = validConfig
 	minimal.Port = 0
-	minimal.DBName = ""
+	minimal.Database = ""
 	require.NoError(t, minimal.Validate())
 	uri = minimal.ToURI()
 	require.Equal(t, "postgres://youser:shmassword@post.toast", uri)
@@ -36,4 +41,15 @@ func TestPostgresConfig(t *testing.T) {
 	var noPass = validConfig
 	noPass.Password = ""
 	require.Error(t, noPass.Validate(), "expected validation error")
+}
+
+func TestSpecification(t *testing.T) {
+	var resp, err = NewPostgresDriver().
+		Spec(context.Background(), &pm.SpecRequest{EndpointType: pf.EndpointType_AIRBYTE_SOURCE})
+	require.NoError(t, err)
+
+	formatted, err := json.MarshalIndent(resp, "", "  ")
+	require.NoError(t, err)
+
+	cupaloy.SnapshotT(t, formatted)
 }

@@ -3,6 +3,7 @@ module github.com/estuary/flow
 go 1.16
 
 require (
+	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c // indirect
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
 	github.com/estuary/connectors/go-types v0.0.0-20210707160300-897f766d68d4
 	github.com/fatih/color v1.7.0

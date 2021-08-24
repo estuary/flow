@@ -23,11 +23,29 @@ import (
 // config represents the endpoint configuration for snowflake.
 // It must match the one defined for the source specs (flow.yaml) in Rust.
 type config struct {
-	sf.Config
+	Account   string `json:"account"`
+	User      string `json:"user"`
+	Password  string `json:"password"`
+	Database  string `json:"database"`
+	Schema    string `json:"schema"`
+	Warehouse string `json:"warehouse,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Region    string `json:"region,omitempty"`
 
-	StageName string
-	StagePath string
-	tempdir   string
+	tempdir string
+}
+
+func (c config) asSnowflakeConfig() sf.Config {
+	return sf.Config{
+		Account:   c.Account,
+		User:      c.User,
+		Password:  c.Password,
+		Database:  c.Database,
+		Schema:    c.Schema,
+		Warehouse: c.Warehouse,
+		Role:      c.Role,
+		Region:    c.Region,
+	}
 }
 
 func (c config) Validate() error {
@@ -44,9 +62,10 @@ func (c config) Validate() error {
 }
 
 type tableConfig struct {
-	base  *config
-	Table string
-	Delta bool `json:"delta_updates"`
+	base *config
+
+	Table string `json:"table"`
+	Delta bool   `json:"delta_updates,omitempty"`
 }
 
 func (c tableConfig) Validate() error {
@@ -70,6 +89,9 @@ var trueString = "true"
 // NewDriver creates a new Driver for Snowflake.
 func NewDriver(tempdir string) *sqlDriver.Driver {
 	return &sqlDriver.Driver{
+		DocumentationURL: "https://docs.estuary.dev/#FIXME",
+		EndpointSpecType: new(config),
+		ResourceSpecType: new(tableConfig),
 		NewResource: func(endpoint *sqlDriver.Endpoint) sqlDriver.Resource {
 			return &tableConfig{base: endpoint.Config.(*config)}
 		},
@@ -79,8 +101,8 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				return nil, fmt.Errorf("parsing Snowflake configuration: %w", err)
 			}
 
-			// Build a DSN connection string. DSN() mutates the Config, so pass a copy.
-			var configCopy = parsed.Config
+			// Build a DSN connection string.
+			var configCopy = parsed.asSnowflakeConfig()
 			// client_session_keep_alive causes the driver to issue a periodic keepalive request.
 			// Without this, the authentication token will expire after 4 hours of inactivity.
 			// The Params map will not have been initialized if the endpoint config didn't specify
@@ -98,8 +120,6 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 				"account":   parsed.Account,
 				"database":  parsed.Database,
 				"role":      parsed.Role,
-				"stageName": parsed.StageName,
-				"stagePath": parsed.StagePath,
 				"user":      parsed.User,
 				"warehouse": parsed.Warehouse,
 			}).Info("opening Snowflake")
