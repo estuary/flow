@@ -1,0 +1,37 @@
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push
+# or pull request events, but only for the primary branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "^1.16"
+
+      - uses: actions/checkout@v2
+
+      - name: Cache/Restore Go dependencies.
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - run: make print-versions go-test
+
+      - name: Ensure that generated files are unchanged from what's committed
+        run: |
+          git diff
+          [[ -z "$(git status --porcelain)" ]] || exit 1
+        shell: bash
