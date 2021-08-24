@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/connectors/go-types/airbyte"
 	"github.com/estuary/connectors/go-types/shardrange"
 	"github.com/estuary/flow/go/capture/lifecycle"
@@ -101,9 +102,16 @@ func (driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, 
 		return nil, err
 	}
 
+	var reflector = jsonschema.Reflector{ExpandedStruct: true}
+	resourceSchema, err := reflector.Reflect(new(ResourceSpec)).MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("generating resource schema: %w", err)
+	}
+
 	return &pc.SpecResponse{
-		DocumentationUrl: spec.DocumentationURL,
-		SpecSchemaJson:   spec.ConnectionSpecification,
+		EndpointSpecSchemaJson: spec.ConnectionSpecification,
+		ResourceSpecSchemaJson: json.RawMessage(resourceSchema),
+		DocumentationUrl:       spec.DocumentationURL,
 	}, nil
 }
 

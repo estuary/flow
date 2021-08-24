@@ -1,3 +1,4 @@
+/// SpecRequest is the request type of the Spec RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SpecRequest {
     /// Endpoint type addressed by this request.
@@ -10,15 +11,20 @@ pub struct SpecRequest {
     #[prost(string, tag="2")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
 }
+/// SpecResponse is the response type of the Spec RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SpecResponse {
     /// JSON schema of a complete endpoint specification.
     #[prost(string, tag="1")]
-    pub spec_schema_json: ::prost::alloc::string::String,
-    /// URL for connector's documention.
+    pub endpoint_spec_schema_json: ::prost::alloc::string::String,
+    /// JSON schema of a complete endpoint specification.
     #[prost(string, tag="2")]
+    pub resource_spec_schema_json: ::prost::alloc::string::String,
+    /// URL for connector's documention.
+    #[prost(string, tag="3")]
     pub documentation_url: ::prost::alloc::string::String,
 }
+/// DiscoverRequest is the request type of the Discover RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DiscoverRequest {
     /// Endpoint type addressed by this request.
@@ -28,6 +34,7 @@ pub struct DiscoverRequest {
     #[prost(string, tag="2")]
     pub endpoint_spec_json: ::prost::alloc::string::String,
 }
+/// DiscoverResponse is the response type of the Discover RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DiscoverResponse {
     #[prost(message, repeated, tag="1")]
@@ -53,6 +60,7 @@ pub mod discover_response {
         pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
 }
+/// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {
     /// Name of the capture being validated.

@@ -70,6 +70,17 @@ func TestSQLGeneration(t *testing.T) {
 	require.Equal(t, `DELETE FROM load.keys_123 ;`, keyTruncate)
 }
 
+func TestSpecification(t *testing.T) {
+	var resp, err = sqlite.NewSQLiteDriver().
+		Spec(context.Background(), &pm.SpecRequest{EndpointType: pf.EndpointType_AIRBYTE_SOURCE})
+	require.NoError(t, err)
+
+	formatted, err := json.MarshalIndent(resp, "", "  ")
+	require.NoError(t, err)
+
+	cupaloy.SnapshotT(t, formatted)
+}
+
 func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 

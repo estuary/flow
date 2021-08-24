@@ -31,6 +31,32 @@ pub mod constraint {
         Unsatisfiable = 5,
     }
 }
+/// SpecRequest is the request type of the Spec RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SpecRequest {
+    /// Endpoint type addressed by this request.
+    #[prost(enumeration="super::flow::EndpointType", tag="1")]
+    pub endpoint_type: i32,
+    /// Driver specification, as an encoded JSON object.
+    /// This may be a partial specification (for example, a Docker image),
+    /// providing only enough information to fetch the remainder of the
+    /// specification schema.
+    #[prost(string, tag="2")]
+    pub endpoint_spec_json: ::prost::alloc::string::String,
+}
+/// SpecResponse is the response type of the Spec RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SpecResponse {
+    /// JSON schema of a complete endpoint specification.
+    #[prost(string, tag="1")]
+    pub endpoint_spec_schema_json: ::prost::alloc::string::String,
+    /// JSON schema of a complete endpoint specification.
+    #[prost(string, tag="2")]
+    pub resource_spec_schema_json: ::prost::alloc::string::String,
+    /// URL for connector's documention.
+    #[prost(string, tag="3")]
+    pub documentation_url: ::prost::alloc::string::String,
+}
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidateRequest {

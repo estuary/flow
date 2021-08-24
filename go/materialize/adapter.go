@@ -59,6 +59,10 @@ func AdaptServerToClient(srv pm.DriverServer) pm.DriverClient {
 // adapter is pm.DriverClient that wraps an in-process pm.DriverServer.
 type adapter struct{ pm.DriverServer }
 
+func (a adapter) Spec(ctx context.Context, in *pm.SpecRequest, opts ...grpc.CallOption) (*pm.SpecResponse, error) {
+	return a.DriverServer.Spec(ctx, in)
+}
+
 func (a adapter) Validate(ctx context.Context, in *pm.ValidateRequest, opts ...grpc.CallOption) (*pm.ValidateResponse, error) {
 	return a.DriverServer.Validate(ctx, in)
 }

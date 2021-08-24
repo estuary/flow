@@ -21,11 +21,11 @@ import (
 // config represents the endpoint configuration for postgres.
 // It must match the one defined for the source specs (flow.yaml) in Rust.
 type config struct {
-	Host     string
-	Port     uint16
-	User     string
-	Password string
-	DBName   string
+	Host     string `json:"host"`
+	Port     uint16 `json:"port,omitempty"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Database string `json:"database,omitempty"`
 }
 
 // Validate the configuration.
@@ -54,14 +54,14 @@ func (c *config) ToURI() string {
 		Host:   host,
 		User:   url.UserPassword(c.User, c.Password),
 	}
-	if c.DBName != "" {
-		uri.Path = "/" + c.DBName
+	if c.Database != "" {
+		uri.Path = "/" + c.Database
 	}
 	return uri.String()
 }
 
 type tableConfig struct {
-	Table string
+	Table string `json:"table"`
 }
 
 // Validate the resource configuration.
@@ -83,7 +83,10 @@ func (c tableConfig) DeltaUpdates() bool {
 // NewPostgresDriver creates a new Driver for postgresql.
 func NewPostgresDriver() *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewResource: func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		DocumentationURL: "https://docs.estuary.dev/#FIXME",
+		EndpointSpecType: new(config),
+		ResourceSpecType: new(tableConfig),
+		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
 		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
@@ -91,7 +94,7 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			}
 
 			log.WithFields(log.Fields{
-				"database": parsed.DBName,
+				"database": parsed.Database,
 				"host":     parsed.Host,
 				"port":     parsed.Port,
 				"user":     parsed.User,
