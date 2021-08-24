@@ -7,7 +7,7 @@ import (
 	"path"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"

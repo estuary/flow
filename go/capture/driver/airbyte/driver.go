@@ -8,11 +8,9 @@ import (
 	"strings"
 
 	"github.com/alecthomas/jsonschema"
-	"github.com/estuary/connectors/go-types/airbyte"
-	"github.com/estuary/connectors/go-types/shardrange"
-	"github.com/estuary/flow/go/capture/lifecycle"
-	pc "github.com/estuary/flow/go/protocols/capture"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/protocols/airbyte"
+	pc "github.com/estuary/protocols/capture"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/go-openapi/jsonpointer"
 	log "github.com/sirupsen/logrus"
 )
@@ -272,7 +270,7 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 	var catalog = airbyte.ConfiguredCatalog{
 		Streams: nil,
 		Tail:    req.Tail,
-		Range: shardrange.Range{
+		Range: airbyte.Range{
 			Begin: req.KeyBegin,
 			End:   req.KeyEnd,
 		},
@@ -353,11 +351,11 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 					"capture": req.Capture.Capture,
 				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
 			} else if rec.State != nil {
-				return lifecycle.WriteCommit(stream, &resp,
+				return pc.WriteCommit(stream, &resp,
 					&pc.CaptureResponse_Commit{DriverCheckpointJson: rec.State.Data})
 			} else if rec.Record != nil {
 				if b, ok := streamToBinding[rec.Record.Stream]; ok {
-					return lifecycle.StageCaptured(stream, &resp, b, rec.Record.Data)
+					return pc.StageCaptured(stream, &resp, b, rec.Record.Data)
 				}
 				return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
 			} else {
@@ -378,7 +376,7 @@ func (driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) er
 	// writing a final state checkpoint. We generate a synthetic commit now,
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
-	return lifecycle.WriteCommit(stream, &resp,
+	return pc.WriteCommit(stream, &resp,
 		&pc.CaptureResponse_Commit{DriverCheckpointJson: nil})
 }
 

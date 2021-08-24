@@ -10,8 +10,8 @@ import (
 	"github.com/estuary/flow/go/materialize/driver/snowflake"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	"github.com/estuary/flow/go/materialize/driver/webhook"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
 	"go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
 )

@@ -8,10 +8,9 @@ import (
 	"net/url"
 	"strings"
 
-	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
-	"github.com/estuary/flow/go/materialize/lifecycle"
-	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pf "github.com/estuary/protocols/flow"
+	pm "github.com/estuary/protocols/materialize"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
 	pgxStd "github.com/jackc/pgx/v4/stdlib"
@@ -121,7 +120,7 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			spec *pf.MaterializationSpec,
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
-		) (_ lifecycle.Transactor, err error) {
+		) (_ pm.Transactor, err error) {
 			var d = &transactor{
 				ctx: ep.Context,
 				gen: &ep.Generator,
@@ -284,7 +283,7 @@ func (t *transactor) addBinding(spec *pf.MaterializationSpec_Binding) error {
 	return nil
 }
 
-func (d *transactor) Load(it *lifecycle.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
+func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
 	// Use a read-only "load" transaction, which will automatically
 	// truncate the temporary key staging tables on commit.
 	var txn, err = d.load.conn.BeginTx(d.ctx, pgx.TxOptions{})
@@ -353,7 +352,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 	}, nil
 }
 
-func (d *transactor) Store(it *lifecycle.StoreIterator) error {
+func (d *transactor) Store(it *pm.StoreIterator) error {
 	for it.Next() {
 		var b = d.bindings[it.Binding]
 

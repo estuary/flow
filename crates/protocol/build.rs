@@ -51,9 +51,8 @@ fn main() {
 
     let go_modules = &[
         "go.gazette.dev/core",
+        "github.com/estuary/protocols",
         "github.com/gogo/protobuf",
-        "github.com/golang/protobuf", // Remove?
-        "github.com/estuary/flow",
     ];
     for module in go_modules {
         let go_list = Command::new("go")
@@ -63,7 +62,7 @@ fn main() {
             .expect("failed to run 'go'");
 
         if !go_list.status.success() {
-            panic!("go list go.gazette.dev/core failed");
+            panic!("go list {} failed", module);
         }
 
         let dir = str::from_utf8(&go_list.stdout).unwrap().trim_end();
@@ -76,9 +75,9 @@ fn main() {
         proto_include[0].join("broker/protocol/protocol.proto"),
         proto_include[0].join("consumer/protocol/protocol.proto"),
         proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
-        proto_include[3].join("go/protocols/capture/capture.proto"),
-        proto_include[3].join("go/protocols/flow/flow.proto"),
-        proto_include[3].join("go/protocols/materialize/materialize.proto"),
+        proto_include[1].join("capture/capture.proto"),
+        proto_include[1].join("flow/flow.proto"),
+        proto_include[1].join("materialize/materialize.proto"),
     ];
 
     let mut builder = prost_build::Config::new();

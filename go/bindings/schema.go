@@ -3,7 +3,7 @@ package bindings
 // #include "../../crates/bindings/flow_bindings.h"
 import "C"
 import (
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 )
 
 // SchemaIndex wraps a compiled JSON schema index allocated in Rust memory,

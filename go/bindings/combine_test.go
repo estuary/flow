@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/estuary/flow/go/fdb/tuple"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
 )

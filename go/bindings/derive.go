@@ -18,7 +18,7 @@ import (
 	"strings"
 	"unsafe"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/protocols/flow"
 	"github.com/jgraettinger/gorocksdb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"

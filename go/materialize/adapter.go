@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	pm "github.com/estuary/flow/go/protocols/materialize"
+	pm "github.com/estuary/protocols/materialize"
 	"google.golang.org/grpc"
 )
 

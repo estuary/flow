@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/fdb/tuple"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/protocols/fdb/tuple"
+	pf "github.com/estuary/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
