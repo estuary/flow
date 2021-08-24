@@ -14,16 +14,17 @@ option (gogoproto.goproto_getters_all) = false;
 // Driver is the service implemented by a materialization target system.
 service Driver {
   // Spec returns the specification definition of this driver.
-  // Notably this includes its configuration JSON schema.
+  // Notably this includes its endpoint and resource configuration JSON schema.
   rpc Spec(SpecRequest) returns (SpecResponse);
-
+  // Discover returns the set of resources available from this Driver.
   rpc Discover(DiscoverRequest) returns (DiscoverResponse);
-
+  // Validate that resources and bound CollectionSpecs are compatible with one another.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
-
+  // Capture bound resources as a stream of documents and driver checkpoints.
   rpc Capture(CaptureRequest) returns (stream CaptureResponse);
 }
 
+// SpecRequest is the request type of the Spec RPC.
 message SpecRequest {
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 1;
@@ -37,16 +38,23 @@ message SpecRequest {
   ];
 }
 
+// SpecResponse is the response type of the Spec RPC.
 message SpecResponse {
   // JSON schema of a complete endpoint specification.
-  string spec_schema_json = 1 [
+  string endpoint_spec_schema_json = 1 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointchema"
+  ];
+  // JSON schema of a complete endpoint specification.
+  string resource_spec_schema_json = 2 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointchema"
   ];
   // URL for connector's documention.
-  string documentation_url = 2;
+  string documentation_url = 3;
 }
 
+// DiscoverRequest is the request type of the Discover RPC.
 message DiscoverRequest {
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 1;
@@ -57,6 +65,7 @@ message DiscoverRequest {
   ];
 }
 
+// DiscoverResponse is the response type of the Discover RPC.
 message DiscoverResponse {
   // Potential bindings which the capture could provide.
   // Bindings may be returned in any order.
@@ -79,6 +88,7 @@ message DiscoverResponse {
   repeated Binding bindings = 1;
 }
 
+// ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
   // Name of the capture being validated.
   string capture = 1 [ (gogoproto.casttype) =

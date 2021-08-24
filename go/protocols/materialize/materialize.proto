@@ -38,6 +38,9 @@ message Constraint {
 
 // Driver is the service implemented by a materialization target system.
 service Driver {
+  // Spec returns the specification definition of this driver.
+  // Notably this includes its endpoint and resource configuration JSON schema.
+  rpc Spec(SpecRequest) returns (SpecResponse);
   // Validate that a CollectionSpec is compatible with a materialization target,
   // and return constraints over the projections of the collection.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
@@ -82,6 +85,36 @@ service Driver {
   // the stream.
   rpc Transactions(stream TransactionRequest)
       returns (stream TransactionResponse);
+}
+
+// SpecRequest is the request type of the Spec RPC.
+message SpecRequest {
+  // Endpoint type addressed by this request.
+  flow.EndpointType endpoint_type = 1;
+  // Driver specification, as an encoded JSON object.
+  // This may be a partial specification (for example, a Docker image),
+  // providing only enough information to fetch the remainder of the
+  // specification schema.
+  string endpoint_spec_json = 2 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointSpec"
+  ];
+}
+
+// SpecResponse is the response type of the Spec RPC.
+message SpecResponse {
+  // JSON schema of a complete endpoint specification.
+  string endpoint_spec_schema_json = 1 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointchema"
+  ];
+  // JSON schema of a complete endpoint specification.
+  string resource_spec_schema_json = 2 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "endpointchema"
+  ];
+  // URL for connector's documention.
+  string documentation_url = 3;
 }
 
 // ValidateRequest is the request type of the Validate RPC.

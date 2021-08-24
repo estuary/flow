@@ -24,6 +24,26 @@ func (m *Constraint_Type) IsForbidden() bool {
 // tag with boolean true. See TransactionResponse_Opened.FlowCheckpoint.
 var ExplicitZeroCheckpoint = []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
 
+// Validate returns an error if the SpecRequest isn't well-formed.
+func (m *SpecRequest) Validate() error {
+	if _, ok := pf.EndpointType_name[int32(m.EndpointType)]; !ok {
+		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
+	}
+	return nil
+}
+
+// Validate returns an error if the SpecResponse isn't well-formed.
+func (m *SpecResponse) Validate() error {
+	if len(m.EndpointSpecSchemaJson) == 0 {
+		return pb.NewValidationError("missing EndpointSpecSchemaJson")
+	} else if len(m.ResourceSpecSchemaJson) == 0 {
+		return pb.NewValidationError("missing ResourceSpecSchemaJson")
+	} else if m.DocumentationUrl == "" {
+		return pb.NewValidationError("missing DocumentationUrl")
+	}
+	return nil
+}
+
 // Validate returns an error if the ValidateRequest isn't well-formed.
 func (m *ValidateRequest) Validate() error {
 	if err := m.Materialization.Validate(); err != nil {

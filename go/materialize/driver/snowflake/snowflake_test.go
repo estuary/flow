@@ -2,14 +2,17 @@ package snowflake_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
+	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/driver/snowflake"
 	sqlDriver "github.com/estuary/flow/go/materialize/driver/sql2"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -76,4 +79,15 @@ func TestQueryGeneration(t *testing.T) {
 			VALUES (r.key1, r.key2, r.boolean, r.integer, r.number, r.string, r.flow_document)
 		;`,
 		mergeIntoSQL)
+}
+
+func TestSpecification(t *testing.T) {
+	var resp, err = snowflake.NewDriver("").
+		Spec(context.Background(), &pm.SpecRequest{EndpointType: pf.EndpointType_AIRBYTE_SOURCE})
+	require.NoError(t, err)
+
+	formatted, err := json.MarshalIndent(resp, "", "  ")
+	require.NoError(t, err)
+
+	cupaloy.SnapshotT(t, formatted)
 }

@@ -229,7 +229,7 @@ func writeConfigStub(ctx context.Context, image string, w io.WriteCloser) error 
 	defer os.RemoveAll(tmpdir)
 
 	var tmpfile = filepath.Join(tmpdir, "schema.yaml")
-	mbp.Must(ioutil.WriteFile(tmpfile, specResponse.SpecSchemaJson, 0600), "writing spec")
+	mbp.Must(ioutil.WriteFile(tmpfile, specResponse.EndpointSpecSchemaJson, 0600), "writing spec")
 
 	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath: filepath.Join(tmpdir, "catalog.db"),

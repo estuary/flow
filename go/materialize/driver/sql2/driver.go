@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/materialize/lifecycle"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -33,6 +34,12 @@ func (p ResourcePath) Join() string {
 
 // Driver implements the pm.DriverServer interface.
 type Driver struct {
+	// URL at which documentation for the driver may be found.
+	DocumentationURL string
+	// Instance of the type into which endpoint specifications are parsed.
+	EndpointSpecType interface{}
+	// Instance of the type into which resource specifications are parsed.
+	ResourceSpecType Resource
 	// NewEndpoint returns an Endpoint, which will be used to handle interactions with the database.
 	NewEndpoint func(context.Context, json.RawMessage) (*Endpoint, error)
 	// NewResource returns an uninitialized Resource which may be parsed into.
@@ -42,6 +49,32 @@ type Driver struct {
 }
 
 var _ pm.DriverServer = &Driver{}
+
+// Spec implements the DriverServer interface.
+func (d *Driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("validating request: %w", err)
+	}
+
+	// Use reflection to build JSON Schemas from endpoint and resource configuration types.
+	var reflector = jsonschema.Reflector{
+		ExpandedStruct: true,
+	}
+	endpointSchema, err := reflector.Reflect(d.EndpointSpecType).MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	resourceSchema, err := reflector.Reflect(d.ResourceSpecType).MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	return &pm.SpecResponse{
+		EndpointSpecSchemaJson: json.RawMessage(endpointSchema),
+		ResourceSpecSchemaJson: json.RawMessage(resourceSchema),
+		DocumentationUrl:       d.DocumentationURL,
+	}, nil
+}
 
 // Validate implements the DriverServer interface.
 func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {

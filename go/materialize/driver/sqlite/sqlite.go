@@ -20,7 +20,7 @@ import (
 // config represents the endpoint configuration for sqlite.
 // It must match the one defined for the source specs (flow.yaml) in Rust.
 type config struct {
-	Path string
+	Path string `json:"path"`
 }
 
 // Validate the configuration.
@@ -32,7 +32,7 @@ func (c config) Validate() error {
 }
 
 type tableConfig struct {
-	Table string
+	Table string `json:"table"`
 }
 
 func (c tableConfig) Validate() error {
@@ -53,7 +53,10 @@ func (c tableConfig) DeltaUpdates() bool {
 // NewSQLiteDriver creates a new Driver for sqlite.
 func NewSQLiteDriver() *sqlDriver.Driver {
 	return &sqlDriver.Driver{
-		NewResource: func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		DocumentationURL: "https://docs.estuary.dev/#FIXME",
+		EndpointSpecType: new(config),
+		ResourceSpecType: new(tableConfig),
+		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
 		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {

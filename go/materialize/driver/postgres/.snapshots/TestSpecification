@@ -1,0 +1,43 @@
+{
+  "endpoint_spec_schema_json": {
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "required": [
+      "host",
+      "user",
+      "password"
+    ],
+    "properties": {
+      "host": {
+        "type": "string"
+      },
+      "port": {
+        "type": "integer"
+      },
+      "user": {
+        "type": "string"
+      },
+      "password": {
+        "type": "string"
+      },
+      "database": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "resource_spec_schema_json": {
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "required": [
+      "table"
+    ],
+    "properties": {
+      "table": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "documentation_url": "https://docs.estuary.dev/#FIXME"
+}
