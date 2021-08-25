@@ -23,6 +23,10 @@ Locally test a Flow catalog.
 Locally develop a Flow catalog.
 `, &cmdDevelop{})
 
+	addCmd(parser, "check", "Check a Flow catalog for errors", `
+Quickly load and validate a Flow catalog, and generate updated TypeScript types.
+`, &cmdCheck{})
+
 	addCmd(parser, "split", "Split a Flow processing shard", `
 Split a Flow processing shard into two, either on shuffled key or rotated clock.
 `, &cmdSplit{})
