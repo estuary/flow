@@ -225,7 +225,7 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 
 	// Build CatalogCommons and CatalogTasks around a generated CommonsID.
 	var commons = pf.CatalogCommons{
-		CommonsId:             build.ID.String(),
+		CommonsId:             build.UUID.String(),
 		JournalRules:          build.JournalRules,
 		ShardRules:            build.ShardRules,
 		Schemas:               build.Schemas,

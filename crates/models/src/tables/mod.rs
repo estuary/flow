@@ -254,6 +254,11 @@ tables!(
         scope: url::Url,
         error: anyhow::Error,
     }
+
+    table Meta (row Build, sql "meta") {
+        build_uuid: uuid::Uuid,
+        build_config: protocol::flow::build_api::Config,
+    }
 );
 
 #[derive(Default, Debug)]
@@ -274,6 +279,7 @@ pub struct All {
     pub journal_rules: JournalRules,
     pub materialization_bindings: MaterializationBindings,
     pub materializations: Materializations,
+    pub meta: Meta,
     pub named_schemas: NamedSchemas,
     pub npm_dependencies: NPMDependencies,
     pub projections: Projections,
@@ -305,6 +311,7 @@ impl All {
             journal_rules,
             materialization_bindings,
             materializations,
+            meta,
             named_schemas,
             npm_dependencies,
             projections,
@@ -332,6 +339,7 @@ impl All {
             journal_rules,
             materialization_bindings,
             materializations,
+            meta,
             named_schemas,
             npm_dependencies,
             projections,
@@ -362,6 +370,7 @@ impl All {
             journal_rules,
             materialization_bindings,
             materializations,
+            meta,
             named_schemas,
             npm_dependencies,
             projections,
@@ -389,6 +398,7 @@ impl All {
             journal_rules,
             materialization_bindings,
             materializations,
+            meta,
             named_schemas,
             npm_dependencies,
             projections,
@@ -431,6 +441,7 @@ json_sql_types!(
     protocol::flow::EndpointType,
     protocol::flow::test_spec::step::Type,
     serde_json::Value,
+    uuid::Uuid,
 );
 
 proto_sql_types!(
@@ -441,6 +452,7 @@ proto_sql_types!(
     protocol::flow::MaterializationSpec,
     protocol::flow::TestSpec,
     protocol::flow::TransformSpec,
+    protocol::flow::build_api::Config,
     protocol::flow::journal_rules::Rule,
     protocol::flow::shard_rules::Rule,
 );

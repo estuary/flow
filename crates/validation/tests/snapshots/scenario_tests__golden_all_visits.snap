@@ -2783,6 +2783,7 @@ All {
             endpoint_spec: {"config":{"foo":"bar"},"image":"database/image"},
         },
     ],
+    meta: [],
     named_schemas: [
         NamedSchema {
             scope: test://example/int-string.schema#/$defs/anAnchor,

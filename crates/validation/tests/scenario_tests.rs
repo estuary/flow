@@ -1145,6 +1145,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         journal_rules,
         materialization_bindings,
         materializations,
+        meta: tables::Meta::new(),
         named_schemas,
         npm_dependencies,
         projections,

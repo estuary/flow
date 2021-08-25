@@ -49,6 +49,9 @@ where
     std::fs::write(&config.catalog_path, &[]).context("failed to create catalog database")?;
 
     let mut all_tables = load_and_validate(root_url, root_spec, fetcher, drivers).await;
+    all_tables
+        .meta
+        .push_row(uuid::Uuid::new_v4(), config.clone());
 
     // Apply any extra journal rules of the configuration.
     for (index, rule) in config
@@ -192,6 +195,7 @@ where
         journal_rules,
         materialization_bindings,
         materializations,
+        meta: tables::Meta::new(),
         named_schemas,
         npm_dependencies,
         projections,
