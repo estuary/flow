@@ -103,15 +103,15 @@ message SpecRequest {
 
 // SpecResponse is the response type of the Spec RPC.
 message SpecResponse {
-  // JSON schema of a complete endpoint specification.
+  // JSON schema of an endpoint specification.
   string endpoint_spec_schema_json = 1 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointchema"
+    json_name = "endpointSpecSchema"
   ];
-  // JSON schema of a complete endpoint specification.
+  // JSON schema of a resource specification.
   string resource_spec_schema_json = 2 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointchema"
+    json_name = "resourceSpecSchema"
   ];
   // URL for connector's documention.
   string documentation_url = 3;
