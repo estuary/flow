@@ -48,7 +48,7 @@ func TestBuildCatalog(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
-	built.ID = uuid.NameSpaceURL              // Stable, arbitrary fixture.
+	built.UUID = uuid.NameSpaceURL            // Stable, arbitrary fixture.
 	cupaloy.SnapshotT(t, built)
 }
 
@@ -69,7 +69,7 @@ func TestBuildSchema(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
-	built.ID = uuid.NameSpaceURL              // Stable, arbitrary fixture.
+	built.UUID = uuid.NameSpaceURL            // Stable, arbitrary fixture.
 	cupaloy.SnapshotT(t, built)
 }
 
