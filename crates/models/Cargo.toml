@@ -20,6 +20,7 @@ serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value"] }
 superslice = "*"
 url = "*"
+uuid = { version = "*", features = ["serde"] }
 
 [dev-dependencies]
 sources = { path = "../sources", version = "0.0.0" }

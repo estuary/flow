@@ -20,7 +20,7 @@ type BuildError struct {
 // BuiltCatalog holds build outputs of the Flow catalog build process.
 type BuiltCatalog struct {
 	Config pf.BuildAPI_Config
-	ID     uuid.UUID
+	UUID   uuid.UUID
 	Errors []BuildError
 
 	Captures         []pf.CaptureSpec
@@ -35,22 +35,29 @@ type BuiltCatalog struct {
 	Tests            []pf.TestSpec
 }
 
-func loadBuiltCatalog(config pf.BuildAPI_Config) (*BuiltCatalog, error) {
-	var id, err = uuid.NewUUID()
-	if err != nil {
-		return nil, fmt.Errorf("generating build ID: %w", err)
-	}
-
-	db, err := sql.Open("sqlite3", config.CatalogPath)
+func loadBuiltCatalog(catalogPath string) (*BuiltCatalog, error) {
+	db, err := sql.Open("sqlite3", catalogPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite DB: %w", err)
 	}
 	defer db.Close()
 
 	var out = &BuiltCatalog{
-		Config:  config,
-		ID:      id,
 		Schemas: pf.SchemaBundle{Bundle: make(map[string]string)},
+	}
+
+	if err := loadRows(db,
+		`SELECT build_uuid, build_config FROM meta;`,
+		func() []interface{} { return []interface{}{new(uuid.UUID), new([]byte)} },
+		func(l []interface{}) {
+			out.UUID = *l[0].(*uuid.UUID)
+
+			if err := out.Config.Unmarshal(*l[1].(*[]byte)); err != nil {
+				panic(err) // TODO plumb this better.
+			}
+		},
+	); err != nil {
+		return nil, fmt.Errorf("loading catalog metadata: %w", err)
 	}
 
 	if err := loadRows(db,

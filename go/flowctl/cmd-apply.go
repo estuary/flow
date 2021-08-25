@@ -302,7 +302,7 @@ func applyMaterializations(ctx context.Context, built *bindings.BuiltCatalog, dr
 
 		response, err := driver.Apply(ctx, &pm.ApplyRequest{
 			Materialization: &spec,
-			Version:         built.ID.String(), // Use catalog commons ID.
+			Version:         built.UUID.String(), // Use catalog commons ID.
 			DryRun:          dryRun,
 		})
 		if err != nil {

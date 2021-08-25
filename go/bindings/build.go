@@ -213,7 +213,7 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 			switch pf.BuildAPI_Code(o.code) {
 
 			case pf.BuildAPI_DONE, pf.BuildAPI_DONE_WITH_ERRORS:
-				return loadBuiltCatalog(args.BuildAPI_Config)
+				return loadBuiltCatalog(args.BuildAPI_Config.CatalogPath)
 
 			case pf.BuildAPI_TRAMPOLINE:
 				trampoline.startTask(svc.arenaSlice(o))
