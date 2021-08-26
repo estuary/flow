@@ -14,10 +14,10 @@ pub struct SpecRequest {
 /// SpecResponse is the response type of the Spec RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SpecResponse {
-    /// JSON schema of a complete endpoint specification.
+    /// JSON schema of an endpoint specification.
     #[prost(string, tag="1")]
     pub endpoint_spec_schema_json: ::prost::alloc::string::String,
-    /// JSON schema of a complete endpoint specification.
+    /// JSON schema of a resource specification.
     #[prost(string, tag="2")]
     pub resource_spec_schema_json: ::prost::alloc::string::String,
     /// URL for connector's documention.
