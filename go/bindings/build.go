@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	pc "github.com/estuary/protocols/capture"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -66,7 +67,7 @@ type BuildArgs struct {
 }
 
 // BuildCatalogNew runs the configured build.
-func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
+func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 	var transport = http.DefaultTransport.(*http.Transport).Clone()
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	var client = &http.Client{Transport: transport}
@@ -213,7 +214,7 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 			switch pf.BuildAPI_Code(o.code) {
 
 			case pf.BuildAPI_DONE, pf.BuildAPI_DONE_WITH_ERRORS:
-				return loadBuiltCatalog(args.BuildAPI_Config.CatalogPath)
+				return catalog.LoadFromSQLite(args.BuildAPI_Config.CatalogPath)
 
 			case pf.BuildAPI_TRAMPOLINE:
 				trampoline.startTask(svc.arenaSlice(o))

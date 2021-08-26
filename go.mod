@@ -5,11 +5,11 @@ go 1.16
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20210826160403-70c70a3448e3
+	github.com/estuary/protocols v0.0.0-20210826170423-26a951560f40
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.2
-	github.com/google/uuid v1.1.2
+	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/jackc/pgconn v1.8.0

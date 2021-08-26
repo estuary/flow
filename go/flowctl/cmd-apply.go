@@ -18,6 +18,7 @@ import (
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/runtime"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -145,7 +146,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 	return err
 }
 
-func buildCatalog(ctx context.Context, config pf.BuildAPI_Config) (*bindings.BuiltCatalog, error) {
+func buildCatalog(ctx context.Context, config pf.BuildAPI_Config) (*catalog.BuiltCatalog, error) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
 		Context:             ctx,
 		BuildAPI_Config:     config,
@@ -187,7 +188,7 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 	return path, ptr
 }
 
-func applyCaptureShards(ctx context.Context, built *bindings.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
+func applyCaptureShards(ctx context.Context, built *catalog.BuiltCatalog, client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Captures {
 		if err := createTaskShards(ctx,
 			client,
@@ -202,7 +203,7 @@ func applyCaptureShards(ctx context.Context, built *bindings.BuiltCatalog, clien
 	return nil
 }
 
-func applyDerivationShards(ctx context.Context, built *bindings.BuiltCatalog,
+func applyDerivationShards(ctx context.Context, built *catalog.BuiltCatalog,
 	client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Derivations {
 		if err := createTaskShards(ctx, client,
@@ -217,7 +218,7 @@ func applyDerivationShards(ctx context.Context, built *bindings.BuiltCatalog,
 	return nil
 }
 
-func applyMaterializationShards(ctx context.Context, built *bindings.BuiltCatalog,
+func applyMaterializationShards(ctx context.Context, built *catalog.BuiltCatalog,
 	client pc.ShardClient, shards int, commonsRevision int64) error {
 	for _, spec := range built.Materializations {
 		if err := createTaskShards(ctx, client,
@@ -292,7 +293,7 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 	return err
 }
 
-func applyMaterializations(ctx context.Context, built *bindings.BuiltCatalog, dryRun bool) error {
+func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dryRun bool) error {
 	for _, spec := range built.Materializations {
 		driver, err := materialize.NewDriver(ctx,
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
