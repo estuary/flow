@@ -35,6 +35,7 @@ import (
 func RunConnector(
 	ctx context.Context,
 	image string,
+	networkName string,
 	args []string,
 	jsonFiles map[string]interface{},
 	writeLoop func(io.Writer) error,
@@ -53,6 +54,11 @@ func RunConnector(
 		"run",
 		"--rm",
 	}
+
+	if networkName != "" {
+		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
+	}
+
 	for name, m := range jsonFiles {
 
 		// Staging location for file mounted into the container.

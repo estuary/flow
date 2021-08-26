@@ -40,6 +40,7 @@ type CaptureDriverFn func(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	tempdir string,
+	connectorNetwork string,
 ) (pc.DriverClient, error)
 
 // MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
@@ -122,7 +123,7 @@ func BuildCatalog(args BuildArgs) (*BuiltCatalog, error) {
 				log.WithField("request", request).Debug("capture validation requested")
 
 				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					json.RawMessage(request.EndpointSpecJson), "")
+					request.EndpointSpecJson, "", args.BuildAPI_Config.ConnectorNetwork)
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}

@@ -28,6 +28,7 @@ import (
 
 type cmdTest struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Shards      int                   `long:"shards" default:"1" description:"Number of shards for each tested derivation"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Timeout     time.Duration         `long:"timeout" default:"10m" description:"Maximum time for a test invocation"`
@@ -76,6 +77,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
 		CatalogPath:       filepath.Join(runDir, "catalog.db"),
+		ConnectorNetwork:  cmd.Network,
 		Directory:         cmd.Directory,
 		Source:            cmd.Source,
 		SourceType:        pf.ContentType_CATALOG_SPEC,

@@ -115,6 +115,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 		c.task.Capture.EndpointType,
 		c.task.Capture.EndpointSpecJson,
 		c.localDir,
+		c.host.Config.ConnectorNetwork,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint driver: %w", err)
