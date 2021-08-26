@@ -841,6 +841,8 @@ message BuildAPI {
     // Should the TypeScript package be packaged into the catalog?
     // Implies generation and compilation.
     bool typescript_package = 9;
+    // The Docker network the connectors are given access to during catalog builds.
+    string connector_network = 10;
   }
 
   message Fetch {
