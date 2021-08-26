@@ -36,6 +36,12 @@ type FlowConsumerConfig struct {
 	DisableClockTicks bool
 	// Poll is exposed for a non-blocking local develop / test workflow.
 	Poll bool
+	// ConnectorNetwork controls the network access of launched connectors. When
+	// empty, connectors will be launched on their own isolated Docker network.
+	// Otherwise, they will be given access to the named network. This is useful
+	// for local develop / test workflows where connector sources/sinks may be
+	// running on localhost.
+	ConnectorNetwork string
 }
 
 // Execute delegates to runconsumer.Cmd.Execute.
