@@ -13,6 +13,10 @@ if ! ${DOCKER_EXEC} info >/dev/null 2>&1 ; then
     exit 254
 fi
 
+# Print a warning if we're running inside of a container about paths
+if grep -sq 'docker\|lxc' /proc/1/cgroup; then
+   echo "WARNING: You appear to be running this inside of a container. You may have difficulties if the path parameters do not match the path parameters on the docker host."
+fi
 
 # Make a copy of arguments to manipulate
 ARGS=(${@})
@@ -91,10 +95,17 @@ if [[ ! -e "$DOCKER_SOCK" ]] ; then
     exit 254
 fi
 
+# Any extra options to docker
 DOCKER_EXTRA_OPTS=""
 
 # Get the docker socket group owner and add that to the container to allow manipulation by flowctl
-DOCKER_SOCK_GID=$(stat -c '%g' ${DOCKER_SOCK})
+if ! DOCKER_SOCK_GID=$(stat -Lc '%g' ${DOCKER_SOCK} 2>/dev/null); then
+    # Try the BSD variant if that fails
+    if ! DOCKER_SOCK_GID=$(stat -Lf '%g' ${DOCKER_SOCK} 2>/dev/null); then
+        echo "WARNING: Could not determine gid of docker socket ${DOCKER_SOCK}."
+        DOCKER_SOCK_GID=""
+    fi
+fi
 if [[ ! -z "$DOCKER_SOCK_GID" ]]; then
     DOCKER_EXTRA_OPTS+="--group-add ${DOCKER_SOCK_GID} "
 fi
