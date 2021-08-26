@@ -12,7 +12,7 @@ ARGS=(${@})
 if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG(${key}): ${ARGS[$key]}"; done; fi
 
 # Default values
-DOCKER_SOCK="/var/run/docker.sockasdf"
+DOCKER_SOCK="/var/run/docker.sock"
 FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT="8080"
