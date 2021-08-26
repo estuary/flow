@@ -25,7 +25,9 @@ if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG($
 # Default values
 DOCKER_SOCK="/var/run/docker.sock"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
+DOCKER_EXTRA_OPTS=""
 FLOWCTL_DIRECTORY=$(pwd)
+FLOWCTL_SOURCE=""
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT="8080"
 FLOWCTL_NETWORK="bridge"
@@ -74,6 +76,9 @@ for (( argpos=0; argpos < "${#ARGS[@]}"; argpos++ )); do
             parse_option "--directory" FLOWCTL_DIRECTORY "realpath" $ARGS
             FLOWCTL_CONTAINAER_DIRECTORY="${FLOWCTL_DIRECTORY}"
             ;;
+        --source*)
+            parse_option "--source" FLOWCTL_SOURCE "realpath" $ARGS
+            ;;
         --port*)
             parse_option "--port" FLOWCTL_PORT "none" $ARGS
             ;;
@@ -95,8 +100,8 @@ if [[ ! -e "$DOCKER_SOCK" ]] ; then
     exit 254
 fi
 
-# Any extra options to docker
-DOCKER_EXTRA_OPTS=""
+# Ensure we reference the real docker.sock and not a link
+DOCKER_SOCK=$(realpath ${DOCKER_SOCK})
 
 # Get the docker socket group owner and add that to the container to allow manipulation by flowctl
 if ! DOCKER_SOCK_GID=$(stat -Lc '%g' ${DOCKER_SOCK} 2>/dev/null); then
@@ -110,23 +115,41 @@ if [[ ! -z "$DOCKER_SOCK_GID" ]]; then
     DOCKER_EXTRA_OPTS+="--group-add ${DOCKER_SOCK_GID} "
 fi
 
+# Make sure FLOWCTL_DIRECTORY exists before mapping
+if [[ ! -e ${FLOWCTL_DIRECTORY} ]]; then
+    if ! mkdir ${FLOWCTL_DIRECTORY}; then
+        echo "Could not create working directory ${FLOWCTL_DIRECTORY}"
+        exit 254
+    fi
+fi
+
+# Provide the full mapping to the source file if specified
+if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
+    FLOWCTL_SOURCE_DIR="$(realpath $(dirname ${FLOWCTL_SOURCE}))"
+    DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} "
+fi
+
+# TODO: Optimize this when we have something besides linux/amd64
+DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+
 # Build docker command
 CMD="${DOCKER_EXEC} run -it --rm \
-    --user ${UID} \
-    -v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
-    -v ${DOCKER_SOCK}:/var/run/docker.sock \
-    -p ${FLOWCTL_PORT}:${FLOWCTL_PORT} \
-    --network ${FLOWCTL_NETWORK} \
-    ${DOCKER_EXTRA_OPTS} \
-    -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
-    -e HOME=/tmp \
-    ${DOCKER_IMAGE} flowctl ${ARGS[*]}"
+--user ${UID} \
+-v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
+-v ${DOCKER_SOCK}:/var/run/docker.sock \
+-p ${FLOWCTL_PORT}:${FLOWCTL_PORT} \
+--network ${FLOWCTL_NETWORK} \
+${DOCKER_EXTRA_OPTS} \
+-v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
+-e HOME=/tmp \
+${DOCKER_IMAGE} flowctl ${ARGS[*]}"
 
 # Debug
 if [[ "${DEBUG_SCRIPT}" = true ]]; then
+    for varname in ${!DOCKER_*}; do echo "${varname}: ${!varname}"; done
     for varname in ${!FLOWCTL_*}; do echo "${varname}: ${!varname}"; done
     echo "ARGS: ${ARGS[*]}"
-    echo "${CMD}"
+    echo "CMD: ${CMD}"
 fi
 
 $CMD
