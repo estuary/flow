@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -192,7 +192,7 @@ type ApplyArgs struct {
 	// Root of the catalog keyspace in Etcd.
 	Root string
 	// BuiltCatalog to apply.
-	Build *bindings.BuiltCatalog
+	Build *catalog.BuiltCatalog
 	// TypeScriptUDS is a Unix domain socket at which the catalog's TypeScript
 	// runtime can be reached. If empty, TypeScriptPackageURL must be set.
 	TypeScriptUDS string
