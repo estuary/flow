@@ -7,6 +7,13 @@ if [[ ! -x "$DOCKER_EXEC" ]] ; then
     exit 254
 fi
 
+# Make sure we can invoke docker
+if ! ${DOCKER_EXEC} info >/dev/null 2>&1 ; then
+    echo "flowctl.sh is unable to invoke 'docker info'. Ensure the current user has access to run docker. (Usually by making the user a member of the group docker ie: 'sudo usermod -a -G docker <username>'"
+    exit 254
+fi
+
+
 # Make a copy of arguments to manipulate
 ARGS=(${@})
 if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG(${key}): ${ARGS[$key]}"; done; fi
@@ -101,6 +108,7 @@ CMD="${DOCKER_EXEC} run -it --rm \
     --network ${FLOWCTL_NETWORK} \
     ${DOCKER_EXTRA_OPTS} \
     -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
+    -e HOME=/tmp \
     ${DOCKER_IMAGE} flowctl ${ARGS[*]}"
 
 # Debug
