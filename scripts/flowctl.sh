@@ -13,6 +13,7 @@ if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG($
 
 # Default values
 DOCKER_SOCK="/var/run/docker.sock"
+DOCKER_IMAGE="quay.io/estuary/flow:dev"
 FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT="8080"
@@ -71,6 +72,9 @@ for (( argpos=0; argpos < "${#ARGS[@]}"; argpos++ )); do
         --docker-sock*)
             parse_option "--docker-sock" DOCKER_SOCK "consume" $ARGS
             ;;
+        --docker-image*)
+            parse_option "--docker-image" DOCKER_IMAGE "consume" $ARGS
+            ;;
     esac
 done
 
@@ -97,7 +101,7 @@ CMD="${DOCKER_EXEC} run -it --rm \
     --network ${FLOWCTL_NETWORK} \
     ${DOCKER_EXTRA_OPTS} \
     -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
-    quay.io/estuary/flow:dev flowctl ${ARGS[*]}"
+    ${DOCKER_IMAGE} flowctl ${ARGS[*]}"
 
 # Debug
 if [[ "${DEBUG_SCRIPT}" = true ]]; then
