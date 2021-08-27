@@ -32,6 +32,20 @@ FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT="8080"
 FLOWCTL_NETWORK="bridge"
 
+# MacOS doesn't have realpath so this is a portable replacement
+function realpath {
+    OURPWD=$PWD
+    cd "$(dirname "$1")"
+    LINK=$(readlink "$(basename "$1")")
+    while [ "$LINK" ]; do
+        cd "$(dirname "$LINK")"
+        LINK=$(readlink "$(basename "$1")")
+    done
+    REALPATH="$PWD/$(basename "$1")"
+    cd "$OURPWD"
+    echo "$REALPATH"
+}
+
 # parse_option (option name, assign to variable, option, $@) (relies on global argpos for current position in args)
 function parse_option {
     name="$1"; shift
