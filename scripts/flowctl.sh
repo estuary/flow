@@ -39,7 +39,7 @@ function realpath {
     LINK=$(readlink "$(basename "$1")")
     while [ "$LINK" ]; do
         cd "$(dirname "$LINK")"
-        LINK=$(readlink "$(basename "$1")")
+        LINK=$(readlink "$(basename "$LINK")")
     done
     REALPATH="$PWD/$(basename "$1")"
     cd "$OURPWD"
@@ -143,8 +143,10 @@ if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
     DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} "
 fi
 
-# TODO: Optimize this when we have something besides linux/amd64
-DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+# Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
+if [[ `uname -m` == 'arm64' ]]; then
+    DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+fi
 
 # Build docker command
 CMD="${DOCKER_EXEC} run -it --rm \
