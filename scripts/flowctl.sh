@@ -1,16 +1,19 @@
 #!/bin/bash
 
+function log_fatal {
+    echo "ERROR: $1"
+    exit 1
+}
+
 # Make sure we have docker
 DOCKER_EXEC=$(which docker)
 if [[ ! -x "$DOCKER_EXEC" ]] ; then
-    echo "flowctl.sh requires docker in order to operate."
-    exit 254
+    log_fatal "flowctl.sh requires docker in order to operate."
 fi
 
 # Make sure we can invoke docker
 if ! ${DOCKER_EXEC} info >/dev/null 2>&1 ; then
-    echo "flowctl.sh is unable to invoke 'docker info'. Ensure the current user has access to run docker. (Usually by making the user a member of the group docker ie: 'sudo usermod -a -G docker <username>'"
-    exit 254
+    log_fatal "flowctl.sh is unable to invoke 'docker info'. Ensure the current user has access to run docker. (Usually by making the user a member of the group docker ie: 'sudo usermod -a -G docker <username>'"
 fi
 
 # Print a warning if we're running inside of a container about paths
@@ -20,9 +23,10 @@ fi
 
 # Make a copy of arguments to manipulate
 ARGS=(${@})
-if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG(${key}): ${ARGS[$key]}"; done; fi
 
 # Default values
+DEBUG_SCRIPT="false"
+DEBUG_SHELL="false"
 DOCKER_SOCK="/var/run/docker.sock"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
 DOCKER_EXTRA_OPTS=""
@@ -105,13 +109,28 @@ for (( argpos=0; argpos < "${#ARGS[@]}"; argpos++ )); do
         --docker-image*)
             parse_option "--docker-image" DOCKER_IMAGE "consume" $ARGS
             ;;
+        --debug-script*)
+            parse_option "--debug-script" DEBUG_SCRIPT "consume" $ARGS
+            ;;
+        --debug-shell*)
+            parse_option "--debug-shell" DEBUG_SHELL "consume" $ARGS
+            ;;
     esac
 done
 
+if [[ "${DEBUG_SCRIPT}" != "true" && "${DEBUG_SCRIPT}" != "false" ]]; then
+    log_fatal "The --debug-script option requires a value of true or false. Got '${DEBUG_SCRIPT}'"
+fi
+if [[ "${DEBUG_SCRIPT}" = true ]]; then for (( i=1; i <= "$#"; i++ )); do echo "BARG(${i}): ${!i}"; done; fi
+if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG(${key}): ${ARGS[$key]}"; done; fi
+
+if [[ "${DEBUG_SHELL}" != "true" && "${DEBUG_SHELL}" != "false" ]]; then
+    log_fatal "The --debug-shell option requires a value of true or false. Got '${DEBUG_SHELL}'"
+fi
+
 # Check that we can find the docker socket
 if [[ ! -e "$DOCKER_SOCK" ]] ; then
-    echo "Could not find the docker socket. You can specifiy the location with --docker-sock=/full/path"
-    exit 254
+    log_fatal "Could not find the docker socket. You can specifiy the location with --docker-sock=/full/path"
 fi
 
 # Ensure we reference the real docker.sock and not a link
@@ -132,15 +151,14 @@ fi
 # Make sure FLOWCTL_DIRECTORY exists before mapping
 if [[ ! -e ${FLOWCTL_DIRECTORY} ]]; then
     if ! mkdir ${FLOWCTL_DIRECTORY}; then
-        echo "Could not create working directory ${FLOWCTL_DIRECTORY}"
-        exit 254
+        log_fatal "Could not create working directory ${FLOWCTL_DIRECTORY}"
     fi
 fi
 
-# Provide the full mapping to the source file if specified
+# Provide the full mapping to the source file if specified and make sure the workdir is set to the path
 if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
     FLOWCTL_SOURCE_DIR="$(realpath $(dirname ${FLOWCTL_SOURCE}))"
-    DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} "
+    DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR} "
 fi
 
 # Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
@@ -158,7 +176,14 @@ CMD="${DOCKER_EXEC} run -it --rm \
 ${DOCKER_EXTRA_OPTS} \
 -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
 -e HOME=/tmp \
-${DOCKER_IMAGE} flowctl ${ARGS[*]}"
+${DOCKER_IMAGE}"
+
+# DEBUG_SHELL will drop us into a bash shell
+if ${DEBUG_SHELL}; then
+    CMD="${CMD} /bin/bash"
+else
+    CMD="${CMD} flowctl ${ARGS[*]}"
+fi
 
 # Debug
 if [[ "${DEBUG_SCRIPT}" = true ]]; then
