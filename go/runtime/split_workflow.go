@@ -329,10 +329,22 @@ func CompleteSplit(svc *consumer.Service, shard consumer.Shard, rec *recoverylog
 	var lhsLabels, rhsLabels = &lhsSpec.LabelSet, &rhsSpec.LabelSet
 
 	// Narrow the LHS RangeSpec from the parent range to the split LHS child range.
-	if lhsLabels.ValueOf(labels.KeyBegin) == rhsLabels.ValueOf(labels.KeyBegin) {
-		lhsLabels.SetValue(labels.RClockEnd, rhsLabels.ValueOf(labels.RClockBegin))
-	} else if lhsLabels.ValueOf(labels.RClockBegin) == rhsLabels.ValueOf(labels.RClockBegin) {
-		lhsLabels.SetValue(labels.KeyEnd, rhsLabels.ValueOf(labels.KeyBegin))
+	if lhsLabels.ValueOf(labels.KeyBegin) != rhsLabels.ValueOf(labels.KeyBegin) {
+		// KeyBegin is different, use that to split
+		rhsKeyBegin, err := labels.ParseHexU32Label(labels.KeyBegin, *rhsLabels)
+		if err != nil {
+			return fmt.Errorf("parse label KeyBegin: %w", err)
+		}
+		labels.EncodeHexU32Label(labels.KeyEnd, rhsKeyBegin-1, lhsLabels) // Use rhsKeyBegin-1 as lhsKeyEnd
+
+	} else if lhsLabels.ValueOf(labels.RClockBegin) != rhsLabels.ValueOf(labels.RClockBegin) {
+		// RClock is different, use that to split
+		rhsRClockBegin, err := labels.ParseHexU32Label(labels.RClockBegin, *rhsLabels)
+		if err != nil {
+			return fmt.Errorf("parse label RClockBegin: %w", err)
+		}
+		labels.EncodeHexU32Label(labels.RClockEnd, rhsRClockBegin-1, lhsLabels) // Use rhsRClockBegin-1 as lhsRClockEnd
+
 	} else {
 		return fmt.Errorf("expect parent and child to differ on key or r-clock range")
 	}
