@@ -153,25 +153,23 @@ package: $(PACKAGE_TARGETS)
 docker-image:
 	docker build \
 		--file ${ROOTDIR}/.devcontainer/release.Dockerfile \
-		--tag docker.pkg.github.com/estuary/flow/bin:${VERSION} \
 		--tag quay.io/estuary/flow:${VERSION} \
 		--tag quay.io/estuary/flow:dev \
+		--tag ghcr.io/estuary/flow:${VERSION} \
+		--tag ghcr.io/estuary/flow:dev \
 		${PKGDIR}/
 
-.PHONY: docker-push-to-quay
-docker-push-to-quay:
+.PHONY: docker-push
+docker-push:
 	docker push quay.io/estuary/flow:${VERSION}
+	docker push ghcr.io/estuary/flow:${VERSION}
 
 # This is used by the GH Action workflow to push the 'dev' tag.
 # It is invoked only for builds on the master branch.
-.PHONY: docker-push-quay-dev
-docker-push-quay-dev:
+.PHONY: docker-push-dev
+docker-push-dev:
 	docker push quay.io/estuary/flow:dev
-
-# This works , but is currently disabled. See comment in .github/workflows/main.yml.
-# .PHONY: docker-push-to-github
-# docker-push-to-github: docker-image
-# 	docker push docker.pkg.github.com/estuary/flow/bin:${VERSION}
+	docker push ghcr.io/estuary/flow:dev
 
 ##########################################################################
 # Make targets used for development:
