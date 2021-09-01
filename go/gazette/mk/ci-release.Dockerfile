@@ -9,7 +9,7 @@ RUN apt-get update -y \
       ca-certificates \
       curl \
       libgflags2.2 \
-      libjemalloc1 \
+      libjemalloc2 \
       libsnappy1v5 \
       libzstd1 \
  && rm -rf /var/lib/apt/lists/*
