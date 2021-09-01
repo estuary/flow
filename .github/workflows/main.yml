@@ -44,6 +44,11 @@ jobs:
           echo "${{ secrets.QUAY_TOKEN }}" | \
             docker login --username ${{ secrets.QUAY_USERNAME }} --password-stdin quay.io
 
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
       - name: Cache/Restore Rust dependencies.
         uses: actions/cache@v2
         with:
@@ -77,8 +82,8 @@ jobs:
         shell: bash
       - run: make package
       - run: make docker-image
-      - run: make docker-push-to-quay
+      - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
-        run: make docker-push-quay-dev
+        run: make docker-push-dev
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
       - run: cargo-cache
