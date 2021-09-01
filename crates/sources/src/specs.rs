@@ -375,13 +375,15 @@ pub struct PostgresConfig {
     /// # Host address of the database.
     pub host: String,
     /// # Port of the database (default: 5432).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
     /// # Connection user.
     pub user: String,
     /// # Connection password.
     pub password: String,
     /// # Logical database (default: $user).
-    pub dbname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
 }
 
 /// Sqlite endpoint configuration.

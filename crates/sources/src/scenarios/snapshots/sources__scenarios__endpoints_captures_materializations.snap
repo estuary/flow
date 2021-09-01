@@ -102,7 +102,7 @@ Tables {
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             materialization: a/materialization,
             endpoint_type: "Postgresql",
-            endpoint_spec: {"dbname":null,"host":"localhost","password":"whoops","port":null,"user":"somebody"},
+            endpoint_spec: {"host":"localhost","password":"whoops","user":"somebody"},
         },
         Materialization {
             scope: test://example/catalog.yaml#/materializations/to~1sqlite,
