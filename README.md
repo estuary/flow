@@ -93,7 +93,7 @@ materializations:
         # (Use host: host.docker.internal when running Docker for Windows/Mac).
         host: localhost
         password: password
-        dbname: postgres
+        database: postgres
         user: postgres
         port: 5432
     bindings:
