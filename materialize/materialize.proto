@@ -36,7 +36,7 @@ message Constraint {
   string reason = 3;
 }
 
-// Driver is the service implemented by a materialization target system.
+// Driver is the service implemented by a materialization connector.
 service Driver {
   // Spec returns the specification definition of this driver.
   // Notably this includes its endpoint and resource configuration JSON schema.
@@ -54,8 +54,8 @@ service Driver {
   //    - The Flow runtime client sends TransactionRequest.Open,
   //      opening the stream and requesting it be fenced from other streams.
   // :Opened:
-  //    - The driver server sends TransactionResponse.Opened after,
-  //      where supported, ensuring other stream clients are fenced.
+  //    - The driver server sends TransactionResponse.Opened after ensuring
+  //      that other raced clients are fenced (if fencing is supported).
   //
   // TransactionRequest.Open and TransactionResponse.Opened are sent only
   // once, at the commencement of the stream. Thereafter the protocol loops:
@@ -64,12 +64,15 @@ service Driver {
   //    - The client sends zero or more TransactionRequest.Load.
   //    - The driver server may immediately send any number of
   //      TransactionResponse.Loaded in response.
-  //    - Or, it may defer responding with some or all loads until later.
+  //    - Or, it may defer responding with some or all loads
+  //      until later (see TransactionResponse.Prepared).
   // :Prepare:
   //    - The client sends TransactionRequest.Prepare.
   //    - At this time, the server must flush remaining
   //      TransactionResponse.Loaded.
   // :Prepared:
+  //    - If the server has remaining TransactionResponse.Loaded
+  //      to send, it must send them now.
   //    - The server sends TransactionResponse.Prepared.
   // :Store:
   //    - The client sends zero or more TransactionRequest.Store.
@@ -325,12 +328,16 @@ message TransactionResponse {
   // Prepared responds to a TransactionRequest.Prepare of the client.
   // No further Loaded responses will be sent.
   message Prepared {
-    // Optional driver checkpoint of this transaction.
-    // If provided, the most recent checkpoint will be persisted by the
-    // Flow runtime and returned in a future Fence request.
-    bytes driver_checkpoint_json = 1 [
+    // Optional driver checkpoint update of this transaction,
+    // applied as an RFC7396 Merge Patch to the driver checkpoint
+    // of the immediately preceeding transaction (or to an empty
+    // JSON object `{}` if there is no preceeding transaction).
+    //
+    // The patched checkpoint will be persisted by the Flow
+    // runtime and returned in a future Open request.
+    bytes driver_checkpoint_merge_patch_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
+      json_name = "driverCheckpointMergePatch"
     ];
   }
   Prepared prepared = 3;
