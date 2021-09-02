@@ -52,6 +52,9 @@ GO_BUILD_DEPS = \
 ##########################################################################
 # Build rules:
 
+.PHONY: default
+default: rust-build package
+
 # `etcd` is used for testing, and packaged as a release artifact.
 ${TOOLBIN}/etcd:
 	mkdir -p ${TOOLBIN} \
