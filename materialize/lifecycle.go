@@ -309,7 +309,7 @@ type LoadIterator struct {
 	Key     tuple.Tuple // Key of the next document to load.
 
 	stream interface {
-		Recv() (*TransactionRequest, error)
+		RecvMsg(m interface{}) error
 	}
 	req   TransactionRequest
 	index int
@@ -335,15 +335,15 @@ func (it *LoadIterator) poll() bool {
 
 	// Must we read another request?
 	if it.req.Load == nil || it.index == len(it.req.Load.PackedKeys) {
-		if next, err := it.stream.Recv(); err != nil {
+		// Use RecvMsg to re-use |it.req| without allocation.
+		// Safe because we fully process |it.req| between calls to RecvMsg.
+		if err := it.stream.RecvMsg(&it.req); err != nil {
 			if err == io.EOF && it.req.Load == nil {
 				it.err = io.EOF // Clean shutdown before first Load.
 			} else {
 				it.err = fmt.Errorf("reading Load: %w", err)
 			}
 			return false
-		} else {
-			it.req = *next
 		}
 
 		if it.req.Prepare != nil {
@@ -402,7 +402,7 @@ type StoreIterator struct {
 	Exists  bool            // Does this document exist in the store already?
 
 	stream interface {
-		Recv() (*TransactionRequest, error)
+		RecvMsg(m interface{}) error
 	}
 	req   TransactionRequest
 	index int
@@ -427,11 +427,11 @@ func (it *StoreIterator) poll() bool {
 	}
 	// Must we read another request?
 	if it.req.Store == nil || it.index == len(it.req.Store.PackedKeys) {
-		if next, err := it.stream.Recv(); err != nil {
+		// Use RecvMsg to re-use |it.req| without allocation.
+		// Safe because we fully process |it.req| between calls to RecvMsg.
+		if err := it.stream.RecvMsg(&it.req); err != nil {
 			it.err = fmt.Errorf("reading Store: %w", err)
 			return false
-		} else {
-			it.req = *next
 		}
 
 		if it.req.Commit != nil {
@@ -510,7 +510,7 @@ type Transactor interface {
 	Store(*StoreIterator) error
 	// Commit the transaction.
 	Commit() error
-	// Destroy the Driver.
+	// Destroy the Transactor, releasing any held resources.
 	Destroy()
 }
 
