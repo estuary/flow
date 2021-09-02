@@ -1,5 +1,26 @@
 
-v 0.88.0
+v0.89.0
+--------------------
+
+- Optional `consumer.MessageProducer` interface allows applications
+  to provide an alternate driver of message reading & parsing,
+  outside of the built-in mechanisms for reading journals named
+  in the ShardSpec.
+- Binary-compatible enhancement of recovery logs allows
+  for cheap "forks", where historical content of one log is used
+  from within another.
+  This introduced a breaking change to the recoverylog.Recorder,
+  which now has a dedicated constructor and non-exported fields.
+- Allow journal names in Read and Append RPCs to be extended with a
+  'name;suffix', where the suffix is captured into consumer checkpoint offsets.
+  This allows a single consumer to have multiple, concurrent reads of a journal.
+- New instrumentation for testing and building custom consumer executables.
+- Fix a memory leak in append flow control.
+- Fix an allocator bug which could cause delayed convergence under pretty uncommon conditions.
+- Fix some corner cases on timely reporting of shard progress in the Stat RPC.
+- Update the versions of all dependencies.
+
+v0.88.0
 --------------------
 
 - Behavior change: journal *registers* are a small set of labels which are used
@@ -86,7 +107,7 @@ v0.85.2
   which are dynamically determined using the ``go mod`` tool.
 - Update to Go 1.13.4
 
-v0.85.1 
+v0.85.1
 ---------
 
 - Added ``MaxAppendRate`` JournalSpec field and global broker flag.
