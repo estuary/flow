@@ -11,7 +11,7 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-// Driver is the service implemented by a materialization target system.
+// Driver is the service implemented by a capture connector.
 service Driver {
   // Spec returns the specification definition of this driver.
   // Notably this includes its endpoint and resource configuration JSON schema.
@@ -175,12 +175,16 @@ message CaptureResponse {
 
   // Commit previous captured documents.
   message Commit {
-    // Optional driver checkpoint of this transaction.
-    // If provided, the most recent checkpoint will be persisted by the
-    // Flow runtime and returned in a future CaptureRequest.
-    bytes driver_checkpoint_json = 1 [
+    // Optional driver checkpoint update of this transaction,
+    // applied as an RFC7396 Merge Patch to the driver checkpoint
+    // of the immediately preceeding transaction (or to an empty
+    // JSON object `{}` if there is no preceeding transaction).
+    //
+    // The patched checkpoint will be persisted by the Flow
+    // runtime and returned in a future CaptureRequest.
+    bytes driver_checkpoint_merge_patch_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
+      json_name = "driverCheckpointMergePatch"
     ];
   }
   Commit commit = 3;
