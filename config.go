@@ -15,11 +15,18 @@ type Config struct {
 	AddValues             map[JsonPointer]interface{} `json:"addValues,omitempty"`
 	Format                string                      `json:"format,omitempty"`
 	Filename              string                      `json:"filename,omitempty"`
+	Compression           string                      `json:"compression,omitempty"`
 	ContentType           string                      `json:"contentType,omitempty"`
 	ContentEncoding       string                      `json:"contentEncoding,omitempty"`
 	Projections           map[string]JsonPointer      `json:"projections,omitempty"`
 	Schema                json.RawMessage             `json:"schema,omitempty"`
 	FileExtensionMappings map[string]string           `json:"fileExtensionMappings,omitempty"`
+	ContentTypeMappings   map[string]string           `json:"contentTypeMappings,omitempty"`
+
+	// Configs for specific file formats aren't exhaustively specified here, and should just be
+	// passed through to the parser.
+	Csv map[string]interface{} `json:"csv,omitempty"`
+	Tsv map[string]interface{} `json:"tsv,omitempty"`
 }
 
 func (c *Config) Copy() Config {
@@ -35,18 +42,34 @@ func (c *Config) Copy() Config {
 	for k, v := range c.FileExtensionMappings {
 		newFileMappings[k] = v
 	}
+	var newContentTypeMappings = make(map[string]string)
+	for k, v := range c.ContentTypeMappings {
+		newContentTypeMappings[k] = v
+	}
+	var newCsv = make(map[string]interface{})
+	for k, v := range c.Csv {
+		newCsv[k] = v
+	}
+	var newTsv = make(map[string]interface{})
+	for k, v := range c.Tsv {
+		newTsv[k] = v
+	}
 
 	return Config{
 		AddRecordOffset: c.AddRecordOffset,
 		AddValues:       newAddValues,
 		Format:          c.Format,
 		Filename:        c.Filename,
+		Compression:     c.Compression,
 		ContentType:     c.ContentType,
 		ContentEncoding: c.ContentEncoding,
 		Projections:     newProjections,
 		// TODO: Figure out a non-heinous way to copy an interface{}
 		Schema:                c.Schema,
 		FileExtensionMappings: newFileMappings,
+		ContentTypeMappings:   newContentTypeMappings,
+		Csv:                   newCsv,
+		Tsv:                   newTsv,
 	}
 }
 
