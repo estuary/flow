@@ -36,7 +36,7 @@ FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_SOURCE=""
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT=""
-FLOWCTL_NETWORK="bridge"
+FLOWCTL_NETWORK="host"
 
 # Allow the script to be symlinked to flowctl or gazctl and make the appropriate call in the docker contianer
 # This can also be overriden with the --command option
