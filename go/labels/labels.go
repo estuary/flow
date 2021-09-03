@@ -61,6 +61,16 @@ const (
 	SplitTarget = "estuary.dev/split-target"
 	// SplitSource is the shard ID from which this shard is currently splitting.
 	SplitSource = "estuary.dev/split-source"
+
+	// LogsCollection is the name of the Flow collection to which logs pertaining to this task
+	// should be written.
+	LogsCollection = "estuary.dev/logs-collection"
+
+	// LogLevel is the desired log level for publishing logs related to the catalog task.
+	LogLevel = "estuary.dev/log-level"
+	// StatsCollection is the name of the Flow collection to which stats pertaining to this task
+	// should be written.
+	StatsCollection = "estuary.dev/stats-collection"
 )
 
 // EncodeRange encodes the RangeSpec into the given LabelSet,
