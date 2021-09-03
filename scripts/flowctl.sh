@@ -31,6 +31,7 @@ DOCKER_SOCK="/var/run/docker.sock"
 DOCKER_UID="$UID"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
 DOCKER_EXTRA_OPTS=""
+DOCKER_COMMAND="flowctl"
 FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_SOURCE=""
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
@@ -113,8 +114,8 @@ for (( argpos=0; argpos < "${#ARGS[@]}"; argpos++ )); do
         --debug-script*)
             parse_option "--debug-script" DEBUG_SCRIPT "consume" $ARGS
             ;;
-        --debug-shell*)
-            parse_option "--debug-shell" DEBUG_SHELL "consume" $ARGS
+        --command*)
+            parse_option "--command" DOCKER_COMMAND "consume" $ARGS
             ;;
     esac
 done
@@ -124,10 +125,6 @@ if [[ "${DEBUG_SCRIPT}" != "true" && "${DEBUG_SCRIPT}" != "false" ]]; then
 fi
 if [[ "${DEBUG_SCRIPT}" = true ]]; then for (( i=1; i <= "$#"; i++ )); do echo "BARG(${i}): ${!i}"; done; fi
 if [[ "${DEBUG_SCRIPT}" = true ]]; then for key in "${!ARGS[@]}"; do echo "ARG(${key}): ${ARGS[$key]}"; done; fi
-
-if [[ "${DEBUG_SHELL}" != "true" && "${DEBUG_SHELL}" != "false" ]]; then
-    log_fatal "The --debug-shell option requires a value of true or false. Got '${DEBUG_SHELL}'"
-fi
 
 # Check that we can find the docker socket
 if [[ ! -e "$DOCKER_SOCK" ]] ; then
@@ -182,12 +179,8 @@ ${DOCKER_EXTRA_OPTS} \
 -e HOME=/tmp \
 ${DOCKER_IMAGE}"
 
-# DEBUG_SHELL will drop us into a bash shell
-if ${DEBUG_SHELL}; then
-    CMD="${CMD} /bin/bash"
-else
-    CMD="${CMD} flowctl ${ARGS[*]}"
-fi
+# Build the full docker command
+CMD="${CMD} ${DOCKER_COMMAND} ${ARGS[*]}"
 
 # Debug
 if [[ "${DEBUG_SCRIPT}" = true ]]; then
