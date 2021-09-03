@@ -35,7 +35,7 @@ DOCKER_COMMAND="flowctl"
 FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_SOURCE=""
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
-FLOWCTL_PORT="8080"
+FLOWCTL_PORT=""
 FLOWCTL_NETWORK="bridge"
 
 # Allow the script to be symlinked to flowctl or gazctl and make the appropriate call in the docker contianer
@@ -164,7 +164,12 @@ fi
 # Provide the full mapping to the source file if specified and make sure the workdir is set to the path
 if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
     FLOWCTL_SOURCE_DIR="$(realpath $(dirname ${FLOWCTL_SOURCE}))"
-    DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR} "
+    DOCKER_EXTRA_OPTS+="-v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR} "
+fi
+
+# If the port option was specified map the same port outside of the container
+if [[ ! -z "${FLOWCTL_PORT}" ]]; then
+    DOCKER_EXTRA_OPTS+="-p ${FLOWCTL_PORT}:${FLOWCTL_PORT} "
 fi
 
 # This is a workaround on MacOS because it requires root in order to run docker-in-docker
@@ -183,7 +188,6 @@ CMD="${DOCKER_EXEC} run -it --rm \
 --user ${DOCKER_UID} \
 -v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
 -v ${DOCKER_SOCK}:/var/run/docker.sock \
--p ${FLOWCTL_PORT}:${FLOWCTL_PORT} \
 --network ${FLOWCTL_NETWORK} \
 ${DOCKER_EXTRA_OPTS} \
 -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
