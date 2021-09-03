@@ -156,3 +156,52 @@ pub struct CharacterSeparatedConfig {
     #[serde(default)]
     pub encoding: Option<EncodingRef>,
 }
+
+impl CharacterSeparatedConfig {
+    pub fn merge(&mut self, other: &CharacterSeparatedConfig) {
+        if !other.headers.is_empty() {
+            self.headers = other.headers.clone();
+        }
+        if other.delimiter.is_some() {
+            self.delimiter = other.delimiter;
+        }
+        if other.line_ending.is_some() {
+            self.line_ending = other.line_ending;
+        }
+        if other.quote.is_some() {
+            self.quote = other.quote;
+        }
+        if other.escape.is_some() {
+            self.escape = other.escape;
+        }
+        if other.encoding.is_some() {
+            self.encoding = other.encoding;
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn character_separated_config_is_merged() {
+        let mut base = CharacterSeparatedConfig {
+            delimiter: Some(Char(20)),
+            headers: vec![String::from("nope")],
+            quote: Some(Char(34)),
+            ..Default::default()
+        };
+        base.merge(&CharacterSeparatedConfig {
+            delimiter: Some(Char(44)),
+            headers: vec![String::from("foo")],
+            escape: Some(Char(22)),
+            ..Default::default()
+        });
+
+        assert_eq!(Some(Char(44)), base.delimiter);
+        assert_eq!(Some(Char(34)), base.quote);
+        assert_eq!(Some(Char(22)), base.escape);
+        assert_eq!(&[String::from("foo")], base.headers.as_slice());
+    }
+}

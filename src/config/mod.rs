@@ -363,6 +363,27 @@ impl ParseConfig {
                 .iter()
                 .map(|kv| (kv.0.clone(), kv.1.clone())),
         );
+        self.content_type_mappings.extend(
+            other
+                .content_type_mappings
+                .iter()
+                .map(|kv| (kv.0.clone(), kv.1.clone())),
+        );
+        if let Some(other_csv) = other.csv.as_ref() {
+            if let Some(self_csv) = self.csv.as_mut() {
+                self_csv.merge(other_csv);
+            } else {
+                self.csv = Some(other_csv.clone());
+            }
+        }
+        if let Some(other_tsv) = other.tsv.as_ref() {
+            if let Some(self_tsv) = self.tsv.as_mut() {
+                self_tsv.merge(other_tsv);
+            } else {
+                self.tsv = Some(other_tsv.clone());
+            }
+        }
+
         self
     }
 
@@ -438,7 +459,8 @@ mod test {
             },
             "projections": {
                 "weee": "wooo"
-            }
+            },
+            "csv": {"quote": "a"}
         }"#,
         )
         .unwrap();
@@ -454,7 +476,9 @@ mod test {
                     "addRecordOffset": "/offset",
                     "projections": {
                         "fee": "fi"
-                    }
+                    },
+                    "csv": {"quote": "\""},
+                    "tsv": {"escape": "\\"}
                 }"#,
             )
             .unwrap(),
@@ -474,7 +498,9 @@ mod test {
                 "projections": {
                     "weee": "wooo",
                     "fee": "fi"
-                }
+                },
+                "csv": {"quote": "\""},
+                "tsv": {"escape": "\\"}
             }"#,
         )
         .unwrap();
