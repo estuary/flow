@@ -28,6 +28,7 @@ ARGS=(${@})
 DEBUG_SCRIPT="false"
 DEBUG_SHELL="false"
 DOCKER_SOCK="/var/run/docker.sock"
+DOCKER_UID="$UID"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
 DOCKER_EXTRA_OPTS=""
 FLOWCTL_DIRECTORY=$(pwd)
@@ -133,9 +134,6 @@ if [[ ! -e "$DOCKER_SOCK" ]] ; then
     log_fatal "Could not find the docker socket. You can specifiy the location with --docker-sock=/full/path"
 fi
 
-# Ensure we reference the real docker.sock and not a link
-DOCKER_SOCK=$(realpath ${DOCKER_SOCK})
-
 # Get the docker socket group owner and add that to the container to allow manipulation by flowctl
 if ! DOCKER_SOCK_GID=$(stat -Lc '%g' ${DOCKER_SOCK} 2>/dev/null); then
     # Try the BSD variant if that fails
@@ -161,14 +159,20 @@ if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
     DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR} "
 fi
 
-# Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
-if [[ `uname -m` == 'arm64' ]]; then
-    DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+# This is a workaround on MacOS because it requires root in order to run docker-in-docker
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Even though the container is running as root, files created on mapped volumes in MacOS still maintin the users ownership
+    DOCKER_UID="0"
+
+    # Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
+    if [[ `uname -m` == 'arm64' ]]; then
+        DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+    fi
 fi
 
 # Build docker command
 CMD="${DOCKER_EXEC} run -it --rm \
---user ${UID} \
+--user ${DOCKER_UID} \
 -v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
 -v ${DOCKER_SOCK}:/var/run/docker.sock \
 -p ${FLOWCTL_PORT}:${FLOWCTL_PORT} \
