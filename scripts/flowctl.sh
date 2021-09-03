@@ -38,6 +38,17 @@ FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
 FLOWCTL_PORT="8080"
 FLOWCTL_NETWORK="bridge"
 
+# Allow the script to be symlinked to flowctl or gazctl and make the appropriate call in the docker contianer
+# This can also be overriden with the --command option
+case "$(basename $0)" in
+    flowctl)
+        DOCKER_COMMAND="flowctl"
+    ;;
+    gazctl)
+        DOCKER_COMMAND="gazctl"
+    ;;
+esac
+
 # MacOS doesn't have realpath so this is a portable replacement
 function realpath {
     OURPWD=$PWD
