@@ -560,6 +560,454 @@ export type MarketingViewsWithCampaign = /* View event joined with it's campaign
     view_id: string;
 };
 
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsAcmeBankLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsAcmeBankStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsExamplesLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsExamplesStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsMarketingLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsMarketingStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsPatternsLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsPatternsStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsSoakLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsSoakStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsStockLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsStockStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-log-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsTemperatureLogs =
+    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+        fields?: /* Map of keys and values that are associated with this log entry. */ {
+            [k: string]: unknown;
+        };
+        level: 'debug' | 'error' | 'info' | 'warn';
+        message: string;
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
+// Generated from builtin://flow/ops-stats-schema.json.
+// Referenced as schema of builtin://flow/ops/generated/collections.
+export type OpsTemperatureStats =
+    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+        combine: {
+            left?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            out?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+            right?: {
+                bytes_total: /* The number of bytes processed from or into the given collection capture or materialization. Note that for 
+captures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.
+ */ number;
+                docs_total: /* The number of documents processed from or into the given collection capture or materialization */ number;
+            };
+        };
+        connector?: {
+            start?: /* Counter of connector invocations */ number;
+        };
+        lambda?: {
+            publish?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+            update?: {
+                duration_seconds: /* The total number of seconds elapsed for all invocations. */ number;
+                invocations_total: /* The number of invocations during this transaction */ number;
+            };
+        };
+        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+            keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
+            kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
+            name: /* The name of the catalog task (without the task type prefix) */ string;
+            rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
+        };
+        ts: /* Timestamp corresponding to the start of the transaction */ string;
+    };
+
 // Generated from examples/derive-patterns/join-inner.flow.yaml?ptr=/collections/patterns~1inner-join/schema.
 // Referenced as schema of examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join.
 export type PatternsInnerJoin = /* Document for join examples */ {

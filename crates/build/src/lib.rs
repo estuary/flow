@@ -8,6 +8,7 @@ mod api;
 pub use api::API;
 
 mod nodejs;
+mod ops;
 
 pub async fn configured_build<F, D>(
     config: protocol::flow::build_api::Config,
@@ -124,6 +125,9 @@ where
         .load_resource(sources::Scope::new(&root), &root, root_type)
         .await;
 
+    let mut tables = loader.into_tables();
+    ops::generate_ops_collections(&mut tables);
+
     let sources::Tables {
         capture_bindings,
         captures,
@@ -143,7 +147,7 @@ where
         shard_rules,
         test_steps,
         transforms,
-    } = loader.into_tables();
+    } = tables;
 
     let validation::Tables {
         built_captures,

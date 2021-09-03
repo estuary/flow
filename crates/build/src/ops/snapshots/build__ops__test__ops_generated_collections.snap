@@ -1,0 +1,55 @@
+---
+source: crates/build/src/ops/mod.rs
+expression: "&tables.collections"
+
+---
+[
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/acmeCo/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin","/ts"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/acmeCo/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/gooble/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin","/ts"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/gooble/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/justme/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin","/ts"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/justme/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/shamazon/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin","/ts"],
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/shamazon/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/task/name","/task/keyBegin","/task/rClockBegin"],
+    },
+]
