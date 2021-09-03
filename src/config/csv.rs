@@ -34,6 +34,12 @@ impl Into<u8> for Char {
     }
 }
 
+impl From<u8> for Char {
+    fn from(c: u8) -> Char {
+        Char(c)
+    }
+}
+
 impl<'a> TryFrom<&'a str> for Char {
     type Error = &'static str;
 

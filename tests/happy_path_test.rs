@@ -17,6 +17,43 @@ fn valid_examples_are_parsed_with_default_config() {
     }
 }
 
+/// The file `requires-explicit-quote.csv` has 206 columns. The header row does not use any quote
+/// characters, and so we don't automatically determine the correct quote character because we only
+/// look at the first 2KiB, which in this case is all unquoted headers. So this test asserts that
+/// we fail to parse the file, but that it succeeds when the quote character is provided in the
+/// config.
+#[test]
+fn csv_requires_explicit_quote() {
+    let path = "tests/examples/requires-explicit-quote.csv";
+    let no_quote = ParseConfig {
+        filename: Some(path.to_string()),
+        ..Default::default()
+    };
+
+    {
+        let input = input_for_file(path);
+        let output = run_test(&no_quote, input);
+        assert_eq!(1, output.exit_code);
+        assert!(output.parsed.is_empty());
+    }
+
+    let with_quote = ParseConfig {
+        filename: Some(path.to_string()),
+        csv: Some(parser::csv::CharacterSeparatedConfig {
+            quote: Some(parser::csv::Char('"' as u8)),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let same_input = input_for_file(path);
+    let output = run_test(&with_quote, same_input);
+    assert_eq!(0, output.exit_code);
+    assert_eq!(1, output.parsed.len());
+    // Confirm the number of columns as a way of confirming that we're using the correct quote in
+    // the parse configuration.
+    assert_eq!(206, output.parsed[0].as_object().unwrap().len());
+}
+
 fn assert_file_is_parsed(file: PathBuf) {
     let canary_ptr = "/_meta/canary";
     let offset_ptr = "/_meta/sourceOffset";
