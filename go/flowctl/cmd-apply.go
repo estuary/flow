@@ -250,6 +250,10 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 
 	log.WithField("task", taskName).Debug("shard doesn't exist (will create)")
 
+	// Build the names of the collections that logs and stats will be written to.
+	var taskPrefix = firstPathComponent(taskName)
+	var logsCollection = fmt.Sprintf("ops/%s/logs", taskPrefix)
+	var statsCollection = fmt.Sprintf("ops/%s/stats", taskPrefix)
 	var changes []pc.ApplyRequest_Change
 	for p := 0; p != shards; p++ {
 
@@ -258,6 +262,8 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 			flowLabels.TaskName, taskName,
 			flowLabels.TaskType, taskType,
 			flowLabels.TaskCreated, fmt.Sprintf("%d", taskCreated),
+			flowLabels.LogsCollection, logsCollection,
+			flowLabels.StatsCollection, statsCollection,
 		)
 
 		labels = flowLabels.EncodeRange(pf.RangeSpec{
@@ -316,4 +322,9 @@ func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dry
 		}
 	}
 	return nil
+}
+
+func firstPathComponent(taskName string) string {
+	var parts = strings.Split(taskName, "/")
+	return parts[0]
 }
