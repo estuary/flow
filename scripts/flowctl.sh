@@ -41,10 +41,10 @@ FLOWCTL_NETWORK="host"
 # Allow the script to be symlinked to flowctl or gazctl and make the appropriate call in the docker contianer
 # This can also be overriden with the --command option
 case "$(basename $0)" in
-    flowctl)
+    flowctl|flowctl.sh)
         DOCKER_COMMAND="flowctl"
     ;;
-    gazctl)
+    gazctl|gazctl.sh)
         DOCKER_COMMAND="gazctl"
     ;;
 esac
