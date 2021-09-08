@@ -6,13 +6,10 @@ function log_fatal {
 }
 
 # Make sure we have docker
-DOCKER_EXEC=$(which docker)
-if [[ ! -x "$DOCKER_EXEC" ]] ; then
-    log_fatal "flowctl.sh requires docker in order to operate."
-fi
+DOCKER_EXEC=$(command -v docker) || log_fatal "flowctl.sh requires docker in order to operate."
 
 # Make sure we can invoke docker
-if ! ${DOCKER_EXEC} info >/dev/null 2>&1 ; then
+if ! ${DOCKER_EXEC} info >/dev/null 2>&1; then
     log_fatal "flowctl.sh is unable to invoke 'docker info'. Ensure the current user has access to run docker. (Usually by making the user a member of the group docker ie: 'sudo usermod -a -G docker <username>'"
 fi
 
@@ -183,7 +180,14 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     fi
 fi
 
-# Build docker command
+# Build the docker command:
+#
+# We try to run as the same uid as the logged in user to maintain file permissions except on MacOS where it must
+# run as root but docker takes care of making sure file permissions match the logged in user outside the container.
+#
+# The /var/tmp mapping is requried because flowctl may invoke another container and it requires a consistent filesystem
+# path on the docker host so it ends up the same in the flowctl container as well as any sub-containers.
+# We map /var/tmp and tell flowctl via the environment variable TMPDIR to use that directory
 CMD="${DOCKER_EXEC} run -it --rm \
 --user ${DOCKER_UID} \
 -v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
@@ -205,4 +209,4 @@ if [[ "${DEBUG_SCRIPT}" = true ]]; then
     echo "CMD: ${CMD}"
 fi
 
-$CMD
+$CMD # Run it
