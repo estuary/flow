@@ -168,10 +168,14 @@ pub mod capture_response {
     /// Commit previous captured documents.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Commit {
-        /// Optional driver checkpoint of this transaction.
-        /// If provided, the most recent checkpoint will be persisted by the
-        /// Flow runtime and returned in a future CaptureRequest.
+        /// Optional driver checkpoint update of this transaction,
+        /// applied as an RFC7396 Merge Patch to the driver checkpoint
+        /// of the immediately preceeding transaction (or to an empty
+        /// JSON object `{}` if there is no preceeding transaction).
+        ///
+        /// The patched checkpoint will be persisted by the Flow
+        /// runtime and returned in a future CaptureRequest.
         #[prost(bytes="vec", tag="1")]
-        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
+        pub driver_checkpoint_merge_patch_json: ::prost::alloc::vec::Vec<u8>,
     }
 }
