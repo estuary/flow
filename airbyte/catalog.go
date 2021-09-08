@@ -50,7 +50,7 @@ type ConfiguredStream struct {
 	SyncMode            SyncMode            `json:"sync_mode"`
 	DestinationSyncMode DestinationSyncMode `json:"destination_sync_mode"`
 	CursorField         []string            `json:"cursor_field,omitempty"`
-	PrimaryKey          []string            `json:"primary_key,omitempty"`
+	PrimaryKey          [][]string          `json:"primary_key,omitempty"`
 	Projections         map[string]string   `json:"estuary.dev/projections"`
 }
 
@@ -62,7 +62,7 @@ func (s *ConfiguredStream) UnmarshalJSON(b []byte) error {
 		SyncMode            SyncMode            `json:"sync_mode"`
 		DestinationSyncMode DestinationSyncMode `json:"destination_sync_mode"`
 		CursorField         []string            `json:"cursor_field,omitempty"`
-		PrimaryKey          []string            `json:"primary_key,omitempty"`
+		PrimaryKey          [][]string          `json:"primary_key,omitempty"`
 		NSProjections       map[string]string   `json:"estuary.dev/projections"`
 		Projections         map[string]string   `json:"projections"`
 	}{}
