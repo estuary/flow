@@ -46,7 +46,7 @@ type Materialize struct {
 	// lifecycle functions.
 	request *pm.TransactionRequest
 	// Store delegate for persisting local checkpoints.
-	store *consumer.JSONFileStore
+	store connectorStore
 	// Embedded task processing state scoped to a current task revision.
 	// Updated in RestoreCheckpoint.
 	shuffleTaskTerm
@@ -54,16 +54,12 @@ type Materialize struct {
 
 var _ Application = (*Materialize)(nil)
 
-type storeState struct {
-	DriverCheckpoint json.RawMessage
-}
-
 // NewMaterializeApp returns a new Materialize, which implements Application.
 func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
-	var store, err = consumer.NewJSONFileStore(recorder, new(storeState))
+	var store, err = newConnectorStore(recorder)
 	if err != nil {
-		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
+		return nil, fmt.Errorf("newConnectorStore: %w", err)
 	}
 
 	// Initialize into an already-committed state.
@@ -111,6 +107,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		m.task.Materialization.EndpointType,
 		m.task.Materialization.EndpointSpecJson,
 		m.localDir,
+		m.host.Config.ConnectorNetwork,
 	)
 	if err != nil {
 		return pc.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
@@ -128,7 +125,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		m.task.Materialization,
 		m.task.CommonsId,
 		&m.range_,
-		m.store.State.(*storeState).DriverCheckpoint,
+		m.store.driverCheckpoint(),
 	); err != nil {
 		return pc.Checkpoint{}, err
 	}
@@ -175,7 +172,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		}
 	} else {
 		// Otherwise restore locally persisted checkpoint.
-		if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
+		if cp, err = m.store.restoreCheckpoint(shard); err != nil {
 			return pc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 		}
 	}
@@ -202,10 +199,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 				return client.FinishedOperation(err)
 			}
 		} else if next.Prepared != nil {
-			// Stage a provided driver checkpoint to commit with this transaction.
-			if next.Prepared.DriverCheckpointJson != nil {
-				m.store.State.(*storeState).DriverCheckpoint = next.Prepared.DriverCheckpointJson
-			}
+			m.store.updateDriverCheckpoint(next.Prepared.DriverCheckpointMergePatchJson, true)
 			break // All done.
 		} else {
 			// Protocol error.
@@ -248,7 +242,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	go awaitCommitted(m.driverRx, m.committed)
 
 	// Tell our JSON store to commit to its recovery log after |m.committed| resolves.
-	return m.store.StartCommit(shard, checkpoint, consumer.OpFutures{m.committed: struct{}{}})
+	return m.store.startCommit(shard, checkpoint, consumer.OpFutures{m.committed: struct{}{}})
 }
 
 // drainBinding drains the a single materialization binding by sending Store
@@ -336,7 +330,7 @@ func awaitCommitted(driverRx <-chan materialize.TransactionResponse, result *cli
 // Destroy implements consumer.Store.Destroy
 func (m *Materialize) Destroy() {
 	_ = m.driverTx.CloseSend()
-	m.store.Destroy()
+	m.store.destroy()
 }
 
 // Implementing shuffle.Store for Materialize
