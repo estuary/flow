@@ -13,7 +13,7 @@ func TestConfiguredCatalogMarshaling(t *testing.T) {
             "stream": {"name": "foo","json_schema":true},
             "sync_mode": "incremental",
             "destination_sync_mode": "append",
-            "primary_key": ["/yea", "/boiiii"],
+            "primary_key": [["/yea"], ["/boiiii"]],
             "projections": {
                 "space": "/balls",
                 "blazing": "/saddles"
