@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,7 +28,7 @@ type Capture struct {
 	// Directory used for local processing files.
 	localDir string
 	// Store delegate for persisting local checkpoints.
-	store *consumer.JSONFileStore
+	store connectorStore
 	// Embedded task processing state scoped to a current task revision.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -39,9 +38,9 @@ var _ Application = (*Capture)(nil)
 
 // NewCaptureApp returns a new Capture, which implements Application.
 func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Capture, error) {
-	var store, err = consumer.NewJSONFileStore(recorder, new(storeState))
+	var store, err = newConnectorStore(recorder)
 	if err != nil {
-		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
+		return nil, fmt.Errorf("newConnectorStore: %w", err)
 	}
 
 	return &Capture{
@@ -55,8 +54,8 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 // RestoreCheckpoint initializes a catalog task term and restores the last
 // persisted checkpoint, if any, by delegating to its JsonStore.
 func (m *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pgc.Checkpoint, err error) {
-	if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
-		return pgc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
+	if cp, err = m.store.restoreCheckpoint(shard); err != nil {
+		return pgc.Checkpoint{}, err
 	}
 
 	if m.taskTerm.revision == 0 {
@@ -66,12 +65,6 @@ func (m *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pgc.Checkpoint, er
 		// with the Stat RPC (so we can Stat to block until a connector exits).
 		// Reset these source checkpoints.
 		cp.Sources = nil
-
-		// A `nil` driver checkpoint will round-trip through JSON encoding as []byte("null").
-		// Restore it's nil-ness after deserialization.
-		if bytes.Equal([]byte("null"), m.store.State.(*storeState).DriverCheckpoint) {
-			m.store.State.(*storeState).DriverCheckpoint = nil
-		}
 	}
 
 	if err = m.taskTerm.initTerm(shard, m.host); err != nil {
@@ -125,7 +118,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 		Capture:              c.task.Capture,
 		KeyBegin:             c.range_.KeyBegin,
 		KeyEnd:               c.range_.KeyEnd,
-		DriverCheckpointJson: c.store.State.(*storeState).DriverCheckpoint,
+		DriverCheckpointJson: c.store.driverCheckpoint(),
 		Tail:                 !c.host.Config.Poll,
 	})
 	if err != nil {
@@ -178,7 +171,7 @@ func (c *Capture) serveDriverTransactions(
 	// Process transactions until the driver closes the stream,
 	// or an error is encountered.
 	for {
-		var combiners, checkpoint, err = c.readTransaction(fqn, driverRx)
+		var combiners, commit, err = c.readTransaction(fqn, driverRx)
 		clock.Tick()
 
 		if err != nil {
@@ -225,9 +218,9 @@ func (c *Capture) serveDriverTransactions(
 				Begin:   int64(clock),
 				End:     int64(clock + 1),
 				Message: &captureMessage{
-					clock:      clock,
-					combiners:  combiners,
-					checkpoint: checkpoint,
+					clock:     clock,
+					combiners: combiners,
+					commit:    commit,
 				},
 			},
 		}
@@ -241,8 +234,8 @@ type captureMessage struct {
 	eof bool
 	// Combined documents of this capture transaction.
 	combiners []*bindings.Combine
-	// Checkpoint of this capture transaction.
-	checkpoint json.RawMessage
+	// Commit of this capture transaction.
+	commit *pfc.CaptureResponse_Commit
 }
 
 func (m *captureMessage) GetUUID() message.UUID {
@@ -257,7 +250,7 @@ func (m *captureMessage) NewAcknowledgement(pb.Journal) message.Message {
 }
 
 func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
-) (_ []*bindings.Combine, _ json.RawMessage, err error) {
+) (_ []*bindings.Combine, _ *pfc.CaptureResponse_Commit, err error) {
 
 	// TODO(johnny): More efficient use of Combines:
 	// * We ought to be re-using instances, which will matter more if Combines
@@ -299,7 +292,7 @@ func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
 		if resp.Error != nil {
 			return nil, nil, resp.Error
 		} else if resp.Commit != nil {
-			return combiners, resp.Commit.DriverCheckpointJson, nil
+			return combiners, resp.Commit, nil
 		} else if resp.Captured == nil {
 			return nil, nil, fmt.Errorf("expected Captured or Commit, got %#v", resp.String())
 		}
@@ -375,7 +368,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
 	}
-	c.store.State.(*storeState).DriverCheckpoint = msg.checkpoint
+	c.store.updateDriverCheckpoint(msg.commit.DriverCheckpointMergePatchJson, true)
 
 	return nil
 }
@@ -391,11 +384,8 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, checkpoint pgc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	// Tell our JSON store to commit to its recovery log after |m.committed| resolves.
-	return c.store.StartCommit(shard, checkpoint, waitFor)
+	return c.store.startCommit(shard, checkpoint, waitFor)
 }
 
-// Destroy delegates to JSONStore.Destroy.
-func (c *Capture) Destroy() {
-	c.store.Destroy()
-}
+// Destroy implements consumer.Store.Destroy
+func (c *Capture) Destroy() { c.store.destroy() }
