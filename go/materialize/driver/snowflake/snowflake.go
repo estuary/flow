@@ -352,7 +352,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 	d.store.fence.Checkpoint = prepare.FlowCheckpoint
 
 	return &pm.TransactionResponse_Prepared{
-		DriverCheckpointJson: nil, // Not used.
+		DriverCheckpointMergePatchJson: nil, // Not used.
 	}, nil
 }
 

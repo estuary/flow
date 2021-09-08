@@ -348,7 +348,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 	d.store.batch = new(pgx.Batch)
 
 	return &pm.TransactionResponse_Prepared{
-		DriverCheckpointJson: nil, // Not used.
+		DriverCheckpointMergePatchJson: nil, // Not used.
 	}, nil
 }
 

@@ -5,7 +5,8 @@ go 1.16
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20210826170423-26a951560f40
+	github.com/estuary/protocols v0.0.0-20210907222139-aadf3b609d9e
+	github.com/evanphx/json-patch/v5 v5.5.0
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.2

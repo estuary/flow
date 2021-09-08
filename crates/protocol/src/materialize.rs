@@ -309,11 +309,15 @@ pub mod transaction_response {
     /// No further Loaded responses will be sent.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Prepared {
-        /// Optional driver checkpoint of this transaction.
-        /// If provided, the most recent checkpoint will be persisted by the
-        /// Flow runtime and returned in a future Fence request.
+        /// Optional driver checkpoint update of this transaction,
+        /// applied as an RFC7396 Merge Patch to the driver checkpoint
+        /// of the immediately preceeding transaction (or to an empty
+        /// JSON object `{}` if there is no preceeding transaction).
+        ///
+        /// The patched checkpoint will be persisted by the Flow
+        /// runtime and returned in a future Open request.
         #[prost(bytes="vec", tag="1")]
-        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
+        pub driver_checkpoint_merge_patch_json: ::prost::alloc::vec::Vec<u8>,
     }
     /// Acknowledge the transaction as committed.
     #[derive(Clone, PartialEq, ::prost::Message)]
