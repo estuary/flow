@@ -91,7 +91,7 @@ func (cmd cmdApply) Execute(_ []string) error {
 
 	// Apply all database materializations first, before we create or update
 	// catalog entities that reference the applied tables / topics / targets.
-	if err := applyMaterializations(ctx, built, cmd.DryRun); err != nil {
+	if err := applyMaterializations(ctx, built, cmd.DryRun, cmd.Network); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 
@@ -293,10 +293,10 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 	return err
 }
 
-func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dryRun bool) error {
+func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dryRun bool, network string) error {
 	for _, spec := range built.Materializations {
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "")
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "", network)
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/estuary/flow/go/materialize/driver/jsonimage"
+	"github.com/estuary/flow/go/materialize/driver/image"
 	"github.com/estuary/flow/go/materialize/driver/postgres"
 	"github.com/estuary/flow/go/materialize/driver/snowflake"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
@@ -22,6 +22,7 @@ func NewDriver(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	tempdir string,
+	connectorNetwork string,
 ) (pm.DriverClient, error) {
 
 	switch endpointType {
@@ -34,7 +35,7 @@ func NewDriver(
 	case pf.EndpointType_WEBHOOK:
 		return AdaptServerToClient(webhook.NewDriver()), nil
 	case pf.EndpointType_FLOW_SINK:
-		return AdaptServerToClient(jsonimage.NewDriver()), nil
+		return AdaptServerToClient(image.NewDriver(connectorNetwork)), nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
 			Address protocol.Endpoint

@@ -145,7 +145,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 
 	// Apply all database materializations first, before we create or update
 	// catalog entities that reference the applied tables / topics / targets.
-	if err := applyMaterializations(ctx, built, false); err != nil {
+	if err := applyMaterializations(ctx, built, false, cmd.Network); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 
