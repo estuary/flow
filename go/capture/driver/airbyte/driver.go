@@ -18,8 +18,8 @@ import (
 // EndpointSpec is the configuration for Airbyte source connectors.
 // It must match the one defined for the source specs (flow.yaml) in Rust.
 type EndpointSpec struct {
-	Image  string
-	Config json.RawMessage
+	Image  string          `json:"image"`
+	Config json.RawMessage `json:"config"`
 }
 
 // Validate the configuration.
@@ -81,19 +81,21 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
-		func() interface{} { return new(airbyte.Message) },
-		func(i interface{}) error {
-			if rec := i.(*airbyte.Message); rec.Log != nil {
-				log.StandardLogger().WithFields(log.Fields{
-					"image": source.Image,
-				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
-			} else if rec.Spec != nil {
-				spec = rec.Spec
-			} else {
-				return fmt.Errorf("unexpected connector message: %v", rec)
-			}
-			return nil
-		},
+		NewConnectorJSONOutput(
+			func() interface{} { return new(airbyte.Message) },
+			func(i interface{}) error {
+				if rec := i.(*airbyte.Message); rec.Log != nil {
+					log.StandardLogger().WithFields(log.Fields{
+						"image": source.Image,
+					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+				} else if rec.Spec != nil {
+					spec = rec.Spec
+				} else {
+					return fmt.Errorf("unexpected connector message: %v", rec)
+				}
+				return nil
+			},
+		),
 	)
 
 	// Expect connector spit out a successful ConnectorSpecification.
@@ -137,19 +139,21 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		func() interface{} { return new(airbyte.Message) },
-		func(i interface{}) error {
-			if rec := i.(*airbyte.Message); rec.Log != nil {
-				log.StandardLogger().WithFields(log.Fields{
-					"image": source.Image,
-				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
-			} else if rec.Catalog != nil {
-				catalog = rec.Catalog
-			} else {
-				return fmt.Errorf("unexpected connector message: %v", rec)
-			}
-			return nil
-		},
+		NewConnectorJSONOutput(
+			func() interface{} { return new(airbyte.Message) },
+			func(i interface{}) error {
+				if rec := i.(*airbyte.Message); rec.Log != nil {
+					log.StandardLogger().WithFields(log.Fields{
+						"image": source.Image,
+					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+				} else if rec.Catalog != nil {
+					catalog = rec.Catalog
+				} else {
+					return fmt.Errorf("unexpected connector message: %v", rec)
+				}
+				return nil
+			},
+		),
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -219,21 +223,23 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		func() interface{} { return new(airbyte.Message) },
-		func(i interface{}) error {
-			if rec := i.(*airbyte.Message); rec.Log != nil {
-				// TODO - send these back through the Flow capture protocol ?
-				log.StandardLogger().WithFields(log.Fields{
-					"image":   source.Image,
-					"capture": req.Capture,
-				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
-			} else if rec.ConnectionStatus != nil {
-				status = rec.ConnectionStatus
-			} else {
-				return fmt.Errorf("unexpected connector message: %v", rec)
-			}
-			return nil
-		},
+		NewConnectorJSONOutput(
+			func() interface{} { return new(airbyte.Message) },
+			func(i interface{}) error {
+				if rec := i.(*airbyte.Message); rec.Log != nil {
+					// TODO - send these back through the Flow capture protocol ?
+					log.StandardLogger().WithFields(log.Fields{
+						"image":   source.Image,
+						"capture": req.Capture,
+					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+				} else if rec.ConnectionStatus != nil {
+					status = rec.ConnectionStatus
+				} else {
+					return fmt.Errorf("unexpected connector message: %v", rec)
+				}
+				return nil
+			},
+		),
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -347,26 +353,28 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages.
-		func() interface{} { return new(airbyte.Message) },
-		func(i interface{}) error {
-			if rec := i.(*airbyte.Message); rec.Log != nil {
-				log.StandardLogger().WithFields(log.Fields{
-					"image":   source.Image,
-					"capture": req.Capture.Capture,
-				}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
-			} else if rec.State != nil {
-				return pc.WriteCommit(stream, &resp,
-					&pc.CaptureResponse_Commit{DriverCheckpointJson: rec.State.Data})
-			} else if rec.Record != nil {
-				if b, ok := streamToBinding[rec.Record.Stream]; ok {
-					return pc.StageCaptured(stream, &resp, b, rec.Record.Data)
+		NewConnectorJSONOutput(
+			func() interface{} { return new(airbyte.Message) },
+			func(i interface{}) error {
+				if rec := i.(*airbyte.Message); rec.Log != nil {
+					log.StandardLogger().WithFields(log.Fields{
+						"image":   source.Image,
+						"capture": req.Capture.Capture,
+					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+				} else if rec.State != nil {
+					return pc.WriteCommit(stream, &resp,
+						&pc.CaptureResponse_Commit{DriverCheckpointMergePatchJson: rec.State.Data})
+				} else if rec.Record != nil {
+					if b, ok := streamToBinding[rec.Record.Stream]; ok {
+						return pc.StageCaptured(stream, &resp, b, rec.Record.Data)
+					}
+					return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
+				} else {
+					return fmt.Errorf("unexpected connector message: %v", rec)
 				}
-				return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
-			} else {
-				return fmt.Errorf("unexpected connector message: %v", rec)
-			}
-			return nil
-		},
+				return nil
+			},
+		),
 	); err != nil {
 		return err
 	}
@@ -381,7 +389,7 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
 	return pc.WriteCommit(stream, &resp,
-		&pc.CaptureResponse_Commit{DriverCheckpointJson: nil})
+		&pc.CaptureResponse_Commit{DriverCheckpointMergePatchJson: nil})
 }
 
 // LogrusLevel returns an appropriate logrus.Level for the connector LogLevel.
