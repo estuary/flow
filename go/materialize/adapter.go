@@ -6,6 +6,7 @@ import (
 
 	pm "github.com/estuary/protocols/materialize"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // TransactionRequest is a channel-oriented wrapper of pf.TransactionRequest.
@@ -33,6 +34,8 @@ func TransactionResponseChannel(stream pm.Driver_TransactionsClient) <-chan Tran
 	var ch = make(chan TransactionResponse, 4)
 	go func() {
 		for {
+			// Use Recv because ownership of |m| is transferred to |ch|,
+			// and |m| cannot be reused.
 			var m, err = stream.Recv()
 
 			if err == nil {
@@ -77,17 +80,15 @@ func (a adapter) Transactions(ctx context.Context, opts ...grpc.CallOption) (pm.
 	var doneCh = make(chan struct{})
 
 	var clientStream = &adapterStreamClient{
-		ctx:          ctx,
-		tx:           reqCh,
-		rx:           respCh,
-		done:         doneCh,
-		ClientStream: nil,
+		ctx:  ctx,
+		tx:   reqCh,
+		rx:   respCh,
+		done: doneCh,
 	}
 	var serverStream = &adapterStreamServer{
-		ctx:          ctx,
-		tx:           respCh,
-		rx:           reqCh,
-		ServerStream: nil,
+		ctx: ctx,
+		tx:  respCh,
+		rx:  reqCh,
 	}
 
 	go func() (err error) {
@@ -109,10 +110,6 @@ type adapterStreamClient struct {
 	tx   chan<- TransactionRequest
 	rx   <-chan TransactionResponse
 	done <-chan struct{}
-
-	// Embed a nil ClientStream to provide remaining methods of the pm.Driver_TransactionClient
-	// interface. It's left as nil, so these methods will panic if called!
-	grpc.ClientStream
 }
 
 func (a *adapterStreamClient) Context() context.Context {
@@ -142,14 +139,17 @@ func (a *adapterStreamClient) Recv() (*pm.TransactionResponse, error) {
 	return nil, io.EOF
 }
 
+// Remaining panic implementations of grpc.ClientStream follow:
+
+func (a *adapterStreamClient) Header() (metadata.MD, error) { panic("not implemented") }
+func (a *adapterStreamClient) Trailer() metadata.MD         { panic("not implemented") }
+func (a *adapterStreamClient) SendMsg(m interface{}) error  { panic("not implemented") } // Use Send.
+func (a *adapterStreamClient) RecvMsg(m interface{}) error  { panic("not implemented") }
+
 type adapterStreamServer struct {
 	ctx context.Context
 	tx  chan<- TransactionResponse
 	rx  <-chan TransactionRequest
-
-	// Embed a nil ServerStream to provide remaining methods of the pm.Driver_TransactionServer
-	// interface. It's left as nil, so these methods will panic if called!
-	grpc.ServerStream
 }
 
 var _ pm.Driver_TransactionsServer = new(adapterStreamServer)
@@ -172,3 +172,20 @@ func (a *adapterStreamServer) Recv() (*pm.TransactionRequest, error) {
 	}
 	return nil, io.EOF
 }
+
+func (a *adapterStreamServer) RecvMsg(m interface{}) error {
+	if mm, ok := <-a.rx; ok && mm.Error == nil {
+		*m.(*pm.TransactionRequest) = *mm.TransactionRequest
+		return nil
+	} else if ok {
+		return mm.Error
+	}
+	return io.EOF
+}
+
+// Remaining panic implementations of grpc.ServerStream follow:
+
+func (a *adapterStreamServer) SetHeader(metadata.MD) error  { panic("not implemented") }
+func (a *adapterStreamServer) SendHeader(metadata.MD) error { panic("not implemented") }
+func (a *adapterStreamServer) SetTrailer(metadata.MD)       { panic("not implemented") }
+func (a *adapterStreamServer) SendMsg(m interface{}) error  { panic("not implemented") } // Use Send().
