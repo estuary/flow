@@ -347,9 +347,7 @@ func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.Tran
 	d.store.fence.Checkpoint = prepare.FlowCheckpoint
 	d.store.batch = new(pgx.Batch)
 
-	return &pm.TransactionResponse_Prepared{
-		DriverCheckpointMergePatchJson: nil, // Not used.
-	}, nil
+	return &pm.TransactionResponse_Prepared{}, nil
 }
 
 func (d *transactor) Store(it *pm.StoreIterator) error {

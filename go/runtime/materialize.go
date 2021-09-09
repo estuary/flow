@@ -199,7 +199,9 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 				return client.FinishedOperation(err)
 			}
 		} else if next.Prepared != nil {
-			m.store.updateDriverCheckpoint(next.Prepared.DriverCheckpointMergePatchJson, true)
+			m.store.updateDriverCheckpoint(
+				next.Prepared.DriverCheckpointJson,
+				next.Prepared.Rfc7396MergePatch)
 			break // All done.
 		} else {
 			// Protocol error.
