@@ -102,8 +102,55 @@ func (m *CaptureRequest) Validate() error {
 	} else if m.KeyEnd < m.KeyBegin {
 		return pb.NewValidationError("invalid key range (KeyEnd < KeyBegin)")
 	}
+	// DriverCheckpointJson may be empty.
+	return nil
+}
 
-	// DriverCheckpointJson may be empty if no checkpoint has been recorded yet.
+// Validate returns an error if the CaptureResponse isn't well-formed.
+func (m *CaptureResponse) Validate() error {
+	var count int
+	if m.Opened != nil {
+		if err := m.Opened.Validate(); err != nil {
+			return pb.ExtendContext(err, "Opened")
+		}
+		count += 1
+	}
+	if m.Captured != nil {
+		if err := m.Captured.Validate(); err != nil {
+			return pb.ExtendContext(err, "Captured")
+		}
+		count += 1
+	}
+	if m.Commit != nil {
+		if err := m.Commit.Validate(); err != nil {
+			return pb.ExtendContext(err, "Commit")
+		}
+		count += 1
+	}
 
+	if count != 1 {
+		return pb.NewValidationError("expected one of Opened, Captured, Commit")
+	}
+	return nil
+}
+
+// Validate is currently a no-op.
+func (m *CaptureResponse_Opened) Validate() error {
+	return nil // Opened has no fields.
+}
+
+// Validate returns an error if the CaptureResponse_Captured isn't well-formed.
+func (m *CaptureResponse_Captured) Validate() error {
+	if len(m.DocsJson) == 0 {
+		return pb.NewValidationError("expected DocsJson")
+	}
+	return nil
+}
+
+// Validate returns an error if the CaptureResponse_Commit isn't well-formed.
+func (m *CaptureResponse_Commit) Validate() error {
+	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
+		return pb.NewValidationError("expected DriverCheckpointJson")
+	}
 	return nil
 }

@@ -200,6 +200,7 @@ func (m *TransactionRequest_Open) Validate() error {
 	} else if m.KeyBegin > m.KeyEnd {
 		return pb.NewValidationError("invalid KeyBegin / KeyEnd range")
 	}
+	// DriverCheckpointJson may be empty.
 	return nil
 }
 
@@ -280,7 +281,9 @@ func (m *TransactionResponse_Loaded) Validate() error {
 }
 
 func (m *TransactionResponse_Prepared) Validate() error {
-	// DriverCheckpointMergePatchJson may be empty.
+	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
+		return pb.NewValidationError("expected DriverCheckpointJson")
+	}
 	return nil
 }
 

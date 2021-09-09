@@ -234,7 +234,7 @@ message TransactionRequest {
     fixed32 key_begin = 3;
     fixed32 key_end = 4;
     // Last-persisted driver checkpoint from a previous transaction stream.
-    // Or empty, if the driver hasn't returned a checkpoint.
+    // Or empty, if the driver has cleared or never set its checkpoint.
     bytes driver_checkpoint_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
@@ -328,17 +328,17 @@ message TransactionResponse {
   // Prepared responds to a TransactionRequest.Prepare of the client.
   // No further Loaded responses will be sent.
   message Prepared {
-    // Optional driver checkpoint update of this transaction,
-    // applied as an RFC7396 Merge Patch to the driver checkpoint
-    // of the immediately preceeding transaction (or to an empty
-    // JSON object `{}` if there is no preceeding transaction).
-    //
-    // The patched checkpoint will be persisted by the Flow
-    // runtime and returned in a future Open request.
-    bytes driver_checkpoint_merge_patch_json = 1 [
+    // Optional driver checkpoint of this transaction, to be persisted
+    // by the Flow runtime and returned in a future TransactionRequest.Open.
+    // If empty, then a previous checkpoint is cleared.
+    bytes driver_checkpoint_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpointMergePatch"
+      json_name = "driverCheckpoint"
     ];
+    // If true, then the driver checkpoint must be non-empty and is
+    // applied as an RFC7396 Merge Patch atop the immediately preceeding
+    // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+    bool rfc7396_merge_patch = 2;
   }
   Prepared prepared = 3;
 
