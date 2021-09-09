@@ -40,3 +40,23 @@ func TestConfiguredCatalogMarshaling(t *testing.T) {
 	require.NoError(t, json.Unmarshal(serJson, &roundTripped))
 	require.Equal(t, resultOne, roundTripped)
 }
+
+func TestStateMarshaling(t *testing.T) {
+	var nsFixture = `{"data":{"42":42},"estuary.dev/merge":true}`
+	var noNSFixture = `{"data":{"42":42},"merge":true}`
+	var expect = State{
+		Data:  json.RawMessage(`{"42":42}`),
+		Merge: true,
+	}
+
+	for _, fixture := range []string{nsFixture, noNSFixture} {
+		var state State
+		require.NoError(t, json.Unmarshal([]byte(fixture), &state))
+		require.Equal(t, expect, state)
+	}
+
+	// We serialize using the namespaced fields.
+	var b, err = json.Marshal(expect)
+	require.Equal(t, nsFixture, string(b))
+	require.NoError(t, err)
+}
