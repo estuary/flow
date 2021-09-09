@@ -197,6 +197,25 @@ type State struct {
 	// Data is the actual state associated with the ingestion. This must be a JSON _Object_ in order
 	// to comply with the airbyte specification.
 	Data json.RawMessage `json:"data"`
+	// Merge indicates that Data is an RFC 7396 JSON Merge Patch, and should
+	// be be reduced into the previous state accordingly.
+	Merge bool `json:"estuary.dev/merge,omitempty"`
+}
+
+func (s *State) UnmarshalJSON(b []byte) error {
+	var tmp = struct {
+		Data    json.RawMessage `json:"data"`
+		NSMerge bool            `json:"estuary.dev/merge"`
+		Merge   bool            `json:"merge"`
+	}{}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return err
+	}
+
+	s.Data = tmp.Data
+	s.Merge = tmp.NSMerge || tmp.Merge
+
+	return nil
 }
 
 type Spec struct {
