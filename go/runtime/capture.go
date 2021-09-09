@@ -257,7 +257,7 @@ func (m *captureMessage) NewAcknowledgement(pb.Journal) message.Message {
 }
 
 func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
-) ([]*bindings.Combine, json.RawMessage, error) {
+) (_ []*bindings.Combine, _ json.RawMessage, err error) {
 
 	// TODO(johnny): More efficient use of Combines:
 	// * We ought to be re-using instances, which will matter more if Combines
@@ -266,6 +266,18 @@ func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
 	//   opportunity to collapse multiple capture checkpoints into a single Combine,
 	//   which may reduce produced data volumes.
 	var combiners = make([]*bindings.Combine, len(c.task.Capture.Bindings))
+
+	// Ensure that partial combiners are destroyed if an error is returned.
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, c := range combiners {
+			if c != nil {
+				c.Destroy()
+			}
+		}
+	}()
 
 	for i, b := range c.task.Capture.Bindings {
 		combiners[i] = bindings.NewCombine()
@@ -335,6 +347,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	for b, combiner := range msg.combiners {
 		var binding = c.task.Capture.Bindings[b]
 		_ = binding.Collection // Elide nil check.
+		defer combiner.Destroy()
 
 		var err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
