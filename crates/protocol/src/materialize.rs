@@ -203,7 +203,7 @@ pub mod transaction_request {
         #[prost(fixed32, tag="4")]
         pub key_end: u32,
         /// Last-persisted driver checkpoint from a previous transaction stream.
-        /// Or empty, if the driver hasn't returned a checkpoint.
+        /// Or empty, if the driver has cleared or never set its checkpoint.
         #[prost(bytes="vec", tag="5")]
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
@@ -309,15 +309,16 @@ pub mod transaction_response {
     /// No further Loaded responses will be sent.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Prepared {
-        /// Optional driver checkpoint update of this transaction,
-        /// applied as an RFC7396 Merge Patch to the driver checkpoint
-        /// of the immediately preceeding transaction (or to an empty
-        /// JSON object `{}` if there is no preceeding transaction).
-        ///
-        /// The patched checkpoint will be persisted by the Flow
-        /// runtime and returned in a future Open request.
+        /// Optional driver checkpoint of this transaction, to be persisted
+        /// by the Flow runtime and returned in a future TransactionRequest.Open.
+        /// If empty, then a previous checkpoint is cleared.
         #[prost(bytes="vec", tag="1")]
-        pub driver_checkpoint_merge_patch_json: ::prost::alloc::vec::Vec<u8>,
+        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
+        /// If true, then the driver checkpoint must be non-empty and is
+        /// applied as an RFC7396 Merge Patch atop the immediately preceeding
+        /// checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+        #[prost(bool, tag="2")]
+        pub rfc7396_merge_patch: bool,
     }
     /// Acknowledge the transaction as committed.
     #[derive(Clone, PartialEq, ::prost::Message)]
