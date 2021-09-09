@@ -264,7 +264,7 @@ func TestSQLiteDriver(t *testing.T) {
 	prepared, err := transaction.Recv()
 	require.NoError(t, err)
 	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
-	require.Empty(t, prepared.Prepared.DriverCheckpointMergePatchJson)
+	require.Empty(t, prepared.Prepared.DriverCheckpointJson)
 
 	// Test Store to add those keys
 	require.NoError(t, err)

@@ -368,7 +368,9 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
 	}
-	c.store.updateDriverCheckpoint(msg.commit.DriverCheckpointMergePatchJson, true)
+	c.store.updateDriverCheckpoint(
+		msg.commit.DriverCheckpointJson,
+		msg.commit.Rfc7396MergePatch)
 
 	return nil
 }

@@ -363,7 +363,10 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
 				} else if rec.State != nil {
 					return pc.WriteCommit(stream, &resp,
-						&pc.CaptureResponse_Commit{DriverCheckpointMergePatchJson: rec.State.Data})
+						&pc.CaptureResponse_Commit{
+							DriverCheckpointJson: rec.State.Data,
+							Rfc7396MergePatch:    rec.State.Merge,
+						})
 				} else if rec.Record != nil {
 					if b, ok := streamToBinding[rec.Record.Stream]; ok {
 						return pc.StageCaptured(stream, &resp, b, rec.Record.Data)
@@ -389,7 +392,10 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
 	return pc.WriteCommit(stream, &resp,
-		&pc.CaptureResponse_Commit{DriverCheckpointMergePatchJson: nil})
+		&pc.CaptureResponse_Commit{
+			DriverCheckpointJson: nil,
+			Rfc7396MergePatch:    false,
+		})
 }
 
 // LogrusLevel returns an appropriate logrus.Level for the connector LogLevel.
