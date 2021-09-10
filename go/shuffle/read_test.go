@@ -285,7 +285,7 @@ func TestReadHeaping(t *testing.T) {
 
 func TestReadSendBackoffAndCancel(t *testing.T) {
 	const capacity = 4
-	var r = &read{ch: make(chan readResult, capacity)}
+	var r = &read{ch: make(chan *pf.ShuffleResponse, capacity)}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	var wakeCh = make(chan struct{}, 1)
 
@@ -303,22 +303,32 @@ func TestReadSendBackoffAndCancel(t *testing.T) {
 	require.Equal(t, context.Canceled,
 		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
 
-	// Suppose we had instead been cancelled elsewhere. Expect the cancellation
-	// would abort an exponential backoff.
+	// Attempt to send again, which mimics a context that was cancelled elsewhere.
+	// Expect the cancellation aborts the send's exponential backoff timer.
 	<-r.ch // No longer full.
 	require.Equal(t, context.Canceled,
 		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
 
-	<-wakeCh // Now empty.
+	<-wakeCh                        // Now empty.
+	r.ch <- new(pf.ShuffleResponse) // Full again.
 
-	// Pass final error. Expect it wakes and closes channel.
+	// Send an error. Expect it sets |chErr|, closes the channel, and wakes |wakeCh|.
+	// This must work despite the channel being at capacity (issue #226).
+	require.Nil(t, r.chErr)
 	require.NoError(t, r.sendReadResult(nil, io.ErrUnexpectedEOF, wakeCh))
 
-	// Expect final error was sent on channel before its closed.
-	var last readResult
-	for last = range r.ch {
+	// Expect to read |capacity| messages, and then a close with the sent error.
+	var count int
+	var err error
+	for err == nil {
+		var rr, ok = <-r.ch
+		if err = r.onRead(rr, ok); err == nil {
+			count++
+		}
 	}
-	require.Equal(t, io.ErrUnexpectedEOF, last.err)
+	require.Equal(t, capacity, count)
+	require.Equal(t, io.ErrUnexpectedEOF, r.chErr)
+
 	<-wakeCh // Was signaled.
 }
 
