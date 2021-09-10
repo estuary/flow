@@ -45,7 +45,6 @@ func TestStuffedMessageChannel(t *testing.T) {
 					labels.RClockEnd, labels.RClockEndMax)},
 			}
 		},
-		service: &consumer.Service{},
 	}
 	var g = newGovernor(rb, pc.Checkpoint{}, flow.NewTimepoint(time.Now()))
 

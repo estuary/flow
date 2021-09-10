@@ -115,18 +115,23 @@ func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ err
 
 // Advance implements Driver for a Cluster.
 func (c *Cluster) Advance(delta TestTime) error {
-	log.WithField("delta", delta).Debug("advancing time")
+	if !c.Config.DisableClockTicks {
+		panic("expected DisableClockTicks to be set")
+	}
 
 	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDeltaForTest), int64(delta))
 	var t2 = atomic.AddInt64((*int64)(&c.Consumer.Service.PublishClockDelta), int64(delta))
+	var total = time.Duration(t1)
 
 	if t1 != t2 {
 		panic("ingester & consumer clock deltas should match")
 	}
 
-	// Kick current timepoint to unblock gated shuffled reads.
+	log.WithFields(log.Fields{"delta": delta, "total": total}).Debug("advancing time")
+
+	// Tick timepoint to unblock any gated shuffled reads.
 	c.Consumer.Timepoint.Mu.Lock()
-	c.Consumer.Timepoint.Now.Next.Resolve(time.Now())
+	c.Consumer.Timepoint.Now.Next.Resolve(time.Now().Add(total))
 	c.Consumer.Timepoint.Now = c.Consumer.Timepoint.Now.Next
 	c.Consumer.Timepoint.Mu.Unlock()
 
