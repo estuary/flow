@@ -71,11 +71,11 @@ exit (via SIGTERM).
 
 	// journals command - add all journal sub-commands from gazctl under this command
 	journals, err := parser.Command.AddCommand("journals", "Interact with broker journals", "", gazctlcmd.JournalsCfg)
-	mbp.Must(gazctlcmd.CmdRegistry.AddCmds("journals", journals), "failed to add commands")
+	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("journals", journals, true), "failed to add commands")
 
 	// journals command - add all shards sub-commands from gazctl under this command
 	shards, err := parser.Command.AddCommand("shards", "Interact with consumer shards", "", gazctlcmd.ShardsCfg)
-	mbp.Must(gazctlcmd.CmdRegistry.AddCmds("shards", shards), "failed to add commands")
+	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("shards", shards, true), "failed to add commands")
 
 	// Add split as subcommand of shards command
 	addCmd(shards, "split", "Split a Flow processing shard", `
