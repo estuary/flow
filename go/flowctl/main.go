@@ -1,9 +1,12 @@
 package main
 
 import (
-	"github.com/estuary/flow/go/runtime"
 	"github.com/jessevdk/go-flags"
+
+	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
 	mbp "go.gazette.dev/core/mainboilerplate"
+
+	"github.com/estuary/flow/go/runtime"
 )
 
 const iniFilename = "flow.ini"
@@ -26,10 +29,6 @@ Locally develop a Flow catalog.
 	addCmd(parser, "check", "Check a Flow catalog for errors", `
 Quickly load and validate a Flow catalog, and generate updated TypeScript types.
 `, &cmdCheck{})
-
-	addCmd(parser, "split", "Split a Flow processing shard", `
-Split a Flow processing shard into two, either on shuffled key or rotated clock.
-`, &cmdSplit{})
 
 	addCmd(parser, "discover", "Discover available captures of an endpoint", `
 Inspect a configured endpoint, and generate a Flow catalog of collections,
@@ -70,8 +69,24 @@ Serve a Flow ingester with the provided configuration, until signaled to
 exit (via SIGTERM).
 `, &cmdIngester{})
 
+	// journals command - add all journal sub-commands from gazctl under this command
+	journals, err := parser.Command.AddCommand("journals", "Interact with broker journals", "", gazctlcmd.JournalsCfg)
+	mbp.Must(gazctlcmd.CmdRegistry.AddCmds("journals", journals), "failed to add commands")
+
+	// journals command - add all shards sub-commands from gazctl under this command
+	shards, err := parser.Command.AddCommand("shards", "Interact with consumer shards", "", gazctlcmd.ShardsCfg)
+	mbp.Must(gazctlcmd.CmdRegistry.AddCmds("shards", shards), "failed to add commands")
+
+	// Add split as subcommand of shards command
+	addCmd(shards, "split", "Split a Flow processing shard", `
+Split a Flow processing shard into two, either on shuffled key or rotated clock.
+`, &cmdSplit{})
+
 	mbp.AddPrintConfigCmd(parser, iniFilename)
+
+	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)
+
 }
 
 func addCmd(to interface {
