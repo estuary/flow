@@ -16,14 +16,13 @@ curl -OL https://raw.githubusercontent.com/estuary/flow/zach/flowctl-sh/scripts/
 chmod 755 flowctl.sh
 sudo mv flowctl.sh /usr/local/bin/flowctl.sh
 sudo ln -s flowctl.sh /usr/local/bin/flowctl
-sudo ln -s flowctl.sh /usr/local/bin/gazctl
 ```
 
-This also created two symlinks for `flowctl` and `gazctl` to the script. This allows you use the flowctl as shown
-in the documentation as well as to access Gazette commands that are included in the Flow docker container.
+This also creates a symlinks for `flowctl` to the script. This allows you use the flowctl as shown
+in the documentation
 
 ## Running
-You should be able to use these commands `flowctl` and `gazctl` just as in the documentation. (See Caveats)
+You should be able to use the command `flowctl` just as in the documentation. (See Caveats)
 
 ## Caveats
 
