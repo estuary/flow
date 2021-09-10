@@ -48,6 +48,12 @@ type governor struct {
 
 // StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
 func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
+	var g = newGovernor(rb, cp, tp)
+	go g.serveDocuments(ctx, ch)
+}
+
+// newGovernor builds a new governor starting from the Checkpoint offsets.
+func newGovernor(rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint) *governor {
 	var offsets = make(pb.Offsets)
 	for journal, meta := range cp.Sources {
 		offsets[journal] = meta.ReadThrough
@@ -65,28 +71,41 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 	}
 	g.wallTime.Update(time.Now())
 
-	// Spawn a loop which invokes Next() and passes the result to the output |ch|.
-	go func() {
-		var out consumer.EnvelopeOrError
-		defer close(ch)
+	return g
+}
 
-		if out.Error = g.onConverge(ctx); out.Error != errPollAgain {
-			ch <- out
+// serveDocuments repeatedly drives governor.next() to deliver documents into |ch|.
+func (g *governor) serveDocuments(ctx context.Context, ch chan<- consumer.EnvelopeOrError) {
+	defer close(ch)
+
+	// Prime with an initial convergence pass.
+	if err := g.onConverge(ctx); err != errPollAgain {
+		select {
+		case ch <- consumer.EnvelopeOrError{Error: err}:
+		case <-ctx.Done():
+		}
+		return
+	}
+
+	for {
+		var out consumer.EnvelopeOrError
+		out.Envelope, out.Error = g.next(ctx)
+
+		if out.Error == errDrained {
+			// We don't send these, and instead simply close the channel
+			// to tell the consumer framework to drain and restart reads.
 			return
 		}
-		for {
-			out.Envelope, out.Error = g.next(ctx)
 
-			if out.Error == nil {
-				ch <- out
-			} else {
-				if out.Error != errDrained {
-					ch <- out
-				}
+		select {
+		case ch <- out:
+			if out.Error != nil {
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
-	}()
+	}
 }
 
 // StartReplayRead builds and starts a read of the given journal and offset range.
