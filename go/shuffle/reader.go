@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/flow"
@@ -178,7 +177,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
 		if r.readDelay != 0 && readTime > g.wallTime {
-			r.log().Debug("gated reads of journal")
+			r.log().WithField("until", readTime).Debug("gated reads of journal")
 
 			g.gated = append(g.gated, r)
 			continue
@@ -305,17 +304,15 @@ func (g *governor) poll(ctx context.Context) error {
 }
 
 func (g *governor) onTick() error {
+	g.wallTime.Update(g.tp.Time)
+
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
-		r.log().Debug("un-gated reads of journal")
+		r.log().WithField("now", g.wallTime).Debug("un-gated reads of journal")
 		heap.Push(&g.queued, r)
 	}
 	g.gated = g.gated[:0]
-
-	// Adjust |tick| by the clock delta (if any) attached to the *consumer.Service.
-	var delta = atomic.LoadInt64((*int64)(&g.rb.service.PublishClockDelta))
-	g.wallTime.Update(g.tp.Time.Add(time.Duration(delta)))
 
 	// Start awaiting next *Timepoint.
 	g.tp = g.tp.Next
