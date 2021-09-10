@@ -197,7 +197,7 @@ func (g *governor) poll(ctx context.Context) error {
 	// polling each without blocking to see if one is now available.
 	for r := range g.pending {
 
-		var result readResult
+		var result *pf.ShuffleResponse
 		var ok bool
 
 		select {
@@ -225,21 +225,23 @@ func (g *governor) poll(ctx context.Context) error {
 
 		// This *read polled as ready: we now evaluate its outcome.
 
-		if err := r.onRead(result); err != nil {
-			// If an error occurred, there are no ready documents and we expect
-			// the read pump will close it's channel after this error.
-			// Return errPollAgain to read that close, which will go on to remove
-			// and possibly restart this failed *read.
+		if err := r.onRead(result, ok); err != nil {
+			// An encountered error is terminal for this read.
+			// There are no ready documents and the read's channel is already closed.
+
+			// Often the error is a cancellation, which happens normally as
+			// shard assignments change and the read is restarted against
+			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
 				r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
 			}
-			return errPollAgain
-		} else if !ok {
-			// This *read was cancelled and its channel has now drained.
+
+			// Clear tracking state for this drained read.
 			delete(g.pending, r)
 			delete(g.active, r.req.Shuffle.Journal)
-			// Perserve the journal offset for a future read.
+			// Perserve the journal offset for a possible restart of the read.
 			g.idle[r.req.Shuffle.Journal] = r.req.Offset
+
 			// Converge again, as we may want to start a new read for this journal
 			// (i.e., if we drained this read because the coordinating shard has changed).
 			return g.onConverge(ctx)
