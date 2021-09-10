@@ -380,25 +380,27 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 		// If |aa.fb| is nil, then |aa| was never returned by StartAppend and no
 		// client can possibly be waiting on its response. We skip performing
 		// an Append RPC altogether in this case.
-		if err == nil && aa.fb != nil {
+		if aa.fb != nil {
 			retryUntil(aa.fb.flush, aa.app.Request.Journal, "failed to flush appendBuffer")
 
-			retryUntil(func() error {
-				var _, err2 = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
-				if err2 == nil {
-					err2 = aa.app.Close()
-				}
+			if err == nil {
+				retryUntil(func() error {
+					var _, err2 = io.Copy(&aa.app, io.NewSectionReader(aa.fb.file, 0, aa.checkpoint))
+					if err2 == nil {
+						err2 = aa.app.Close()
+					}
 
-				if err2 == context.Canceled || err2 == context.DeadlineExceeded {
-					err = err2
-					return nil // Break retry loop.
-				} else if err2 != nil {
-					aa.app.Reset()
-					return err2 // Retry by returning |err2|.
-				} else {
-					return nil // Success; break loop.
-				}
-			}, aa.app.Request.Journal, "failed to append to journal")
+					if err2 == context.Canceled || err2 == context.DeadlineExceeded {
+						err = err2
+						return nil // Break retry loop.
+					} else if err2 != nil {
+						aa.app.Reset()
+						return err2 // Retry by returning |err2|.
+					} else {
+						return nil // Success; break loop.
+					}
+				}, aa.app.Request.Journal, "failed to append to journal")
+			}
 
 			releaseFileBuffer(aa.fb)
 		}
