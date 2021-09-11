@@ -7,8 +7,8 @@ use url::Url;
 // Referenced external schemas are inlined into the document as definitions.
 pub fn bundled_schema(
     schema: &Url,
-    imports: &[&tables::Import],
-    schema_docs: &[&tables::SchemaDoc],
+    imports: &[tables::Import],
+    schema_docs: &[tables::SchemaDoc],
 ) -> Value {
     // Collect all dependencies of |schema|, inclusive of |schema| itself
     // (as the first item). Project each dependency to a schema document

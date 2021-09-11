@@ -4,13 +4,14 @@ use itertools::{EitherOrBoth, Itertools};
 use models::{names, tables};
 use protocol::{flow, materialize};
 use std::collections::{BTreeMap, HashMap};
+use superslice::Ext;
 use url::Url;
 
 pub async fn walk_all_materializations<D: Drivers>(
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     projections: &[tables::Projection],
@@ -19,17 +20,14 @@ pub async fn walk_all_materializations<D: Drivers>(
 ) -> tables::BuiltMaterializations {
     let mut validations = Vec::new();
 
-    // Index |materialization_bindings| on (materialization, index),
-    // then group bindings having the same materialization.
+    // Group |materialization_bindings| on bindings having the same materialization.
     let materialization_bindings = materialization_bindings
         .into_iter()
-        .sorted_by_key(|m| (&m.materialization, m.materialization_index))
         .group_by(|m| &m.materialization);
 
     // Walk ordered materializations, left-joined by their bindings.
     for (materialization, bindings) in materializations
         .iter()
-        .sorted_by_key(|m| &m.materialization)
         .merge_join_by(materialization_bindings.into_iter(), |l, (r, _)| {
             l.materialization.cmp(r)
         })
@@ -203,7 +201,7 @@ pub async fn walk_all_materializations<D: Drivers>(
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     materialization: &'a tables::Materialization,
     materialization_bindings: Vec<&'a tables::MaterializationBinding>,
     projections: &[tables::Projection],
@@ -250,7 +248,7 @@ fn walk_materialization_request<'a>(
 fn walk_materialization_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     materialization_binding: &'a tables::MaterializationBinding,
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
@@ -280,10 +278,8 @@ fn walk_materialization_binding<'a>(
         errors,
     )?;
 
-    let built_collection = built_collections
-        .iter()
-        .find(|c| c.collection == source.collection)
-        .unwrap();
+    let built_collection = &built_collections
+        [built_collections.lower_bound_by_key(&&source.collection, |c| &c.collection)];
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);

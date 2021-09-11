@@ -56,7 +56,7 @@ impl super::SchemaDoc {
 impl super::Import {
     // path_exists determines whether a forward or backwards import path exists between
     // |src_scope| and |tgt_scope|.
-    pub fn path_exists(imports: &[&Self], src_scope: &Url, tgt_scope: &Url) -> bool {
+    pub fn path_exists(imports: &[Self], src_scope: &Url, tgt_scope: &Url) -> bool {
         let edges = |from: &Url| {
             let range = imports.equal_range_by_key(&from, |import| &import.from_resource);
             imports[range].iter().map(|import| &import.to_resource)
@@ -84,7 +84,7 @@ impl super::Import {
     // directly or indirectly imports, where |src| is included as the first item.
     // |src| must not have a fragment or transitive_imports will panic.
     pub fn transitive_imports<'a>(
-        imports: &'a [&Self],
+        imports: &'a [Self],
         src: &'a Url,
     ) -> impl Iterator<Item = &'a Url> + 'a {
         assert!(!src.fragment().is_some());

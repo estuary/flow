@@ -1,5 +1,4 @@
 use futures::future::LocalBoxFuture;
-use itertools::Itertools;
 use models::tables;
 use protocol;
 
@@ -70,12 +69,6 @@ pub async fn validate<D: Drivers>(
         root_scope = &r.resource;
     }
 
-    // Index for future binary searches of the import graph.
-    let imports = imports
-        .iter()
-        .sorted_by_key(|i| (&i.from_resource, &i.to_resource))
-        .collect::<Vec<_>>();
-
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
         Ok(c) => c,
         Err(err) => {
@@ -97,7 +90,7 @@ pub async fn validate<D: Drivers>(
     );
 
     let (schema_shapes, inferences) = schema::walk_all_schema_refs(
-        &imports,
+        imports,
         projections,
         &schema_docs,
         &schema_index,
@@ -116,7 +109,7 @@ pub async fn validate<D: Drivers>(
         &built_collections,
         collections,
         derivations,
-        &imports,
+        imports,
         projections,
         &schema_index,
         &schema_shapes,
@@ -149,7 +142,7 @@ pub async fn validate<D: Drivers>(
         captures,
         collections,
         derivations,
-        &imports,
+        imports,
         &mut errors,
     );
 
@@ -158,7 +151,7 @@ pub async fn validate<D: Drivers>(
         drivers,
         &built_collections,
         collections,
-        &imports,
+        imports,
         materialization_bindings,
         materializations,
         projections,
@@ -173,7 +166,7 @@ pub async fn validate<D: Drivers>(
 
     let built_tests = test_step::walk_all_test_steps(
         collections,
-        &imports,
+        imports,
         projections,
         &schema_index,
         &schema_shapes,

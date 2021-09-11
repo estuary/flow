@@ -1,5 +1,4 @@
 use doc::inference;
-use itertools::Itertools;
 use models::tables;
 
 #[test]
@@ -20,16 +19,6 @@ fn test_bundle_generation() {
         orig_index.add(compiled).unwrap()
     }
     orig_index.verify_references().unwrap();
-
-    // Index imports and schema_docs (expected ordering of bundled_schema).
-    let imports = imports
-        .iter()
-        .sorted_by_key(|i| (&i.from_resource, &i.to_resource))
-        .collect::<Vec<_>>();
-    let schema_docs = schema_docs
-        .iter()
-        .sorted_by_key(|d| &d.schema)
-        .collect::<Vec<_>>();
 
     // We'll collect bundle documents, and snapshot them at the end.
     let mut bundle_docs = serde_json::Map::new();
