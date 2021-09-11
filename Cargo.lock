@@ -104,6 +104,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "caseless"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "808dab3318747be122cb31d36de18d4d1c81277a76f8332a02b81a3d73463d7f"
+dependencies = [
+ "regex",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -472,6 +482,7 @@ name = "parser"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "caseless",
  "chardetng",
  "csv",
  "doc",
@@ -490,6 +501,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-bom",
+ "unicode-normalization",
  "url",
  "uuid",
  "zip",

@@ -1,5 +1,6 @@
 //! Types for reasoning about projections of tabular data into potentially nested JSON.
 use crate::config::ParseConfig;
+use caseless::Caseless;
 use doc::inference::{Exists, Shape};
 use doc::{Pointer, Schema, SchemaIndex};
 use json::schema::build::Error as SchemaBuildError;
@@ -7,6 +8,7 @@ use json::schema::index::Error as SchemaIndexError;
 use json::schema::types;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use unicode_normalization::UnicodeNormalization;
 
 /// Information known about a specific location within a JSON document.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +35,19 @@ pub enum BuildError {
     InvalidSchema(#[from] SchemaBuildError),
     #[error("cannot process json schema: {0}")]
     SchemaIndex(#[from] SchemaIndexError),
+}
+
+/// Map input characters (e.x. String::chars()) into its collated form,
+/// which ignores casing and is unicode-normalized.
+/// This follows the conformance guidelines in:
+/// http://www.unicode.org/versions/Unicode13.0.0/ch03.pdf
+/// in Section 3.13 - "Default Caseless Matching" (all the way at the bottom).
+// This must match the collation used by Flow during the catalog build process.
+pub fn collate<I>(i: I) -> impl Iterator<Item = char>
+where
+    I: Iterator<Item = char>,
+{
+    i.nfd().default_case_fold().nfkc()
 }
 
 /// Resolves a map of possible column names to associated type information. This uses both the
@@ -87,7 +102,7 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
                 possible_types: None,
             }
         };
-        results.insert(field.clone(), projection);
+        results.insert(collate(field.chars()).collect(), projection);
     }
 
     Ok(results)
@@ -98,52 +113,62 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
 /// which will be used to make a best-effort lookup of columns from a tabular data file.
 fn derive_field_names(pointer: &str) -> Vec<String> {
     use doc::ptr::Token;
-    if !pointer.is_empty() {
-        let split = Pointer::from(pointer)
-            .iter()
-            .map(|t| match t {
-                Token::Index(i) => i.to_string(),
-                Token::Property(p) => p.to_string(),
-                Token::NextIndex => "-".to_string(),
-            })
-            .collect::<Vec<_>>();
 
-        let with_underscores = split.iter().fold(String::new(), |mut acc, r| {
-            if !acc.is_empty() {
-                acc.push('_');
-            }
-            acc.push_str(r.as_str());
-            acc
-        });
-        let camel_case = split.iter().fold(String::new(), |mut acc, r| {
-            if acc.is_empty() {
-                acc.push_str(r.as_str());
-            } else {
-                if let Some(c) = r.chars().next() {
-                    acc.push(c.to_ascii_uppercase());
-                    acc.extend(r.chars().skip(1));
-                }
-            }
-            acc
-        });
-
-        let mut title_case = camel_case
-            .chars()
-            .take(1)
-            .map(|c| c.to_ascii_uppercase())
-            .collect::<String>();
-        title_case.extend(camel_case.chars().skip(1));
-
-        vec![
-            with_underscores,
-            camel_case,
-            title_case,
-            pointer.to_string(),
-            pointer[1..].to_string(),
-        ]
-    } else {
-        Vec::new()
+    if pointer.is_empty() {
+        return Vec::new();
     }
+
+    let split = Pointer::from(pointer)
+        .iter()
+        .map(|t| match t {
+            Token::Index(i) => i.to_string(),
+            Token::Property(p) => p.to_string(),
+            Token::NextIndex => "-".to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    let with_underscores = split.iter().fold(String::new(), |mut acc, r| {
+        if !acc.is_empty() {
+            acc.push('_');
+        }
+        acc.push_str(r.as_str());
+        acc
+    });
+    let with_spaces = split.iter().fold(String::new(), |mut acc, r| {
+        if !acc.is_empty() {
+            acc.push(' ');
+        }
+        acc.push_str(r.as_str());
+        acc
+    });
+    let with_no_delim = split.iter().fold(String::new(), |mut acc, r| {
+        acc.extend(r.chars());
+        acc
+    });
+
+    let mut variants = vec![
+        with_underscores,
+        with_spaces,
+        with_no_delim,
+        pointer.to_string(),
+        pointer[1..].to_string(),
+    ];
+
+    // For properties of the document root (only) having underscores,
+    // allow the property to also match a space-delimited variant
+    // of its constituent parts.
+    if split.len() == 1 {
+        variants.push(split[0].replace("_", " "))
+    }
+
+    let mut variants: Vec<_> = variants
+        .into_iter()
+        .map(|s| collate(s.chars()).collect())
+        .collect();
+    variants.sort();
+    variants.dedup();
+
+    variants
 }
 
 #[cfg(test)]
@@ -162,12 +187,44 @@ mod test {
     }
 
     #[test]
+    fn test_derived_names() {
+        assert_eq!(
+            derive_field_names("/foo_bar"),
+            vec!["/foo_bar", "foo bar", "foo_bar"]
+        );
+
+        assert_eq!(
+            derive_field_names("/foo_bar/baz"),
+            vec![
+                "/foo_bar/baz",
+                "foo_bar baz",
+                "foo_bar/baz",
+                "foo_bar_baz",
+                "foo_barbaz",
+                // Note that "foo bar baz" is not included.
+            ]
+        );
+
+        // Unicade is normalized.
+        assert_eq!(
+            derive_field_names("/a/ß/Minnow"),
+            vec![
+                "/a/ss/minnow",
+                "a ss minnow",
+                "a/ss/minnow",
+                "a_ss_minnow",
+                "assminnow"
+            ]
+        );
+    }
+
+    #[test]
     fn projections_are_built() {
         let config = ParseConfig {
             projections: map_of!(
                 "fieldA" => "/locationa",
                 "fieldB" => "/b/loc",
-                // Ensure that this projection takes precedence over the generated on
+                // Ensure that this projection takes precedence over the generated one.
                 "BeeLoc" => "/locationa"
             ),
             schema: json!({
@@ -193,7 +250,7 @@ mod test {
             }),
             ..Default::default()
         };
-        let result = build_projections(&config).expect("failed to build projectsions");
+        let result = build_projections(&config).expect("failed to build projections");
         insta::assert_debug_snapshot!(result);
     }
 }

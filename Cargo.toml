@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 bytes = "*"
+caseless = "*"
 chardetng = "*"
 csv = "*"
 encoding_rs = {version = "*", features = ["serde"]}
@@ -22,6 +23,7 @@ thiserror = "*"
 tracing = "*"
 tracing-subscriber = "*"
 unicode-bom = "*"
+unicode-normalization = "*"
 url = "*"
 uuid = {version = "*", features = ["v4"]}
 zip = "*"

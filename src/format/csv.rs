@@ -4,7 +4,7 @@ use crate::config::{
     csv::{CharacterSeparatedConfig, LineEnding},
     ParseConfig,
 };
-use crate::format::projection::{build_projections, TypeInfo};
+use crate::format::projection::{build_projections, collate, TypeInfo};
 use crate::input::{detect_encoding, Input};
 use csv::{Reader, StringRecord, Terminator};
 use doc::Pointer;
@@ -146,14 +146,16 @@ impl Parser for CsvParser {
         // knowledge about the desired shape of the JSON.
         let mut columns = Vec::new();
         for name in headers {
-            let projection = projections.remove(&name).unwrap_or_else(|| {
-                let location = String::from("/") + name.as_str();
-                TypeInfo {
-                    possible_types: None,
-                    must_exist: false,
-                    target_location: Pointer::from_str(&location),
-                }
-            });
+            let projection = projections
+                .remove(&collate(name.chars()).collect::<String>())
+                .unwrap_or_else(|| {
+                    let location = String::from("/") + name.as_str();
+                    TypeInfo {
+                        possible_types: None,
+                        must_exist: false,
+                        target_location: Pointer::from_str(&location),
+                    }
+                });
             columns.push(Header { name, projection });
         }
         tracing::info!("Resolved column headers: {:?}", columns);
@@ -257,13 +259,10 @@ impl Header {
 
     fn parse_as_type(&self, value: &str, target_type: TargetType) -> Option<Value> {
         match target_type {
-            TargetType::Null => {
-                if value.is_empty() {
-                    Some(Value::Null)
-                } else {
-                    None
-                }
-            }
+            TargetType::Null => match value {
+                "" | "NULL" | "null" | "nil" => Some(Value::Null),
+                _ => None,
+            },
             TargetType::Array => serde_json::from_str::<Vec<Value>>(value)
                 .ok()
                 .map(|a| Value::Array(a)),
