@@ -1,0 +1,10 @@
+[package]
+name = "allocator"
+version = "0.0.0"
+edition = "2018"
+
+[dependencies]
+lazy_static = "*"
+jemallocator = "*"
+jemalloc-ctl = "*"
+
