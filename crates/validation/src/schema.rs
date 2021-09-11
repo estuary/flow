@@ -93,11 +93,7 @@ pub fn walk_all_named_schemas<'a>(
     named_schemas: &'a [tables::NamedSchema],
     errors: &mut tables::Errors,
 ) {
-    for (lhs, rhs) in named_schemas
-        .iter()
-        .sorted_by_key(|n| &n.anchor_name)
-        .tuple_windows()
-    {
+    for (lhs, rhs) in named_schemas.iter().tuple_windows() {
         if lhs.anchor_name == rhs.anchor_name {
             Error::NameCollision {
                 error_class: "duplicates",
@@ -135,7 +131,7 @@ pub fn index_compiled_schemas<'a>(
 }
 
 pub fn walk_all_schema_refs(
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_docs: &[tables::SchemaDoc],
     schema_index: &doc::SchemaIndex<'_>,
@@ -144,12 +140,6 @@ pub fn walk_all_schema_refs(
 ) -> (Vec<Shape>, tables::Inferences) {
     let mut schema_shapes: Vec<Shape> = Vec::new();
     let mut inferences = tables::Inferences::new();
-
-    // Index schema_docs on schema CURI.
-    let schema_docs = schema_docs
-        .iter()
-        .sorted_by_key(|d| &d.schema)
-        .collect::<Vec<_>>();
 
     // Walk schema URLs (*with* fragment pointers) with their grouped references.
     for (schema, references) in schema_refs

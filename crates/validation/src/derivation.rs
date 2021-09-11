@@ -3,12 +3,13 @@ use itertools::Itertools;
 use json::schema::types;
 use models::{build, tables};
 use protocol::flow;
+use superslice::Ext;
 
 pub fn walk_all_derivations(
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
@@ -18,15 +19,12 @@ pub fn walk_all_derivations(
     let mut built_derivations = tables::BuiltDerivations::new();
 
     for derivation in derivations {
-        let built_collection = built_collections
-            .iter()
-            .find(|c| c.collection == derivation.derivation)
-            .unwrap();
+        let built_collection = &built_collections
+            [built_collections.lower_bound_by_key(&&derivation.derivation, |c| &c.collection)];
 
-        let filtered_transforms = transforms
-            .iter()
-            .filter(|t| t.derivation == derivation.derivation)
-            .collect::<Vec<_>>();
+        // Transforms are already ordered on (derivation, transform).
+        let transforms =
+            &transforms[transforms.equal_range_by_key(&&derivation.derivation, |t| &t.derivation)];
 
         built_derivations.push_row(
             &derivation.scope,
@@ -39,7 +37,7 @@ pub fn walk_all_derivations(
                 projections,
                 schema_index,
                 schema_shapes,
-                &filtered_transforms,
+                transforms,
                 errors,
             ),
         );
@@ -52,11 +50,11 @@ fn walk_derivation(
     built_collection: &tables::BuiltCollection,
     collections: &[tables::Collection],
     derivation: &tables::Derivation,
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
-    transforms: &[&tables::Transform],
+    transforms: &[tables::Transform],
     errors: &mut tables::Errors,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
@@ -139,7 +137,7 @@ fn walk_derivation(
 
 pub fn walk_transform(
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
