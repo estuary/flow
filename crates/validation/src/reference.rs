@@ -9,7 +9,7 @@ pub fn walk_reference<'a, T, F, N>(
     ref_name: &N,
     entities: &'a [T],
     entity_fn: F,
-    imports: &'a [&'a tables::Import],
+    imports: &'a [tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<&'a T>
 where
