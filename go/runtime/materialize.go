@@ -102,6 +102,18 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		return pc.Checkpoint{}, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
 	}
 
+	defer func() {
+		if err == nil {
+			m.shuffleTaskTerm.logPublisher.Log(log.InfoLevel, log.Fields{
+				"checkpoint": cp,
+			}, "resolved materialization resumption checkpoint")
+		} else {
+			m.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+				"error": err.Error(),
+			}, "failed to read materialization resumption checkpoint")
+		}
+	}()
+
 	// Establish driver connection and start Transactions RPC.
 	conn, err := materialize.NewDriver(shard.Context(),
 		m.task.Materialization.EndpointType,
@@ -185,13 +197,19 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	return cp, nil
 }
 
+func (m *Materialize) logErr(err error, message string) {
+	m.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+		"error": err.Error(),
+	}, message)
+}
+
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	log.WithFields(log.Fields{
+	m.taskTerm.logPublisher.Log(log.DebugLevel, log.Fields{
 		"task":       m.task.Name(),
 		"shardID":    m.shardID,
 		"checkpoint": checkpoint,
-	}).Debug("StartCommit")
+	}, "StartCommit")
 
 	// Write our intent to close the transaction and prepare for commit.
 	// This signals the driver to send remaining Loaded responses, if any.
@@ -202,6 +220,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	// Drain remaining Loaded responses, until we read Prepared.
 	for {
 		if next, err := materialize.Rx(m.driverRx, true); err != nil {
+			m.logErr(err, "driver error reading Loaded or Prepared")
 			return client.FinishedOperation(fmt.Errorf(
 				"reading Loaded or Prepared: %w", err))
 		} else if next.Loaded != nil {
@@ -215,8 +234,12 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 			break // All done.
 		} else {
 			// Protocol error.
-			return client.FinishedOperation(fmt.Errorf(
-				"expected Loaded or Prepared, got %#v", next.String()))
+			var err = fmt.Errorf(
+				"expected Loaded or Prepared, got %#v",
+				next.String(),
+			)
+			m.logErr(err, "driver error reading Loaded or Prepared")
+			return client.FinishedOperation(err)
 		}
 	}
 
