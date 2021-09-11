@@ -8,48 +8,48 @@ Tables {
     captures: [],
     collections: [
         Collection {
-            scope: test://example/catalog.yaml#/collections/d2~1collection,
-            collection: d2/collection,
-            schema: test://example/a-schema.json,
-            key: ["/d2-key"],
-        },
-        Collection {
             scope: test://example/catalog.yaml#/collections/d1~1collection,
             collection: d1/collection,
             schema: test://example/a-schema.json,
             key: ["/d1-key"],
         },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/d2~1collection,
+            collection: d2/collection,
+            schema: test://example/a-schema.json,
+            key: ["/d2-key"],
+        },
     ],
     derivations: [
-        Derivation {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation,
-            derivation: d2/collection,
-            register_schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            register_initial: null,
-        },
         Derivation {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derivation,
             derivation: d1/collection,
             register_schema: test://example/reg-schema.json#/$defs/qib,
             register_initial: {"initial":["value",32]},
         },
+        Derivation {
+            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation,
+            derivation: d2/collection,
+            register_schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
+            register_initial: null,
+        },
     ],
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
+            resource: test://example/a-schema.json,
+        },
+        Fetch {
+            resource: test://example/alt-schema.json,
         },
         Fetch {
             resource: test://example/catalog.ts,
         },
         Fetch {
-            resource: test://example/a-schema.json,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
             resource: test://example/reg-schema.json,
-        },
-        Fetch {
-            resource: test://example/alt-schema.json,
         },
     ],
     imports: [
@@ -59,9 +59,14 @@ Tables {
             to_resource: test://example/a-schema.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/register/schema,
+            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
+            to_resource: test://example/a-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/transform/some-name/source/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/alt-schema.json,
         },
         Import {
             scope: test://example/catalog.yaml,
@@ -69,19 +74,14 @@ Tables {
             to_resource: test://example/catalog.ts,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
+            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/register/schema,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/a-schema.json,
+            to_resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/register/schema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/reg-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/transform/some-name/source/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/alt-schema.json,
         },
     ],
     journal_rules: [],
@@ -91,6 +91,21 @@ Tables {
     npm_dependencies: [],
     projections: [],
     resources: [
+        Resource {
+            resource: test://example/a-schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/alt-schema.json,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.ts,
+            content_type: "TypescriptModule",
+            content: ".. binary ..",
+        },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CatalogSpec",
@@ -102,61 +117,32 @@ Tables {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/catalog.ts,
-            content_type: "TypescriptModule",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/a-schema.json,
-            content_type: "JsonSchema",
-            content: ".. binary ..",
-        },
-        Resource {
             resource: test://example/reg-schema.json,
-            content_type: "JsonSchema",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/alt-schema.json,
             content_type: "JsonSchema",
             content: ".. binary ..",
         },
     ],
     schema_docs: [
         SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
+            schema: test://example/a-schema.json,
             dom: true,
         },
         SchemaDoc {
-            schema: test://example/a-schema.json,
+            schema: test://example/alt-schema.json,
+            dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
+        },
+        SchemaDoc {
+            schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
             dom: true,
         },
         SchemaDoc {
             schema: test://example/reg-schema.json,
             dom: {"$defs":{"qib":true}},
         },
-        SchemaDoc {
-            schema: test://example/alt-schema.json,
-            dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
-        },
     ],
     shard_rules: [],
     test_steps: [],
     transforms: [
-        Transform {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/transform/do-the-thing,
-            derivation: d2/collection,
-            priority: 0,
-            publish_lambda: NULL,
-            read_delay_seconds: NULL,
-            shuffle_key: NULL,
-            shuffle_lambda: NULL,
-            source_collection: src/collection,
-            source_partitions: NULL,
-            source_schema: NULL,
-            transform: do-the-thing,
-            update_lambda: {"remote":"https://example/api"},
-        },
         Transform {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/transform/some-name,
             derivation: d1/collection,
@@ -170,6 +156,20 @@ Tables {
             source_schema: test://example/alt-schema.json#foobar,
             transform: some-name,
             update_lambda: "typescript",
+        },
+        Transform {
+            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/transform/do-the-thing,
+            derivation: d2/collection,
+            priority: 0,
+            publish_lambda: NULL,
+            read_delay_seconds: NULL,
+            shuffle_key: NULL,
+            shuffle_lambda: NULL,
+            source_collection: src/collection,
+            source_partitions: NULL,
+            source_schema: NULL,
+            transform: do-the-thing,
+            update_lambda: {"remote":"https://example/api"},
         },
     ],
 }

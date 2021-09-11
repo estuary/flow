@@ -18,10 +18,10 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
+            resource: test://example/catalog.ts,
         },
         Fetch {
-            resource: test://example/catalog.ts,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
             resource: test://example/schema.json,

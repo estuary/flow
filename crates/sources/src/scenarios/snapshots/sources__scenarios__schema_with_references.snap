@@ -18,10 +18,10 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
+            resource: test://example/catalog.ts,
         },
         Fetch {
-            resource: test://example/catalog.ts,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
             resource: test://external/a,
@@ -40,9 +40,9 @@ Tables {
             to_resource: test://example/catalog.ts,
         },
         Import {
-            scope: test://external/b#/$defs/c/$ref,
-            from_resource: test://external/b,
-            to_resource: test://external/c,
+            scope: test://example/catalog.yaml#/collections/test/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://external/a,
         },
         Import {
             scope: test://external/a#/$defs/a/$ref,
@@ -50,9 +50,9 @@ Tables {
             to_resource: test://external/b,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/test/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://external/a,
+            scope: test://external/b#/$defs/c/$ref,
+            from_resource: test://external/b,
+            to_resource: test://external/c,
         },
     ],
     journal_rules: [],
@@ -85,16 +85,16 @@ Tables {
     ],
     schema_docs: [
         SchemaDoc {
-            schema: test://external/c,
-            dom: true,
+            schema: test://external/a,
+            dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
         },
         SchemaDoc {
             schema: test://external/b,
             dom: {"$defs":{"c":{"$ref":"c"}}},
         },
         SchemaDoc {
-            schema: test://external/a,
-            dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
+            schema: test://external/c,
+            dom: true,
         },
     ],
     shard_rules: [],

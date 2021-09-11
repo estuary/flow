@@ -231,7 +231,7 @@ macro_rules! replace_expr {
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, sql $sql_name:literal ) {
+        table $table:ident ( row $row:ident, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
             $($field:ident: $rust_type:ty,)*
         }
     )*) => {
@@ -247,15 +247,44 @@ macro_rules! tables {
         impl $table {
             /// New returns an empty Table.
             pub fn new() -> Self { Self(Vec::new()) }
-            /// Push a new Row to the back of the Table.
+            /// Insert a new ordered Row into the Table.
             /// Arguments match the positional order of the table's definition.
+            #[allow(dead_code)]
             pub fn push_row(&mut self, $( $field: impl OwnOrClone<$rust_type>, )*) {
-                self.0.push($row {
+                self.push($row {
                     $($field: $field.own_or_clone(),)*
                 });
             }
+
+            #[allow(dead_code)]
+            pub fn push(&mut self, row: $row) {
+                use superslice::Ext;
+
+                let r = ($(&row.$order_by,)*);
+
+                let index = self.0.upper_bound_by(move |_l| {
+                    let l = ($(&_l.$order_by,)*);
+                    l.cmp(&r)
+                });
+                self.0.insert(index, row);
+            }
+
+            #[allow(dead_code)]
             pub fn into_iter(self) -> impl Iterator<Item=$row> {
                 self.0.into_iter()
+            }
+            #[allow(dead_code)]
+            pub fn extend(&mut self, it: impl Iterator<Item=$row>) {
+                self.0.extend(it);
+                self.reindex();
+            }
+
+            fn reindex(&mut self) {
+                self.0.sort_by(|_l, _r| {
+                    let l = ($(&_l.$order_by,)*);
+                    let r = ($(&_r.$order_by,)*);
+                    l.cmp(&r)
+                });
             }
         }
 
@@ -316,15 +345,15 @@ macro_rules! tables {
 
             fn load_all(&mut self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
                 let mut stmt = db.prepare(&Self::select_sql())?;
-                self.0.extend(stmt.query_map([], $row::scan)?
-                              .collect::<Result<Vec<_>, _>>()?);
+                self.extend(stmt.query_map([], $row::scan)?
+                              .collect::<Result<Vec<_>, _>>()?.into_iter());
                 Ok(())
             }
 
             fn load_where(&mut self, db: &rusqlite::Connection, filter: &str, params: &[&dyn rusqlite::types::ToSql]) -> rusqlite::Result<()> {
                 let mut stmt = db.prepare(&format!("{} WHERE {}", Self::select_sql(), filter))?;
-                self.0.extend(stmt.query_map(params, $row::scan)?
-                              .collect::<Result<Vec<_>, _>>()?);
+                self.extend(stmt.query_map(params, $row::scan)?
+                              .collect::<Result<Vec<_>, _>>()?.into_iter());
                 Ok(())
             }
         }
@@ -332,10 +361,6 @@ macro_rules! tables {
         impl std::ops::Deref for $table {
             type Target = Vec<$row>;
             fn deref(&self) -> &Vec<$row> { &self.0 }
-        }
-
-        impl std::ops::DerefMut for $table {
-            fn deref_mut(&mut self) -> &mut Vec<$row> { &mut self.0 }
         }
 
         impl TableRow for $row {

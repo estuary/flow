@@ -374,18 +374,92 @@ All {
     ],
     built_collections: [
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
+            scope: test://example/int-halve#/collections/testing~1int-halve,
+            collection: testing/int-halve,
             spec: CollectionSpec {
-                collection: "testing/int-string.v2",
-                schema_uri: "test://example/int-string.schema",
-                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                collection: "testing/int-halve",
+                schema_uri: "test://example/int-string-len.schema",
+                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                 key_ptrs: [
                     "/int",
                 ],
                 uuid_ptr: "/_meta/uuid",
-                partition_fields: [],
+                partition_fields: [
+                    "Len",
+                ],
                 projections: [
+                    Projection {
+                        ptr: "/extra",
+                        field: "Extra",
+                        user_provided: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                must_exist: false,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/len",
+                        field: "Len",
+                        user_provided: true,
+                        is_partition_key: true,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "Root",
+                        user_provided: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/arr",
+                        field: "arr",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "array",
+                                ],
+                                must_exist: false,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
                     Projection {
                         ptr: "/bit",
                         field: "bit",
@@ -398,6 +472,24 @@ All {
                                     "boolean",
                                 ],
                                 must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/extra",
+                        field: "extra",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                must_exist: false,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -428,6 +520,24 @@ All {
                         user_provided: false,
                         is_partition_key: false,
                         is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                must_exist: true,
+                                string: None,
+                                title: "",
+                                description: "",
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/len",
+                        field: "len",
+                        user_provided: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
                         inference: Some(
                             Inference {
                                 types: [
@@ -682,92 +792,18 @@ All {
             },
         },
         BuiltCollection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
             spec: CollectionSpec {
-                collection: "testing/int-halve",
-                schema_uri: "test://example/int-string-len.schema",
-                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                collection: "testing/int-string.v2",
+                schema_uri: "test://example/int-string.schema",
+                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                 key_ptrs: [
                     "/int",
                 ],
                 uuid_ptr: "/_meta/uuid",
-                partition_fields: [
-                    "Len",
-                ],
+                partition_fields: [],
                 projections: [
-                    Projection {
-                        ptr: "/extra",
-                        field: "Extra",
-                        user_provided: true,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                must_exist: false,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/len",
-                        field: "Len",
-                        user_provided: true,
-                        is_partition_key: true,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "integer",
-                                ],
-                                must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "",
-                        field: "Root",
-                        user_provided: true,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/arr",
-                        field: "arr",
-                        user_provided: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "array",
-                                ],
-                                must_exist: false,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
                     Projection {
                         ptr: "/bit",
                         field: "bit",
@@ -780,24 +816,6 @@ All {
                                     "boolean",
                                 ],
                                 must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/extra",
-                        field: "extra",
-                        user_provided: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                must_exist: false,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -841,24 +859,6 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/len",
-                        field: "len",
-                        user_provided: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "integer",
-                                ],
-                                must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                            },
-                        ),
-                    },
-                    Projection {
                         ptr: "/str",
                         field: "str",
                         user_provided: false,
@@ -889,158 +889,6 @@ All {
         },
     ],
     built_derivations: [
-        BuiltDerivation {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
-            derivation: testing/int-reverse,
-            spec: DerivationSpec {
-                collection: Some(
-                    CollectionSpec {
-                        collection: "testing/int-reverse",
-                        schema_uri: "test://example/int-string.schema",
-                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                        key_ptrs: [
-                            "/int",
-                        ],
-                        uuid_ptr: "/_meta/uuid",
-                        partition_fields: [],
-                        projections: [
-                            Projection {
-                                ptr: "/bit",
-                                field: "bit",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "boolean",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/int",
-                                field: "int",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: true,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "integer",
-                                        ],
-                                        must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                            Projection {
-                                ptr: "/str",
-                                field: "str",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "string",
-                                        ],
-                                        must_exist: true,
-                                        string: Some(
-                                            String {
-                                                content_type: "",
-                                                format: "",
-                                                is_base64: false,
-                                                max_length: 0,
-                                            },
-                                        ),
-                                        title: "",
-                                        description: "",
-                                    },
-                                ),
-                            },
-                        ],
-                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                    },
-                ),
-                register_schema_uri: "test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema",
-                register_initial_json: "null",
-                transforms: [
-                    TransformSpec {
-                        derivation: "testing/int-reverse",
-                        transform: "reverseIntString",
-                        shuffle: Some(
-                            Shuffle {
-                                group_name: "derive/testing/int-reverse/reverseIntString",
-                                source_collection: "testing/int-string",
-                                source_partitions: Some(
-                                    LabelSelector {
-                                        include: Some(
-                                            LabelSet {
-                                                labels: [
-                                                    Label {
-                                                        name: "estuary.dev/collection",
-                                                        value: "testing/int-string",
-                                                    },
-                                                ],
-                                            },
-                                        ),
-                                        exclude: Some(
-                                            LabelSet {
-                                                labels: [],
-                                            },
-                                        ),
-                                    },
-                                ),
-                                source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
-                                    "/int",
-                                ],
-                                uses_source_key: true,
-                                shuffle_lambda: None,
-                                source_schema_uri: "test://example/int-string.schema",
-                                uses_source_schema: true,
-                                validate_schema_at_read: true,
-                                filter_r_clocks: true,
-                                read_delay_seconds: 0,
-                                priority: 0,
-                            },
-                        ),
-                        update_lambda: None,
-                        publish_lambda: Some(
-                            LambdaSpec {
-                                typescript: "/derive/testing/int-reverse/reverseIntString/Publish",
-                                remote: "",
-                            },
-                        ),
-                    },
-                ],
-            },
-        },
         BuiltDerivation {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
             derivation: testing/int-halve,
@@ -1355,6 +1203,158 @@ All {
                         publish_lambda: Some(
                             LambdaSpec {
                                 typescript: "/derive/testing/int-halve/halveSelf/Publish",
+                                remote: "",
+                            },
+                        ),
+                    },
+                ],
+            },
+        },
+        BuiltDerivation {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
+            derivation: testing/int-reverse,
+            spec: DerivationSpec {
+                collection: Some(
+                    CollectionSpec {
+                        collection: "testing/int-reverse",
+                        schema_uri: "test://example/int-string.schema",
+                        schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                        key_ptrs: [
+                            "/int",
+                        ],
+                        uuid_ptr: "/_meta/uuid",
+                        partition_fields: [],
+                        projections: [
+                            Projection {
+                                ptr: "/bit",
+                                field: "bit",
+                                user_provided: false,
+                                is_partition_key: false,
+                                is_primary_key: false,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "boolean",
+                                        ],
+                                        must_exist: true,
+                                        string: None,
+                                        title: "",
+                                        description: "",
+                                    },
+                                ),
+                            },
+                            Projection {
+                                ptr: "",
+                                field: "flow_document",
+                                user_provided: false,
+                                is_partition_key: false,
+                                is_primary_key: false,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "object",
+                                        ],
+                                        must_exist: true,
+                                        string: None,
+                                        title: "",
+                                        description: "",
+                                    },
+                                ),
+                            },
+                            Projection {
+                                ptr: "/int",
+                                field: "int",
+                                user_provided: false,
+                                is_partition_key: false,
+                                is_primary_key: true,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "integer",
+                                        ],
+                                        must_exist: true,
+                                        string: None,
+                                        title: "",
+                                        description: "",
+                                    },
+                                ),
+                            },
+                            Projection {
+                                ptr: "/str",
+                                field: "str",
+                                user_provided: false,
+                                is_partition_key: false,
+                                is_primary_key: false,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "string",
+                                        ],
+                                        must_exist: true,
+                                        string: Some(
+                                            String {
+                                                content_type: "",
+                                                format: "",
+                                                is_base64: false,
+                                                max_length: 0,
+                                            },
+                                        ),
+                                        title: "",
+                                        description: "",
+                                    },
+                                ),
+                            },
+                        ],
+                        ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                    },
+                ),
+                register_schema_uri: "test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema",
+                register_initial_json: "null",
+                transforms: [
+                    TransformSpec {
+                        derivation: "testing/int-reverse",
+                        transform: "reverseIntString",
+                        shuffle: Some(
+                            Shuffle {
+                                group_name: "derive/testing/int-reverse/reverseIntString",
+                                source_collection: "testing/int-string",
+                                source_partitions: Some(
+                                    LabelSelector {
+                                        include: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        exclude: Some(
+                                            LabelSet {
+                                                labels: [],
+                                            },
+                                        ),
+                                    },
+                                ),
+                                source_uuid_ptr: "/_meta/uuid",
+                                shuffle_key_ptr: [
+                                    "/int",
+                                ],
+                                uses_source_key: true,
+                                shuffle_lambda: None,
+                                source_schema_uri: "test://example/int-string.schema",
+                                uses_source_schema: true,
+                                validate_schema_at_read: true,
+                                filter_r_clocks: true,
+                                read_delay_seconds: 0,
+                                priority: 0,
+                            },
+                        ),
+                        update_lambda: None,
+                        publish_lambda: Some(
+                            LambdaSpec {
+                                typescript: "/derive/testing/int-reverse/reverseIntString/Publish",
                                 remote: "",
                             },
                         ),
@@ -2111,9 +2111,9 @@ All {
     ],
     collections: [
         Collection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            schema: test://example/int-string.schema,
+            scope: test://example/int-halve#/collections/testing~1int-halve,
+            collection: testing/int-halve,
+            schema: test://example/int-string-len.schema,
             key: ["/int"],
         },
         Collection {
@@ -2129,193 +2129,93 @@ All {
             key: ["/int"],
         },
         Collection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            schema: test://example/int-string-len.schema,
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            schema: test://example/int-string.schema,
             key: ["/int"],
         },
     ],
     derivations: [
-        Derivation {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
-            derivation: testing/int-reverse,
-            register_schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-            register_initial: null,
-        },
         Derivation {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
             derivation: testing/int-halve,
             register_schema: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
             register_initial: 42,
         },
+        Derivation {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
+            derivation: testing/int-reverse,
+            register_schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            register_initial: null,
+        },
     ],
     errors: [],
     fetches: [
         Fetch {
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
             resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            resource: test://example/int-string,
-        },
-        Fetch {
-            resource: test://example/int-reverse,
-        },
-        Fetch {
-            resource: test://example/int-halve,
-        },
-        Fetch {
-            resource: test://example/int-string-captures,
-        },
-        Fetch {
-            resource: test://example/webhook-deliveries,
         },
         Fetch {
             resource: test://example/db-views,
         },
         Fetch {
-            resource: test://example/int-string-tests,
+            resource: test://example/db-views.ts,
         },
         Fetch {
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            resource: test://example/int-string.ts,
-        },
-        Fetch {
-            resource: test://example/int-string.schema,
-        },
-        Fetch {
-            resource: test://example/int-reverse.ts,
+            resource: test://example/int-halve,
         },
         Fetch {
             resource: test://example/int-halve.ts,
         },
         Fetch {
-            resource: test://example/int-string-len.schema,
+            resource: test://example/int-reverse,
+        },
+        Fetch {
+            resource: test://example/int-reverse.ts,
+        },
+        Fetch {
+            resource: test://example/int-string,
+        },
+        Fetch {
+            resource: test://example/int-string-captures,
         },
         Fetch {
             resource: test://example/int-string-captures.ts,
         },
         Fetch {
-            resource: test://example/webhook-deliveries.ts,
+            resource: test://example/int-string-len.schema,
         },
         Fetch {
-            resource: test://example/db-views.ts,
+            resource: test://example/int-string-tests,
         },
         Fetch {
             resource: test://example/int-string-tests.ts,
         },
+        Fetch {
+            resource: test://example/int-string.schema,
+        },
+        Fetch {
+            resource: test://example/int-string.ts,
+        },
+        Fetch {
+            resource: test://example/webhook-deliveries,
+        },
+        Fetch {
+            resource: test://example/webhook-deliveries.ts,
+        },
     ],
     imports: [
-        Import {
-            scope: test://example/int-string#/import/0,
-            from_resource: test://example/int-string,
-            to_resource: test://example/int-halve,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
-            from_resource: test://example/int-string,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-reverse#/import/0,
-            from_resource: test://example/int-reverse,
-            to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/schema,
-            from_resource: test://example/int-reverse,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/register/schema,
-            from_resource: test://example/int-reverse,
-            to_resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-        },
-        Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/register/schema,
-            from_resource: test://example/int-halve,
-            to_resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
-        },
-        Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString/source/schema,
-            from_resource: test://example/int-halve,
-            to_resource: test://example/int-string-len.schema,
-        },
-        Import {
-            scope: test://example/int-string-captures#/import/0,
-            from_resource: test://example/int-string-captures,
-            to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/webhook-deliveries#/import/0,
-            from_resource: test://example/webhook-deliveries,
-            to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/webhook-deliveries#/import/1,
-            from_resource: test://example/webhook-deliveries,
-            to_resource: test://example/int-halve,
-        },
-        Import {
-            scope: test://example/db-views#/import/0,
-            from_resource: test://example/db-views,
-            to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/int-string-tests#/import/0,
-            from_resource: test://example/int-string-tests,
-            to_resource: test://example/int-string,
-        },
         Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
         },
         Import {
-            scope: test://example/int-string,
-            from_resource: test://example/int-string,
-            to_resource: test://example/int-string.ts,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string/schema,
-            from_resource: test://example/int-string,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/0,
+            scope: test://example/catalog.yaml#/import/5,
             from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/int-reverse,
-            from_resource: test://example/int-reverse,
-            to_resource: test://example/int-reverse.ts,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-reverse,
-        },
-        Import {
-            scope: test://example/int-halve,
-            from_resource: test://example/int-halve,
-            to_resource: test://example/int-halve.ts,
-        },
-        Import {
-            scope: test://example/int-string-len.schema#/properties/arr/additionalItems/$ref,
-            from_resource: test://example/int-string-len.schema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-string-len.schema#/$ref,
-            from_resource: test://example/int-string-len.schema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/schema,
-            from_resource: test://example/int-halve,
-            to_resource: test://example/int-string-len.schema,
+            to_resource: test://example/db-views,
         },
         Import {
             scope: test://example/catalog.yaml#/import/2,
@@ -2323,9 +2223,14 @@ All {
             to_resource: test://example/int-halve,
         },
         Import {
-            scope: test://example/int-string-captures,
-            from_resource: test://example/int-string-captures,
-            to_resource: test://example/int-string-captures.ts,
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/int-reverse,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/int-string,
         },
         Import {
             scope: test://example/catalog.yaml#/import/3,
@@ -2333,9 +2238,9 @@ All {
             to_resource: test://example/int-string-captures,
         },
         Import {
-            scope: test://example/webhook-deliveries,
-            from_resource: test://example/webhook-deliveries,
-            to_resource: test://example/webhook-deliveries.ts,
+            scope: test://example/catalog.yaml#/import/6,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/int-string-tests,
         },
         Import {
             scope: test://example/catalog.yaml#/import/4,
@@ -2348,9 +2253,94 @@ All {
             to_resource: test://example/db-views.ts,
         },
         Import {
-            scope: test://example/catalog.yaml#/import/5,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/db-views,
+            scope: test://example/db-views#/import/0,
+            from_resource: test://example/db-views,
+            to_resource: test://example/int-string,
+        },
+        Import {
+            scope: test://example/int-halve,
+            from_resource: test://example/int-halve,
+            to_resource: test://example/int-halve.ts,
+        },
+        Import {
+            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/register/schema,
+            from_resource: test://example/int-halve,
+            to_resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
+        },
+        Import {
+            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString/source/schema,
+            from_resource: test://example/int-halve,
+            to_resource: test://example/int-string-len.schema,
+        },
+        Import {
+            scope: test://example/int-halve#/collections/testing~1int-halve/schema,
+            from_resource: test://example/int-halve,
+            to_resource: test://example/int-string-len.schema,
+        },
+        Import {
+            scope: test://example/int-reverse,
+            from_resource: test://example/int-reverse,
+            to_resource: test://example/int-reverse.ts,
+        },
+        Import {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/register/schema,
+            from_resource: test://example/int-reverse,
+            to_resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+        },
+        Import {
+            scope: test://example/int-reverse#/import/0,
+            from_resource: test://example/int-reverse,
+            to_resource: test://example/int-string,
+        },
+        Import {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/schema,
+            from_resource: test://example/int-reverse,
+            to_resource: test://example/int-string.schema,
+        },
+        Import {
+            scope: test://example/int-string#/import/0,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-halve,
+        },
+        Import {
+            scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string.schema,
+        },
+        Import {
+            scope: test://example/int-string#/collections/testing~1int-string/schema,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string.schema,
+        },
+        Import {
+            scope: test://example/int-string,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string.ts,
+        },
+        Import {
+            scope: test://example/int-string-captures#/import/0,
+            from_resource: test://example/int-string-captures,
+            to_resource: test://example/int-string,
+        },
+        Import {
+            scope: test://example/int-string-captures,
+            from_resource: test://example/int-string-captures,
+            to_resource: test://example/int-string-captures.ts,
+        },
+        Import {
+            scope: test://example/int-string-len.schema#/properties/arr/additionalItems/$ref,
+            from_resource: test://example/int-string-len.schema,
+            to_resource: test://example/int-string.schema,
+        },
+        Import {
+            scope: test://example/int-string-len.schema#/$ref,
+            from_resource: test://example/int-string-len.schema,
+            to_resource: test://example/int-string.schema,
+        },
+        Import {
+            scope: test://example/int-string-tests#/import/0,
+            from_resource: test://example/int-string-tests,
+            to_resource: test://example/int-string,
         },
         Import {
             scope: test://example/int-string-tests,
@@ -2358,9 +2348,19 @@ All {
             to_resource: test://example/int-string-tests.ts,
         },
         Import {
-            scope: test://example/catalog.yaml#/import/6,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/int-string-tests,
+            scope: test://example/webhook-deliveries#/import/1,
+            from_resource: test://example/webhook-deliveries,
+            to_resource: test://example/int-halve,
+        },
+        Import {
+            scope: test://example/webhook-deliveries#/import/0,
+            from_resource: test://example/webhook-deliveries,
+            to_resource: test://example/int-string,
+        },
+        Import {
+            scope: test://example/webhook-deliveries,
+            from_resource: test://example/webhook-deliveries,
+            to_resource: test://example/webhook-deliveries.ts,
         },
     ],
     inferences: [
@@ -2398,6 +2398,19 @@ All {
                         max_length: 0,
                     },
                 ),
+                title: "",
+                description: "",
+            },
+        },
+        Inference {
+            schema: test://example/int-string-len.schema,
+            location: ,
+            spec: Inference {
+                types: [
+                    "object",
+                ],
+                must_exist: true,
+                string: None,
                 title: "",
                 description: "",
             },
@@ -2489,19 +2502,6 @@ All {
         },
         Inference {
             schema: test://example/int-string-len.schema,
-            location: ,
-            spec: Inference {
-                types: [
-                    "object",
-                ],
-                must_exist: true,
-                string: None,
-                title: "",
-                description: "",
-            },
-        },
-        Inference {
-            schema: test://example/int-string-len.schema,
             location: /int,
             spec: Inference {
                 types: [
@@ -2561,10 +2561,10 @@ All {
         },
         Inference {
             schema: test://example/int-string.schema,
-            location: /bit,
+            location: ,
             spec: Inference {
                 types: [
-                    "boolean",
+                    "object",
                 ],
                 must_exist: true,
                 string: None,
@@ -2574,10 +2574,10 @@ All {
         },
         Inference {
             schema: test://example/int-string.schema,
-            location: ,
+            location: /bit,
             spec: Inference {
                 types: [
-                    "object",
+                    "boolean",
                 ],
                 must_exist: true,
                 string: None,
@@ -2736,6 +2736,17 @@ All {
     ],
     materialization_bindings: [
         MaterializationBinding {
+            scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+            materialization: testing/db-views,
+            materialization_index: 0,
+            resource_spec: {"table":"the_table"},
+            collection: testing/int-string,
+            fields_exclude: [],
+            fields_include: {},
+            fields_recommended: 1,
+            source_partitions: NULL,
+        },
+        MaterializationBinding {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
             materialization: testing/webhook/deliveries,
             materialization_index: 0,
@@ -2757,30 +2768,19 @@ All {
             fields_recommended: 0,
             source_partitions: NULL,
         },
-        MaterializationBinding {
-            scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-            materialization: testing/db-views,
-            materialization_index: 0,
-            resource_spec: {"table":"the_table"},
-            collection: testing/int-string,
-            fields_exclude: [],
-            fields_include: {},
-            fields_recommended: 1,
-            source_partitions: NULL,
-        },
     ],
     materializations: [
-        Materialization {
-            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-            materialization: testing/webhook/deliveries,
-            endpoint_type: "Webhook",
-            endpoint_spec: {"address":"http://example/webhook"},
-        },
         Materialization {
             scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
             endpoint_type: "FlowSink",
             endpoint_spec: {"config":{"foo":"bar"},"image":"database/image"},
+        },
+        Materialization {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            materialization: testing/webhook/deliveries,
+            endpoint_type: "Webhook",
+            endpoint_spec: {"address":"http://example/webhook"},
         },
     ],
     meta: [],
@@ -2798,22 +2798,6 @@ All {
     ],
     npm_dependencies: [],
     projections: [
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
-            collection: testing/int-string,
-            field: Int,
-            location: /int,
-            partition: 0,
-            user_provided: 1,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string/projections/bit,
-            collection: testing/int-string,
-            field: bit,
-            location: /bit,
-            partition: 1,
-            user_provided: 1,
-        },
         Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,
             collection: testing/int-halve,
@@ -2837,94 +2821,6 @@ All {
             location: ,
             partition: 0,
             user_provided: 1,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: bit,
-            location: /bit,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: bit,
-            location: /bit,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
         },
         Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
@@ -2982,6 +2878,110 @@ All {
             partition: 0,
             user_provided: 0,
         },
+        Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            collection: testing/int-reverse,
+            field: bit,
+            location: /bit,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            collection: testing/int-reverse,
+            field: flow_document,
+            location: ,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            collection: testing/int-reverse,
+            field: int,
+            location: /int,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            collection: testing/int-reverse,
+            field: str,
+            location: /str,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
+            collection: testing/int-string,
+            field: Int,
+            location: /int,
+            partition: 0,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string/projections/bit,
+            collection: testing/int-string,
+            field: bit,
+            location: /bit,
+            partition: 1,
+            user_provided: 1,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string,
+            collection: testing/int-string,
+            field: flow_document,
+            location: ,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string,
+            collection: testing/int-string,
+            field: int,
+            location: /int,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string,
+            collection: testing/int-string,
+            field: str,
+            location: /str,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: bit,
+            location: /bit,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: flow_document,
+            location: ,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: int,
+            location: /int,
+            partition: 0,
+            user_provided: 0,
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            collection: testing/int-string.v2,
+            field: str,
+            location: /str,
+            partition: 0,
+            user_provided: 0,
+        },
     ],
     resources: [
         Resource {
@@ -2990,18 +2990,8 @@ All {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/int-string,
+            resource: test://example/db-views,
             content_type: "CatalogSpec",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/int-reverse,
-            content_type: "CatalogSpec",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-            content_type: "JsonSchema",
             content: ".. binary ..",
         },
         Resource {
@@ -3010,8 +3000,33 @@ All {
             content: ".. binary ..",
         },
         Resource {
+            resource: test://example/int-halve.ts,
+            content_type: "TypescriptModule",
+            content: ".. binary ..",
+        },
+        Resource {
             resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
             content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/int-reverse,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/int-reverse.ts,
+            content_type: "TypescriptModule",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            content_type: "JsonSchema",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/int-string,
+            content_type: "CatalogSpec",
             content: ".. binary ..",
         },
         Resource {
@@ -3020,13 +3035,8 @@ All {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/webhook-deliveries,
-            content_type: "CatalogSpec",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/db-views,
-            content_type: "CatalogSpec",
+            resource: test://example/int-string-len.schema,
+            content_type: "JsonSchema",
             content: ".. binary ..",
         },
         Resource {
@@ -3040,37 +3050,27 @@ All {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/int-reverse.ts,
-            content_type: "TypescriptModule",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/int-halve.ts,
-            content_type: "TypescriptModule",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/int-string-len.schema,
-            content_type: "JsonSchema",
+            resource: test://example/webhook-deliveries,
+            content_type: "CatalogSpec",
             content: ".. binary ..",
         },
     ],
     schema_docs: [
         SchemaDoc {
-            schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-            dom: true,
-        },
-        SchemaDoc {
             schema: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
             dom: {"type":"integer"},
         },
         SchemaDoc {
-            schema: test://example/int-string.schema,
-            dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+            schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
+            dom: true,
         },
         SchemaDoc {
             schema: test://example/int-string-len.schema,
             dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$ref":"test://example/int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
+        },
+        SchemaDoc {
+            schema: test://example/int-string.schema,
+            dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
         },
     ],
     shard_rules: [],
@@ -3095,20 +3095,6 @@ All {
         },
     ],
     transforms: [
-        Transform {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
-            derivation: testing/int-reverse,
-            priority: 0,
-            publish_lambda: "typescript",
-            read_delay_seconds: NULL,
-            shuffle_key: NULL,
-            shuffle_lambda: NULL,
-            source_collection: testing/int-string,
-            source_partitions: NULL,
-            source_schema: NULL,
-            transform: reverseIntString,
-            update_lambda: NULL,
-        },
         Transform {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
             derivation: testing/int-halve,
@@ -3135,6 +3121,20 @@ All {
             source_partitions: NULL,
             source_schema: NULL,
             transform: halveSelf,
+            update_lambda: NULL,
+        },
+        Transform {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+            derivation: testing/int-reverse,
+            priority: 0,
+            publish_lambda: "typescript",
+            read_delay_seconds: NULL,
+            shuffle_key: NULL,
+            shuffle_lambda: NULL,
+            source_collection: testing/int-string,
+            source_partitions: NULL,
+            source_schema: NULL,
+            transform: reverseIntString,
             update_lambda: NULL,
         },
     ],
