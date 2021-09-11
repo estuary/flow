@@ -263,6 +263,8 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 			flowLabels.TaskType, taskType,
 			flowLabels.TaskCreated, fmt.Sprintf("%d", taskCreated),
 			flowLabels.LogsCollection, logsCollection,
+			// TODO: how to thread through log level
+			flowLabels.LogLevel, "info",
 			flowLabels.StatsCollection, statsCollection,
 		)
 

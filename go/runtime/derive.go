@@ -125,7 +125,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	}
 	var collection = &d.task.Derivation.Collection
 
-	return d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	var err = d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("derivation produces only partially combined documents")
 		}
@@ -142,6 +142,12 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 		})
 		return err
 	})
+	if err != nil {
+		d.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+			"error": err.Error(),
+		}, "derive transaction failed")
+	}
+	return err
 }
 
 // StartCommit implements the Store interface, and writes the current transaction

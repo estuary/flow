@@ -30,6 +30,8 @@ type taskTerm struct {
 	schemaIndex *bindings.SchemaIndex
 	// Current catalog task definition.
 	task *pf.CatalogTask
+	// Logger used to publish logs that are scoped to this task.
+	logPublisher *LogPublisher
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -55,13 +57,26 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	}
 	t.shardID = spec.Id
 
-	log.WithFields(log.Fields{
-		"task":         t.task.Name(),
-		"shard":        t.shardID,
-		"range":        t.range_.String(),
+	var taskRef = TaskRef{
+		Name:        taskName,
+		Kind:        spec.LabelSet.ValueOf(labels.TaskType),
+		KeyBegin:    spec.LabelSet.ValueOf(labels.KeyBegin),
+		RClockBegin: spec.LabelSet.ValueOf(labels.RClockBegin),
+	}
+	var logCollection = spec.LabelSet.ValueOf(labels.LogsCollection)
+	logLevel, err := log.ParseLevel(spec.LabelSet.ValueOf(labels.LogLevel))
+	if err != nil {
+		return fmt.Errorf("parsing %q: %w", labels.LogLevel, err)
+	}
+
+	t.logPublisher, err = host.LogService.NewPublisher(logCollection, taskRef, taskCreated, logLevel)
+	if err != nil {
+		return fmt.Errorf("creating log publisher: %w", err)
+	}
+	t.logPublisher.Log(log.InfoLevel, log.Fields{
 		"revision":     t.revision,
 		"lastRevision": lastRevision,
-	}).Info("initialized catalog task term")
+	}, "initialized catalog task term")
 
 	return nil
 }
