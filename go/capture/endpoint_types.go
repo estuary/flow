@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/capture/driver/airbyte"
+	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/protocols/capture"
 	pf "github.com/estuary/protocols/flow"
 	"go.gazette.dev/core/broker/protocol"
@@ -19,11 +20,12 @@ func NewDriver(
 	endpointSpec json.RawMessage,
 	tempdir string,
 	connectorNetwork string,
+	logger ops.LogPublisher,
 ) (pc.DriverClient, error) {
 
 	switch endpointType {
 	case pf.EndpointType_AIRBYTE_SOURCE:
-		return AdaptServerToClient(airbyte.NewDriver(connectorNetwork)), nil
+		return AdaptServerToClient(airbyte.NewDriver(connectorNetwork, logger)), nil
 	case pf.EndpointType_REMOTE:
 		var cfg struct {
 			Address protocol.Endpoint

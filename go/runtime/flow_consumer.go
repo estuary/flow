@@ -64,6 +64,8 @@ type FlowConsumer struct {
 		Now *flow.Timepoint
 		Mu  sync.Mutex
 	}
+	// Allows publishing log events as documents in a Flow collection.
+	LogService *LogService
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -217,18 +219,38 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	f.Service = args.Service
 	f.Catalog = catalog
 	f.Journals = journals
+
+	// Setup a logger that shards can use to publish logs and metrics
+	var ajc = client.NewAppendService(args.Context, args.Service.Journals)
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
+	// TODO: fix PublishClockDelta handling
+	var logClock = message.NewClock(f.Timepoint.Now.Time)
+	go func(tp *flow.Timepoint) {
+		for {
+			logClock.Update(tp.Time.Add(f.Service.PublishClockDelta))
+			<-tp.Next.Ready()
+			tp = tp.Next
+		}
+	}(f.Timepoint.Now)
 
 	// Start a ticker of the shared *Timepoint.
 	if !f.Config.DisableClockTicks {
 		go func() {
+			// TODO: should we perhaps just panic if PublishClockDelta is > 0?
 			for t := range time.Tick(time.Second) {
 				f.Timepoint.Mu.Lock()
-				f.Timepoint.Now.Next.Resolve(t)
+				f.Timepoint.Now.Next.Resolve(t) // In theory adjust for PublishDelta but not actually ever non-zero.
 				f.Timepoint.Now = f.Timepoint.Now.Next
 				f.Timepoint.Mu.Unlock()
 			}
 		}()
+	}
+	f.LogService = &LogService{
+		ctx:              args.Context,
+		appendService:    ajc,
+		journals:         journals,
+		catalog:          catalog,
+		messagePublisher: message.NewPublisher(ajc, &logClock),
 	}
 
 	return nil

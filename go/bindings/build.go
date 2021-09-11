@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/protocols/capture"
 	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
@@ -42,6 +43,7 @@ type CaptureDriverFn func(
 	endpointSpec json.RawMessage,
 	tempdir string,
 	connectorNetwork string,
+	logger ops.LogPublisher,
 ) (pc.DriverClient, error)
 
 // MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
@@ -125,7 +127,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 				log.WithField("request", request).Debug("capture validation requested")
 
 				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, "", args.BuildAPI_Config.ConnectorNetwork)
+					request.EndpointSpecJson, "", args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}
