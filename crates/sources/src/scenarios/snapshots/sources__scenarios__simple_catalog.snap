@@ -26,30 +26,25 @@ Tables {
     ],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            resource: test://example/sibling,
-        },
-        Fetch {
-            resource: test://not/found,
-        },
-        Fetch {
             resource: test://example/catalog.ts,
+        },
+        Fetch {
+            resource: test://example/catalog.yaml,
         },
         Fetch {
             resource: test://example/schema,
         },
         Fetch {
+            resource: test://example/sibling,
+        },
+        Fetch {
             resource: test://example/sibling.ts,
+        },
+        Fetch {
+            resource: test://not/found,
         },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://not/found,
-        },
         Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
@@ -61,14 +56,19 @@ Tables {
             to_resource: test://example/schema,
         },
         Import {
-            scope: test://example/sibling,
-            from_resource: test://example/sibling,
-            to_resource: test://example/sibling.ts,
-        },
-        Import {
             scope: test://example/catalog.yaml#/import/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/sibling,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://not/found,
+        },
+        Import {
+            scope: test://example/sibling,
+            from_resource: test://example/sibling,
+            to_resource: test://example/sibling.ts,
         },
     ],
     journal_rules: [],
@@ -112,13 +112,13 @@ Tables {
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/sibling,
-            content_type: "CatalogSpec",
+            resource: test://example/schema,
+            content_type: "JsonSchema",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/schema,
-            content_type: "JsonSchema",
+            resource: test://example/sibling,
+            content_type: "CatalogSpec",
             content: ".. binary ..",
         },
     ],

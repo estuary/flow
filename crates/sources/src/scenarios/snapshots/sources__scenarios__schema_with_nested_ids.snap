@@ -18,25 +18,25 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
+            resource: test://example/actual,
         },
         Fetch {
             resource: test://example/catalog.ts,
         },
         Fetch {
-            resource: test://example/actual,
+            resource: test://example/catalog.yaml,
         },
     ],
     imports: [
         Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
-        Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/actual,
+        },
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
         },
     ],
     journal_rules: [],
@@ -47,13 +47,13 @@ Tables {
     projections: [],
     resources: [
         Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            resource: test://example/actual,
+            content_type: "JsonSchema",
             content: ".. binary ..",
         },
         Resource {
-            resource: test://example/actual,
-            content_type: "JsonSchema",
+            resource: test://example/catalog.yaml,
+            content_type: "CatalogSpec",
             content: ".. binary ..",
         },
     ],
