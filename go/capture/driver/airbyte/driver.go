@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/jsonschema"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/protocols/airbyte"
 	pc "github.com/estuary/protocols/capture"
 	pf "github.com/estuary/protocols/flow"
@@ -62,11 +63,15 @@ func (c ResourceSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
+	logger      ops.LogPublisher
 }
 
 // NewDriver returns a new JSON docker image driver.
-func NewDriver(networkName string) pc.DriverServer {
-	return driver{networkName: networkName}
+func NewDriver(networkName string, logger ops.LogPublisher) pc.DriverServer {
+	return driver{
+		networkName: networkName,
+		logger:      logger,
+	}
 }
 
 func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, error) {
@@ -350,6 +355,11 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 
 	var resp *pc.CaptureResponse
 
+	// We'll re-use this fields map whenever we log connector output.
+	var logFields = log.Fields{
+		"image": source.Image,
+	}
+
 	// Invoke the connector for reading.
 	if err := RunConnector(stream.Context(), source.Image, d.networkName,
 		invokeArgs,
@@ -361,10 +371,7 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					log.StandardLogger().WithFields(log.Fields{
-						"image":   source.Image,
-						"capture": req.Capture.Capture,
-					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+					d.logger.Log(airbyteToLogrusLevel(rec.Log.Level), logFields, rec.Log.Message)
 				} else if rec.State != nil {
 					return pc.WriteCommit(stream, &resp,
 						&pc.CaptureResponse_Commit{
