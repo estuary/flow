@@ -5,8 +5,8 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string.v2,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
@@ -17,11 +17,7 @@ expression: errors
         error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys,
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        scope: test://example/int-string#/collections/testing~1int-string.v2,
         error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,
     },
     Error {
@@ -31,5 +27,9 @@ expression: errors
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
         error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys,
     },
 ]
