@@ -20,6 +20,7 @@ lazy_static = "*"
 regex = "*"
 serde_json = { version =  "*", features = ["raw_value"] }
 strsim = "*"
+superslice = "*"
 thiserror = "*"
 tracing = "*"
 unicode-normalization = "*"
