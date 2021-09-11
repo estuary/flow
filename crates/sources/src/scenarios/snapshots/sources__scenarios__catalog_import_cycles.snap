@@ -11,39 +11,44 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
             resource: test://example/A,
-        },
-        Fetch {
-            resource: test://example/B,
-        },
-        Fetch {
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            resource: test://example/C,
         },
         Fetch {
             resource: test://example/A.ts,
         },
         Fetch {
+            resource: test://example/B,
+        },
+        Fetch {
             resource: test://example/B.ts,
+        },
+        Fetch {
+            resource: test://example/C,
         },
         Fetch {
             resource: test://example/C.ts,
         },
+        Fetch {
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            resource: test://example/catalog.yaml,
+        },
     ],
     imports: [
+        Import {
+            scope: test://example/A,
+            from_resource: test://example/A,
+            to_resource: test://example/A.ts,
+        },
         Import {
             scope: test://example/A#/import/1,
             from_resource: test://example/A,
             to_resource: test://example/B,
         },
         Import {
-            scope: test://example/B#/import/0,
-            from_resource: test://example/B,
+            scope: test://example/A#/import/0,
+            from_resource: test://example/A,
             to_resource: test://example/C,
         },
         Import {
@@ -52,33 +57,18 @@ Tables {
             to_resource: test://example/A,
         },
         Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
-        Import {
-            scope: test://example/C#/import/0,
-            from_resource: test://example/C,
-            to_resource: test://example/catalog.yaml,
-        },
-        Import {
-            scope: test://example/C#/import/1,
-            from_resource: test://example/C,
-            to_resource: test://example/B,
-        },
-        Import {
-            scope: test://example/A,
-            from_resource: test://example/A,
-            to_resource: test://example/A.ts,
-        },
-        Import {
             scope: test://example/B,
             from_resource: test://example/B,
             to_resource: test://example/B.ts,
         },
         Import {
-            scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/B#/import/0,
+            from_resource: test://example/B,
+            to_resource: test://example/C,
+        },
+        Import {
+            scope: test://example/C#/import/1,
+            from_resource: test://example/C,
             to_resource: test://example/B,
         },
         Import {
@@ -87,14 +77,24 @@ Tables {
             to_resource: test://example/C.ts,
         },
         Import {
-            scope: test://example/A#/import/0,
-            from_resource: test://example/A,
-            to_resource: test://example/C,
+            scope: test://example/C#/import/0,
+            from_resource: test://example/C,
+            to_resource: test://example/catalog.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/import/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/A,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/B,
+        },
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
         },
     ],
     journal_rules: [],
@@ -105,11 +105,6 @@ Tables {
     projections: [],
     resources: [
         Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
-            content: ".. binary ..",
-        },
-        Resource {
             resource: test://example/A,
             content_type: "CatalogSpec",
             content: ".. binary ..",
@@ -121,6 +116,11 @@ Tables {
         },
         Resource {
             resource: test://example/C,
+            content_type: "CatalogSpec",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.yaml,
             content_type: "CatalogSpec",
             content: ".. binary ..",
         },

@@ -5,6 +5,10 @@ expression: errors
 ---
 [
     Error {
+        scope: test://example/catalog.yaml#/collections/,
+        error: collection name cannot be empty,
+    },
+    Error {
         scope: test://example/catalog.yaml#/collections/~1bad~1name,
         error: /bad/name cannot be used as name for collection ("/" is invalid),
     },
@@ -23,10 +27,6 @@ expression: errors
     Error {
         scope: test://example/catalog.yaml#/collections/bad~1name~1,
         error: bad/name/ cannot be used as name for collection ("/" is invalid),
-    },
-    Error {
-        scope: test://example/catalog.yaml#/collections/,
-        error: collection name cannot be empty,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/,
