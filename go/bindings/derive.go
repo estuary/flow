@@ -306,6 +306,7 @@ func (d *Derive) Destroy() {
 
 func newDeriveSvc() *service {
 	return newService(
+		"derive",
 		func() *C.Channel { return C.derive_create() },
 		func(ch *C.Channel, in C.In1) { C.derive_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.derive_invoke4(ch, in) },

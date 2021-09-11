@@ -15,6 +15,7 @@ import (
 // Frame Code.
 func newUpperCase() *service {
 	return newService(
+		"uppercase",
 		func() *C.Channel { return C.upper_case_create() },
 		func(ch *C.Channel, in C.In1) { C.upper_case_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.upper_case_invoke4(ch, in) },
@@ -27,6 +28,7 @@ func newUpperCase() *service {
 // but still produces an (empty) output Frame for each input.
 func newNoOpService() *service {
 	return newService(
+		"noop",
 		func() *C.Channel {
 			var ch = (*C.Channel)(C.calloc(C.sizeof_Channel, 1))
 			ch.out_ptr = (*C.Out)(C.calloc(C.sizeof_Out, 512))

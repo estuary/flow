@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/shuffle"
@@ -172,6 +173,7 @@ func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
 
 // InitApplication starts shared services of the flow-consumer.
 func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
+	bindings.RegisterPrometheusCollector()
 	var config = *args.Config.(*FlowConsumerConfig)
 
 	// Load catalog & journal keyspaces, and queue tasks that watch each for updates.

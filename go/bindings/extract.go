@@ -101,6 +101,7 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 
 func newExtractSvc() *service {
 	return newService(
+		"extract",
 		func() *C.Channel { return C.extract_create() },
 		func(ch *C.Channel, in C.In1) { C.extract_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.extract_invoke4(ch, in) },

@@ -65,6 +65,10 @@ impl Combiner {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Reduce the fully reduced left-hand document with a partially reduced right-hand
     /// document that's already in the Combiner. It's an error if there is already a fully
     /// reduced right-hand document.
