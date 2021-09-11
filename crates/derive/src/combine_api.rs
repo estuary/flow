@@ -1,4 +1,5 @@
 use super::combiner::{self, Combiner};
+use metrics::track_mem_stats;
 
 use doc::{Pointer, Validator};
 use prost::Message;
@@ -66,8 +67,9 @@ impl cgo::Service for API {
             None => return Err(Error::InvalidState),
         };
         tracing::trace!(?code, "invoke");
+        let memory = track_mem_stats();
 
-        match (code, std::mem::take(&mut self.state)) {
+        let result = match (code, std::mem::take(&mut self.state)) {
             (Code::Configure, _) => {
                 let combine_api::Config {
                     schema_index_memptr,
@@ -128,7 +130,10 @@ impl cgo::Service for API {
                 Ok(())
             }
             _ => Err(Error::InvalidState),
-        }
+        };
+
+        tracing::trace!(mem_initial = ?memory.initial(), mem_changes = ?memory.change(), "mem changes");
+        result
     }
 }
 
@@ -140,7 +145,11 @@ pub fn drain_combiner(
     out: &mut Vec<cgo::Out>,
 ) {
     let key_ptrs = combiner.key().clone();
-
+    tracing::debug!(
+        "drain_combiner: arena.len(): {}, nEntries: {}",
+        arena.len(),
+        combiner.doc_count(),
+    );
     for (doc, fully_reduced) in combiner.drain_entries(uuid_placeholder_ptr) {
         // Send serialized document.
         let begin = arena.len();

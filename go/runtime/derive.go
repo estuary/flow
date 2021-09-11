@@ -37,7 +37,7 @@ var _ Application = (*Derive)(nil)
 func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
 
-	var binding, err = bindings.NewDerive(recorder, recorder.Dir())
+	var binding, err = bindings.NewDerive(recorder, recorder.Dir(), shard.FQN())
 	if err != nil {
 		return nil, err
 	}

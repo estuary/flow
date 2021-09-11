@@ -77,6 +77,33 @@ typedef struct In16 {
   struct In4 in3;
 } In16;
 
+typedef struct MemoryStats {
+  /**
+   * Monotonically increasing counter of the total number of allocations performed.
+   */
+  uint64_t allocations;
+  /**
+   * Monotonically increasing counter of the total number of bytes allocated.
+   */
+  uint64_t bytes_allocated;
+  /**
+   * Monotonically increasing counter of the total number of deallocations perfomed.
+   */
+  uint64_t deallocations;
+  /**
+   * Monotonically increasing counter of the total number of bytes deallocated.
+   */
+  uint64_t bytes_deallocated;
+  /**
+   * Monotonically increasing counter of the total number of reallocations perfomed.
+   */
+  uint64_t reallocations;
+  /**
+   * Monotonically increasing counter of the total number of bytes reallocated.
+   */
+  uint64_t bytes_reallocated;
+} MemoryStats;
+
 struct Channel *build_create(void);
 
 void build_invoke1(struct Channel *ch, struct In1 i);
@@ -116,6 +143,11 @@ void extract_invoke4(struct Channel *ch, struct In4 i);
 void extract_invoke16(struct Channel *ch, struct In16 i);
 
 void extract_drop(struct Channel *ch);
+
+/**
+ * Returns general statistics on memory allocations perfomed from within libbindings.
+ */
+struct MemoryStats get_memory_stats(void);
 
 struct Channel *schema_create(void);
 

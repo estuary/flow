@@ -9,6 +9,20 @@ mod registers;
 
 pub use extract_api::extract_uuid_parts;
 
+/*
+struct MemStatsRecorder(&'static str, Region<'static, System>);
+
+impl Drop for MemStatsRecorder {
+    fn drop(&mut self) {
+        tracing::event!(
+            target: self.0,
+            tracing::Level::TRACE,
+            mem_stats = ?self.1.change(),
+            "mem changes");
+    }
+}
+*/
+
 /// DebugJson is a new-type wrapper around any Serialize implementation
 /// that wishes to support the Debug trait via JSON encoding itself.
 pub struct DebugJson<S: serde::Serialize>(pub S);

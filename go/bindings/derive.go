@@ -36,6 +36,15 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: []float64{0.0005, 0.002, 0.01, 0.05, 0.1, 0.3, 1.0},
 }, []string{"derivation", "lambdaType"})
 
+var deriveDestroyedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_instance_destroyed_total",
+	Help: "Counter of derive instances destroyed",
+}, []string{"shard"})
+var deriveCreatedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_derive_instance_created_total",
+	Help: "Counter of derive instances created",
+}, []string{"shard"})
+
 // Derive is an instance of the derivation workflow.
 type Derive struct {
 	svc     *service
@@ -50,7 +59,7 @@ type Derive struct {
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
-func NewDerive(recorder *recoverylog.Recorder, localDir string) (*Derive, error) {
+func NewDerive(recorder *recoverylog.Recorder, localDir string, shardFqn string) (*Derive, error) {
 	var rocksEnv *gorocksdb.Env
 	if recorder != nil {
 		rocksEnv = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
@@ -93,9 +102,11 @@ func NewDerive(recorder *recoverylog.Recorder, localDir string) (*Derive, error)
 		trampolineCh: nil,
 		pinnedIndex:  nil,
 	}
+	deriveCreatedCounter.WithLabelValues(shardFqn).Inc()
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
 		d.Destroy()
+		deriveDestroyedCounter.WithLabelValues(shardFqn).Inc()
 	})
 
 	return derive, nil

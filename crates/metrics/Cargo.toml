@@ -1,0 +1,11 @@
+[package]
+name = "metrics"
+version = "0.0.0"
+edition = "2018"
+
+[dependencies]
+lazy_static = "*"
+stats_alloc = "*"
+prometheus = "*"
+protobuf = "*"
+

@@ -58,7 +58,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		derivation.Collection.GetProjection(field).IsPartitionKey = true
 	}
 
-	derive, err := NewDerive(nil, t.TempDir())
+	derive, err := NewDerive(nil, t.TempDir(), "testShardFQN")
 	require.NoError(t, err)
 
 	// Loop to exercise multiple transactions.
@@ -253,7 +253,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	}
 
 	var build = func(t *testing.T) *Derive {
-		d, err := NewDerive(nil, t.TempDir())
+		d, err := NewDerive(nil, t.TempDir(), "testShardFQN")
 		require.NoError(t, err)
 		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, &built.Derivations[0], lambdaClient))
 		return d
