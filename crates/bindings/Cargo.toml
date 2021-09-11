@@ -10,8 +10,8 @@ crate_type = ["staticlib"]
 [dependencies]
 build = { path = "../build", version = "0.0.0" }
 derive = { path = "../derive", version = "0.0.0" }
+allocator = { path = "../allocator", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
-
 tracing = "*"
 tracing-subscriber = "*"
 anyhow = "*"

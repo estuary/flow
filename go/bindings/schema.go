@@ -36,6 +36,7 @@ func NewSchemaIndex(bundle *pf.SchemaBundle) (*SchemaIndex, error) {
 
 func newSchemaService() *service {
 	return newService(
+		"schema",
 		func() *C.Channel { return C.schema_create() },
 		func(ch *C.Channel, in C.In1) { C.schema_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.schema_invoke4(ch, in) },

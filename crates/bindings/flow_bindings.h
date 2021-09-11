@@ -77,6 +77,29 @@ typedef struct In16 {
   struct In4 in3;
 } In16;
 
+/**
+ * Statistics related to memory allocations for the entire (rust portion) of the application. The
+ * precise meaning of most fields are included in the [jemalloc man
+ * page](http://jemalloc.net/jemalloc.3.html). The first group of fields in this struct can be
+ * found in the man page prefixed by "stats.". These fields are all gauges that are in terms of
+ * bytes.
+ *
+ * The `_ops_total` fields are _not_ provided by jemalloc, but instead come from instrumenting the
+ * allocator to track the number of invocations. Those represent monotonic counters of the number
+ * of invocations.
+ */
+typedef struct GlobalMemoryStats {
+  uint64_t active;
+  uint64_t allocated;
+  uint64_t mapped;
+  uint64_t metadata;
+  uint64_t resident;
+  uint64_t retained;
+  uint64_t alloc_ops_total;
+  uint64_t dealloc_ops_total;
+  uint64_t realloc_ops_total;
+} GlobalMemoryStats;
+
 struct Channel *build_create(void);
 
 void build_invoke1(struct Channel *ch, struct In1 i);
@@ -116,6 +139,11 @@ void extract_invoke4(struct Channel *ch, struct In4 i);
 void extract_invoke16(struct Channel *ch, struct In16 i);
 
 void extract_drop(struct Channel *ch);
+
+/**
+ * Returns general statistics on memory allocations perfomed from within libbindings.
+ */
+struct GlobalMemoryStats get_memory_stats(void);
 
 struct Channel *schema_create(void);
 
