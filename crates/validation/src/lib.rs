@@ -49,6 +49,7 @@ pub async fn validate<D: Drivers>(
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
+    fetches: &[tables::Fetch],
     imports: &[tables::Import],
     journal_rules: &[tables::JournalRule],
     materialization_bindings: &[tables::MaterializationBinding],
@@ -64,9 +65,11 @@ pub async fn validate<D: Drivers>(
 ) -> Tables {
     let mut errors = tables::Errors::new();
 
+    // Fetches order on the fetch depth, so take the first (lowest-depth)
+    // element as the root scope.
     let mut root_scope = &url::Url::parse("root://").unwrap();
-    if let Some(r) = resources.first() {
-        root_scope = &r.resource;
+    if let Some(f) = fetches.first() {
+        root_scope = &f.resource;
     }
 
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
@@ -87,6 +90,7 @@ pub async fn validate<D: Drivers>(
         named_schemas,
         projections,
         resources,
+        root_scope,
         transforms,
     );
 
