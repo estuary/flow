@@ -11,16 +11,20 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
-            resource: test://example/rules_two.ts,
+            depth: 2,
+            resource: test://example/catalog.ts,
         },
         Fetch {
+            depth: 2,
             resource: test://example/rules_two.yaml,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/rules_two.ts,
         },
     ],
     imports: [

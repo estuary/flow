@@ -26,22 +26,28 @@ Tables {
     ],
     fetches: [
         Fetch {
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
+            depth: 2,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/schema,
         },
         Fetch {
+            depth: 2,
             resource: test://example/sibling,
         },
         Fetch {
-            resource: test://example/sibling.ts,
+            depth: 2,
+            resource: test://not/found,
         },
         Fetch {
-            resource: test://not/found,
+            depth: 3,
+            resource: test://example/sibling.ts,
         },
     ],
     imports: [

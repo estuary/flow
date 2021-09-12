@@ -103,7 +103,10 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Mark as visited, so that recursively-loaded imports don't re-visit.
-        self.tables.borrow_mut().fetches.push_row(resource);
+        self.tables
+            .borrow_mut()
+            .fetches
+            .push_row(scope.resource_depth() as u32, resource);
 
         let content = self.fetcher.fetch(&resource, &content_type).await;
 
