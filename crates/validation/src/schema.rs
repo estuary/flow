@@ -3,6 +3,7 @@ use doc::{inference, Schema as CompiledSchema};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use models::{build, names, tables};
+use superslice::Ext;
 use url::Url;
 
 pub struct Shape {
@@ -18,22 +19,82 @@ pub struct Shape {
 }
 
 /// Ref is a reference to a schema.
-pub struct Ref<'a> {
-    // Scope referencing the schema.
-    pub scope: &'a url::Url,
-    // Schema which is referenced, including fragment pointer.
-    pub schema: &'a url::Url,
-    // Collection having this schema, for which this SchemaRef was created.
-    // None if this reference is not a collection schema.
-    pub collection: Option<&'a names::Collection>,
+pub enum Ref<'a> {
+    // Root resource of the catalog is a schema.
+    Root(&'a url::Url),
+    // Schema has an anchored, explicit name.
+    Named(&'a tables::NamedSchema),
+    // Schema of a collection.
+    Collection {
+        collection: &'a tables::Collection,
+        // Projections of this collection.
+        projections: &'a [tables::Projection],
+    },
+    // Schema of a derivation register.
+    Register(&'a tables::Derivation),
+    // Schema being read by a transform.
+    Source {
+        transform: &'a tables::Transform,
+        // Schema resolved from either transform.source_schema,
+        // or the schema of the referenced collection.
+        schema: &'a url::Url,
+    },
 }
 
 impl<'a> Ref<'a> {
+    pub fn scope(&'a self) -> &'a url::Url {
+        match self {
+            Ref::Root(schema) => schema,
+            Ref::Named(named) => &named.scope,
+            Ref::Collection { collection, .. } => &collection.scope,
+            Ref::Register(derivation) => &derivation.scope,
+            Ref::Source { transform, .. } => &transform.scope,
+        }
+    }
+
+    pub fn schema(&'a self) -> &'a url::Url {
+        match self {
+            Ref::Root(schema) => schema,
+            Ref::Named(named) => &named.anchor,
+            Ref::Collection { collection, .. } => &collection.schema,
+            Ref::Register(derivation) => &derivation.register_schema,
+            Ref::Source { schema, .. } => schema,
+        }
+    }
+
+    pub fn explicit_locations(&'a self) -> impl Iterator<Item = &'a names::JsonPointer> {
+        let b: Box<dyn Iterator<Item = &'a names::JsonPointer>> = match self {
+            Ref::Root(_) => Box::new(std::iter::empty()),
+            Ref::Named(_) => Box::new(std::iter::empty()),
+            Ref::Collection {
+                collection,
+                projections,
+            } => Box::new(
+                // Locations of explicit projections of the collection are explicit
+                // schema locations, as are the components of the collection key itself.
+                projections
+                    .iter()
+                    .map(|p| &p.location)
+                    .chain(collection.key.iter()),
+            ),
+            Ref::Register(_) => Box::new(std::iter::empty()),
+            Ref::Source { transform, .. } => Box::new(
+                // Shuffle keys of the transform are explicit schema locations.
+                transform
+                    .shuffle_key
+                    .iter()
+                    .flat_map(|composite| composite.iter()),
+            ),
+        };
+        b
+    }
+
     pub fn from_tables(
-        resources: &'a [tables::Resource],
-        named_schemas: &'a [tables::NamedSchema],
         collections: &'a [tables::Collection],
         derivations: &'a [tables::Derivation],
+        named_schemas: &'a [tables::NamedSchema],
+        projections: &'a [tables::Projection],
+        resources: &'a [tables::Resource],
         transforms: &'a [tables::Transform],
     ) -> Vec<Ref<'a>> {
         let mut refs = Vec::new();
@@ -45,43 +106,37 @@ impl<'a> Ref<'a> {
                 resource,
                 ..
             }) => {
-                refs.push(Ref {
-                    scope: resource,
-                    schema: resource,
-                    collection: None,
-                });
+                refs.push(Ref::Root(resource));
             }
             _ => (),
         };
 
-        for n in named_schemas {
-            refs.push(Ref {
-                scope: &n.scope,
-                schema: &n.anchor,
-                collection: None,
+        for named in named_schemas {
+            refs.push(Ref::Named(named));
+        }
+        for collection in collections.iter() {
+            let projections = &projections
+                [projections.equal_range_by_key(&&collection.collection, |p| &p.collection)];
+
+            refs.push(Ref::Collection {
+                collection,
+                projections,
             });
         }
-        for c in collections.iter() {
-            refs.push(Ref {
-                scope: &c.scope,
-                schema: &c.schema,
-                collection: Some(&c.collection),
-            })
+        for derivation in derivations.iter() {
+            refs.push(Ref::Register(derivation));
         }
-        for d in derivations.iter() {
-            refs.push(Ref {
-                scope: &d.scope,
-                schema: &d.register_schema,
-                collection: None,
-            })
-        }
-        for t in transforms.iter() {
-            if let Some(schema) = &t.source_schema {
-                refs.push(Ref {
-                    scope: &t.scope,
-                    schema,
-                    collection: None,
-                })
+        for transform in transforms.iter() {
+            if let Some(schema) = &transform.source_schema {
+                refs.push(Ref::Source { schema, transform });
+            } else if let Some(c) = collections
+                [collections.equal_range_by_key(&&transform.source_collection, |c| &c.collection)]
+            .first()
+            {
+                refs.push(Ref::Source {
+                    schema: &c.schema,
+                    transform,
+                });
             }
         }
 
@@ -132,7 +187,6 @@ pub fn index_compiled_schemas<'a>(
 
 pub fn walk_all_schema_refs(
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     schema_docs: &[tables::SchemaDoc],
     schema_index: &doc::SchemaIndex<'_>,
     schema_refs: &[Ref<'_>],
@@ -144,8 +198,8 @@ pub fn walk_all_schema_refs(
     // Walk schema URLs (*with* fragment pointers) with their grouped references.
     for (schema, references) in schema_refs
         .iter()
-        .sorted_by_key(|r| r.schema)
-        .group_by(|r| r.schema)
+        .sorted_by_key(|r| r.schema())
+        .group_by(|r| r.schema())
         .into_iter()
     {
         // Infer the schema shape, and report any inspected errors.
@@ -156,7 +210,7 @@ pub fn walk_all_schema_refs(
                     Error::NoSuchSchema {
                         schema: schema.clone(),
                     }
-                    .push(reference.scope, errors);
+                    .push(reference.scope(), errors);
                 }
 
                 schema_shapes.push(Shape {
@@ -172,26 +226,15 @@ pub fn walk_all_schema_refs(
             Error::from(err).push(schema, errors);
         }
 
-        // Map references through collections having the schema as source,
-        // and from there to collection projections. Walk projections to
-        // identify all unique named location pointers of the schema.
+        // Map through reference to the explicit locations of the schema which they name.
         // These locations may include entries which aren't statically
-        // know-able, e.x. due to additionalProperties or patternProperties.
+        // know-able, e.x. due to additionalItems, additionalProperties or patternProperties.
         let explicit: Vec<&str> = references
-            .filter_map(|r| r.collection)
-            .map(|collection| {
-                projections.iter().filter_map(move |p| {
-                    if *collection == p.collection {
-                        Some(p.location.as_ref())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .flatten()
+            .flat_map(|r| r.explicit_locations())
+            .map(AsRef::as_ref)
             .sorted()
             .dedup()
-            .collect::<Vec<_>>();
+            .collect();
 
         // Now identify all implicit, statically known-able schema locations.
         // These may overlap with explicit.
@@ -204,7 +247,7 @@ pub fn walk_all_schema_refs(
         // Merge explicit & implicit into a unified sequence of schema locations.
         let merged = explicit
             .into_iter()
-            .merge_join_by(implicit.into_iter(), |lhs, rhs| (*lhs).cmp(rhs.0.as_ref()))
+            .merge_join_by(implicit.into_iter(), |lhs, (rhs, _, _)| (*lhs).cmp(rhs))
             .filter_map(|eob| match eob {
                 EitherOrBoth::Left(ptr) => shape
                     .locate(&doc::Pointer::from_str(ptr))
