@@ -7,6 +7,8 @@ test://example/catalog.yaml:
     - test://example/webhook-deliveries
     - test://example/db-views
     - test://example/int-string-tests
+    - test://example/array-key
+    - test://example/from-array-key
 
   journalRules:
     123 A Rule:
@@ -288,3 +290,63 @@ driver:
           user: a-user
       bindings:
         - resourcePath: [schema, table]
+
+test://example/array-key.schema:
+  # This schema models array additionalItems which provably exist,
+  # due to minItems, but are not ordinarily generated as inferences.
+  # It excercises our ability to generate inferences from explicit
+  # locations referencing the schema from:
+  #  - Collection keys.
+  #  - Collection projections.
+  #  - Shuffle keys of transforms without source_schema.
+  #    But not shuffle keys _with_ alternate source_schema.
+  type: object
+  properties:
+    arr:
+      type: array
+      items:
+        type: object
+        properties:
+          aKey: { type: integer }
+        required: [aKey]
+      minItems: 5
+  required: [arr]
+
+test://example/array-key:
+  collections:
+    testing/array-key:
+      schema: test://example/array-key.schema
+      key: [/arr/0/aKey]
+      projections:
+        aKeyOne: /arr/1/aKey
+
+test://example/from-array-key:
+  import:
+    - test://example/array-key
+  collections:
+    testing/from-array-key:
+      schema:
+        type: object
+        properties:
+          someKey: { type: integer }
+        required: [someKey]
+      key: [/someKey]
+
+      derivation:
+        transform:
+          withSourceSchema:
+            source:
+              name: testing/array-key
+              schema: { $ref: test://example/array-key.schema }
+            shuffle:
+              # We do *not* expect a generated inference of testing/array-key
+              # because our key reference a different (inline) schema.
+              key: [/arr/2/aKey]
+            publish: { lambda: { remote: https://an/api } }
+
+          withoutSourceSchema:
+            source: { name: testing/array-key }
+            shuffle:
+              # We DO expect this shuffle generates an inference of testing/array-key.
+              key: [/arr/3/aKey]
+            publish: { lambda: { remote: https://an/api } }

@@ -82,17 +82,17 @@ pub async fn validate<D: Drivers>(
     let schema_index = schema::index_compiled_schemas(&compiled_schemas, root_scope, &mut errors);
 
     let schema_refs = schema::Ref::from_tables(
-        resources,
-        named_schemas,
         collections,
         derivations,
+        named_schemas,
+        projections,
+        resources,
         transforms,
     );
 
     let (schema_shapes, inferences) = schema::walk_all_schema_refs(
         imports,
-        projections,
-        &schema_docs,
+        schema_docs,
         &schema_index,
         &schema_refs,
         &mut errors,

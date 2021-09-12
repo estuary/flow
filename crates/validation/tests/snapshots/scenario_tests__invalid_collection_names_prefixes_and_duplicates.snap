@@ -34,7 +34,7 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing,
-        error: collection testing is a prohibited prefix of capture testing/db-cdc, defined at test://example/int-string-captures#/captures/testing~1db-cdc,
+        error: collection testing is a prohibited prefix of collection testing/array-key, defined at test://example/array-key#/collections/testing~1array-key,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1Int-Halve,
