@@ -26,7 +26,7 @@ pub fn walk_all_derivations(
         let transforms =
             &transforms[transforms.equal_range_by_key(&&derivation.derivation, |t| &t.derivation)];
 
-        built_derivations.push_row(
+        built_derivations.insert_row(
             &derivation.scope,
             &derivation.derivation,
             walk_derivation(

@@ -52,7 +52,7 @@ impl cgo::Service for API {
                 let mut table = tables::SchemaDocs::new();
                 for (uri, dom) in bundle {
                     let dom: serde_json::Value = serde_json::from_str(&dom)?;
-                    table.push_row(Url::parse(&uri)?, dom);
+                    table.insert_row(Url::parse(&uri)?, dom);
                 }
                 let index = tables::SchemaDoc::leak_index(&table)?;
 

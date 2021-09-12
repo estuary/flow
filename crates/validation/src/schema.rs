@@ -279,7 +279,7 @@ pub fn walk_all_schema_refs(
         let mut fields = Vec::with_capacity(merged.len());
 
         for (field, ptr, shape, exists) in merged {
-            inferences.push_row(schema, &ptr, build::inference(shape, exists));
+            inferences.insert_row(schema, &ptr, build::inference(shape, exists));
 
             if !exists.cannot() {
                 fields.push((field, ptr)); // Note we're already ordered on |field|.

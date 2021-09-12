@@ -75,7 +75,7 @@ pub async fn validate<D: Drivers>(
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
         Ok(c) => c,
         Err(err) => {
-            errors.push_row(root_scope, anyhow::anyhow!(err));
+            errors.insert_row(root_scope, anyhow::anyhow!(err));
             return Tables {
                 errors,
                 ..Default::default()
