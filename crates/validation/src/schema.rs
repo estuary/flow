@@ -95,12 +95,14 @@ impl<'a> Ref<'a> {
         named_schemas: &'a [tables::NamedSchema],
         projections: &'a [tables::Projection],
         resources: &'a [tables::Resource],
+        root_scope: &'a url::Url,
         transforms: &'a [tables::Transform],
     ) -> Vec<Ref<'a>> {
         let mut refs = Vec::new();
 
         // If the root resource is a JSON schema then treat it as an implicit reference.
-        match resources.first() {
+        let root = &resources[resources.equal_range_by_key(&root_scope, |r| &r.resource)];
+        match root.first() {
             Some(tables::Resource {
                 content_type: protocol::flow::ContentType::JsonSchema,
                 resource,

@@ -9,7 +9,8 @@ use macros::*;
 pub use macros::{load_tables, persist_tables, Table, TableObj, TableRow};
 
 tables!(
-    table Fetches (row Fetch, order_by [resource], sql "fetches") {
+    table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
+        depth: u32,
         resource: url::Url,
     }
 

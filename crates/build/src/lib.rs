@@ -160,6 +160,7 @@ where
         &captures,
         &collections,
         &derivations,
+        &fetches,
         &imports,
         &journal_rules,
         &materialization_bindings,

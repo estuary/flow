@@ -2505,72 +2505,95 @@ All {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/array-key,
-        },
-        Fetch {
-            resource: test://example/array-key.schema,
-        },
-        Fetch {
-            resource: test://example/array-key.ts,
-        },
-        Fetch {
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
+            depth: 2,
+            resource: test://example/array-key,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/db-views,
         },
         Fetch {
-            resource: test://example/db-views.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/from-array-key,
         },
         Fetch {
-            resource: test://example/from-array-key.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/int-halve,
         },
         Fetch {
-            resource: test://example/int-halve.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/int-reverse,
         },
         Fetch {
-            resource: test://example/int-reverse.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/int-string,
         },
         Fetch {
+            depth: 2,
             resource: test://example/int-string-captures,
         },
         Fetch {
-            resource: test://example/int-string-captures.ts,
-        },
-        Fetch {
-            resource: test://example/int-string-len.schema,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/int-string-tests,
         },
         Fetch {
-            resource: test://example/int-string-tests.ts,
-        },
-        Fetch {
-            resource: test://example/int-string.schema,
-        },
-        Fetch {
-            resource: test://example/int-string.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/webhook-deliveries,
         },
         Fetch {
+            depth: 3,
+            resource: test://example/array-key.schema,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/array-key.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/db-views.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/from-array-key.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-halve.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-reverse.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-string-captures.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-string-len.schema,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-string-tests.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-string.schema,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/int-string.ts,
+        },
+        Fetch {
+            depth: 3,
             resource: test://example/webhook-deliveries.ts,
         },
     ],

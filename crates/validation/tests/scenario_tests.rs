@@ -1111,6 +1111,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         &captures,
         &collections,
         &derivations,
+        &fetches,
         &imports,
         &journal_rules,
         &materialization_bindings,
