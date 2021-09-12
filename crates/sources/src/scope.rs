@@ -59,9 +59,14 @@ impl<'a> Scope<'a> {
         }
     }
 
+    /// Returns the depth of the stack of resources which are in the Scope.
+    pub fn resource_depth(self) -> usize {
+        self.parent.map_or(0, |p| p.resource_depth()) + self.resource.map_or(0, |_| 1)
+    }
+
     /// Flatten the scope into its current resource URI, extended with a
     /// URL fragment-encoded JSON pointer of the current location.
-    pub fn flatten(&'a self) -> Url {
+    pub fn flatten(self) -> Url {
         let mut f = self.resource().clone();
 
         if !matches!(self.location, Location::Root) {
@@ -89,5 +94,10 @@ mod test {
         assert_eq!(s1.flatten().as_str(), "http://example/A");
         assert_eq!(s3.flatten().as_str(), "http://example/A#/foo/32");
         assert_eq!(s5.flatten().as_str(), "http://example/B#/something");
+
+        assert_eq!(s1.resource_depth(), 1);
+        assert_eq!(s3.resource_depth(), 1);
+        assert_eq!(s4.resource_depth(), 2);
+        assert_eq!(s5.resource_depth(), 2);
     }
 }

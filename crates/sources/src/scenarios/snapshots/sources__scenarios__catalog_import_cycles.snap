@@ -11,28 +11,36 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/A,
         },
         Fetch {
-            resource: test://example/A.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/B,
         },
         Fetch {
-            resource: test://example/B.ts,
-        },
-        Fetch {
-            resource: test://example/C,
-        },
-        Fetch {
-            resource: test://example/C.ts,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
         },
         Fetch {
-            resource: test://example/catalog.yaml,
+            depth: 3,
+            resource: test://example/A.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/B.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/C,
+        },
+        Fetch {
+            depth: 4,
+            resource: test://example/C.ts,
         },
     ],
     imports: [

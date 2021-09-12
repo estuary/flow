@@ -11,10 +11,12 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
-            resource: test://example/catalog.ts,
+            depth: 1,
+            resource: test://example/catalog.yaml,
         },
         Fetch {
-            resource: test://example/catalog.yaml,
+            depth: 2,
+            resource: test://example/catalog.ts,
         },
     ],
     imports: [
