@@ -31,7 +31,7 @@ pub fn walk_all_test_steps(
             .flatten()
             .collect();
 
-        built_tests.push_row(
+        built_tests.insert_row(
             test,
             flow::TestSpec {
                 test: test.to_string(),

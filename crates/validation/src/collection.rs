@@ -19,7 +19,7 @@ pub fn walk_all_collections(
         let projections = &projections
             [projections.equal_range_by_key(&&collection.collection, |p| &p.collection)];
 
-        built_collections.push_row(
+        built_collections.insert_row(
             &collection.scope,
             &collection.collection,
             walk_collection(
@@ -116,7 +116,7 @@ fn walk_collection_projections(
             specs.push(spec);
         }
         if let Some(implicit) = implicit {
-            implicit_projections.push(implicit);
+            implicit_projections.insert(implicit);
         }
     }
 

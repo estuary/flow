@@ -51,7 +51,7 @@ where
     let mut all_tables = load_and_validate(root_url, root_spec, fetcher, drivers).await;
     all_tables
         .meta
-        .push_row(uuid::Uuid::new_v4(), config.clone());
+        .insert_row(uuid::Uuid::new_v4(), config.clone());
 
     // Apply any extra journal rules of the configuration.
     for (index, rule) in config
@@ -61,7 +61,7 @@ where
         .into_iter()
         .enumerate()
     {
-        all_tables.journal_rules.push_row(
+        all_tables.journal_rules.insert_row(
             url::Url::parse(&format!("build://extra_journal_rules/{}", index)).unwrap(),
             models::names::Rule::new(&rule.rule),
             rule,
@@ -75,7 +75,7 @@ where
         .into_iter()
         .enumerate()
     {
-        all_tables.shard_rules.push_row(
+        all_tables.shard_rules.insert_row(
             url::Url::parse(&format!("build://extra_shard_rules/{}", index)).unwrap(),
             models::names::Rule::new(&rule.rule),
             rule,
