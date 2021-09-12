@@ -250,14 +250,14 @@ macro_rules! tables {
             /// Insert a new ordered Row into the Table.
             /// Arguments match the positional order of the table's definition.
             #[allow(dead_code)]
-            pub fn push_row(&mut self, $( $field: impl OwnOrClone<$rust_type>, )*) {
-                self.push($row {
+            pub fn insert_row(&mut self, $( $field: impl OwnOrClone<$rust_type>, )*) {
+                self.insert($row {
                     $($field: $field.own_or_clone(),)*
                 });
             }
-
+            /// Insert a new ordered Row into the Table.
             #[allow(dead_code)]
-            pub fn push(&mut self, row: $row) {
+            pub fn insert(&mut self, row: $row) {
                 use superslice::Ext;
 
                 let r = ($(&row.$order_by,)*);
@@ -268,17 +268,18 @@ macro_rules! tables {
                 });
                 self.0.insert(index, row);
             }
-
+            /// Convert the Table into an Iterator.
             #[allow(dead_code)]
             pub fn into_iter(self) -> impl Iterator<Item=$row> {
                 self.0.into_iter()
             }
+            /// Extend the Table from the given Iterator.
             #[allow(dead_code)]
             pub fn extend(&mut self, it: impl Iterator<Item=$row>) {
                 self.0.extend(it);
                 self.reindex();
             }
-
+            // Re-index the Table as a bulk operation.
             fn reindex(&mut self) {
                 self.0.sort_by(|_l, _r| {
                     let l = ($(&_l.$order_by,)*);
