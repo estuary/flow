@@ -510,12 +510,12 @@ mod test {
     #[test]
     fn test_indexing() {
         let mut tbl = Foos::new();
-        tbl.push_row(1);
-        tbl.push_row(0);
-        tbl.push_row(2);
-        tbl.push_row(1);
-        tbl.push_row(0);
-        tbl.push_row(1);
+        tbl.insert_row(1);
+        tbl.insert_row(0);
+        tbl.insert_row(2);
+        tbl.insert_row(1);
+        tbl.insert_row(0);
+        tbl.insert_row(1);
 
         // When order_by is empty, the initial ordering is preserved.
         assert_eq!(
@@ -525,12 +525,12 @@ mod test {
 
         // Table ordered by a single column.
         let mut tbl = Bars::new();
-        tbl.push_row(10, 90);
-        tbl.push_row(0, 78);
-        tbl.push_row(20, 56);
-        tbl.push_row(10, 34);
-        tbl.push_row(0, 12);
-        tbl.push_row(10, 90);
+        tbl.insert_row(10, 90);
+        tbl.insert_row(0, 78);
+        tbl.insert_row(20, 56);
+        tbl.insert_row(10, 34);
+        tbl.insert_row(0, 12);
+        tbl.insert_row(10, 90);
 
         // Ordered with respect to order_by, but not to the extra columns.
         assert_eq!(
@@ -540,12 +540,12 @@ mod test {
 
         // Table ordered on a composite key.
         let mut tbl = Quibs::new();
-        tbl.push_row(10, 90);
-        tbl.push_row(0, 78);
-        tbl.push_row(20, 56);
-        tbl.push_row(10, 34);
-        tbl.push_row(0, 12);
-        tbl.push_row(10, 90);
+        tbl.insert_row(10, 90);
+        tbl.insert_row(0, 78);
+        tbl.insert_row(20, 56);
+        tbl.insert_row(10, 34);
+        tbl.insert_row(0, 12);
+        tbl.insert_row(10, 90);
 
         // Fully ordered by the composite key (both columns).
         assert_eq!(

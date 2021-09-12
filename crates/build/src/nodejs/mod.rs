@@ -225,7 +225,7 @@ pub fn pack_package(package_dir: &path::Path) -> Result<tables::Resources, anyho
     tracing::info!("built NodeJS pack {:?}", pack);
 
     let mut resources = tables::Resources::new();
-    resources.push_row(
+    resources.insert_row(
         Url::from_file_path(&pack).unwrap(),
         flow::ContentType::NpmPackage,
         bytes::Bytes::from(std::fs::read(&pack)?),

@@ -159,7 +159,7 @@ pub async fn walk_all_captures<D: Drivers>(
                     bindings,
                     interval_seconds: *interval_seconds,
                 };
-                built_captures.push_row(scope, name, spec);
+                built_captures.insert_row(scope, name, spec);
             }
             Err(err) => {
                 Error::CaptureDriver {

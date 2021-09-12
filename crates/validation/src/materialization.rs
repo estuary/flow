@@ -183,7 +183,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                     materialization: name.to_string(),
                 };
 
-                built_materializations.push_row(scope, name, spec);
+                built_materializations.insert_row(scope, name, spec);
             }
             Err(err) => {
                 Error::MaterializationDriver {
