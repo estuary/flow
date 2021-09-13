@@ -135,7 +135,7 @@ impl Trampoline {
             }
         });
 
-        tracing::debug!(?id, ?code, queued = ?queue.1.len(), "queued trampoline task");
+        tracing::debug!(?id, ?code, queued = ?queue.1.len(), awaiting = ?self.awaiting.borrow().len(), "queued trampoline task");
     }
 
     // Dispatch all queued tasks over the bridge.
