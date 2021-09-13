@@ -12,13 +12,16 @@ import (
 	"unsafe"
 
 	pf "github.com/estuary/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // service is a Go handle to an instantiated service binding.
 type service struct {
-	ch  *C.Channel
-	in  []C.In1
-	buf []byte
+	typeName string
+	ch       *C.Channel
+	in       []C.In1
+	buf      []byte
 
 	invoke1  func(*C.Channel, C.In1)
 	invoke4  func(*C.Channel, C.In4)
@@ -31,15 +34,18 @@ type service struct {
 // bootstrap and configuration of the service, map to returned errors, and provide
 // memory-safe interfaces for interacting with the service.
 func newService(
+	typeName string,
 	create func() *C.Channel,
 	invoke1 func(*C.Channel, C.In1),
 	invoke4 func(*C.Channel, C.In4),
 	invoke16 func(*C.Channel, C.In16),
 	drop func(*C.Channel),
 ) *service {
+	serviceCreatedCounter.WithLabelValues(typeName).Inc()
 	var ch = create()
 
 	var svc = &service{
+		typeName: typeName,
 		ch:       ch,
 		in:       make([]C.In1, 0, 16),
 		buf:      make([]byte, 0, 256),
@@ -249,6 +255,7 @@ func (s *service) destroy() {
 		s.drop(s.ch)
 	}
 	s.ch = nil
+	serviceDestroyedCounter.WithLabelValues(s.typeName).Inc()
 }
 
 func pollExpectNoOutput(svc *service) error {
@@ -259,3 +266,12 @@ func pollExpectNoOutput(svc *service) error {
 	}
 	return nil
 }
+
+var serviceDestroyedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_bindings_service_destroyed_total",
+	Help: "Counter of bindings service instances destroyed",
+}, []string{"type"})
+var serviceCreatedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "flow_bindings_service_created_total",
+	Help: "Counter of bindings service instances created",
+}, []string{"type"})

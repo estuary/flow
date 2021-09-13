@@ -229,6 +229,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 
 func newBuildSvc() *service {
 	return newService(
+		"build",
 		func() *C.Channel { return C.build_create() },
 		func(ch *C.Channel, in C.In1) { C.build_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.build_invoke4(ch, in) },

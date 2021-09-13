@@ -176,6 +176,7 @@ func drainCombineToCallback(
 
 func newCombineSvc() *service {
 	return newService(
+		"combine",
 		func() *C.Channel { return C.combine_create() },
 		func(ch *C.Channel, in C.In1) { C.combine_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.combine_invoke4(ch, in) },

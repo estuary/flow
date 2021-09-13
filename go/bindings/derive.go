@@ -36,15 +36,6 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Buckets: []float64{0.0005, 0.002, 0.01, 0.05, 0.1, 0.3, 1.0},
 }, []string{"derivation", "lambdaType"})
 
-var deriveDestroyedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "flow_derive_instance_destroyed_total",
-	Help: "Counter of derive instances destroyed",
-}, []string{"shard"})
-var deriveCreatedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "flow_derive_instance_created_total",
-	Help: "Counter of derive instances created",
-}, []string{"shard"})
-
 // Derive is an instance of the derivation workflow.
 type Derive struct {
 	svc     *service
@@ -102,11 +93,9 @@ func NewDerive(recorder *recoverylog.Recorder, localDir string, shardFqn string)
 		trampolineCh: nil,
 		pinnedIndex:  nil,
 	}
-	deriveCreatedCounter.WithLabelValues(shardFqn).Inc()
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
 		d.Destroy()
-		deriveDestroyedCounter.WithLabelValues(shardFqn).Inc()
 	})
 
 	return derive, nil
@@ -317,6 +306,7 @@ func (d *Derive) Destroy() {
 
 func newDeriveSvc() *service {
 	return newService(
+		"derive",
 		func() *C.Channel { return C.derive_create() },
 		func(ch *C.Channel, in C.In1) { C.derive_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.derive_invoke4(ch, in) },
