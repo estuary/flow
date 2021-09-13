@@ -1,5 +1,5 @@
 use anyhow::Context;
-use doc::SchemaIndex;
+use doc;
 use models::tables;
 use protocol::flow;
 use serde::{Deserialize, Serialize};
@@ -56,10 +56,11 @@ pub fn generate_package<'a>(
     // and resolve all schemas.
     let compiled_schemas = tables::SchemaDoc::compile_all(schema_docs)?;
 
-    let mut index = SchemaIndex::new();
+    let mut index = doc::SchemaIndexBuilder::new();
     for schema in compiled_schemas.iter() {
         let _ = index.add(schema);
     }
+    let index = index.into_index();
 
     // Build mapper for mapping from schema URIs to TypeScript AST's.
     let mapper = Mapper {
