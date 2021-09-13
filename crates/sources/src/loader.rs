@@ -168,8 +168,9 @@ impl<F: Fetcher> Loader<F> {
         let doc: CompiledSchema =
             self.fallible(scope, build_schema(scope.resource().clone(), &dom))?;
 
-        let mut index = doc::SchemaIndex::new();
+        let mut index = doc::SchemaIndexBuilder::new();
         self.fallible(scope, index.add(&doc))?;
+        let index = index.into_index();
 
         self.load_schema_node(scope, &index, &doc).await;
 
