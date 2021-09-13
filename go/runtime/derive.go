@@ -9,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -71,7 +72,15 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err 
 		return cp, fmt.Errorf("configuring derive API: %w", err)
 	}
 
-	return d.binding.RestoreCheckpoint()
+	cp, err = d.binding.RestoreCheckpoint()
+
+	log.WithFields(log.Fields{
+		"task":       d.task.Name(),
+		"shard":      d.shardID,
+		"checkpoint": cp,
+	}).Debug("RestoreCheckpoint")
+
+	return cp, err
 }
 
 // Destroy releases the API binding delegate, which also cleans up the associated
@@ -138,6 +147,12 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 // StartCommit implements the Store interface, and writes the current transaction
 // as an atomic RocksDB WriteBatch, guarded by a write barrier.
 func (d *Derive) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.OpFutures) client.OpFuture {
+	log.WithFields(log.Fields{
+		"task":       d.task.Name(),
+		"shardID":    d.shardID,
+		"checkpoint": cp,
+	}).Debug("StartCommit")
+
 	// Install a barrier such that we don't begin writing until |waitFor| has resolved.
 	_ = d.recorder.Barrier(waitFor)
 
