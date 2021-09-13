@@ -2,9 +2,8 @@ use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Val
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
-use tinyvec::TinyVec;
 
-pub trait Context: Sized + Default + std::fmt::Debug {
+pub trait Context: Sized + std::fmt::Debug {
     fn with_details<'sm, 'a, A>(
         loc: &'a Location<'a>,
         span: &'a Span,
@@ -30,21 +29,6 @@ pub struct FullContext {
     pub canonical_uri: String,
     pub keyword_location: String,
     pub span: Span,
-}
-
-impl Default for FullContext {
-    fn default() -> Self {
-        FullContext {
-            instance_ptr: String::new(),
-            canonical_uri: String::new(),
-            keyword_location: String::new(),
-            span: Span {
-                begin: 0,
-                end: 0,
-                hashed: 0,
-            },
-        }
-    }
 }
 
 impl Context for FullContext {
@@ -88,18 +72,6 @@ impl Context for FullContext {
 #[derive(Debug)]
 pub struct SpanContext {
     pub span: Span,
-}
-
-impl Default for SpanContext {
-    fn default() -> Self {
-        Self {
-            span: Span {
-                begin: 0,
-                end: 0,
-                hashed: 0,
-            },
-        }
-    }
 }
 
 impl Context for SpanContext {
@@ -161,16 +133,6 @@ impl<'sm, A: Annotation> Outcome<'sm, A> {
     }
 }
 
-// Default is implemented for use in TinyVec.
-impl<'sm, A> Default for Outcome<'sm, A>
-where
-    A: Annotation,
-{
-    fn default() -> Self {
-        Outcome::NotIsValid
-    }
-}
-
 /// Build "basic" output from a set of validator outcomes.
 /// See: https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.10.4.2
 pub fn build_basic_output<'sm, C: Context, A: Annotation>(
@@ -188,7 +150,7 @@ pub fn build_basic_output<'sm, C: Context, A: Annotation>(
     })
 }
 
-type BoolVec = TinyVec<[bool; 15]>;
+type BitVec = bitvec::prelude::BitVec<bitvec::prelude::LocalBits>;
 
 pub struct Scope<'sm, A, C>
 where
@@ -204,7 +166,7 @@ where
     // Validation result of this scope.
     invalid: bool,
     // Errors or annotations of this Scope and its children.
-    outcomes: TinyVec<[(Outcome<'sm, A>, C); 4]>,
+    outcomes: Vec<(Outcome<'sm, A>, C)>,
     // Outputs produced by unevaluated* of child items/properties, which
     // *may* become output of this schema iff we later determine that the
     // child wasn't evaluated by any other in-place application.
@@ -214,7 +176,7 @@ where
     // to identify outputs not already covered by an evaluated child.
     //
     // Conditioned on C::RETAIN_OUTPUT.
-    outcomes_unevaluated: TinyVec<[(Outcome<'sm, A>, C, usize); 4]>,
+    outcomes_unevaluated: Vec<(usize, (Outcome<'sm, A>, C))>,
 
     // Interned properties which were observed while evaluating this scope.
     seen_interned: intern::Set,
@@ -224,10 +186,10 @@ where
     valid_if: Option<bool>,
     // Validation results of "anyOf" in-place applications, indexed by bit.
     // If the schema has no "anyOf" applications, this is [1].
-    valid_any_of: BoolVec,
+    valid_any_of: BitVec,
     // Validation results of "oneOf" in-place applications, indexed by bit.
     // If the schema has no "oneOf" applications, this is [1].
-    valid_one_of: BoolVec,
+    valid_one_of: BitVec,
     // Number of items which validated against a "contains" item application.
     valid_contains: usize,
     // unique_items is the set of encountered item hashes.
@@ -236,10 +198,10 @@ where
     // Evaluated captures whether each child index was evaluated by an applied "properties",
     // "patternProperties", "additionalProperties", "items", or "additionalItems" application
     // of this scope, or a valid in-place application scope thereof.
-    evaluated: BoolVec,
+    evaluated: BitVec,
     // Validation results of speculative "unevaluatedProperties" / "unevaluatedItems"
     // applications. If no children had an "unevaluated" application, this is empty.
-    valid_unevaluated: BoolVec,
+    valid_unevaluated: BitVec,
 }
 
 impl<'sm, A, C> Scope<'sm, A, C>
@@ -247,24 +209,6 @@ where
     A: Annotation,
     C: Context,
 {
-    fn new(parent: Option<(usize, &'sm Application)>, schema: &'sm Schema<A>) -> Scope<'sm, A, C> {
-        Scope {
-            parent,
-            schema,
-            invalid: false,
-            outcomes: TinyVec::default(),
-            outcomes_unevaluated: TinyVec::default(),
-            seen_interned: 0 as intern::Set,
-            valid_if: None,
-            valid_any_of: BoolVec::default(),
-            valid_one_of: BoolVec::default(),
-            valid_contains: 0,
-            unique_items: None,
-            evaluated: BoolVec::default(),
-            valid_unevaluated: BoolVec::default(),
-        }
-    }
-
     fn add_outcome(&mut self, o: Outcome<'sm, A>, c: C) {
         // println!("\t\t\t\t  {:?} @ {:?}", o, c);
         self.outcomes.push((o, c));
@@ -302,6 +246,11 @@ where
     index: &'sm index::Index<'sm, A>,
     scopes: Vec<Scope<'sm, A, C>>,
     active_offsets: Vec<usize>,
+
+    // Pools of empty-but-reserved vectors for re-use.
+    outcomes_pool: Vec<Vec<(Outcome<'sm, A>, C)>>,
+    outcomes_uneval_pool: Vec<Vec<(usize, (Outcome<'sm, A>, C))>>,
+    bits_pool: Vec<BitVec>,
 }
 
 impl<'v, A, C> Walker for Validator<'v, A, C>
@@ -330,7 +279,8 @@ where
         for scope_index in active_from..active_to {
             for kw in &self.scopes[scope_index].schema.kw {
                 if let KWApp(app @ PropertyNames, sub) = &kw {
-                    self.scopes.push(Scope::new(Some((scope_index, app)), sub));
+                    let scope = self.new_scope(Some((scope_index, app)), sub);
+                    self.scopes.push(scope);
                 }
             }
         }
@@ -370,7 +320,10 @@ where
 
                     _ => continue,
                 };
-                self.scopes.push(Scope::new(Some((scope_index, app)), sub));
+
+                let scope = self.new_scope(Some((scope_index, app)), sub);
+                self.scopes.push(scope);
+
                 evaluated = evaluates;
             }
             self.scopes[scope_index].evaluated.push(evaluated);
@@ -420,7 +373,10 @@ where
 
                     _ => continue,
                 };
-                self.scopes.push(Scope::new(Some((scope_index, app)), sub));
+
+                let scope = self.new_scope(Some((scope_index, app)), sub);
+                self.scopes.push(scope);
+
                 evaluated |= evaluates;
             }
             self.scopes[scope_index].evaluated.push(evaluated);
@@ -586,6 +542,9 @@ where
             index,
             scopes: Vec::new(),
             active_offsets: Vec::new(),
+            outcomes_pool: Vec::new(),
+            outcomes_uneval_pool: Vec::new(),
+            bits_pool: Vec::new(),
         }
     }
 
@@ -599,8 +558,9 @@ where
     pub fn prepare(&mut self, uri: &url::Url) -> Result<(), index::Error> {
         let schema = self.index.must_fetch(uri)?;
 
-        self.scopes.truncate(0);
-        self.scopes.push(Scope::new(None, schema));
+        self.truncate_scopes(0);
+        let root = self.new_scope(None, schema);
+        self.scopes.push(root);
 
         self.active_offsets.truncate(0);
         self.active_offsets.push(0);
@@ -623,6 +583,56 @@ where
     /// Outcomes returns validation errors, if any, as well as collected annotations.
     pub fn outcomes(&self) -> &[(Outcome<'sm, A>, C)] {
         &self.scopes[0].outcomes
+    }
+
+    fn new_scope(
+        &mut self,
+        parent: Option<(usize, &'sm Application)>,
+        schema: &'sm Schema<A>,
+    ) -> Scope<'sm, A, C> {
+        Scope {
+            parent,
+            schema,
+            invalid: false,
+            outcomes: self.outcomes_pool.pop().unwrap_or_else(Vec::new),
+            outcomes_unevaluated: self.outcomes_uneval_pool.pop().unwrap_or_else(Vec::new),
+            seen_interned: 0 as intern::Set,
+            valid_if: None,
+            valid_any_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),
+            valid_one_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),
+            valid_contains: 0,
+            unique_items: None,
+            evaluated: self.bits_pool.pop().unwrap_or_else(BitVec::new),
+            valid_unevaluated: self.bits_pool.pop().unwrap_or_else(BitVec::new),
+        }
+    }
+
+    fn truncate_scopes(&mut self, truncate: usize) {
+        for scope in self.scopes.drain(truncate..) {
+            let Scope {
+                mut outcomes,
+                mut outcomes_unevaluated,
+                mut valid_any_of,
+                mut valid_one_of,
+                mut evaluated,
+                mut valid_unevaluated,
+                ..
+            } = scope;
+
+            outcomes.truncate(0);
+            outcomes_unevaluated.truncate(0);
+            valid_any_of.truncate(0);
+            valid_one_of.truncate(0);
+            evaluated.truncate(0);
+            valid_unevaluated.truncate(0);
+
+            self.outcomes_pool.push(outcomes);
+            self.outcomes_uneval_pool.push(outcomes_unevaluated);
+            self.bits_pool.push(valid_any_of);
+            self.bits_pool.push(valid_one_of);
+            self.bits_pool.push(evaluated);
+            self.bits_pool.push(valid_unevaluated);
+        }
     }
 
     fn check_validations<'a, F>(&mut self, span: &Span, loc: &'a Location<'a>, func: F)
@@ -664,7 +674,7 @@ where
             // Unwind and pop all but the root-most Scope.
             if i != 0 {
                 Validator::unwind_scope(scope, parents, loc);
-                self.scopes.pop();
+                self.truncate_scopes(i);
             }
         }
         self.active_offsets.pop();
@@ -708,7 +718,7 @@ where
         use Outcome::*;
 
         // "anyOf": assert at least one application was valid.
-        if !scope.valid_any_of.is_empty() && !scope.valid_any_of.contains(&true) {
+        if !scope.valid_any_of.is_empty() && !scope.valid_any_of.any() {
             scope.invalid = true;
             scope.add_outcome(AnyOfNotMatched, C::with_details(loc, span, scope, parents));
         }
@@ -733,25 +743,18 @@ where
 
         // For each of |speculative_outcomes|, add it to |outcomes| if its child
         // index was not matched by this scope or an in-place application thereof.
-        let evaluated = scope.evaluated.as_slice();
-        for (outcome, ctx, ind) in scope.outcomes_unevaluated.drain(..) {
-            if !evaluated[ind] {
+        for (ind, (outcome, ctx)) in scope.outcomes_unevaluated.drain(..) {
+            if !scope.evaluated[ind] {
                 scope.outcomes.push((outcome, ctx));
             }
         }
 
-        // Now fold successful |speculative| applications into |evaluated|.
-        for (eval, uneval) in scope
-            .evaluated
-            .iter_mut()
-            .zip(scope.valid_unevaluated.iter())
-        {
-            *eval |= *uneval;
-        }
+        // Now fold successful speculative applications into |evaluated|.
+        scope.evaluated |= scope.valid_unevaluated.iter().copied();
 
         // If we speculatively examined *any* children, and there exists a
         // child that was not evaluated, then fail this scope.
-        if !scope.valid_unevaluated.is_empty() && scope.evaluated.contains(&false) {
+        if !scope.valid_unevaluated.is_empty() && !scope.evaluated.all() {
             scope.invalid = true;
         }
 
@@ -860,11 +863,7 @@ where
                 parent.outcomes.extend(scope.outcomes.drain(..));
 
                 if !scope.invalid {
-                    for (parent_eval, scope_eval) in
-                        parent.evaluated.iter_mut().zip(scope.evaluated.iter())
-                    {
-                        *parent_eval |= *scope_eval;
-                    }
+                    parent.evaluated |= scope.evaluated.iter().copied();
                 }
             }
             // Conditional scopes update parent.outcomes only if valid,
@@ -872,12 +871,7 @@ where
             OptionalInPlace => {
                 if !scope.invalid {
                     parent.outcomes.extend(scope.outcomes.drain(..));
-
-                    for (parent_eval, scope_eval) in
-                        parent.evaluated.iter_mut().zip(scope.evaluated.iter())
-                    {
-                        *parent_eval |= *scope_eval;
-                    }
+                    parent.evaluated |= scope.evaluated.iter().copied();
                 } else {
                     //parent.outcomes_debug.extend(scope.outcomes.drain(..));
                 }
@@ -898,7 +892,7 @@ where
                 };
 
                 for (o, c) in scope.outcomes.drain(..) {
-                    parent.outcomes_unevaluated.push((o, c, child_index));
+                    parent.outcomes_unevaluated.push((child_index, (o, c)));
                 }
                 // Applications of unevaluated* will skip children matched by "items",
                 // "properties", or "patternProperties". Fill in any holes before appending
@@ -975,7 +969,9 @@ where
                     Some(schema) => schema,
                 }
             }
-            self.scopes.push(Scope::new(Some((index, app)), schema));
+
+            let scope = self.new_scope(Some((index, app)), schema);
+            self.scopes.push(scope);
         }
     }
 
