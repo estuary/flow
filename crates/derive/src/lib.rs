@@ -59,11 +59,11 @@ pub mod test {
         let scm: doc::Schema = json::schema::build::build_schema(uri.clone(), &schema).unwrap();
         let scm = Box::leak(Box::new(scm));
 
-        let mut idx = doc::SchemaIndex::new();
+        let mut idx = doc::SchemaIndexBuilder::new();
         idx.add(scm).unwrap();
         idx.verify_references().unwrap();
 
-        let idx = Box::leak(Box::new(idx));
+        let idx = Box::leak(Box::new(idx.into_index()));
         (idx, uri)
     }
 }

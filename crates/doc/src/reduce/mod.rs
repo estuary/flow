@@ -207,8 +207,8 @@ fn count_nodes(v: &Value) -> usize {
 pub mod test {
     use super::*;
 
-    use crate::{Schema, SchemaIndex, Validation, Validator};
-    use json::schema::build::build_schema;
+    use crate::{Schema, Validation, Validator};
+    use json::schema::{build::build_schema, index::IndexBuilder};
     pub use serde_json::{json, Value};
     use std::error::Error as StdError;
 
@@ -246,9 +246,10 @@ pub mod test {
         let curi = url::Url::parse("http://example/schema").unwrap();
         let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
 
-        let mut index = SchemaIndex::new();
+        let mut index = IndexBuilder::new();
         index.add(&schema).unwrap();
         index.verify_references().unwrap();
+        let index = index.into_index();
 
         let mut validator = Validator::new(&index);
         let mut lhs: Option<Value> = None;

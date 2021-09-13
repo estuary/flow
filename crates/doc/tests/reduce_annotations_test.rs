@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{reduce, Schema, SchemaIndex, Validation, Validator};
+use doc::{reduce, Schema, SchemaIndexBuilder, Validation, Validator};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::build::build_schema;
 use serde::Deserialize;
@@ -56,9 +56,11 @@ fn test_validate_then_reduce() {
     let curi = Url::parse("https://example/schema").unwrap();
     let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
 
-    let mut index = SchemaIndex::new();
+    let mut index = SchemaIndexBuilder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
+    let index = index.into_index();
+
     let mut validator = Validator::new(&index);
 
     let cases = vec![
@@ -225,9 +227,11 @@ fn test_qc_set_array(mut seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     let curi = Url::parse("https://example/schema").unwrap();
     let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
 
-    let mut index = SchemaIndex::new();
+    let mut index = SchemaIndexBuilder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
+    let index = index.into_index();
+
     let mut validator = Validator::new(&index);
 
     let actual: TestArray =
@@ -325,9 +329,11 @@ fn test_qc_set_map(seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
     let curi = Url::parse("https://example/schema").unwrap();
     let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
 
-    let mut index = SchemaIndex::new();
+    let mut index = SchemaIndexBuilder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
+    let index = index.into_index();
+
     let mut validator = Validator::new(&index);
 
     let actual: TestMap = serde_json::from_value(reduce_tree(&mut validator, &curi, docs)).unwrap();

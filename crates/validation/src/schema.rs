@@ -170,7 +170,7 @@ pub fn index_compiled_schemas<'a>(
     root_scope: &Url,
     errors: &mut tables::Errors,
 ) -> doc::SchemaIndex<'a> {
-    let mut index = doc::SchemaIndex::new();
+    let mut index = doc::SchemaIndexBuilder::new();
 
     for compiled in compiled {
         if let Err(err) = index.add(compiled) {
@@ -184,7 +184,7 @@ pub fn index_compiled_schemas<'a>(
         Error::from(err).push(root_scope, errors);
     }
 
-    index
+    index.into_index()
 }
 
 pub fn walk_all_schema_refs(

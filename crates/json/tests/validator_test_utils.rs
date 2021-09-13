@@ -84,11 +84,12 @@ fn run_file_test(target: &[&str]) {
         let schema = build::build_schema::<CoreAnnotation>(url.clone(), schema).unwrap();
         println!("\t{:?}", schema);
 
-        let mut ind = index::Index::new();
+        let mut ind = index::IndexBuilder::new();
         for s in &catalog {
             ind.add(s).unwrap();
         }
         ind.add(&schema).unwrap();
+        let ind = ind.into_index();
 
         /*
         ind.verify_references()

@@ -44,7 +44,7 @@ fn test_bassssic() -> Result {
     let url = url::Url::parse("http://example.com/root.json")?;
     let sch = build::build_schema::<CoreAnnotation>(url, &j)?;
 
-    let mut ind = index::Index::new();
+    let mut ind = index::IndexBuilder::new();
     ind.add(&sch)?;
     ind.verify_references()?;
 

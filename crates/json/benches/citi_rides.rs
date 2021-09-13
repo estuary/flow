@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use json::de;
-use json::schema::{build::build_schema, index::Index, CoreAnnotation};
+use json::schema::{build::build_schema, index::IndexBuilder, CoreAnnotation};
 use json::validator::{FullContext, Validator};
 use serde_json::{json, Value};
 
@@ -12,9 +12,10 @@ pub fn citi_rides(c: &mut Criterion) {
     let url = url::Url::parse("http://bench").unwrap();
     let schema = build_schema::<CoreAnnotation>(url, &schema).unwrap();
 
-    let mut index = Index::new();
+    let mut index = IndexBuilder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
+    let index = index.into_index();
 
     let rides = serde_json::Deserializer::from_slice(CITI_RIDES).into_iter::<Value>();
     let rides = rides.collect::<Result<Vec<_>, _>>().unwrap();

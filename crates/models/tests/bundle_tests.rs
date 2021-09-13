@@ -14,11 +14,12 @@ fn test_bundle_generation() {
 
     // Compile all schemas and index their compiled forms.
     let orig_compiled = tables::SchemaDoc::compile_all(&schema_docs).unwrap();
-    let mut orig_index = doc::SchemaIndex::new();
+    let mut orig_index = doc::SchemaIndexBuilder::new();
     for compiled in &orig_compiled {
         orig_index.add(compiled).unwrap()
     }
     orig_index.verify_references().unwrap();
+    let orig_index = orig_index.into_index();
 
     // We'll collect bundle documents, and snapshot them at the end.
     let mut bundle_docs = serde_json::Map::new();
@@ -35,9 +36,10 @@ fn test_bundle_generation() {
         let bundle_schema: doc::Schema =
             json::schema::build::build_schema(bundle_curi, &bundle_dom).unwrap();
 
-        let mut bundle_index = doc::SchemaIndex::new();
+        let mut bundle_index = doc::SchemaIndexBuilder::new();
         bundle_index.add(&bundle_schema).unwrap();
         bundle_index.verify_references().unwrap();
+        let bundle_index = bundle_index.into_index();
 
         // Infer the shape of the original (non-bundled) schema.
         let orig_shape = inference::Shape::infer(orig_index.fetch(&c.schema).unwrap(), &orig_index);
