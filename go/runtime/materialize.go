@@ -97,9 +97,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	}
 
 	if err = m.initShuffleTerm(shard, m.host); err != nil {
-		return cp, err
+		return pc.Checkpoint{}, err
 	} else if m.task.Materialization == nil {
-		return cp, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
+		return pc.Checkpoint{}, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
 	}
 
 	// Establish driver connection and start Transactions RPC.
@@ -160,7 +160,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 			b.Collection.KeyPtrs,
 			b.FieldValuePtrs(),
 		); err != nil {
-			return cp, fmt.Errorf("building combiner: %w", err)
+			return pc.Checkpoint{}, fmt.Errorf("building combiner: %w", err)
 		}
 	}
 
@@ -177,11 +177,23 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		}
 	}
 
+	log.WithFields(log.Fields{
+		"task":       m.task.Name(),
+		"shard":      m.shardID,
+		"checkpoint": cp,
+	}).Debug("RestoreCheckpoint")
+
 	return cp, nil
 }
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+	log.WithFields(log.Fields{
+		"task":       m.task.Name(),
+		"shardID":    m.shardID,
+		"checkpoint": checkpoint,
+	}).Debug("StartCommit")
+
 	// Write our intent to close the transaction and prepare for commit.
 	// This signals the driver to send remaining Loaded responses, if any.
 	if err := pm.WritePrepare(m.driverTx, &m.request, checkpoint); err != nil {
