@@ -391,6 +391,12 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, checkpoint pgc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+	log.WithFields(log.Fields{
+		"task":       c.task.Name(),
+		"shardID":    c.shardID,
+		"checkpoint": checkpoint,
+	}).Debug("StartCommit")
+
 	// Tell our JSON store to commit to its recovery log after |m.committed| resolves.
 	return c.store.StartCommit(shard, checkpoint, waitFor)
 }
