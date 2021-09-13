@@ -1,4 +1,4 @@
-use doc::{Schema as CompiledSchema, SchemaIndex};
+use doc::Schema as CompiledSchema;
 use superslice::Ext;
 use url::Url;
 
@@ -42,11 +42,12 @@ impl super::SchemaDoc {
         let schemas = Self::compile_all(&slice)?;
         let schemas = Box::leak(Box::new(schemas));
 
-        let mut schema_index = SchemaIndex::<'static>::new();
+        let mut schema_index = doc::SchemaIndexBuilder::<'static>::new();
         for schema in schemas.iter() {
             schema_index.add(schema)?;
         }
         schema_index.verify_references()?;
+        let schema_index = schema_index.into_index();
 
         // Also leak a &'static SchemaIndex.
         Ok(Box::leak(Box::new(schema_index)))
