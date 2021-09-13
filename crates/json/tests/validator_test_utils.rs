@@ -95,6 +95,8 @@ fn run_file_test(target: &[&str]) {
             .expect("failed to verify references");
         */
 
+        let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(&ind);
+
         for sub_case in case
             .get("tests")
             .expect("missing test sub-cases")
@@ -115,8 +117,6 @@ fn run_file_test(target: &[&str]) {
                 .expect("valid is not a bool");
 
             println!("\t{} ({}): {}", sub_desc, valid, data);
-
-            let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(&ind);
             val.prepare(&schema.curi).unwrap();
 
             let out = de::walk(data, &mut val).expect("validation error");
