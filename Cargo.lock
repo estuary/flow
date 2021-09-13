@@ -838,6 +838,7 @@ dependencies = [
 name = "json"
 version = "0.0.0"
 dependencies = [
+ "bitvec",
  "criterion",
  "fancy-regex",
  "fxhash",
@@ -848,7 +849,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror",
- "tinyvec",
  "tracing",
  "url",
 ]
