@@ -1,7 +1,7 @@
 package flow
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -86,10 +86,12 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 	var cmd = exec.Command(args[0], args[1:]...)
 	_ = os.Remove(socketPath)
 
+	var readyCh = make(chan error)
+
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "SOCKET_PATH="+socketPath)
-	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
+	cmd.Stderr = &readyWriter{delegate: os.Stderr, ch: readyCh}
 
 	// Deliver a SIGTERM to the process if this thread should die uncleanly.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
@@ -97,17 +99,7 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 	// delivered from the terminal.
 	cmd.SysProcAttr.Setpgid = setpgid
 
-	var realStdErr io.Writer
-	realStdErr, cmd.Stderr = cmd.Stderr, nil
-
-	if realStdErr == nil {
-		realStdErr = ioutil.Discard
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("cmd.StderrPipe: %w", err)
-	} else if err = cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("cmd.Start: %w", err)
 	}
 
@@ -117,14 +109,35 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 		"pid":        cmd.Process.Pid,
 	}).Info("started worker daemon")
 
-	var br = bufio.NewReader(stderr)
-	if ready, err := br.ReadString('\n'); err != nil {
-		return nil, fmt.Errorf("attempting to read READY: %w", err)
-	} else if ready != "READY\n" {
-		return nil, fmt.Errorf("wanted READY from subprocess but got %q", ready)
+	if err := <-readyCh; err != nil {
+		_ = cmd.Process.Kill()
+		return nil, err
 	}
-	// Hereafter, shunt stderr output directly to our own handle.
-	go io.Copy(realStdErr, br)
 
 	return cmd, nil
+}
+
+type readyWriter struct {
+	delegate io.Writer
+	ch       chan error
+}
+
+func (w *readyWriter) Write(p []byte) (int, error) {
+	if w.ch == nil {
+		return w.delegate.Write(p) // Common case.
+	}
+
+	defer func() {
+		close(w.ch)
+		w.ch = nil
+	}()
+
+	if bytes.HasPrefix(p, []byte("READY\n")) {
+		var n, err = w.delegate.Write(p[6:])
+		n += 6
+		return n, err
+	} else {
+		w.ch <- fmt.Errorf("did not read READY from subprocess")
+		return w.delegate.Write(p)
+	}
 }
