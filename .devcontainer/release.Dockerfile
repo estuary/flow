@@ -4,13 +4,21 @@ FROM debian:bullseye-slim
 # used by the ci-builder image. "curl" is included, to allow node-zone.sh
 # mappings to directly query AWS/Azure/GCP metadata APIs.
 # Unzip is required by the snowsql installer.
-RUN apt-get update -y \
- && apt-get install --no-install-recommends -y \
+RUN apt update -y \
+ && apt install --no-install-recommends -y \
       ca-certificates \
       curl \
+      gpg \
+ && echo "Add NodeSource keyring for more recent nodejs packages" \
+ && export NODE_KEYRING=/usr/share/keyrings/nodesource.gpg \
+ && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee "$NODE_KEYRING" >/dev/null \
+ && gpg --no-default-keyring --keyring "$NODE_KEYRING" --list-keys \
+ && echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_16.x bullseye main" | tee /etc/apt/sources.list.d/nodesource.list \
+ && apt update -y \
+ && apt upgrade -y \
+ && apt install --no-install-recommends -y \
       jq \
       nodejs \
-      npm \
       unzip \
  && rm -rf /var/lib/apt/lists/*
 
