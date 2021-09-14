@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "location": {
+      "description": "Geographic Location as Latitude & Longitude",
+      "properties": {
+        "latitude": {
+          "maximum": 90,
+          "minimum": -90,
+          "type": "number"
+        },
+        "longitude": {
+          "maximum": 180,
+          "minimum": -180,
+          "type": "number"
+        }
+      },
+      "required": [
+        "latitude",
+        "longitude"
+      ],
+      "type": "object"
+    },
+    "station": {
+      "description": "A Citi Bike Station",
+      "properties": {
+        "geo": {
+          "$ref": "#/$defs/location"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "terminus": {
+      "description": "Station and time at which a trip began or ended",
+      "properties": {
+        "station": {
+          "$ref": "#/$defs/station"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "timestamp",
+        "station"
+      ],
+      "type": "object"
+    },
+    "timestamp": {
+      "description": "Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC",
+      "pattern": "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}.*",
+      "type": "string"
+    },
+    "ride": {
+      "description": "Ride within the Citi Bike system",
+      "properties": {
+        "begin": {
+          "title": "Starting point of the trip",
+          "$ref": "#/$defs/terminus"
+        },
+        "bike_id": {
+          "title": "Unique identifier for this bike",
+          "type": "integer"
+        },
+        "birth_year": {
+          "title": "Birth year of the rider",
+          "maximum": 2020,
+          "minimum": 1800,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration_seconds": {
+          "title": "Duration of the trip, in seconds",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "end": {
+          "title": "Ending point of the trip",
+          "$ref": "#/$defs/terminus"
+        },
+        "gender": {
+          "title": "Gender of the rider (Zero=unknown; 1=male; 2=female)",
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "user_type": {
+          "title": "Subscriber, or pay-as-you-go Customer",
+          "enum": [
+            "Customer",
+            "Subscriber",
+            null
+          ]
+        }
+      },
+      "required": [
+        "bike_id",
+        "begin",
+        "end"
+      ],
+      "type": "object"
+    },
+    "rideArray": {
+      "type": "object",
+      "properties": {
+        "arr": {
+          "items": {
+            "$ref": "#/$defs/ride"
+          },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}
