@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"golang.org/x/net/http2"
 )
 
 // Commons embeds a pf.CommonsSpec, and extends it with mechanisms
@@ -72,14 +70,23 @@ func (c *Commons) initTypeScript(etcd *clientv3.Client) (err error) {
 		c.TypescriptLocalSocket = c.tsWorker.socketPath
 	}
 
-	// TypeScript h2c client bound to unix socket TypescriptLocalSocket.
-	// See: https://www.mailgun.com/blog/http-2-cleartext-h2c-client-example-go/
+	// HTTP/S client which dials the TypeScript server over the loopback
+	// for both cleartext and (fake) HTTPS connections.
+	// The latter is a requirement for HTTP/2 support over unix domain sockets.
+	// See also: https://www.mailgun.com/blog/http-2-cleartext-h2c-client-example-go/
 	c.tsClient = &http.Client{
-		Transport: &http2.Transport{
-			AllowHTTP: true,
-			DialTLS: func(_, _ string, _ *tls.Config) (net.Conn, error) {
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return net.Dial("unix", c.TypescriptLocalSocket)
 			},
+			DialTLSContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", c.TypescriptLocalSocket)
+			},
+			// Compression isn't desired over a local UDS transport.
+			DisableCompression: true,
+			// MaxConnsPerHost is the maximum concurrency with which
+			// we'll drive the lambda server.
+			MaxConnsPerHost: 8,
 		},
 	}
 
