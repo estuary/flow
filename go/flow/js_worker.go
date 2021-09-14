@@ -29,13 +29,14 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	}
 	var socketPath = path.Join(tempdir, "socket")
 
-	err = ioutil.WriteFile(path.Join(tempdir, "npm-package.tgz"), packageTgz, 0600)
+	var packagePath = path.Join(tempdir, "npm-package.tgz")
+	err = ioutil.WriteFile(packagePath, packageTgz, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write package file: %w", err)
 	}
 
 	// Bootstrap a Node package with the installed pack.
-	var cmd = exec.Command("npm", "install", "file://./npm-package.tgz")
+	var cmd = exec.Command("npm", "install", packagePath)
 	cmd.Dir = tempdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
