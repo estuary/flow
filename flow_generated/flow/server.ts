@@ -1,4 +1,4 @@
-import * as h2 from 'http2';
+import * as http from 'http';
 
 import { routes, Document, Lambda } from './routes';
 
@@ -13,24 +13,21 @@ export class Server {
     }
 
     start(): void {
-        const server = h2.createServer();
-        server.on('stream', this._processStream.bind(this));
+        const server = http.createServer(this._processStream.bind(this));
         server.on('error', console.error);
         server.listen({ path: this.listenPath });
     }
 
-    _processStream(req: h2.ServerHttp2Stream, headers: h2.IncomingHttpHeaders): void {
+    _processStream(req: http.IncomingMessage, resp: http.ServerResponse): void {
         const malformed = (msg: string): void => {
-            req.respond({
-                ':status': 400,
-                'content-type': 'text/plain',
-            });
-            req.end(msg + '\n'); // Send message & EOF.
+            resp.setHeader('content-type', 'text/plain');
+            resp.writeHead(400);
+            resp.end(msg + '\n'); // Send message & EOF.
         };
 
-        const path = headers[':path'];
+        const path = req.url;
         if (path === undefined) {
-            return malformed('expected :path header');
+            return malformed('expected url');
         }
 
         const lambda: Lambda | undefined = routes[path];
@@ -64,21 +61,16 @@ export class Server {
             Promise.all(futures)
                 .then((rows: Document[][]) => {
                     const body = Buffer.from(JSON.stringify(rows), 'utf8');
-
-                    req.respond({
-                        ':status': 200,
-                        'content-type': 'application/json',
-                        'content-length': body.length,
-                    });
-                    req.end(body);
+                    resp.setHeader('Content-Length', body.length);
+                    resp.setHeader('Content-Type', 'application/json');
+                    resp.writeHead(200);
+                    resp.end(body);
                 })
                 .catch((err: Error) => {
                     // Send |err| to peer, and log to console.
-                    req.respond({
-                        ':status': 400,
-                        'content-type': 'text/plain',
-                    });
-                    req.end(`${err.name}: (${err.message})\n`);
+                    resp.setHeader('content-type', 'text/plain');
+                    resp.writeHead(400);
+                    resp.end(`${err.name}: (${err.message})\n`);
                     console.error(err);
                 });
         });
