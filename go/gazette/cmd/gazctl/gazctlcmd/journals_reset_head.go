@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -15,7 +15,7 @@ type cmdJournalResetHead struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "reset-head", "Reset journal append offset (disaster recovery)", `
+	CommandRegistry.AddCommand("journals", "reset-head", "Reset journal append offset (disaster recovery)", `
 Reset the append offset of journals.
 
 Gazette appends are transactional: all brokers must agree on the exact offsets
@@ -54,11 +54,11 @@ and are being actively appended to.
 }
 
 func (cmd *cmdJournalResetHead) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	var err error
 	var ctx = context.Background()
-	var rjc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 
 	// Get the list of journals which match this selector.
 	var listRequest pb.ListRequest

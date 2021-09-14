@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type cmdJournalsApply struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "apply", "Apply journal specifications", `
+	CommandRegistry.AddCommand("journals", "apply", "Apply journal specifications", `
 Apply a collection of JournalSpec creations, updates, or deletions.
 
 JournalSpecs should be provided as a YAML journal hierarchy, the format
@@ -48,7 +48,7 @@ are not enumerated.
 }
 
 func (cmd *cmdJournalsApply) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	// Decode journal specification tree from YAML.
 	var tree journalspace.Node
@@ -64,7 +64,7 @@ func (cmd *cmdJournalsApply) Execute([]string) error {
 	}
 
 	var ctx = context.Background()
-	var resp, err = client.ApplyJournalsInBatches(ctx, journalsCfg.Broker.MustJournalClient(ctx), req, cmd.MaxTxnSize)
+	var resp, err = client.ApplyJournalsInBatches(ctx, JournalsCfg.Broker.MustJournalClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply journals")
 	log.WithField("revision", resp.Header.Etcd.Revision).Info("successfully applied")
 

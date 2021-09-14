@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/journalspace"
-	"go.gazette.dev/core/cmd/gazctl/editor"
+	"go.gazette.dev/core/cmd/gazctl/gazctlcmd/editor"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v2"
 )
@@ -18,11 +18,11 @@ type cmdJournalsEdit struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "edit", "Edit journal specifications", journalsEditLongDesc, &cmdJournalsEdit{})
+	CommandRegistry.AddCommand("journals", "edit", "Edit journal specifications", journalsEditLongDesc, &cmdJournalsEdit{})
 }
 
 func (cmd *cmdJournalsEdit) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 	return editor.EditRetryLoop(editor.RetryLoopArgs{
 		FilePrefix:       "gazctl-journals-edit-",
 		SelectFn:         cmd.selectSpecs,
@@ -59,7 +59,7 @@ func (cmd *cmdJournalsEdit) applySpecs(b []byte) error {
 	}
 
 	var ctx = context.Background()
-	var resp, err = client.ApplyJournalsInBatches(ctx, journalsCfg.Broker.MustJournalClient(ctx), req, cmd.MaxTxnSize)
+	var resp, err = client.ApplyJournalsInBatches(ctx, JournalsCfg.Broker.MustJournalClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply journals")
 	log.WithField("revision", resp.Header.Etcd.Revision).Info("successfully applied")
 

@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -23,7 +23,7 @@ type cmdJournalsList struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "list", "List journals", `
+	CommandRegistry.AddCommand("journals", "list", "List journals", `
 List journal specifications and status.
 
 Use --selector to supply a LabelSelector which constrains the set of returned
@@ -49,7 +49,7 @@ exactly equivalent to the original JournalSpecs.
 }
 
 func (cmd *cmdJournalsList) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	var resp = listJournals(cmd.Selector)
 
@@ -143,7 +143,7 @@ func listJournals(s string) *pb.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := client.ListAllJournals(ctx, journalsCfg.Broker.MustJournalClient(ctx), req)
+	resp, err := client.ListAllJournals(ctx, JournalsCfg.Broker.MustJournalClient(ctx), req)
 	mbp.Must(err, "failed to list journals")
 
 	return resp

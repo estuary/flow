@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"bufio"
@@ -32,7 +32,7 @@ type cmdJournalAppend struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "append", "Append journal content", `
+	CommandRegistry.AddCommand("journals", "append", "Append journal content", `
 Append content to one or more journals.
 
 A label --selector is required, and determines the set of journals which are appended.
@@ -87,7 +87,7 @@ gazctl journals append -l my-label --framing 'lines' --mapping 'rendezvous' --in
 }
 
 func (cmd *cmdJournalAppend) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	// Validate argument combinations.
 	if cmd.Framing == "none" && cmd.Mapping != "random" {
@@ -105,7 +105,7 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 
 	// Perform an initial load and thereafter periodically poll for journals
 	// matching the --selector.
-	var rjc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 	list, err := client.NewPolledList(ctx, rjc, time.Minute, listRequest)
 	mbp.Must(err, "failed to resolve label selector to journals")
 

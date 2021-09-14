@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"bufio"
@@ -6,6 +6,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/jessevdk/go-flags"
 	"go.gazette.dev/core/message"
 )
 
@@ -18,8 +19,8 @@ type cmdAttachUUIDs struct {
 	} `positional-args:"yes" positional-arg-name:"/path/to/file"`
 }
 
-func init() {
-	_ = mustAddCmd(parser.Command, "attach-uuids",
+func AddCmdAttachUUIDs(cmd *flags.Command) error {
+	_, err := cmd.AddCommand("attach-uuids",
 		"Generate and attach UUIDs to text input records", `
 For each line of each argument input file, generate a RFC 4122 v1 compatible
 UUID and, using the --template, combine it with the input line into output
@@ -61,6 +62,7 @@ Optionally compose with "jq" to un-nest the JSON objects:
 > gazctl attach-uuids input.json --template=$'{"uuid": "{{.UUID}}","record":{{.Line}}}\n' \
 >	| jq -c '{uuid: .uuid} + .record'
 `, &cmdAttachUUIDs{})
+	return err
 }
 
 func (cmd *cmdAttachUUIDs) Execute([]string) error {

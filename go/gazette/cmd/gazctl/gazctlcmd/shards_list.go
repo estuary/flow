@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type cmdShardsList struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdShards, "list", "List shards", `
+	CommandRegistry.AddCommand("shards", "list", "List shards", `
 List shard specifications and status.
 
 Use --selector to supply a LabelSelector which constrains the set of returned
@@ -46,7 +46,7 @@ as fetching consumption lag for a large number of shards may take a while.
 }
 
 func (cmd *cmdShardsList) Execute([]string) error {
-	startup()
+	startup(ShardsCfg.BaseConfig)
 
 	var resp = listShards(cmd.Selector)
 
@@ -85,8 +85,8 @@ func (cmd *cmdShardsList) outputTable(resp *pc.ListResponse) {
 	if cmd.Lag {
 		headers = append(headers, "Lag")
 		var ctx = context.Background()
-		rsc = shardsCfg.Consumer.MustRoutedShardClient(ctx)
-		rjc = shardsCfg.Broker.MustRoutedJournalClient(ctx)
+		rsc = ShardsCfg.Consumer.MustRoutedShardClient(ctx)
+		rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)
 	}
 
 	table.SetHeader(headers)
@@ -147,7 +147,7 @@ func listShards(s string) *pc.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := consumer.ListShards(ctx, pc.NewShardClient(shardsCfg.Consumer.MustDial(ctx)), req)
+	resp, err := consumer.ListShards(ctx, pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx)), req)
 	mbp.Must(err, "failed to list shards")
 
 	return resp

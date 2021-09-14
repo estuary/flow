@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -33,7 +33,7 @@ type cmdJournalRead struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "read", "Read journal contents", `
+	CommandRegistry.AddCommand("journals", "read", "Read journal contents", `
 Read the contents of one or more journals.
 
 A label --selector is required, and determines the set of journals which are read.
@@ -93,7 +93,7 @@ gazctl journals read -l my-label -o output --offsets offsets.json --offsets-out 
 }
 
 func (cmd *cmdJournalRead) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	if cmd.FileRoot != "" {
 		client.InstallFileTransport(cmd.FileRoot)
@@ -150,7 +150,7 @@ func (cmd *cmdJournalRead) Execute([]string) error {
 
 	// Perform an initial load and thereafter periodically poll for journals
 	// matching the --selector.
-	var rjc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 	list, err := client.NewPolledList(ctx, rjc, time.Minute, listRequest)
 	mbp.Must(err, "failed to resolve label selector to journals")
 

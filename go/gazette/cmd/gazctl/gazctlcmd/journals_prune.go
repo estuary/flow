@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -16,7 +16,7 @@ type cmdJournalsPrune struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "prune", "Deletes fragments older than the configured retention", `
+	CommandRegistry.AddCommand("journals", "prune", "Deletes fragments older than the configured retention", `
 Deletes fragments across all configured fragment stores of matching journals that are older than the configured retention.
 
 There is a caveat when pruning journals. For a given journal, there could be multiple fragments covering the same offset. These fragments contain identical data at a given offset, but the brokers are tracking only the largest fragment, i.e. the fragment that covers the largest span of offsets. As a result, the prune command will delete only this tracked fragment, leaving the smaller fragments untouched. As a workaround, operators can wait for the fragment listing to refresh and prune the journals again.
@@ -27,7 +27,7 @@ See "journals list --help" for details and examples.
 }
 
 func (cmd *cmdJournalsPrune) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	var resp = listJournals(cmd.Selector)
 	if len(resp.Journals) == 0 {
@@ -98,7 +98,7 @@ func logJournalsPruneMetrics(metrics journalsPruneMetrics, journal pb.Journal, m
 // configured retention.
 func fetchAgedFragments(spec pb.JournalSpec, now time.Time, metrics *journalsPruneMetrics) []pb.Fragment {
 	var ctx = context.Background()
-	var jc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var jc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 	resp, err := client.ListAllFragments(ctx, jc, pb.FragmentsRequest{Journal: spec.Name})
 	mbp.Must(err, "failed to fetch fragments")
 

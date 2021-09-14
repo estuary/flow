@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/cmd/gazctl/editor"
+	"go.gazette.dev/core/cmd/gazctl/gazctlcmd/editor"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/shardspace"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -19,11 +19,11 @@ type cmdShardsEdit struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdShards, "edit", "Edit shard specifications", shardsEditLongDesc, &cmdShardsEdit{})
+	CommandRegistry.AddCommand("shards", "edit", "Edit shard specifications", shardsEditLongDesc, &cmdShardsEdit{})
 }
 
 func (cmd *cmdShardsEdit) Execute([]string) error {
-	startup()
+	startup(ShardsCfg.BaseConfig)
 	return editor.EditRetryLoop(editor.RetryLoopArgs{
 		FilePrefix:       "gazctl-shards-edit-",
 		SelectFn:         cmd.selectSpecs,
@@ -55,11 +55,11 @@ func (cmd *cmdShardsEdit) applyShardSpecYAML(b []byte) error {
 
 	if err := req.Validate(); err != nil {
 		return err
-	} else if err = consumer.VerifyReferencedJournals(ctx, shardsCfg.Broker.MustJournalClient(ctx), req); err != nil {
+	} else if err = consumer.VerifyReferencedJournals(ctx, ShardsCfg.Broker.MustJournalClient(ctx), req); err != nil {
 		return errors.WithMessage(err, "verifying referenced journals")
 	}
 
-	var resp, err = consumer.ApplyShardsInBatches(ctx, shardsCfg.Consumer.MustShardClient(ctx), req, cmd.MaxTxnSize)
+	var resp, err = consumer.ApplyShardsInBatches(ctx, ShardsCfg.Consumer.MustShardClient(ctx), req, cmd.MaxTxnSize)
 	mbp.Must(err, "failed to apply shards")
 	log.WithField("rev", resp.Header.Etcd.Revision).Info("successfully applied")
 	return nil

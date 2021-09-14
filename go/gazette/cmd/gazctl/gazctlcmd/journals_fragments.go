@@ -1,4 +1,4 @@
-package main
+package gazctlcmd
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type cmdJournalsFragments struct {
 }
 
 func init() {
-	_ = mustAddCmd(cmdJournals, "fragments", "List journal fragments", `
+	CommandRegistry.AddCommand("journals", "fragments", "List journal fragments", `
 List fragments of selected journals.
 
 A label --selector is required, and determines the set of journals for which
@@ -79,7 +79,7 @@ gazctl journals fragments -l my-label --format json --url-ttl 1h --from $(date -
 }
 
 func (cmd *cmdJournalsFragments) Execute([]string) error {
-	startup()
+	startup(JournalsCfg.BaseConfig)
 
 	// Evaluate journal selector and map to a journal list.
 	var err error
@@ -88,7 +88,7 @@ func (cmd *cmdJournalsFragments) Execute([]string) error {
 	mbp.Must(err, "failed to parse label selector", "selector", cmd.Selector)
 
 	var ctx = context.Background()
-	var rjc = journalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 	listResponse, err := client.ListAllJournals(ctx, rjc, listRequest)
 	mbp.Must(err, "failed to list journals")
 
