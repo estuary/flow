@@ -79,6 +79,10 @@ where
     curi: url::Url,
     kw: Vec<Keyword<A>>,
     tbl: intern::Table,
+
+    // "nullable" support for OpenAPI schemas prior to version 3.1,
+    // which are still prevelant as of Sept 2021.
+    nullable: bool,
 }
 
 impl<A> Builder<A>
@@ -154,12 +158,13 @@ where
 
         let true_placeholder = sj::Value::Bool(true);
 
-        // TODO: rework so both annotation parsing and this block can use the keyword.
-
         let mut unknown = false;
         match keyword {
+            // Already handeled outside of this match.
+            keywords::ID => (),
+            keywords::NULLABLE => (),
+
             // Meta keywords.
-            keywords::ID => (), // Already handled.
             keywords::RECURSIVE_ANCHOR => match v {
                 sj::Value::Bool(b) if *b => self.kw.push(Keyword::RecursiveAnchor),
                 sj::Value::Bool(b) if !*b => (), // Ignore.
@@ -300,7 +305,18 @@ where
             keywords::UNEVALUATED_ITEMS => self.add_application(App::UnevaluatedItems, v)?,
 
             // Common validation keywords.
-            keywords::TYPE => self.add_validation(Val::Type(extract_type_mask(v)?)),
+            keywords::TYPE => {
+                // As a support crutch for OpenAPI versions prior to 3.1,
+                // merge a "nullable" keyword into the "type" keyword.
+                let nullable = if self.nullable {
+                    types::NULL
+                } else {
+                    types::INVALID
+                };
+                let actual = types::Set::deserialize(v).map_err(|e| ExpectedType(e))?;
+
+                self.add_validation(Val::Type(nullable | actual))
+            }
             keywords::CONST => self.add_validation(Val::Const(extract_hash(v))),
             keywords::ENUM => self.add_validation(Val::Enum {
                 variants: extract_hashes(v)?,
@@ -440,8 +456,15 @@ where
     // This is a schema object. We'll walk its properties and JSON values
     // to extract its applications and validations.
 
-    let curi = build_curi(curi, obj.get(keywords::ID))?;
-    let mut builder = Builder { curi, kw, tbl };
+    let mut builder = Builder {
+        curi: build_curi(curi, obj.get(keywords::ID))?,
+        kw,
+        tbl,
+        nullable: obj
+            .get(keywords::NULLABLE)
+            .and_then(|n| n.as_bool())
+            .unwrap_or_default(),
+    };
 
     for (k, v) in obj {
         builder.process_keyword(k, v).map_err(|e| match e {
@@ -478,10 +501,6 @@ fn build_curi(curi: url::Url, id: Option<&sj::Value>) -> Result<url::Url, Error>
         return Err(ExpectedBaseURI(curi));
     }
     Ok(curi)
-}
-
-fn extract_type_mask(v: &sj::Value) -> Result<types::Set, Error> {
-    types::Set::deserialize(v).map_err(|e| ExpectedType(e))
 }
 
 fn extract_hash(v: &sj::Value) -> HashedLiteral {
@@ -560,6 +579,7 @@ impl AnnotationBuilder for CoreAnnotation {
             | keywords::DEFAULT
             | keywords::DEPRECATED
             | keywords::DESCRIPTION
+            | keywords::EXAMPLE
             | keywords::EXAMPLES
             | keywords::READ_ONLY
             | keywords::TITLE
@@ -581,6 +601,7 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
             keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
             keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),
+            keywords::EXAMPLE => CoreAnnotation::Examples(vec![v.clone()]),
             keywords::EXAMPLES => CoreAnnotation::Examples(
                 match v {
                     sj::Value::Array(v) => v,
