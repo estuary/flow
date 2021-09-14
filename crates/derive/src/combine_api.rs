@@ -1,5 +1,5 @@
 use super::combiner::{self, Combiner};
-use metrics::track_mem_stats;
+use metrics::ThreadStatsReader;
 
 use doc::{Pointer, Validator};
 use prost::Message;
@@ -67,7 +67,8 @@ impl cgo::Service for API {
             None => return Err(Error::InvalidState),
         };
         tracing::trace!(?code, "invoke");
-        let memory = track_mem_stats();
+        let mem_stats = ThreadStatsReader::new();
+        let initial = mem_stats.current();
 
         let result = match (code, std::mem::take(&mut self.state)) {
             (Code::Configure, _) => {
@@ -132,7 +133,8 @@ impl cgo::Service for API {
             _ => Err(Error::InvalidState),
         };
 
-        tracing::trace!(mem_initial = ?memory.initial(), mem_changes = ?memory.change(), "mem changes");
+        let diff = mem_stats.current() - initial;
+        tracing::trace!(mem_initial = ?initial, mem_changes = ?diff, "mem changes");
         result
     }
 }

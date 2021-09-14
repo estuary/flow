@@ -23,21 +23,21 @@ func (c *promCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect implements prometheus.Collector for promCollector
 func (c *promCollector) Collect(ch chan<- prometheus.Metric) {
 	var stats = C.get_memory_stats()
-	var counter = func(desc *prometheus.Desc, value C.uint64_t) {
+	var gauge = func(desc *prometheus.Desc, value C.uint64_t) {
 		ch <- prometheus.MustNewConstMetric(
 			desc,
-			prometheus.CounterValue,
+			prometheus.GaugeValue,
 			float64(value),
 		)
 	}
-	counter(allocCountDesc, stats.allocations)
-	counter(allocBytesDesc, stats.bytes_allocated)
+	gauge(activeBytesDesc, stats.active)
+	gauge(allocBytesDesc, stats.allocated)
 
-	counter(deallocCountDesc, stats.deallocations)
-	counter(deallocBytesDesc, stats.bytes_deallocated)
+	gauge(mappedBytesDesc, stats.mapped)
+	gauge(metadataBytesDesc, stats.metadata)
 
-	counter(reallocCountDesc, stats.reallocations)
-	counter(reallocBytesDesc, stats.bytes_reallocated)
+	gauge(residentBytesDesc, stats.resident)
+	gauge(retainedBytesDesc, stats.retained)
 }
 
 var promCollectorInstance = &promCollector{}
@@ -51,9 +51,9 @@ func RegisterPrometheusCollector() {
 }
 
 var (
-	allocCountDesc = prometheus.NewDesc(
-		"flow_rust_mem_alloc_count",
-		"Number of memory allocations performed by Rust code",
+	activeBytesDesc = prometheus.NewDesc(
+		"flow_rust_mem_active_bytes",
+		"Total number of bytes in active pages allocated by the application.",
 		nil, nil,
 	)
 	allocBytesDesc = prometheus.NewDesc(
@@ -61,24 +61,24 @@ var (
 		"Total bytes of all allocations performed by Rust code",
 		nil, nil,
 	)
-	deallocCountDesc = prometheus.NewDesc(
-		"flow_rust_mem_dealloc_count",
-		"Number of memory deallocations performed by Rust code",
+	mappedBytesDesc = prometheus.NewDesc(
+		"flow_rust_mem_mapped_bytes",
+		"Total number of bytes in active extents mapped by the allocator.",
 		nil, nil,
 	)
-	deallocBytesDesc = prometheus.NewDesc(
-		"flow_rust_mem_dealloc_bytes",
-		"Total bytes of all deallocations performed by Rust code",
+	metadataBytesDesc = prometheus.NewDesc(
+		"flow_rust_mem_metadata_bytes",
+		"Total number of bytes dedicated to metadata, which comprise base allocations used for bootstrap-sensitive allocator metadata structures",
 		nil, nil,
 	)
-	reallocCountDesc = prometheus.NewDesc(
-		"flow_rust_mem_realloc_count",
-		"Number of memory reallocations performed by Rust code",
+	residentBytesDesc = prometheus.NewDesc(
+		"flow_rust_mem_resident_bytes",
+		"Maximum number of bytes in physically resident data pages mapped by the allocator",
 		nil, nil,
 	)
-	reallocBytesDesc = prometheus.NewDesc(
-		"flow_rust_mem_realloc_bytes",
-		"Total bytes of all reallocations performed by Rust code",
+	retainedBytesDesc = prometheus.NewDesc(
+		"flow_rust_mem_retained_bytes",
+		"Total number of bytes in virtual memory mappings that were retained rather than being returned to the operating system",
 		nil, nil,
 	)
 )

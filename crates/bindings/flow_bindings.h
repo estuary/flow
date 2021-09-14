@@ -77,32 +77,20 @@ typedef struct In16 {
   struct In4 in3;
 } In16;
 
-typedef struct MemoryStats {
-  /**
-   * Monotonically increasing counter of the total number of allocations performed.
-   */
-  uint64_t allocations;
-  /**
-   * Monotonically increasing counter of the total number of bytes allocated.
-   */
-  uint64_t bytes_allocated;
-  /**
-   * Monotonically increasing counter of the total number of deallocations perfomed.
-   */
-  uint64_t deallocations;
-  /**
-   * Monotonically increasing counter of the total number of bytes deallocated.
-   */
-  uint64_t bytes_deallocated;
-  /**
-   * Monotonically increasing counter of the total number of reallocations perfomed.
-   */
-  uint64_t reallocations;
-  /**
-   * Monotonically increasing counter of the total number of bytes reallocated.
-   */
-  uint64_t bytes_reallocated;
-} MemoryStats;
+/**
+ * Statistics related to memory allocations for the entire (rust portion) of the application. The
+ * precise meaning of each field is included in the [jemalloc man
+ * page](http://jemalloc.net/jemalloc.3.html). Each field in this struct can be found in the man
+ * page prefixed by "stats.".
+ */
+typedef struct GlobalMemoryStats {
+  uint64_t active;
+  uint64_t allocated;
+  uint64_t mapped;
+  uint64_t metadata;
+  uint64_t resident;
+  uint64_t retained;
+} GlobalMemoryStats;
 
 struct Channel *build_create(void);
 
@@ -147,7 +135,7 @@ void extract_drop(struct Channel *ch);
 /**
  * Returns general statistics on memory allocations perfomed from within libbindings.
  */
-struct MemoryStats get_memory_stats(void);
+struct GlobalMemoryStats get_memory_stats(void);
 
 struct Channel *schema_create(void);
 

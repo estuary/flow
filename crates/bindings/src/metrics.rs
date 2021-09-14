@@ -1,37 +1,38 @@
 use metrics::current_mem_stats;
 
-#[repr(C)]
+// TODO: this struct is re-defined here because otherwise it's not getting included in the header
+// file. Figure out a way to either export the definition from the metrics crate, or else try to
+// just put it all here and get rid of the metrics crate.
+/// Statistics related to memory allocations for the entire (rust portion) of the application. The
+/// precise meaning of each field is included in the [jemalloc man
+/// page](http://jemalloc.net/jemalloc.3.html). Each field in this struct can be found in the man
+/// page prefixed by "stats.".
 #[derive(Debug)]
-pub struct MemoryStats {
-    /// Monotonically increasing counter of the total number of allocations performed.
-    allocations: u64,
-    /// Monotonically increasing counter of the total number of bytes allocated.
-    bytes_allocated: u64,
-    /// Monotonically increasing counter of the total number of deallocations perfomed.
-    deallocations: u64,
-    /// Monotonically increasing counter of the total number of bytes deallocated.
-    bytes_deallocated: u64,
-    /// Monotonically increasing counter of the total number of reallocations perfomed.
-    reallocations: u64,
-    /// Monotonically increasing counter of the total number of bytes reallocated.
-    bytes_reallocated: u64,
+#[repr(C)]
+pub struct GlobalMemoryStats {
+    pub active: u64,
+    pub allocated: u64,
+    pub mapped: u64,
+    pub metadata: u64,
+    pub resident: u64,
+    pub retained: u64,
 }
 
-impl From<metrics::MemoryStats> for MemoryStats {
-    fn from(stats: metrics::MemoryStats) -> MemoryStats {
-        MemoryStats {
-            allocations: stats.allocations as u64,
-            bytes_allocated: stats.bytes_allocated as u64,
-            deallocations: stats.deallocations as u64,
-            bytes_deallocated: stats.bytes_deallocated as u64,
-            reallocations: stats.reallocations as u64,
-            bytes_reallocated: stats.bytes_reallocated as u64,
+impl From<metrics::GlobalMemoryStats> for GlobalMemoryStats {
+    fn from(s: metrics::GlobalMemoryStats) -> Self {
+        GlobalMemoryStats {
+            active: s.active,
+            allocated: s.allocated,
+            mapped: s.mapped,
+            metadata: s.metadata,
+            resident: s.resident,
+            retained: s.retained,
         }
     }
 }
 
 /// Returns general statistics on memory allocations perfomed from within libbindings.
 #[no_mangle]
-pub extern "C" fn get_memory_stats() -> MemoryStats {
+pub extern "C" fn get_memory_stats() -> GlobalMemoryStats {
     current_mem_stats().into()
 }
