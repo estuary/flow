@@ -15,7 +15,7 @@ To install this script, you need to put it somewhere that is in your path. For /
 curl -OL https://raw.githubusercontent.com/estuary/flow/master/scripts/flowctl.sh
 chmod 755 flowctl.sh
 sudo mv flowctl.sh /usr/local/bin/flowctl.sh
-sudo ln -s /usr/local/bin/flowctl.sh /usr/local/bin/flowctl
+sudo ln -s flowctl.sh /usr/local/bin/flowctl
 ```
 This also creates a symlinks for `flowctl` to the script.
 

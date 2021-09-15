@@ -75,11 +75,6 @@ exit (via SIGTERM).
 	shards, err := parser.Command.AddCommand("shards", "Interact with consumer shards", "", gazctlcmd.ShardsCfg)
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("shards", shards, true), "failed to add commands")
 
-	// Add split as subcommand of shards command
-	addCmd(shards, "split", "Split a Flow processing shard", `
-Split a Flow processing shard into two, either on shuffled key or rotated clock.
-`, &cmdSplit{})
-
 	mbp.AddPrintConfigCmd(parser, iniFilename)
 
 	// Parse config and start command

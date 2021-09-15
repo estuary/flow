@@ -19,6 +19,13 @@ type cmdSplit struct {
 	Diagnostics   mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
+func init() {
+	// Automatically register this command under the shards command
+	gazctlcmd.CommandRegistry.AddCommand("shards", "split", "Split a Flow processing shard", `
+Split a Flow processing shard into two, either on shuffled key or rotated clock.
+`, &cmdSplit{})
+}
+
 func (cmd cmdSplit) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(gazctlcmd.ShardsCfg.Log)
