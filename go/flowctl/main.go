@@ -1,12 +1,10 @@
 package main
 
 import (
+	"github.com/estuary/flow/go/runtime"
 	"github.com/jessevdk/go-flags"
-
 	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
 	mbp "go.gazette.dev/core/mainboilerplate"
-
-	"github.com/estuary/flow/go/runtime"
 )
 
 const iniFilename = "flow.ini"
@@ -69,11 +67,11 @@ Serve a Flow ingester with the provided configuration, until signaled to
 exit (via SIGTERM).
 `, &cmdIngester{})
 
-	// journals command - add all journal sub-commands from gazctl under this command
+	// journals command - Add all journals sub-commands from gazctl under this command.
 	journals, err := parser.Command.AddCommand("journals", "Interact with broker journals", "", gazctlcmd.JournalsCfg)
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("journals", journals, true), "failed to add commands")
 
-	// journals command - add all shards sub-commands from gazctl under this command
+	// shards command - Add all shards sub-commands from gazctl under this command.
 	shards, err := parser.Command.AddCommand("shards", "Interact with consumer shards", "", gazctlcmd.ShardsCfg)
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("shards", shards, true), "failed to add commands")
 

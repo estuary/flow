@@ -12,9 +12,7 @@ import (
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
-// This command will be added as a sub-command of the gazctl shards command so it will use
-// gazctl.ShardsCfg for configuration
-
+// This command will be under the shards command which leverages the gazctlcmd.ShardsCfg config.
 type cmdSplit struct {
 	Shard         string                `long:"shard" required:"true" description:"Shard to split"`
 	SplitOnRClock bool                  `long:"split-rclock" description:"Split on rotated clock (instead of on key)"`
