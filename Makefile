@@ -34,7 +34,6 @@ ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
 PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
-	${PKGDIR}/bin/gazctl \
 	${PKGDIR}/bin/gazette
 
 ##########################################################################
