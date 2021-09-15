@@ -165,7 +165,13 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 	failCtxCancel() // Cancel the stream.
 
 	_, err = stream.CloseAndRecv()
-	require.EqualError(t, err, `rpc error: code = Canceled desc = context canceled`)
+	require.Contains(t, []string{
+		// Error returned by appendFSM.onStreamContent, on reading an EOF
+		// without the expected empty AppendRequest (to commit).
+		`rpc error: code = Unknown desc = append stream: unexpected EOF`,
+		// Alternative error returned on reading the cancellation.
+		`rpc error: code = Canceled desc = context canceled`,
+	}, err.Error())
 
 	// Case: client attempts register modification but appends no data.
 	stream, _ = broker.client().Append(ctx)
