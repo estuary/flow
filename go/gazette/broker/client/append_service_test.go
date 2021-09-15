@@ -253,7 +253,7 @@ func (s *AppendServiceSuite) TestAppendContextCancellation(c *gc.C) {
 func (s *AppendServiceSuite) TestFlushErrorHandlingCases(c *gc.C) {
 	var mf = mockFile{n: 6}
 
-	var fb = &appendBuffer{file: &mf}
+	var fb = &appendBuffer{file: &mf, pool: nil}
 	fb.buf = bufio.NewWriterSize(fb, 8)
 
 	// Case 1: flush succeeds.
@@ -361,7 +361,7 @@ func (s *AppendServiceSuite) TestReleaseChecksForWriteErrorAndRecovers(c *gc.C) 
 	// Begin a write with a small buffer fixture which will fail.
 	var aa = as.StartAppend(pb.AppendRequest{Journal: "a/journal"}, nil)
 	var mf = mockFile{n: 2}
-	aa.fb = &appendBuffer{file: &mf}
+	aa.fb = &appendBuffer{file: &mf, pool: as.pool}
 	aa.fb.buf = bufio.NewWriterSize(aa.fb, 7)
 
 	var _, err = aa.Writer().WriteString("write spills to |mf| and fails")
@@ -486,15 +486,16 @@ func (s *AppendServiceSuite) TestDependencyError(c *gc.C) {
 }
 
 func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
-	var ab = appendBufferPool.Get().(*appendBuffer)
+	var pool = newAppendBufferPool()
+	var ab = pool.Get().(*appendBuffer)
 
 	// Precondition: write some content.
 	_, _ = ab.buf.WriteString("foobar")
 	c.Check(ab.buf.Flush(), gc.IsNil)
 	c.Check(ab.offset, gc.Equals, int64(6))
 
-	releaseFileBuffer(ab)
-	ab = appendBufferPool.Get().(*appendBuffer)
+	ab.releaseToPool()
+	ab = pool.Get().(*appendBuffer)
 
 	// Post-condition: a released and re-fetched buffer is zeroed.
 	var n, err = ab.file.Seek(0, io.SeekCurrent)
@@ -505,7 +506,9 @@ func (s *AppendServiceSuite) TestBufferPooling(c *gc.C) {
 
 func (s *AppendServiceSuite) TestSubsetCases(c *gc.C) {
 	var mkAA = func(name pb.Journal) *AsyncAppend {
-		return &AsyncAppend{app: *NewAppender(nil, nil, pb.AppendRequest{Journal: name})}
+		return &AsyncAppend{
+			app: *NewAppender(context.Background(), nil, pb.AppendRequest{Journal: name}),
+		}
 	}
 	var set = func(l ...OpFuture) (out OpFutures) {
 		out = make(OpFutures)
@@ -607,13 +610,5 @@ func buildAppendResponseFixture(ep interface{ Endpoint() pb.Endpoint }) pb.Appen
 		Registers: new(pb.LabelSet),
 	}
 }
-
-type testOpFuture struct {
-	done chan struct{}
-	err  error
-}
-
-func (t testOpFuture) Done() <-chan struct{} { return t.done }
-func (t testOpFuture) Err() error            { return t.err }
 
 var _ = gc.Suite(&AppendServiceSuite{})

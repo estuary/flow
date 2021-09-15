@@ -37,6 +37,7 @@ type AppendService struct {
 	appends map[pb.Journal]*AsyncAppend // Index of the most-recent AsyncAppend.
 	errs    map[pb.Journal]error        // Index of terminal errors.
 	mu      sync.Mutex                  // Guards |appends| and |errs|.
+	pool    *sync.Pool                  // Pool of appendBuffers.
 }
 
 // NewAppendService returns an AppendService with the provided Context and BrokerClient.
@@ -46,6 +47,7 @@ func NewAppendService(ctx context.Context, client pb.RoutedJournalClient) *Appen
 		RoutedJournalClient: client,
 		appends:             make(map[pb.Journal]*AsyncAppend),
 		errs:                make(map[pb.Journal]error),
+		pool:                newAppendBufferPool(),
 	}
 }
 
@@ -207,7 +209,7 @@ func (s *AppendService) StartAppend(req pb.AppendRequest, dependencies OpFutures
 		// StartAppend. Initialize its appendBuffer, which also signals that this
 		// |aa| has been returned by StartAppend, and that a client may be
 		// waiting on its RPC response.
-		aa.fb = appendBufferPool.Get().(*appendBuffer)
+		aa.fb = s.pool.Get().(*appendBuffer)
 	}
 	return aa
 }
@@ -402,7 +404,7 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 				}, aa.app.Request.Journal, "failed to append to journal")
 			}
 
-			releaseFileBuffer(aa.fb)
+			aa.fb.releaseToPool()
 		}
 
 		aa.mu.Lock()
@@ -427,6 +429,7 @@ type appendBuffer struct {
 	}
 	offset int64
 	buf    *bufio.Writer
+	pool   *sync.Pool
 }
 
 func (fb *appendBuffer) Write(p []byte) (n int, err error) {
@@ -496,14 +499,16 @@ func (r returnNReader) Read(p []byte) (int, error) {
 	return r.n, io.EOF
 }
 
-func releaseFileBuffer(fb *appendBuffer) {
+func (fb *appendBuffer) releaseToPool() {
 	fb.offset = 0
 	retryUntil(fb.seek, "", "failed to seek appendBuffer")
-	appendBufferPool.Put(fb)
+	fb.pool.Put(fb)
 }
 
-var appendBufferPool = sync.Pool{
-	New: func() interface{} {
+func newAppendBufferPool() *sync.Pool {
+	var pool = new(sync.Pool)
+
+	pool.New = func() interface{} {
 		var fb *appendBuffer
 
 		retryUntil(func() (err error) {
@@ -511,8 +516,11 @@ var appendBufferPool = sync.Pool{
 			return
 		}, "", "failed to create appendBuffer")
 
+		fb.pool = pool
 		return fb
-	},
+	}
+
+	return pool
 }
 
 func retryUntil(fn func() error, journal pb.Journal, msg string) {
