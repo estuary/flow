@@ -10,6 +10,7 @@ pub use annotation::Annotation;
 
 // Specialize json templates for the estuary `Annotation` type.
 pub type Schema = json::schema::Schema<Annotation>;
+pub type SchemaIndexBuilder<'sm> = json::schema::index::IndexBuilder<'sm, Annotation>;
 pub type SchemaIndex<'sm> = json::schema::index::Index<'sm, Annotation>;
 pub type FullContext = json::validator::FullContext;
 pub type SpanContext = json::validator::SpanContext;

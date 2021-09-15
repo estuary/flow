@@ -18,12 +18,15 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
         },
         Fetch {
+            depth: 2,
             resource: test://example/schema.json,
         },
     ],

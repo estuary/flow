@@ -92,7 +92,7 @@ impl<F: Fetcher> Loader<F> {
         content_type: ContentType,
     ) {
         if resource.fragment().is_some() {
-            self.tables.borrow_mut().errors.push_row(
+            self.tables.borrow_mut().errors.insert_row(
                 &scope.flatten(),
                 anyhow::anyhow!(LoadError::Fetch {
                     uri: resource.to_string(),
@@ -103,7 +103,10 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Mark as visited, so that recursively-loaded imports don't re-visit.
-        self.tables.borrow_mut().fetches.push_row(resource);
+        self.tables
+            .borrow_mut()
+            .fetches
+            .insert_row(scope.resource_depth() as u32, resource);
 
         let content = self.fetcher.fetch(&resource, &content_type).await;
 
@@ -121,7 +124,7 @@ impl<F: Fetcher> Loader<F> {
                 tracing::debug!(?err, %resource, "did not fetch typescript module");
             }
             Err(err) => {
-                self.tables.borrow_mut().errors.push_row(
+                self.tables.borrow_mut().errors.insert_row(
                     &scope.flatten(),
                     anyhow::anyhow!(LoadError::Fetch {
                         uri: resource.to_string(),
@@ -143,10 +146,11 @@ impl<F: Fetcher> Loader<F> {
         content_type: ContentType,
     ) -> LocalBoxFuture<'a, ()> {
         async move {
-            self.tables
-                .borrow_mut()
-                .resources
-                .push_row(resource.clone(), &content_type, &content);
+            self.tables.borrow_mut().resources.insert_row(
+                resource.clone(),
+                &content_type,
+                &content,
+            );
             let scope = scope.push_resource(&resource);
 
             match content_type {
@@ -164,15 +168,16 @@ impl<F: Fetcher> Loader<F> {
         let doc: CompiledSchema =
             self.fallible(scope, build_schema(scope.resource().clone(), &dom))?;
 
-        let mut index = doc::SchemaIndex::new();
+        let mut index = doc::SchemaIndexBuilder::new();
         self.fallible(scope, index.add(&doc))?;
+        let index = index.into_index();
 
         self.load_schema_node(scope, &index, &doc).await;
 
         self.tables
             .borrow_mut()
             .schema_docs
-            .push_row(scope.flatten(), dom);
+            .insert_row(scope.flatten(), dom);
 
         Some(())
     }
@@ -196,7 +201,7 @@ impl<F: Fetcher> Loader<F> {
                         .next_back()
                         .filter(|s| NAMED_SCHEMA_RE.is_match(s))
                     {
-                        self.tables.borrow_mut().named_schemas.push_row(
+                        self.tables.borrow_mut().named_schemas.insert_row(
                             scope.flatten(),
                             anchor_uri,
                             anchor.to_string(),
@@ -288,7 +293,7 @@ impl<F: Fetcher> Loader<F> {
             self.tables
                 .borrow_mut()
                 .imports
-                .push_row(scope.flatten(), scope.resource(), &import);
+                .insert_row(scope.flatten(), scope.resource(), &import);
             Some(import)
         }
     }
@@ -314,7 +319,7 @@ impl<F: Fetcher> Loader<F> {
         self.tables
             .borrow_mut()
             .imports
-            .push_row(scope.flatten(), scope.resource(), import);
+            .insert_row(scope.flatten(), scope.resource(), import);
     }
 
     // Load a top-level catalog specification.
@@ -344,7 +349,7 @@ impl<F: Fetcher> Loader<F> {
             self.tables
                 .borrow_mut()
                 .npm_dependencies
-                .push_row(scope, package, version);
+                .insert_row(scope, package, version);
         }
 
         // Collect journal rules.
@@ -355,7 +360,7 @@ impl<F: Fetcher> Loader<F> {
             self.tables
                 .borrow_mut()
                 .journal_rules
-                .push_row(scope, name, rule.into_proto());
+                .insert_row(scope, name, rule.into_proto());
         }
 
         // Task which loads all imports.
@@ -410,7 +415,7 @@ impl<F: Fetcher> Loader<F> {
             let endpoint_type = endpoint.endpoint_type();
 
             if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint) {
-                self.tables.borrow_mut().captures.push_row(
+                self.tables.borrow_mut().captures.insert_row(
                     scope.flatten(),
                     &name,
                     endpoint_type,
@@ -424,7 +429,7 @@ impl<F: Fetcher> Loader<F> {
                 let scope = scope.push_item(index);
                 let specs::CaptureBinding { resource, target } = binding;
 
-                self.tables.borrow_mut().capture_bindings.push_row(
+                self.tables.borrow_mut().capture_bindings.insert_row(
                     scope.flatten(),
                     &name,
                     index as u32,
@@ -442,7 +447,7 @@ impl<F: Fetcher> Loader<F> {
             let endpoint_type = endpoint.endpoint_type();
 
             if let Some(endpoint_spec) = self.load_materialization_endpoint(scope, endpoint) {
-                self.tables.borrow_mut().materializations.push_row(
+                self.tables.borrow_mut().materializations.insert_row(
                     scope.flatten(),
                     &name,
                     endpoint_type,
@@ -466,17 +471,20 @@ impl<F: Fetcher> Loader<F> {
                         },
                 } = binding;
 
-                self.tables.borrow_mut().materialization_bindings.push_row(
-                    scope.flatten(),
-                    &name,
-                    index as u32,
-                    serde_json::Value::Object(resource),
-                    source,
-                    fields_exclude,
-                    fields_include,
-                    fields_recommended,
-                    partitions,
-                );
+                self.tables
+                    .borrow_mut()
+                    .materialization_bindings
+                    .insert_row(
+                        scope.flatten(),
+                        &name,
+                        index as u32,
+                        serde_json::Value::Object(resource),
+                        source,
+                        fields_exclude,
+                        fields_include,
+                        fields_recommended,
+                        partitions,
+                    );
             }
         }
 
@@ -503,7 +511,7 @@ impl<F: Fetcher> Loader<F> {
                     }) => (collection, documents, partitions, TestStepType::Verify),
                 };
 
-                self.tables.borrow_mut().test_steps.push_row(
+                self.tables.borrow_mut().test_steps.insert_row(
                     scope,
                     collection,
                     documents,
@@ -543,7 +551,7 @@ impl<F: Fetcher> Loader<F> {
                 } => (location, *partition),
             };
 
-            self.tables.borrow_mut().projections.push_row(
+            self.tables.borrow_mut().projections.insert_row(
                 scope.push_prop("projections").push_prop(field).flatten(),
                 collection_name,
                 field,
@@ -574,7 +582,7 @@ impl<F: Fetcher> Loader<F> {
         };
 
         if let Some(schema) = schema {
-            self.tables.borrow_mut().collections.push_row(
+            self.tables.borrow_mut().collections.insert_row(
                 scope.flatten(),
                 collection_name,
                 schema,
@@ -622,7 +630,7 @@ impl<F: Fetcher> Loader<F> {
         let (register_schema, _): (_, Vec<()>) = futures::join!(register_schema, transforms);
 
         if let Some(register_schema) = register_schema {
-            self.tables.borrow_mut().derivations.push_row(
+            self.tables.borrow_mut().derivations.insert_row(
                 scope.flatten(),
                 derivation_name,
                 register_schema,
@@ -675,7 +683,7 @@ impl<F: Fetcher> Loader<F> {
             None => None,
         };
 
-        self.tables.borrow_mut().transforms.push_row(
+        self.tables.borrow_mut().transforms.insert_row(
             scope.flatten(),
             derivation,
             priority,
@@ -744,7 +752,7 @@ impl<F: Fetcher> Loader<F> {
                 self.tables
                     .borrow_mut()
                     .errors
-                    .push_row(scope.flatten(), anyhow::anyhow!(err.into()));
+                    .insert_row(scope.flatten(), anyhow::anyhow!(err.into()));
                 None
             }
         }

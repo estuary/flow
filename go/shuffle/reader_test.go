@@ -12,6 +12,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
@@ -24,9 +25,42 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
+	"go.gazette.dev/core/keyspace"
 	gazLabels "go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
+
+func TestStuffedMessageChannel(t *testing.T) {
+	// Build a no-op ReadBuilder (no journals to walk).
+	var rb = &ReadBuilder{
+		shardID:  "shard",
+		drainCh:  make(chan struct{}),
+		journals: flow.Journals{KeySpace: new(keyspace.KeySpace)},
+		members: func() []*pc.ShardSpec {
+			return []*pc.ShardSpec{
+				{Id: "shard", LabelSet: pb.MustLabelSet(
+					labels.KeyBegin, labels.KeyBeginMin,
+					labels.KeyEnd, labels.KeyEndMax,
+					labels.RClockBegin, labels.RClockBeginMin,
+					labels.RClockEnd, labels.RClockEndMax)},
+			}
+		},
+	}
+	var g = newGovernor(rb, pc.Checkpoint{}, flow.NewTimepoint(time.Now()))
+
+	// Use a non-buffered channel (blocks on send), and a pre-cancelled context.
+	var intoCh = make(chan consumer.EnvelopeOrError)
+	var ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+
+	// Expect serveDocuments immediately reads a Cancelled error.
+	// It attempts to send into the channel, but can't.
+	// Instead it selects over the finished context.
+	g.serveDocuments(ctx, intoCh)
+
+	var _, ok = <-intoCh
+	require.False(t, ok) // Channel was closed.
+}
 
 func TestConsumerIntegration(t *testing.T) {
 	var built, err = bindings.BuildCatalog(bindings.BuildArgs{

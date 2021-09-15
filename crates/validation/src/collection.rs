@@ -3,6 +3,7 @@ use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use models::{build, names, tables};
 use protocol::flow;
+use superslice::Ext;
 use url::Url;
 
 pub fn walk_all_collections(
@@ -15,17 +16,15 @@ pub fn walk_all_collections(
     let mut built_collections = tables::BuiltCollections::new();
 
     for collection in collections {
-        let projections = projections
-            .iter()
-            .filter(|p| p.collection == collection.collection)
-            .collect::<Vec<_>>();
+        let projections = &projections
+            [projections.equal_range_by_key(&&collection.collection, |p| &p.collection)];
 
-        built_collections.push_row(
+        built_collections.insert_row(
             &collection.scope,
             &collection.collection,
             walk_collection(
                 collection,
-                &projections,
+                projections,
                 schema_shapes,
                 errors,
                 &mut implicit_projections,
@@ -38,7 +37,7 @@ pub fn walk_all_collections(
 
 fn walk_collection(
     collection: &tables::Collection,
-    projections: &[&tables::Projection],
+    projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
     implicit_projections: &mut tables::Projections,
@@ -88,7 +87,7 @@ fn walk_collection(
 
 fn walk_collection_projections(
     collection: &tables::Collection,
-    projections: &[&tables::Projection],
+    projections: &[tables::Projection],
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
     implicit_projections: &mut tables::Projections,
@@ -106,7 +105,6 @@ fn walk_collection_projections(
     let mut specs = Vec::new();
     for eob in projections
         .iter()
-        .sorted_by_key(|p| &p.field)
         .merge_join_by(schema_shape.fields.iter(), |projection, (field, _)| {
             projection.field.cmp(field)
         })
@@ -118,7 +116,7 @@ fn walk_collection_projections(
             specs.push(spec);
         }
         if let Some(implicit) = implicit {
-            implicit_projections.push(implicit);
+            implicit_projections.insert(implicit);
         }
     }
 
@@ -127,7 +125,7 @@ fn walk_collection_projections(
 
 fn walk_projection_with_inference(
     collection: &tables::Collection,
-    eob: EitherOrBoth<&&tables::Projection, &(String, names::JsonPointer)>,
+    eob: EitherOrBoth<&tables::Projection, &(String, names::JsonPointer)>,
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
 ) -> (Option<flow::Projection>, Option<tables::Projection>) {

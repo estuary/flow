@@ -1314,7 +1314,7 @@ fn regex_matches(re: &fancy_regex::Regex, text: &str) -> bool {
 #[cfg(test)]
 mod test {
     use super::{super::Annotation, *};
-    use json::schema;
+    use json::schema::{self, index::IndexBuilder};
     use serde_json::{json, Value};
     use serde_yaml;
 
@@ -2370,9 +2370,10 @@ mod test {
         let schema: Value = serde_yaml::from_str(case).unwrap();
         let schema = schema::build::build_schema::<Annotation>(url.clone(), &schema).unwrap();
 
-        let mut index = SchemaIndex::new();
+        let mut index = IndexBuilder::new();
         index.add(&schema).unwrap();
         index.verify_references().unwrap();
+        let index = index.into_index();
 
         Shape::infer(index.must_fetch(&url).unwrap(), &index)
     }

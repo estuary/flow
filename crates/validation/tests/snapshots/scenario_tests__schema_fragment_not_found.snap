@@ -13,6 +13,10 @@ expression: errors
         error: referenced schema fragment location test://example/int-string.schema#/not/found does not exist,
     },
     Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: referenced schema fragment location test://example/int-string.schema#/not/found does not exist,
+    },
+    Error {
         scope: test://example/int-string#/collections/testing~1int-string,
         error: location /int is unknown in schema test://example/int-string.schema#/not/found,
     },
@@ -29,15 +33,15 @@ expression: errors
         error: location /bit is unknown in schema test://example/int-string.schema#/not/found,
     },
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
-        error: location /int is unknown in schema test://example/int-string.schema#/not/found,
-    },
-    Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
         error: location /len is unknown in schema test://example/int-string-len.schema#/not/found,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
         error: location /int is unknown in schema test://example/int-string-len.schema#/not/found,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        error: location /int is unknown in schema test://example/int-string.schema#/not/found,
     },
 ]

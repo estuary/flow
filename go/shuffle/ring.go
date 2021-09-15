@@ -52,7 +52,7 @@ func (c *Coordinator) Subscribe(
 	})
 
 	if err != nil {
-		callback(nil, err)
+		_ = callback(nil, err)
 	}
 }
 

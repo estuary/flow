@@ -11,22 +11,17 @@ pub async fn walk_all_captures<D: Drivers>(
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
     let mut validations = Vec::new();
 
-    // Index |capture_bindings| on (capture, index),
-    // then group bindings having the same capture.
-    let capture_bindings = capture_bindings
-        .iter()
-        .sorted_by_key(|c| (&c.capture, c.capture_index))
-        .group_by(|c| &c.capture);
+    // Group |capture_bindings| on bindings having the same capture.
+    let capture_bindings = capture_bindings.iter().group_by(|c| &c.capture);
 
     // Walk ordered captures, left-joined by their bindings.
     for (capture, bindings) in captures
         .iter()
-        .sorted_by_key(|c| &c.capture)
         .merge_join_by(capture_bindings.into_iter(), |l, (r, _)| l.capture.cmp(r))
         .filter_map(|eob| match eob {
             EitherOrBoth::Both(capture, (_, bindings)) => Some((capture, Some(bindings))),
@@ -109,7 +104,7 @@ pub async fn walk_all_captures<D: Drivers>(
                             binding_responses.len()
                         ),
                     }
-                    .push(scope, errors);
+                    .push(&scope, errors);
                 }
 
                 // Join requests, responses and models to produce tuples
@@ -164,7 +159,7 @@ pub async fn walk_all_captures<D: Drivers>(
                     bindings,
                     interval_seconds: *interval_seconds,
                 };
-                built_captures.push_row(scope, name, spec);
+                built_captures.insert_row(scope, name, spec);
             }
             Err(err) => {
                 Error::CaptureDriver {
@@ -185,7 +180,7 @@ fn walk_capture_request<'a>(
     capture_bindings: Vec<&'a tables::CaptureBinding>,
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<(
     &'a tables::Capture,
@@ -230,7 +225,7 @@ fn walk_capture_binding<'a>(
     capture_binding: &tables::CaptureBinding,
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<capture::validate_request::Binding> {
     let tables::CaptureBinding {

@@ -11,15 +11,19 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
-            resource: test://example/rules_two.yaml,
-        },
-        Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
         },
         Fetch {
+            depth: 2,
+            resource: test://example/rules_two.yaml,
+        },
+        Fetch {
+            depth: 3,
             resource: test://example/rules_two.ts,
         },
     ],
@@ -30,14 +34,14 @@ Tables {
             to_resource: test://example/catalog.ts,
         },
         Import {
-            scope: test://example/rules_two.yaml,
-            from_resource: test://example/rules_two.yaml,
-            to_resource: test://example/rules_two.ts,
-        },
-        Import {
             scope: test://example/catalog.yaml#/import/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/rules_two.yaml,
+        },
+        Import {
+            scope: test://example/rules_two.yaml,
+            from_resource: test://example/rules_two.yaml,
+            to_resource: test://example/rules_two.ts,
         },
     ],
     journal_rules: [

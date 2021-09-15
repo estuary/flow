@@ -1,5 +1,6 @@
 use super::pipeline::{self, Pipeline};
 use super::registers;
+use allocator::ThreadStatsReader;
 
 use prost::Message;
 use protocol::{
@@ -36,7 +37,6 @@ enum State {
     Flushing(Pipeline),
     Prepare(Pipeline),
 }
-
 impl cgo::Service for API {
     type Error = Error;
 
@@ -55,7 +55,10 @@ impl cgo::Service for API {
             Some(c) => c,
             None => return Err(Error::InvalidState),
         };
-        tracing::trace!(?code, "invoke");
+        let span = tracing::span!(tracing::Level::TRACE, "derive_invoke", code = ?code);
+        let _guard = span.enter();
+        let mem_stats = ThreadStatsReader::new();
+        let initial = mem_stats.current();
 
         match (code, std::mem::replace(&mut self.state, State::Init)) {
             (Code::Open, State::Init) => {
@@ -153,6 +156,8 @@ impl cgo::Service for API {
             }
             _ => return Err(Error::InvalidState),
         }
+        let diff = mem_stats.current() - initial;
+        tracing::trace!(mem_initial = ?initial, mem_changes = ?diff, "mem changes");
         Ok(())
     }
 }

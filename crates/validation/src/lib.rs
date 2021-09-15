@@ -1,5 +1,4 @@
 use futures::future::LocalBoxFuture;
-use itertools::Itertools;
 use models::tables;
 use protocol;
 
@@ -50,6 +49,7 @@ pub async fn validate<D: Drivers>(
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
+    fetches: &[tables::Fetch],
     imports: &[tables::Import],
     journal_rules: &[tables::JournalRule],
     materialization_bindings: &[tables::MaterializationBinding],
@@ -65,21 +65,17 @@ pub async fn validate<D: Drivers>(
 ) -> Tables {
     let mut errors = tables::Errors::new();
 
+    // Fetches order on the fetch depth, so take the first (lowest-depth)
+    // element as the root scope.
     let mut root_scope = &url::Url::parse("root://").unwrap();
-    if let Some(r) = resources.first() {
-        root_scope = &r.resource;
+    if let Some(f) = fetches.first() {
+        root_scope = &f.resource;
     }
-
-    // Index for future binary searches of the import graph.
-    let imports = imports
-        .iter()
-        .sorted_by_key(|i| (&i.from_resource, &i.to_resource))
-        .collect::<Vec<_>>();
 
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
         Ok(c) => c,
         Err(err) => {
-            errors.push_row(root_scope, anyhow::anyhow!(err));
+            errors.insert_row(root_scope, anyhow::anyhow!(err));
             return Tables {
                 errors,
                 ..Default::default()
@@ -89,17 +85,18 @@ pub async fn validate<D: Drivers>(
     let schema_index = schema::index_compiled_schemas(&compiled_schemas, root_scope, &mut errors);
 
     let schema_refs = schema::Ref::from_tables(
-        resources,
-        named_schemas,
         collections,
         derivations,
+        named_schemas,
+        projections,
+        resources,
+        root_scope,
         transforms,
     );
 
     let (schema_shapes, inferences) = schema::walk_all_schema_refs(
-        &imports,
-        projections,
-        &schema_docs,
+        imports,
+        schema_docs,
         &schema_index,
         &schema_refs,
         &mut errors,
@@ -116,7 +113,7 @@ pub async fn validate<D: Drivers>(
         &built_collections,
         collections,
         derivations,
-        &imports,
+        imports,
         projections,
         &schema_index,
         &schema_shapes,
@@ -149,7 +146,7 @@ pub async fn validate<D: Drivers>(
         captures,
         collections,
         derivations,
-        &imports,
+        imports,
         &mut errors,
     );
 
@@ -158,7 +155,7 @@ pub async fn validate<D: Drivers>(
         drivers,
         &built_collections,
         collections,
-        &imports,
+        imports,
         materialization_bindings,
         materializations,
         projections,
@@ -173,7 +170,7 @@ pub async fn validate<D: Drivers>(
 
     let built_tests = test_step::walk_all_test_steps(
         collections,
-        &imports,
+        imports,
         projections,
         &schema_index,
         &schema_shapes,

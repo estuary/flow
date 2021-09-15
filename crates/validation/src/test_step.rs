@@ -5,7 +5,7 @@ use protocol::flow::{self, test_spec::step::Type as TestStepType};
 
 pub fn walk_all_test_steps(
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schemas: &[schema::Shape],
@@ -14,11 +14,7 @@ pub fn walk_all_test_steps(
 ) -> tables::BuiltTests {
     let mut built_tests = tables::BuiltTests::new();
 
-    for (test, steps) in &test_steps
-        .iter()
-        .sorted_by_key(|s| (&s.test, s.step_index))
-        .group_by(|s| &s.test)
-    {
+    for (test, steps) in &test_steps.iter().group_by(|s| &s.test) {
         let steps: Vec<_> = steps
             .map(|test_step| {
                 walk_test_step(
@@ -35,7 +31,7 @@ pub fn walk_all_test_steps(
             .flatten()
             .collect();
 
-        built_tests.push_row(
+        built_tests.insert_row(
             test,
             flow::TestSpec {
                 test: test.to_string(),
@@ -57,7 +53,7 @@ pub fn walk_all_test_steps(
 
 pub fn walk_test_step(
     collections: &[tables::Collection],
-    imports: &[&tables::Import],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],

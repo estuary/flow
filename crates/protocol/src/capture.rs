@@ -125,7 +125,7 @@ pub struct CaptureRequest {
     #[prost(fixed32, tag="3")]
     pub key_end: u32,
     /// Last-persisted driver checkpoint from a previous capture stream.
-    /// Or empty, if the driver hasn't returned a checkpoint.
+    /// Or empty, if the driver has cleared or never set its checkpoint.
     #[prost(bytes="vec", tag="4")]
     pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     /// If true, perform a blocking tail of the capture.
@@ -168,10 +168,15 @@ pub mod capture_response {
     /// Commit previous captured documents.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Commit {
-        /// Optional driver checkpoint of this transaction.
-        /// If provided, the most recent checkpoint will be persisted by the
-        /// Flow runtime and returned in a future CaptureRequest.
+        /// Optional driver checkpoint of this transaction, to be persisted
+        /// by the Flow runtime and returned in a future CaptureRequest.
+        /// If empty, then a previous checkpoint is cleared.
         #[prost(bytes="vec", tag="1")]
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
+        /// If true, then the driver checkpoint must be non-empty and is
+        /// applied as an RFC7396 Merge Patch atop the immediately preceeding
+        /// checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+        #[prost(bool, tag="2")]
+        pub rfc7396_merge_patch: bool,
     }
 }

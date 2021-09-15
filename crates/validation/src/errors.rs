@@ -168,6 +168,6 @@ pub enum Error {
 
 impl Error {
     pub fn push(self, scope: &url::Url, errors: &mut tables::Errors) {
-        errors.push_row(scope, anyhow::anyhow!(self));
+        errors.insert_row(scope, anyhow::anyhow!(self));
     }
 }

@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
+allocator = { path = "../allocator", version = "0.0.0" }
 models = { path = "../models", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 tuple = { path = "../tuple", version = "0.0.0" }
@@ -22,6 +23,7 @@ rocksdb = { version = "*", default-features = false, features = ["snappy", "rtti
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
+stats_alloc = "*"
 thiserror = "*"
 tracing = "*"
 tracing-futures = "*"

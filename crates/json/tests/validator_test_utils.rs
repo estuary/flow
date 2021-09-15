@@ -84,16 +84,19 @@ fn run_file_test(target: &[&str]) {
         let schema = build::build_schema::<CoreAnnotation>(url.clone(), schema).unwrap();
         println!("\t{:?}", schema);
 
-        let mut ind = index::Index::new();
+        let mut ind = index::IndexBuilder::new();
         for s in &catalog {
             ind.add(s).unwrap();
         }
         ind.add(&schema).unwrap();
+        let ind = ind.into_index();
 
         /*
         ind.verify_references()
             .expect("failed to verify references");
         */
+
+        let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(&ind);
 
         for sub_case in case
             .get("tests")
@@ -115,8 +118,6 @@ fn run_file_test(target: &[&str]) {
                 .expect("valid is not a bool");
 
             println!("\t{} ({}): {}", sub_desc, valid, data);
-
-            let mut val = validator::Validator::<CoreAnnotation, validator::FullContext>::new(&ind);
             val.prepare(&schema.curi).unwrap();
 
             let out = de::walk(data, &mut val).expect("validation error");

@@ -9,17 +9,18 @@ use macros::*;
 pub use macros::{load_tables, persist_tables, Table, TableObj, TableRow};
 
 tables!(
-    table Fetches (row Fetch, sql "fetches") {
+    table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
+        depth: u32,
         resource: url::Url,
     }
 
-    table Resources (row Resource, sql "resources") {
+    table Resources (row Resource, order_by [resource], sql "resources") {
         resource: url::Url,
         content_type: protocol::flow::ContentType,
         content: bytes::Bytes,
     }
 
-    table Imports (row Import, sql "imports") {
+    table Imports (row Import, order_by [from_resource to_resource], sql "imports") {
         scope: url::Url,
         // Resource which does the importing.
         from_resource: url::Url,
@@ -27,7 +28,7 @@ tables!(
         to_resource: url::Url,
     }
 
-    table NPMDependencies (row NPMDependency, sql "npm_dependencies") {
+    table NPMDependencies (row NPMDependency, order_by [package version], sql "npm_dependencies") {
         scope: url::Url,
         // NPM package name.
         package: String,
@@ -35,7 +36,7 @@ tables!(
         version: String,
     }
 
-    table JournalRules (row JournalRule, sql "journal_rules") {
+    table JournalRules (row JournalRule, order_by [rule], sql "journal_rules") {
         scope: url::Url,
         // Name of this rule, which also encodes its priority as
         // lexicographic order determines evaluation and application order.
@@ -44,7 +45,7 @@ tables!(
         spec: protocol::flow::journal_rules::Rule,
     }
 
-    table ShardRules (row ShardRule, sql "shard_rules") {
+    table ShardRules (row ShardRule, order_by [rule], sql "shard_rules") {
         scope: url::Url,
         // Name of this rule, which also encodes its priority as
         // lexicographic order determines evaluation and application order.
@@ -53,7 +54,7 @@ tables!(
         spec: protocol::flow::shard_rules::Rule,
     }
 
-    table Collections (row Collection, sql "collections") {
+    table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         collection: names::Collection,
         // JSON Schema against which all collection documents are validated,
@@ -63,7 +64,7 @@ tables!(
         key: names::CompositeKey,
     }
 
-    table Projections (row Projection, sql "projections") {
+    table Projections (row Projection, order_by [collection field], sql "projections") {
         scope: url::Url,
         collection: names::Collection,
         field: String,
@@ -75,7 +76,7 @@ tables!(
         user_provided: bool,
     }
 
-    table Derivations (row Derivation, sql "derivations") {
+    table Derivations (row Derivation, order_by [derivation], sql "derivations") {
         scope: url::Url,
         derivation: names::Collection,
         // JSON Schema against which register values are validated,
@@ -85,7 +86,7 @@ tables!(
         register_initial: serde_json::Value,
     }
 
-    table Transforms (row Transform, sql "transforms") {
+    table Transforms (row Transform, order_by [derivation transform], sql "transforms") {
         scope: url::Url,
         derivation: names::Collection,
         // Read priority applied to documents processed by this transform.
@@ -115,7 +116,7 @@ tables!(
         update_lambda: Option<names::Lambda>,
     }
 
-    table Captures (row Capture, sql "captures") {
+    table Captures (row Capture, order_by [capture], sql "captures") {
         scope: url::Url,
         // Name of this capture.
         capture: names::Capture,
@@ -127,7 +128,7 @@ tables!(
         interval_seconds: u32,
     }
 
-    table CaptureBindings (row CaptureBinding, sql "capture_bindings") {
+    table CaptureBindings (row CaptureBinding, order_by [capture capture_index], sql "capture_bindings") {
         scope: url::Url,
         // Capture to which this binding belongs.
         capture: names::Capture,
@@ -139,7 +140,7 @@ tables!(
         collection: names::Collection,
     }
 
-    table Materializations (row Materialization, sql "materializations") {
+    table Materializations (row Materialization, order_by [materialization], sql "materializations") {
         scope: url::Url,
         // Name of this materialization.
         materialization: names::Materialization,
@@ -149,7 +150,7 @@ tables!(
         endpoint_spec: serde_json::Value,
     }
 
-    table MaterializationBindings (row MaterializationBinding, sql "materialization_bindings") {
+    table MaterializationBindings (row MaterializationBinding, order_by [materialization materialization_index], sql "materialization_bindings") {
         scope: url::Url,
         // Materialization to which this binding belongs.
         materialization: names::Materialization,
@@ -170,7 +171,7 @@ tables!(
         source_partitions: Option<names::PartitionSelector>,
     }
 
-    table TestSteps (row TestStep, sql "test_steps") {
+    table TestSteps (row TestStep, order_by [test step_index], sql "test_steps") {
         scope: url::Url,
         // Collection ingested or verified by this step.
         collection: names::Collection,
@@ -186,13 +187,13 @@ tables!(
         test: names::Test,
     }
 
-    table SchemaDocs (row SchemaDoc, sql "schema_docs") {
+    table SchemaDocs (row SchemaDoc, order_by [schema], sql "schema_docs") {
         schema: url::Url,
         // JSON document model of the schema.
         dom: serde_json::Value,
     }
 
-    table NamedSchemas (row NamedSchema, sql "named_schemas") {
+    table NamedSchemas (row NamedSchema, order_by [anchor_name], sql "named_schemas") {
         // Scope is the canonical non-anchor URI of this schema.
         scope: url::Url,
         // Anchor is the alternative anchor'd URI.
@@ -201,7 +202,7 @@ tables!(
         anchor_name: String,
     }
 
-    table Inferences (row Inference, sql "inferences") {
+    table Inferences (row Inference, order_by [schema location], sql "inferences") {
         // URL of the schema which is inferred, inclusive of any fragment pointer.
         schema: url::Url,
         // A location within a document verified by this schema,
@@ -211,7 +212,7 @@ tables!(
         spec: protocol::flow::Inference,
     }
 
-    table BuiltCaptures (row BuiltCapture, sql "built_captures") {
+    table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
         scope: url::Url,
         // Name of this capture.
         capture: String,
@@ -219,7 +220,7 @@ tables!(
         spec: protocol::flow::CaptureSpec,
     }
 
-    table BuiltCollections (row BuiltCollection, sql "built_collections") {
+    table BuiltCollections (row BuiltCollection, order_by [collection], sql "built_collections") {
         scope: url::Url,
         // Name of this collection.
         collection: names::Collection,
@@ -227,7 +228,7 @@ tables!(
         spec: protocol::flow::CollectionSpec,
     }
 
-    table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
+    table BuiltMaterializations (row BuiltMaterialization, order_by [materialization], sql "built_materializations") {
         scope: url::Url,
         // Name of this materialization.
         materialization: String,
@@ -235,7 +236,7 @@ tables!(
         spec: protocol::flow::MaterializationSpec,
     }
 
-    table BuiltDerivations (row BuiltDerivation, sql "built_derivations") {
+    table BuiltDerivations (row BuiltDerivation, order_by [derivation], sql "built_derivations") {
         scope: url::Url,
         // Name of this derivation.
         derivation: names::Collection,
@@ -243,19 +244,19 @@ tables!(
         spec: protocol::flow::DerivationSpec,
     }
 
-    table BuiltTests (row BuiltTest, sql "built_tests") {
+    table BuiltTests (row BuiltTest, order_by [test], sql "built_tests") {
         // Name of the test case.
         test: names::Test,
         // Built specification for this test case.
         spec: protocol::flow::TestSpec,
     }
 
-    table Errors (row Error, sql "errors") {
+    table Errors (row Error, order_by [], sql "errors") {
         scope: url::Url,
         error: anyhow::Error,
     }
 
-    table Meta (row Build, sql "meta") {
+    table Meta (row Build, order_by [], sql "meta") {
         build_uuid: uuid::Uuid,
         build_config: protocol::flow::build_api::Config,
     }
@@ -483,5 +484,73 @@ impl SQLType for bytes::Bytes {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         use rusqlite::types::FromSql;
         Ok(<Vec<u8>>::column_result(value)?.into())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{macros::*, TableObj};
+
+    tables!(
+        table Foos (row Foo, order_by [], sql "foos") {
+            f1: u32,
+        }
+
+        table Bars (row Bar, order_by [b1], sql "bars") {
+            b1: u32,
+            b2: u32,
+        }
+
+        table Quibs (row Quib, order_by [q1 q2], sql "quibs") {
+            q1: u32,
+            q2: u32,
+        }
+    );
+
+    #[test]
+    fn test_indexing() {
+        let mut tbl = Foos::new();
+        tbl.insert_row(1);
+        tbl.insert_row(0);
+        tbl.insert_row(2);
+        tbl.insert_row(1);
+        tbl.insert_row(0);
+        tbl.insert_row(1);
+
+        // When order_by is empty, the initial ordering is preserved.
+        assert_eq!(
+            tbl.iter().map(|r| r.f1).collect::<Vec<_>>(),
+            vec![1, 0, 2, 1, 0, 1]
+        );
+
+        // Table ordered by a single column.
+        let mut tbl = Bars::new();
+        tbl.insert_row(10, 90);
+        tbl.insert_row(0, 78);
+        tbl.insert_row(20, 56);
+        tbl.insert_row(10, 34);
+        tbl.insert_row(0, 12);
+        tbl.insert_row(10, 90);
+
+        // Ordered with respect to order_by, but not to the extra columns.
+        assert_eq!(
+            tbl.iter().map(|r| (r.b1, r.b2)).collect::<Vec<_>>(),
+            vec![(0, 78), (0, 12), (10, 90), (10, 34), (10, 90), (20, 56)]
+        );
+
+        // Table ordered on a composite key.
+        let mut tbl = Quibs::new();
+        tbl.insert_row(10, 90);
+        tbl.insert_row(0, 78);
+        tbl.insert_row(20, 56);
+        tbl.insert_row(10, 34);
+        tbl.insert_row(0, 12);
+        tbl.insert_row(10, 90);
+
+        // Fully ordered by the composite key (both columns).
+        assert_eq!(
+            tbl.iter().map(|r| (r.q1, r.q2)).collect::<Vec<_>>(),
+            vec![(0, 12), (0, 78), (10, 34), (10, 90), (10, 90), (20, 56)]
+        );
     }
 }

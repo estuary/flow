@@ -313,9 +313,7 @@ func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(in
 func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error) {
 	d.store.fence.Checkpoint = prepare.FlowCheckpoint
 
-	return &pm.TransactionResponse_Prepared{
-		DriverCheckpointJson: nil, // Not used.
-	}, nil
+	return &pm.TransactionResponse_Prepared{}, nil
 }
 
 func (d *transactor) Store(it *pm.StoreIterator) error {

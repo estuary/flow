@@ -306,6 +306,7 @@ func (d *Derive) Destroy() {
 
 func newDeriveSvc() *service {
 	return newService(
+		"derive",
 		func() *C.Channel { return C.derive_create() },
 		func(ch *C.Channel, in C.In1) { C.derive_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.derive_invoke4(ch, in) },
@@ -399,7 +400,7 @@ func newDeriveInvokeHandler(shardFqn string, derivation *pf.DerivationSpec, tsCl
 			return nil, fmt.Errorf("invoking %s: %w", request.URL, err)
 		}
 
-		var body = bytes.NewBuffer(make([]byte, 4096))
+		var body = bytes.NewBuffer(make([]byte, deriveBufferInitial))
 		body.Truncate(taskResponseHeader) // Reserve.
 
 		if _, err = io.Copy(body, response.Body); err != nil {
@@ -510,3 +511,8 @@ func (b *lambdaBody) contentLength() (n int64) {
 }
 
 func (b *lambdaBody) Close() error { return nil }
+
+// Use 64K initial read buffer, matching the target
+// buffer size of derive pipeline blocks.
+// This is also the initial HTTP/2 flow control window.
+const deriveBufferInitial = 1 << 16

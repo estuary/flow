@@ -110,12 +110,13 @@ type read struct {
 	// Fields filled when a read is start()'d.
 	ctx    context.Context
 	cancel context.CancelFunc
-	ch     chan readResult
-}
+	ch     chan *pf.ShuffleResponse
 
-type readResult struct {
-	resp *pf.ShuffleResponse
-	err  error
+	// Terminal error, which is set immediately prior to |ch| being closed,
+	// and which may be accessed only after reading a |ch| close.
+	// If a |ch| close is read, |err| must be non-nil and will have
+	// the value io.EOF under a nominal closure.
+	chErr error
 }
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
@@ -241,7 +242,7 @@ func (r *read) start(
 
 	r.log().Debug("starting shuffled journal read")
 	r.ctx, r.cancel = context.WithCancel(ctx)
-	r.ch = make(chan readResult, readChannelCapacity)
+	r.ch = make(chan *pf.ShuffleResponse, readChannelCapacity)
 
 	// Resolve coordinator shard to a current member process.
 	var resolution, err = resolveFn(consumer.ResolveArgs{
@@ -253,8 +254,7 @@ func (r *read) start(
 		err = fmt.Errorf(resolution.Status.String())
 	}
 	if err != nil {
-		r.ch <- readResult{err: fmt.Errorf("resolving coordinating shard: %w", err)}
-		close(r.ch)
+		r.sendReadResult(nil, fmt.Errorf("resolving coordinator: %w", err), wakeCh)
 		return
 	}
 	r.req.Resolution = &resolution.Header
@@ -277,7 +277,7 @@ func (r *read) start(
 		// Coordinator is a remote shard. We must read over gRPC.
 		ctx = pb.WithDispatchRoute(r.ctx, resolution.Header.Route, resolution.Header.ProcessId)
 
-		go func(ch chan<- readResult) (err error) {
+		go func() (err error) {
 			defer func() {
 				// Deliver final non-nil error.
 				_ = r.sendReadResult(nil, err, wakeCh)
@@ -295,13 +295,13 @@ func (r *read) start(
 					return err
 				}
 			}
-		}(r.ch)
+		}()
 	}
 }
 
-// sendReadResult sends a ShuffleResponse or final non-nil error readResult to the
+// sendReadResult sends a ShuffleResponse or final non-nil error and close to the
 // read's channel. It back-pressures to the caller using an exponential delay,
-// and if the channel buffer would offer-flow it cancels the read's context.
+// and if the channel buffer would overflow it cancels the read's context.
 //
 // It's important that this doesn't naively stuff the read's channel and block
 // indefinitely as this can cause a distributed read deadlock. Consider
@@ -322,10 +322,7 @@ func (r *read) start(
 func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<- struct{}) error {
 	if err != nil {
 		// This is a final call, delivering a terminal error.
-		select {
-		case r.ch <- readResult{err: err}:
-		default: // Don't block.
-		}
+		r.chErr = err
 		close(r.ch)
 
 		select {
@@ -357,7 +354,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 	}
 
 	select {
-	case r.ch <- readResult{resp: resp}:
+	case r.ch <- resp:
 	default:
 		panic("cannot block: channel isn't full and we're the only sender")
 	}
@@ -377,7 +374,8 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 func (r *read) next() (message.Envelope, error) {
 	for r.resp.Index == len(r.resp.DocsJson) {
 		// We must receive from the channel.
-		if err := r.onRead(<-r.ch); err == nil {
+		var rr, ok = <-r.ch
+		if err := r.onRead(rr, ok); err == nil {
 			continue
 		} else if err != nil {
 			return message.Envelope{}, err
@@ -386,16 +384,14 @@ func (r *read) next() (message.Envelope, error) {
 	return r.dequeue(), nil
 }
 
-func (r *read) onRead(p readResult) error {
-	if p.err != nil {
-		return p.err
+func (r *read) onRead(p *pf.ShuffleResponse, ok bool) error {
+	if !ok && r.chErr != nil {
+		return r.chErr
+	} else if !ok {
+		panic("read !ok but chErr is nil")
 	}
 
-	if p.resp != nil {
-		r.resp.ShuffleResponse = *p.resp
-	} else {
-		r.resp.ShuffleResponse = pf.ShuffleResponse{}
-	}
+	r.resp.ShuffleResponse = *p
 	r.resp.Index = 0 // Reset.
 
 	// Update Offset as responses are read, so that a retry

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/shuffle"
@@ -139,23 +139,6 @@ func (f *FlowConsumer) ReadThrough(shard consumer.Shard, store consumer.Store, a
 // NewConfig returns a new config instance.
 func (f *FlowConsumer) NewConfig() runconsumer.Config { return new(FlowConsumerConfig) }
 
-// AdvanceTimeForTest is a in-process testing API that advances the current test time.
-func (f *FlowConsumer) AdvanceTimeForTest(delta time.Duration) time.Duration {
-	if !f.Config.DisableClockTicks {
-		panic("expected DisableClockTicks to be set")
-	}
-	var add = uint64(delta)
-	var out = time.Duration(atomic.AddInt64((*int64)(&f.Service.PublishClockDelta), int64(add)))
-
-	// Tick timepoint to unblock any gated shuffled reads.
-	f.Timepoint.Mu.Lock()
-	f.Timepoint.Now.Next.Resolve(time.Now())
-	f.Timepoint.Now = f.Timepoint.Now.Next
-	f.Timepoint.Mu.Unlock()
-
-	return time.Duration(out)
-}
-
 // ClearRegistersForTest is an in-process testing API that clears registers of derivation shards.
 func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
 	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
@@ -190,6 +173,7 @@ func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
 
 // InitApplication starts shared services of the flow-consumer.
 func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
+	bindings.RegisterPrometheusCollector()
 	var config = *args.Config.(*FlowConsumerConfig)
 
 	// Load catalog & journal keyspaces, and queue tasks that watch each for updates.

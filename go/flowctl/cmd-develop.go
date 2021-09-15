@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/testing"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -145,7 +146,7 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 
 	// Apply all database materializations first, before we create or update
 	// catalog entities that reference the applied tables / topics / targets.
-	if err := applyMaterializations(ctx, built, false); err != nil {
+	if err := applyMaterializations(ctx, built, false, cmd.Network); err != nil {
 		return fmt.Errorf("applying materializations: %w", err)
 	}
 
@@ -216,6 +217,46 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 					pb.Journal(fmt.Sprintf("%s/eof", capture.Capture)): 1,
 				},
 			},
+		)
+	}
+
+	// If we've re-initialized an existing cluster, there may be data
+	// already written to collections from a previous invocation.
+	// Track it as ingested data, to ensure that newly-added catalog
+	// tasks read through this existing data.
+	for _, collection := range built.Collections {
+		var name = collection.Collection
+
+		// List journals of the collection.
+		list, err := client.ListAllJournals(ctx, cluster.Journals,
+			pb.ListRequest{
+				Selector: pb.LabelSelector{
+					Include: pb.MustLabelSet(labels.Collection, name.String()),
+				}})
+		if err != nil {
+			return fmt.Errorf("listing journals of %s: %w", name, err)
+		}
+
+		// Fetch offsets of each journal.
+		var offsets = make(pb.Offsets)
+		for _, journal := range list.Journals {
+			var r = client.NewReader(ctx, cluster.Journals, pb.ReadRequest{
+				Journal:      journal.Spec.Name,
+				Offset:       -1,
+				Block:        false,
+				MetadataOnly: true,
+			})
+			if _, err := r.Read(nil); err != client.ErrOffsetNotYetAvailable {
+				return fmt.Errorf("reading head of journal %v: %w", journal.Spec.Name, err)
+			}
+
+			offsets[journal.Spec.Name] = r.Response.Offset
+		}
+
+		// Track it as a completed ingestion.
+		graph.CompletedIngest(
+			collection.Collection,
+			&testing.Clock{Etcd: header, Offsets: offsets},
 		)
 	}
 

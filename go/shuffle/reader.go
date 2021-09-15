@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/flow"
@@ -48,6 +47,12 @@ type governor struct {
 
 // StartReadingMessages begins reading shuffled, ordered messages into the channel, from the given Checkpoint.
 func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
+	var g = newGovernor(rb, cp, tp)
+	go g.serveDocuments(ctx, ch)
+}
+
+// newGovernor builds a new governor starting from the Checkpoint offsets.
+func newGovernor(rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint) *governor {
 	var offsets = make(pb.Offsets)
 	for journal, meta := range cp.Sources {
 		offsets[journal] = meta.ReadThrough
@@ -65,28 +70,41 @@ func StartReadingMessages(ctx context.Context, rb *ReadBuilder, cp pc.Checkpoint
 	}
 	g.wallTime.Update(time.Now())
 
-	// Spawn a loop which invokes Next() and passes the result to the output |ch|.
-	go func() {
-		var out consumer.EnvelopeOrError
-		defer close(ch)
+	return g
+}
 
-		if out.Error = g.onConverge(ctx); out.Error != errPollAgain {
-			ch <- out
+// serveDocuments repeatedly drives governor.next() to deliver documents into |ch|.
+func (g *governor) serveDocuments(ctx context.Context, ch chan<- consumer.EnvelopeOrError) {
+	defer close(ch)
+
+	// Prime with an initial convergence pass.
+	if err := g.onConverge(ctx); err != errPollAgain {
+		select {
+		case ch <- consumer.EnvelopeOrError{Error: err}:
+		case <-ctx.Done():
+		}
+		return
+	}
+
+	for {
+		var out consumer.EnvelopeOrError
+		out.Envelope, out.Error = g.next(ctx)
+
+		if out.Error == errDrained {
+			// We don't send these, and instead simply close the channel
+			// to tell the consumer framework to drain and restart reads.
 			return
 		}
-		for {
-			out.Envelope, out.Error = g.next(ctx)
 
-			if out.Error == nil {
-				ch <- out
-			} else {
-				if out.Error != errDrained {
-					ch <- out
-				}
+		select {
+		case ch <- out:
+			if out.Error != nil {
 				return
 			}
+		case <-ctx.Done():
+			return
 		}
-	}()
+	}
 }
 
 // StartReplayRead builds and starts a read of the given journal and offset range.
@@ -159,7 +177,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
 		if r.readDelay != 0 && readTime > g.wallTime {
-			r.log().Debug("gated reads of journal")
+			r.log().WithField("until", readTime).Debug("gated reads of journal")
 
 			g.gated = append(g.gated, r)
 			continue
@@ -197,7 +215,7 @@ func (g *governor) poll(ctx context.Context) error {
 	// polling each without blocking to see if one is now available.
 	for r := range g.pending {
 
-		var result readResult
+		var result *pf.ShuffleResponse
 		var ok bool
 
 		select {
@@ -225,21 +243,23 @@ func (g *governor) poll(ctx context.Context) error {
 
 		// This *read polled as ready: we now evaluate its outcome.
 
-		if err := r.onRead(result); err != nil {
-			// If an error occurred, there are no ready documents and we expect
-			// the read pump will close it's channel after this error.
-			// Return errPollAgain to read that close, which will go on to remove
-			// and possibly restart this failed *read.
+		if err := r.onRead(result, ok); err != nil {
+			// An encountered error is terminal for this read.
+			// There are no ready documents and the read's channel is already closed.
+
+			// Often the error is a cancellation, which happens normally as
+			// shard assignments change and the read is restarted against
+			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
 				r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
 			}
-			return errPollAgain
-		} else if !ok {
-			// This *read was cancelled and its channel has now drained.
+
+			// Clear tracking state for this drained read.
 			delete(g.pending, r)
 			delete(g.active, r.req.Shuffle.Journal)
-			// Perserve the journal offset for a future read.
+			// Perserve the journal offset for a possible restart of the read.
 			g.idle[r.req.Shuffle.Journal] = r.req.Offset
+
 			// Converge again, as we may want to start a new read for this journal
 			// (i.e., if we drained this read because the coordinating shard has changed).
 			return g.onConverge(ctx)
@@ -284,17 +304,15 @@ func (g *governor) poll(ctx context.Context) error {
 }
 
 func (g *governor) onTick() error {
+	g.wallTime.Update(g.tp.Time)
+
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
-		r.log().Debug("un-gated reads of journal")
+		r.log().WithField("now", g.wallTime).Debug("un-gated reads of journal")
 		heap.Push(&g.queued, r)
 	}
 	g.gated = g.gated[:0]
-
-	// Adjust |tick| by the clock delta (if any) attached to the *consumer.Service.
-	var delta = atomic.LoadInt64((*int64)(&g.rb.service.PublishClockDelta))
-	g.wallTime.Update(g.tp.Time.Add(time.Duration(delta)))
 
 	// Start awaiting next *Timepoint.
 	g.tp = g.tp.Next

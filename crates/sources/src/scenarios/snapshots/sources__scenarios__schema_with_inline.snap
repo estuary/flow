@@ -18,22 +18,24 @@ Tables {
     errors: [],
     fetches: [
         Fetch {
+            depth: 1,
             resource: test://example/catalog.yaml,
         },
         Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
         },
     ],
     imports: [
         Import {
-            scope: test://example/catalog.yaml#/collections/test/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/test/schema,
-        },
-        Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.yaml?ptr=/collections/test/schema,
         },
     ],
     journal_rules: [],
