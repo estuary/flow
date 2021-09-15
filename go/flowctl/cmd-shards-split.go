@@ -7,32 +7,39 @@ import (
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/cmd/gazctl/gazctlcmd"
 	pc "go.gazette.dev/core/consumer/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
+// This command will be under the shards command which leverages the gazctlcmd.ShardsCfg config.
 type cmdSplit struct {
-	Consumer      mbp.AddressConfig     `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	Shard         string                `long:"shard" required:"true" description:"Shard to split"`
 	SplitOnRClock bool                  `long:"split-rclock" description:"Split on rotated clock (instead of on key)"`
-	Log           mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics   mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+}
+
+func init() {
+	// Automatically register this command under the shards command
+	gazctlcmd.CommandRegistry.AddCommand("shards", "split", "Split a Flow processing shard", `
+Split a Flow processing shard into two, either on shuffled key or rotated clock.
+`, &cmdSplit{})
 }
 
 func (cmd cmdSplit) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
-	mbp.InitLog(cmd.Log)
+	mbp.InitLog(gazctlcmd.ShardsCfg.Log)
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
-	pb.RegisterGRPCDispatcher("local")
+	pb.RegisterGRPCDispatcher(gazctlcmd.ShardsCfg.Zone)
 
 	var ctx = context.Background()
 	ctx = pb.WithDispatchDefault(ctx)
-	var conn = cmd.Consumer.MustDial(ctx)
+	var conn = gazctlcmd.ShardsCfg.Consumer.MustDial(ctx)
 	var splitter = pf.NewSplitterClient(conn)
 
 	var resp, err = splitter.Split(ctx, &pf.SplitRequest{
