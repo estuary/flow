@@ -119,8 +119,8 @@ func TestReassignment(t *testing.T) {
 	require.NoError(t, bkA.WaitForConsistency(ctx, "foo/bar", &rt))
 	require.Equal(t, rt, pb.Route{
 		Members: []pb.ProcessSpec_ID{
-			{"zone", "broker-A"},
-			{"zone", "broker-B"},
+			{Zone: "zone", Suffix: "broker-A"},
+			{Zone: "zone", Suffix: "broker-B"},
 		},
 		Primary: 0,
 	})
@@ -135,8 +135,8 @@ func TestReassignment(t *testing.T) {
 	require.NoError(t, bkB.WaitForConsistency(ctx, "foo/bar", &rt))
 	require.Equal(t, rt, pb.Route{
 		Members: []pb.ProcessSpec_ID{
-			{"zone", "broker-B"},
-			{"zone", "broker-C"},
+			{Zone: "zone", Suffix: "broker-B"},
+			{Zone: "zone", Suffix: "broker-C"},
 		},
 		Primary: 0,
 	})
@@ -154,17 +154,11 @@ func TestGracefulStopTimeout(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	// Shorten the graceful stop timeout during this test.
-	defer func(d time.Duration) {
-		server.GracefulStopTimeout = d
-	}(server.GracefulStopTimeout)
-	server.GracefulStopTimeout = time.Millisecond * 50
-
 	var ctx = pb.WithDispatchDefault(context.Background())
 	var bkA = NewBroker(t, etcd, "zone", "broker-A")
 	var bkB = NewBroker(t, etcd, "zone", "broker-B")
 
-	// Journal is exclusively owned by |bkA|.
+	// Journal is owned by either |bkA| or |bkB| (they race).
 	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 1}))
 
 	var connA, rjcA = newDialedClient(t, bkA)
@@ -199,6 +193,15 @@ func TestGracefulStopTimeout(t *testing.T) {
 	n, err := httpResp.Body.Read(oneByte[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
+
+	// Shorten the graceful stop timeout for the remainder of this test.
+	// We don't want to do this before now, because CMux connections
+	// use its value to SetReadTimeout() of the socket prior to its
+	// being matched to a mux (which has happened at this point).
+	defer func(d time.Duration) {
+		server.GracefulStopTimeout = d
+	}(server.GracefulStopTimeout)
+	server.GracefulStopTimeout = time.Millisecond * 50
 
 	// Signal the broker to exit. It will, despite the hung RPCs,
 	// upon hitting the graceful-stop timeout.
