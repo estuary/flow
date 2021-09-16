@@ -115,6 +115,8 @@ func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ err
 
 // Advance implements Driver for a Cluster.
 func (c *Cluster) Advance(delta TestTime) error {
+	log.WithField("delta", delta).Debug("advancing time")
+	
 	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDeltaForTest), int64(delta))
 	var t2 = atomic.AddInt64((*int64)(&c.Consumer.Service.PublishClockDelta), int64(delta))
 	var total = time.Duration(t1)
