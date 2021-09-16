@@ -58,6 +58,8 @@ pub struct Combiner {
 
 impl Combiner {
     pub fn new(schema: Url, key: Rc<[Pointer]>) -> Combiner {
+        assert!(!key.is_empty());
+
         Combiner {
             schema: schema,
             entries: BTreeSet::new(),
