@@ -25,6 +25,8 @@ pub enum Error {
 /// API provides a derivation capability as a cgo::Service.
 pub struct API {
     state: State,
+    // Running tally of the total number of bytes allocated during all invocations of this API.
+    allocated_bytes: i64,
 }
 
 // State is the private inner state machine of the API.
@@ -41,7 +43,10 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        Self { state: State::Init }
+        Self {
+            state: State::Init,
+            allocated_bytes: 0,
+        }
     }
 
     fn invoke(
@@ -142,6 +147,10 @@ impl cgo::Service for API {
                 // If we poll to idle, drain the combiner and transition to Prepare.
                 // Otherwise we're still flushing.
                 if pipeline.poll_and_trampoline(arena, out)? {
+                    tracing::debug!(
+                    allocated_before_drain = ?self.allocated_bytes,
+                    "memory before draining"
+                               );
                     pipeline.drain(arena, out);
                     self.state = State::Prepare(pipeline);
                 } else {
@@ -156,8 +165,12 @@ impl cgo::Service for API {
             }
             _ => return Err(Error::InvalidState),
         }
-        let diff = mem_stats.current() - initial;
-        tracing::trace!(mem_initial = ?initial, mem_changes = ?diff, "mem changes");
+
+        // Get the difference in memory allocations for this invocation, and use it to update our
+        // running tally.
+        let diff = (mem_stats.current() - initial).total_allocated();
+        self.allocated_bytes += diff;
+        tracing::trace!(allocated_bytes = ?self.allocated_bytes, allocated_bytes_delta = ?diff, "mem usage");
         Ok(())
     }
 }
