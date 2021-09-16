@@ -30,6 +30,8 @@ pub enum Error {
     UTF8Error(#[from] std::str::Utf8Error),
     #[error(transparent)]
     Rusqlite(#[from] rusqlite::Error),
+    #[error("combined key cannot be empty")]
+    EmptyKey,
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
@@ -80,6 +82,15 @@ impl cgo::Service for API {
                     uuid_placeholder_ptr,
                 } = combine_api::Config::decode(data)?;
 
+                tracing::debug!(
+                    ?schema_index_memptr,
+                    ?schema_uri,
+                    ?key_ptr,
+                    ?field_ptrs,
+                    ?uuid_placeholder_ptr,
+                    "configure",
+                );
+
                 // Re-hydrate a &'static SchemaIndex from a provided memory address.
                 let schema_index_memptr = schema_index_memptr as usize;
                 let schema_index: &doc::SchemaIndex =
@@ -89,6 +100,9 @@ impl cgo::Service for API {
                 schema_index.must_fetch(&schema)?;
 
                 let key_ptrs: Vec<Pointer> = key_ptr.iter().map(Pointer::from).collect();
+                if key_ptrs.is_empty() {
+                    return Err(Error::EmptyKey);
+                }
 
                 self.state = Some(State {
                     combiner: Combiner::new(schema, key_ptrs.into()),
@@ -148,8 +162,11 @@ pub fn drain_combiner(
 ) {
     let key_ptrs = combiner.key().clone();
     tracing::debug!(
-        arenaLen = ?arena.len(),
-        nDocs = ?combiner.len(),
+        arena_len = ?arena.len(),
+        combiner_len = ?combiner.len(),
+        ?key_ptrs,
+        ?field_ptrs,
+        uuid_placeholder_ptr,
         "drain_combiner",
     );
     for (doc, fully_reduced) in combiner.drain_entries(uuid_placeholder_ptr) {
@@ -185,18 +202,17 @@ pub fn drain_combiner(
 
 #[cfg(test)]
 pub mod test {
-    use super::{super::test::build_min_max_sum_schema, Code, API};
+    use super::{super::test::build_min_max_sum_schema, Code, Error, API};
     use protocol::{cgo::Service, flow::combine_api};
     use serde_json::json;
 
     #[test]
     fn test_combine_api() {
-        let mut svc = API::create();
-
         // Not covered: opening the database and building a schema index.
         // Rather, we install a fixture here.
         let (index, schema_url) = build_min_max_sum_schema();
 
+        let mut svc = API::create();
         let mut arena = Vec::new();
         let mut out = Vec::new();
 
@@ -245,5 +261,30 @@ pub mod test {
             .unwrap();
 
         insta::assert_debug_snapshot!((String::from_utf8_lossy(&arena), out));
+    }
+
+    #[test]
+    fn test_combine_empty_key() {
+        let (index, schema_url) = build_min_max_sum_schema();
+
+        let mut svc = API::create();
+        let mut arena = Vec::new();
+        let mut out = Vec::new();
+
+        assert!(matches!(
+            svc.invoke_message(
+                Code::Configure as u32,
+                combine_api::Config {
+                    schema_index_memptr: index as *const doc::SchemaIndex<'static> as u64,
+                    schema_uri: schema_url.as_str().to_owned(),
+                    key_ptr: vec![],
+                    field_ptrs: vec![],
+                    uuid_placeholder_ptr: String::new(),
+                },
+                &mut arena,
+                &mut out,
+            ),
+            Err(Error::EmptyKey)
+        ));
     }
 }
