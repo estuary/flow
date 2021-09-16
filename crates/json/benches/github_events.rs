@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use json::de;
 use json::schema::{build::build_schema, index::IndexBuilder, CoreAnnotation};
-use json::validator::{FullContext, Validator};
+use json::validator::{SpanContext, Validator};
 use serde_json::Value;
 
 // Obtained as:
@@ -35,7 +35,7 @@ pub fn github_events(c: &mut Criterion) {
 
     for (s, scrape) in scrapes.iter().enumerate() {
         c.bench_function(&format!("scrape{}", s), |b| {
-            let mut val = Validator::<CoreAnnotation, FullContext>::new(&index);
+            let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
             b.iter(|| {
                 for (n, doc) in scrape.iter().enumerate() {
                     val.prepare(&schema.curi).unwrap();
