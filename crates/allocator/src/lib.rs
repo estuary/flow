@@ -50,12 +50,18 @@ pub struct ThreadStats {
     pub deallocated: u64,
 }
 
+impl ThreadStats {
+    pub fn total_allocated(&self) -> i64 {
+        self.allocated as i64 - self.deallocated as i64
+    }
+}
+
 impl std::ops::Sub for ThreadStats {
     type Output = ThreadStats;
     fn sub(self, rhs: Self) -> Self::Output {
         ThreadStats {
-            allocated: rhs.allocated - self.allocated,
-            deallocated: rhs.deallocated - self.deallocated,
+            allocated: self.allocated - rhs.allocated,
+            deallocated: self.deallocated - rhs.deallocated,
         }
     }
 }
@@ -162,5 +168,28 @@ unsafe impl GlobalAlloc for FlowAllocator {
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         REALLOCS_COUNT.fetch_add(1, Ordering::SeqCst);
         Jemalloc.realloc(ptr, layout, new_size)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_thread_local_mem_stats() {
+        let reader = ThreadStatsReader::new();
+        let start = reader.current();
+
+        let some_vec: Vec<u8> = Vec::with_capacity(8192);
+
+        let end = reader.current();
+
+        assert_eq!(8192, end.total_allocated() - start.total_allocated());
+        assert_eq!(8192, (end - start).total_allocated());
+
+        std::mem::drop(some_vec);
+
+        let end = reader.current();
+        assert_eq!(0, end.total_allocated() - start.total_allocated());
     }
 }
