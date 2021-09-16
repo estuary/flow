@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use json::de;
 use json::schema::{build::build_schema, index::IndexBuilder, CoreAnnotation};
-use json::validator::{FullContext, Validator};
+use json::validator::{SpanContext, Validator};
 use serde_json::{json, Value};
 
 const CITI_RIDES_SCHEMA: &[u8] = include_bytes!("testdata/citi-rides.schema.json");
@@ -26,7 +26,7 @@ pub fn citi_rides(c: &mut Criterion) {
         .collect::<Vec<_>>();
 
     c.bench_function("rides1x", |b| {
-        let mut val = Validator::<CoreAnnotation, FullContext>::new(&index);
+        let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
         let curi = url::Url::parse("http://bench/#/$defs/ride").unwrap();
 
         b.iter(|| {
@@ -40,7 +40,7 @@ pub fn citi_rides(c: &mut Criterion) {
     });
 
     c.bench_function("rides4x", |b| {
-        let mut val = Validator::<CoreAnnotation, FullContext>::new(&index);
+        let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
         let curi = url::Url::parse("http://bench/#/$defs/rideArray").unwrap();
 
         b.iter(|| {
