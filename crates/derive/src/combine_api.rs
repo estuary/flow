@@ -41,6 +41,8 @@ pub enum Error {
 /// API provides a combine capability as a cgo::Service.
 pub struct API {
     state: Option<State>,
+    // Running tally of the total number of bytes allocated during all invocations of this API.
+    allocated_bytes: i64,
 }
 
 struct State {
@@ -54,7 +56,10 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        Self { state: None }
+        Self {
+            state: None,
+            allocated_bytes: 0,
+        }
     }
 
     fn invoke(
@@ -81,6 +86,12 @@ impl cgo::Service for API {
                     field_ptrs,
                     uuid_placeholder_ptr,
                 } = combine_api::Config::decode(data)?;
+                tracing::debug!(
+                schema_index = ?schema_index_memptr,
+                schema_uri = ?schema_uri,
+                key_ptr = ?key_ptr,
+                "configuring combiner"
+                       );
 
                 tracing::debug!(
                     ?schema_index_memptr,
@@ -133,6 +144,10 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::Drain, Some(mut state)) => {
+                tracing::debug!(
+                allocated_before_drain = ?self.allocated_bytes,
+                "memory before draining"
+                           );
                 drain_combiner(
                     &mut state.combiner,
                     &state.uuid_placeholder_ptr,
@@ -147,8 +162,11 @@ impl cgo::Service for API {
             _ => Err(Error::InvalidState),
         };
 
-        let diff = mem_stats.current() - initial;
-        tracing::trace!(mem_initial = ?initial, mem_changes = ?diff, "mem changes");
+        // Get the difference in memory allocations for this invocation, and use it to update our
+        // running tally.
+        let diff = (mem_stats.current() - initial).total_allocated();
+        self.allocated_bytes += diff;
+        tracing::trace!(allocated_bytes = ?self.allocated_bytes, allocated_bytes_delta = ?diff, "mem usage");
         result
     }
 }
