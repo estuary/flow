@@ -1,9 +1,11 @@
 package testing
 
 import (
+	"errors"
 	"fmt"
 
 	pf "github.com/estuary/protocols/flow"
+	log "github.com/sirupsen/logrus"
 )
 
 // Driver executes test actions.
@@ -17,6 +19,8 @@ type Driver interface {
 	// Advance TestTime by the given delta.
 	Advance(TestTime) error
 }
+
+var ErrAdvanceDisabled = errors.New("advance disabled")
 
 // RunTestCase runs a test case using the given Graph and Driver.
 func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, err error) {
@@ -69,11 +73,16 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 
 		// Advance time to unblock the next PendingStat.
 		if nextReady != -1 {
-			if err := driver.Advance(nextReady); err != nil {
+			err := driver.Advance(nextReady)
+			if err == ErrAdvanceDisabled {
+				log.Warnf("time advance disabled with action in %s.", nextReady)
+			} else if err != nil {
 				return scope, fmt.Errorf("driver.Advance: %w", err)
+			} else {
+				// Advance completed
+				graph.CompletedAdvance(nextReady)
+				continue
 			}
-			graph.CompletedAdvance(nextReady)
-			continue
 		}
 
 		// All steps are completed, and no pending stats remain. All done.

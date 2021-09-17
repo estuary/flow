@@ -11,6 +11,10 @@ import (
 // to wall-clock time; test time is synthetically advanced as a test progresses.
 type TestTime time.Duration
 
+func (tt TestTime) String() string {
+	return time.Duration(tt).String()
+}
+
 // TaskName is a type wrapper of a CatalogTask.Name()
 // (which is itself a pf.Capture, pf.Collection (derivation), or pf.Materialization).
 type TaskName string
