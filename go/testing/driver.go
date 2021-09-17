@@ -115,6 +115,10 @@ func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ err
 
 // Advance implements Driver for a Cluster.
 func (c *Cluster) Advance(delta TestTime) error {
+	if !c.Config.DisableClockTicks {
+		panic("expected DisableClockTicks to be set")
+	}
+
 	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDeltaForTest), int64(delta))
 	var t2 = atomic.AddInt64((*int64)(&c.Consumer.Service.PublishClockDelta), int64(delta))
 	var total = time.Duration(t1)
