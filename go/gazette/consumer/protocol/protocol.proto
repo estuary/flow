@@ -33,6 +33,12 @@ enum Status {
   // expect_mod_revision of the UpdateRequest differs from the current
   // ModRevision of the ShardSpec within the store.
   ETCD_TRANSACTION_FAILED = 4;
+  // The current primary shard has stopped, either due to reassignment or
+  // processing failure, and will not make further progress toward the
+  // requested operation.
+  // For example, a Stat RPC will return SHARD_STOPPED if the StatRequest
+  // cannot be satisfied.
+  SHARD_STOPPED = 5;
 }
 
 // ShardSpec describes a shard and its configuration, and is the long-lived unit

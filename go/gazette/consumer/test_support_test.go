@@ -328,15 +328,18 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 	f.ks.Mu.RUnlock()
 }
 
-func (f *testFixture) writeTxnPubACKs() {
+func (f *testFixture) writeTxnPubACKs() []*client.AsyncAppend {
 	var intents, err = f.pub.BuildAckIntents()
 	require.NoError(f.t, err)
 
+	var appends []*client.AsyncAppend
 	for _, i := range intents {
 		var aa = f.ajc.StartAppend(pb.AppendRequest{Journal: i.Journal}, nil)
 		_, _ = aa.Writer().Write(i.Intent)
 		require.NoError(f.t, aa.Release())
+		appends = append(appends, aa)
 	}
+	return appends
 }
 
 func makeShard(id pc.ShardID) *pc.ShardSpec {
@@ -471,8 +474,20 @@ func runTransaction(tf *testFixture, s Shard, in map[string]string) {
 		var _, err = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: k, Value: v})
 		require.NoError(tf.t, err)
 	}
-	tf.writeTxnPubACKs()
-	<-(<-tf.app.finishedCh).Done() // Block until txn finishes.
+	var appends = tf.writeTxnPubACKs()
+
+	var offsets = make(pb.Offsets)
+	for _, aa := range appends {
+		require.NoError(tf.t, aa.Err())
+		offsets[aa.Request().Journal] = aa.Response().Commit.End
+	}
+
+	// Block until ACKs have been read through, or an error occurred.
+	var _, err = ShardStat(tf.tasks.Context(), tf.service, &pc.StatRequest{
+		Shard:       s.Spec().Id,
+		ReadThrough: offsets,
+	})
+	require.NoError(tf.t, err)
 }
 
 type testTimer struct {

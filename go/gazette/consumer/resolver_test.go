@@ -215,20 +215,31 @@ func TestResolverErrorCases(t *testing.T) {
 	})
 	require.Equal(t, context.Canceled, err)
 
-	// Case: Request context cancelled while waiting for store (which never resolves, because NewStore fails).
-	ctx, cancel = context.WithCancel(context.Background())
-	time.AfterFunc(time.Millisecond, cancel)
+	// Case: Store has failed and never becomes ready (because app.NewStore fails).
+	ctx = context.Background()
+	resp, err := tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardA})
+	require.Nil(t, err)
+	require.Equal(t, pc.Status_SHARD_STOPPED, resp.Status)
 
-	_, err = tf.resolver.Resolve(ResolveArgs{Context: ctx, ShardID: shardA})
-	require.Equal(t, context.Canceled, err)
-
-	// Case: Shard context is cancelled.
+	// Mock out that the store is in fact ready.
 	tf.state.KS.Mu.Lock()
-	tf.resolver.shards[shardA].cancel()
+	close(tf.resolver.shards[shardA].storeReadyCh)
 	tf.state.KS.Mu.Unlock()
 
-	_, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
-	require.Equal(t, context.Canceled, err)
+	// Precondition: an unconstrained Resolve does now work even though the shard has failed.
+	resp, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
+	require.Equal(t, pc.Status_OK, resp.Status)
+	require.Nil(t, err)
+	resp.Done()
+
+	// Case: But STOPPED is reported on read_through offsets which cannot be satisfied.
+	resp, err = tf.resolver.Resolve(ResolveArgs{
+		Context:     context.Background(),
+		ShardID:     shardA,
+		ReadThrough: pb.Offsets{sourceA.Name: 123456},
+	})
+	require.Equal(t, pc.Status_SHARD_STOPPED, resp.Status)
+	require.Nil(t, err)
 
 	// Case: Resolver is in the process of halting.
 	tf.resolver.stopServingLocalShards()

@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
@@ -202,15 +202,15 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 			case <-args.Context.Done():
 				err = args.Context.Err()
 				return
-			case <-shard.ctx.Done():
-				err = shard.ctx.Err()
+			case <-shard.primary.Done():
+				res.Status = pc.Status_SHARD_STOPPED
 				return
 			}
 			addTrace(args.Context, "<-shard.storeReadyCh")
 		}
 
+		// Determine a set of |readThrough| offsets to satisfy, if any.
 		var readThrough pb.Offsets
-
 		if mp, ok := shard.svc.App.(MessageProducer); ok {
 			readThrough, err = mp.ReadThrough(shard, shard.store, args)
 			if err != nil {
@@ -251,8 +251,8 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 			case <-args.Context.Done():
 				err = args.Context.Err()
 				return
-			case <-shard.ctx.Done():
-				err = shard.ctx.Err()
+			case <-shard.primary.Done():
+				res.Status = pc.Status_SHARD_STOPPED
 				return
 			}
 		}

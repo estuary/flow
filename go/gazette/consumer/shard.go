@@ -42,6 +42,7 @@ type shard struct {
 	publisher    *message.Publisher        // Publisher of messages from this shard.
 	clock        message.Clock             // Clock which sequences messages from this shard.
 	wg           sync.WaitGroup            // Synchronizes over references to the shard.
+	primary      *client.AsyncOperation    // Status of servePrimary.
 
 	// recovery of the shard from its log (if applicable).
 	recovery struct {
@@ -75,6 +76,7 @@ func newShard(svc *Service, item keyspace.KeyValue) *shard {
 		cancel:       cancel,
 		ajc:          client.NewAppendService(ctx, svc.Journals),
 		storeReadyCh: make(chan struct{}),
+		primary:      client.NewAsyncOperation(),
 	}
 	s.resolved.fqn = string(item.Raw.Key)
 	s.resolved.spec = item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
@@ -88,7 +90,7 @@ func newShard(svc *Service, item keyspace.KeyValue) *shard {
 	}
 	// Initialize |progress|. After completeRecovery(), Resolve() may begin
 	// returning this shard and/or test against |progress.readThrough|.
-	// From here on out, |progress| is only updated by txnBarrier().
+	// From here on out, |progress| is only updated from within runTransactions().
 	s.progress.signalCh = make(chan struct{})
 	s.progress.readThrough = make(pb.Offsets)
 	s.progress.publishAt = make(pb.Offsets)
@@ -201,6 +203,8 @@ func serveStandby(s *shard) (err error) {
 func servePrimary(s *shard) (err error) {
 	// Defer a trap which logs and updates Etcd status based on exit error.
 	defer func() {
+		s.primary.Resolve(err)
+
 		if err != nil && s.ctx.Err() == nil {
 			log.WithFields(log.Fields{"err": err, "shard": s.FQN()}).Error("servePrimary failed")
 
