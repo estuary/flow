@@ -1,39 +1,36 @@
 apiVersion: v1
-kind:       ServiceAccount
+kind: ServiceAccount
 metadata:
   name: crash-test-runner
   labels:
     app.kubernetes.io/name: crash-test
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind:       Role
+kind: Role
 metadata:
   name: crash-test-runner
   labels:
     app.kubernetes.io/name: crash-test
 rules:
-  - apiGroups:
-      - apps
-    resources:
-      - pods
-    verbs:
-      - list
-      - get
-      - watch
-      - delete
-      - exec
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind:       RoleBinding
+kind: RoleBinding
 metadata:
   name: crash-test-runner
   labels:
     app.kubernetes.io/name: crash-test
 subjects:
-  - kind:     ServiceAccount
-    name:     crash-test-runner
+  - kind: ServiceAccount
+    name: crash-test-runner
     apiGroup: ""
 roleRef:
-  kind:     Role
-  name:     crash-test-runner
+  kind: Role
+  name: crash-test-runner
   apiGroup: rbac.authorization.k8s.io
