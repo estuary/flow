@@ -127,9 +127,13 @@ func (a *testApplication) NewMessage(*pb.JournalSpec) (message.Message, error) {
 func (a *testApplication) BeginTxn(Shard, Store) error { return a.beginErr }
 
 func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.Envelope, pub *message.Publisher) error {
+	if a.consumeErr != nil {
+		return a.consumeErr
+	}
+
 	var msg = env.Message.(*testMessage)
 	if message.GetFlags(msg.UUID) == message.Flag_ACK_TXN {
-		return a.consumeErr
+		return nil
 	}
 
 	switch s := store.(type) {
@@ -147,7 +151,7 @@ func (a *testApplication) ConsumeMessage(shard Shard, store Store, env message.E
 	if _, err := pub.PublishUncommitted(toEchoOut, msg); err != nil {
 		return err
 	}
-	return a.consumeErr
+	return nil
 }
 
 func (a *testApplication) FinalizeTxn(Shard, Store, *message.Publisher) error { return a.finalizeErr }

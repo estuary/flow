@@ -497,6 +497,153 @@ func TestIdleTxnUpdatesProgressOnDuplicateACKs(t *testing.T) {
 	require.Equal(t, shard.progress.readThrough[sourceA.Name], aa.Response().Commit.End)
 }
 
+func TestTxnMaxDurWithinDequeueSequence(t *testing.T) {
+	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
+	defer cleanup()
+
+	var (
+		cp          = playAndComplete(t, shard)
+		msgCh       = make(chan EnvelopeOrError, 1)
+		priorCommit = client.NewAsyncOperation()
+		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
+		prior       = transaction{
+			commitBarrier: priorCommit,
+			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
+		}
+		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
+		txn            = transaction{}
+		_              = shard.store.(*JSONFileStore)
+	)
+	startReadingMessages(shard, cp, msgCh)
+	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
+
+	// Write a committed message sequence which opens the stream.
+	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "one", Value: "1"})
+	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "two", Value: "2"})
+	var aa = tf.writeTxnPubACKs()[0]
+	require.NoError(t, aa.Err())
+
+	// Run until first message is processed. Second and ACK remain to dequeue.
+	for shard.sequencer.Dequeued == nil {
+		var _, err = txnStep(shard, &txn, &prior)
+		require.NoError(t, err)
+	}
+	var _, err = txnStep(shard, &txn, &prior) // Consume first message.
+	require.NoError(t, err)
+
+	// Signal that |maxDur| has elapsed. No further messages are read.
+	timer.timepoint = faketime(maxDur)
+	timer.signal()
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	require.Nil(t, txn.readCh) // Nil'd to stop further message processing.
+
+	// |prior| commits and ACKs.
+	priorCommit.Resolve(nil)
+	priorAck.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// Poll once more to commit.
+	require.True(t, mustTxnStep(t, shard, &txn, &prior))
+
+	verifyStoreAndEchoOut(t, shard, map[string]string{"one": "1"})
+	require.NotNil(t, shard.sequencer.Dequeued)
+	require.Greater(t, aa.Response().Commit.End,
+		txn.checkpoint.Sources[sourceA.Name].ReadThrough)
+
+	// Next transaction starts, and processes remaining messages.
+	prior, txn = txn, prior
+	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// |minDur| elapses.
+	timer.timepoint = faketime(maxDur + minDur)
+	timer.signal()
+	require.NoError(t, txnRun(shard, &txn, &prior)) // Run remainder.
+
+	// Only *now* have we processed through the original sequence.
+	verifyStoreAndEchoOut(t, shard, map[string]string{"one": "1", "two": "2"})
+	require.Equal(t, aa.Response().Commit.End,
+		txn.checkpoint.Sources[sourceA.Name].ReadThrough)
+}
+
+func TestAppDeferWithinDequeueSequence(t *testing.T) {
+	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
+	defer cleanup()
+
+	var (
+		cp          = playAndComplete(t, shard)
+		msgCh       = make(chan EnvelopeOrError, 1)
+		priorCommit = client.NewAsyncOperation()
+		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
+		prior       = transaction{
+			commitBarrier: priorCommit,
+			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
+		}
+		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
+		txn            = transaction{}
+		_              = shard.store.(*JSONFileStore)
+	)
+	startReadingMessages(shard, cp, msgCh)
+	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
+
+	// Write a committed message sequence which opens the stream.
+	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "one", Value: "1"})
+	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "two", Value: "2"})
+	var aa = tf.writeTxnPubACKs()[0]
+	require.NoError(t, aa.Err())
+
+	// Run through until we've processed the first message.
+	for shard.sequencer.Dequeued == nil {
+		var _, err = txnStep(shard, &txn, &prior)
+		require.NoError(t, err)
+	}
+	var _, err = txnStep(shard, &txn, &prior) // Consume first message.
+	require.NoError(t, err)
+
+	// Application elects to defer further processing.
+	tf.app.consumeErr = ErrDeferToNextTransaction
+	require.False(t, mustTxnStep(t, shard, &txn, &prior)) // Attempt to consume second message.
+	require.Nil(t, txn.readCh)                            // Nil'd to stop further message processing.
+
+	// |prior| commits and ACKs.
+	priorCommit.Resolve(nil)
+	priorAck.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// Signal that |minDur| has elapsed.
+	timer.timepoint = faketime(maxDur)
+	timer.signal()
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// Poll once more to commit.
+	require.True(t, mustTxnStep(t, shard, &txn, &prior))
+
+	verifyStoreAndEchoOut(t, shard, map[string]string{"one": "1"})
+	require.NotNil(t, shard.sequencer.Dequeued)
+	require.Greater(t, aa.Response().Commit.End,
+		txn.checkpoint.Sources[sourceA.Name].ReadThrough)
+
+	// Next transaction starts, and processes remaining messages.
+	prior, txn = txn, prior
+	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
+	tf.app.consumeErr = nil // Don't error again.
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+
+	// |minDur| elapses.
+	timer.timepoint = faketime(maxDur + minDur)
+	timer.signal()
+	require.NoError(t, txnRun(shard, &txn, &prior)) // Run remainder.
+
+	// Only *now* have we processed through the original sequence.
+	verifyStoreAndEchoOut(t, shard, map[string]string{"one": "1", "two": "2"})
+	require.Equal(t, aa.Response().Commit.End,
+		txn.checkpoint.Sources[sourceA.Name].ReadThrough)
+}
+
 func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
 	defer cleanup()
@@ -576,6 +723,11 @@ func TestRunTxnsAppErrorCases(t *testing.T) {
 			expectFinish: true,
 		},
 		{
+			fn:           func() { tf.app.consumeErr = ErrDeferToNextTransaction },
+			expectErr:    "consumer transaction is empty, but application deferred the first message",
+			expectFinish: true,
+		},
+		{
 			fn:           func() { tf.app.beginErr = errors.New("begin error") },
 			expectErr:    "app.BeginTxn: begin error",
 			expectFinish: false,
@@ -597,7 +749,7 @@ func mustTxnStep(t require.TestingT, s *shard, txn, prior *transaction) bool {
 	var done, err = txnStep(s, txn, prior)
 	require.NoError(t, err)
 
-	for s.sequencer.Dequeued != nil {
+	for txn.readCh != nil && s.sequencer.Dequeued != nil {
 		done, err = txnStep(s, txn, prior)
 		require.NoError(t, err)
 	}
