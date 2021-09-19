@@ -9,6 +9,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/labels"
+	"go.gazette.dev/core/message"
 )
 
 func TestReadMessages(t *testing.T) {
@@ -81,6 +82,13 @@ func TestShardTransitionsWithRecovery(t *testing.T) {
 		var res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 		require.NoError(t, err)
 
+		// Write a partial transaction, which won't commit until after recovery.
+		// This exercises replay across recovery boundaries.
+		var replayPub = message.NewPublisher(tf.ajc, nil)
+		_, err = replayPub.PublishUncommitted(toSourceA, &testMessage{Key: "re", Value: "play"})
+		require.NoError(tf.t, err)
+
+		// Run transactions of the primary (test fixture) publisher.
 		runTransaction(tf, res.Shard, map[string]string{"foo": "bar", "one": "1"})
 		runTransaction(tf, res.Shard, map[string]string{"foo": "baz", "two": "2"})
 		verifyStoreAndEchoOut(t, res.Shard.(*shard),
@@ -101,10 +109,19 @@ func TestShardTransitionsWithRecovery(t *testing.T) {
 		res, err = tf.resolver.Resolve(ResolveArgs{Context: context.Background(), ShardID: shardA})
 		require.NoError(t, err)
 
+		// Now write ACK of |replayPub|.
+		var intents, _ = replayPub.BuildAckIntents()
+		for _, i := range intents {
+			var aa = tf.ajc.StartAppend(pb.AppendRequest{Journal: i.Journal}, nil)
+			_, _ = aa.Writer().Write(i.Intent)
+			require.NoError(t, aa.Release())
+			require.NoError(t, aa.Err())
+		}
+
 		// Expect the shard resumed from the former's store and message sequence.
 		runTransaction(tf, res.Shard, map[string]string{"foo": "zing", "three": "3"})
 		verifyStoreAndEchoOut(t, res.Shard.(*shard),
-			map[string]string{"foo": "zing", "one": "1", "two": "2", "three": "3"})
+			map[string]string{"foo": "zing", "one": "1", "two": "2", "three": "3", "re": "play"})
 
 		// Cleanup.
 		res.Done()
