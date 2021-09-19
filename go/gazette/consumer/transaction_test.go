@@ -3,12 +3,14 @@ package consumer
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
 )
 
@@ -422,6 +424,77 @@ func TestTxnReadChannelDrain(t *testing.T) {
 	require.Equal(t, txn.stalledAt, faketime(minDur))
 	require.Equal(t, txn.prepareBeganAt, faketime(minDur))
 	require.Equal(t, txn.prepareDoneAt, faketime(minDur))
+}
+
+func TestIdleTxnUpdatesProgressOnDuplicateACKs(t *testing.T) {
+	var tf, shard, cleanup = newTestFixtureWithIdleShard(t)
+	defer cleanup()
+
+	var (
+		cp          = playAndComplete(t, shard)
+		msgCh       = make(chan EnvelopeOrError, 1)
+		priorCommit = client.NewAsyncOperation()
+		priorAck    = client.NewAsyncOperation()
+		timer       = newTestTimer()
+		prior       = transaction{
+			commitBarrier: priorCommit,
+			acks:          OpFutures{priorAck: {}},
+			prepareDoneAt: timer.timepoint,
+			checkpoint: pc.Checkpoint{
+				Sources: make(map[pb.Journal]pc.Checkpoint_Source),
+			},
+		}
+		txn = transaction{}
+	)
+
+	// Install a fixture such that all messages of this publisher are duplicates.
+	shard.sequencer = message.NewSequencer(
+		pc.FlattenReadThrough(cp),
+		[]message.ProducerState{
+			{
+				JournalProducer: message.JournalProducer{
+					Journal:  sourceA.Name,
+					Producer: tf.pub.ProducerID(),
+				},
+				LastAck: math.MaxUint64 - 1,
+				Begin:   -1,
+			},
+		},
+		12,
+	)
+	startReadingMessages(shard, cp, msgCh)
+	txnInit(shard, &txn, &prior, msgCh, timer.txnTimer)
+
+	// A duplicate message is received, which does not begin a transaction.
+	aa, _ := tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "1"})
+	require.NoError(t, aa.Err())
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	require.Equal(t, 0, txn.consumedCount) // None read yet.
+
+	// |prior| checkpoint was updated with duplicate offset extent.
+	require.Equal(t, pc.Checkpoint_Source{ReadThrough: aa.Response().Commit.End},
+		prior.checkpoint.Sources[sourceA.Name])
+
+	// |prior| commits and ACKs.
+	var signalCh = shard.progress.signalCh
+	priorCommit.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	priorAck.Resolve(nil)
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	<-signalCh // Progress updated.
+
+	require.Equal(t, shard.progress.readThrough[sourceA.Name], aa.Response().Commit.End)
+
+	// Another duplicate message is received. Again it doesn't begin a transaction.
+	aa, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "1"})
+	require.NoError(t, aa.Err())
+
+	// This time progress is updated directly, since there's no running prior transaction.
+	signalCh = shard.progress.signalCh
+	require.False(t, mustTxnStep(t, shard, &txn, &prior))
+	require.Equal(t, 0, txn.consumedCount) // None read yet.
+	<-signalCh
+	require.Equal(t, shard.progress.readThrough[sourceA.Name], aa.Response().Commit.End)
 }
 
 func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {

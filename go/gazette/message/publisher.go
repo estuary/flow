@@ -64,6 +64,9 @@ func NewPublisher(ajc client.AsyncJournalClient, clock *Clock) *Publisher {
 	return p
 }
 
+// ProducerID returns the ProducerID of this Publisher.
+func (p *Publisher) ProducerID() ProducerID { return p.producer }
+
 // PublishCommitted maps the Message to a Journal and begins an AsyncAppend of
 // its marshaled content, with a UUID sequenced for immediate consumption.
 // An error is returned if:
