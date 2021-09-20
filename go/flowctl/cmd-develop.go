@@ -183,16 +183,12 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 	// Apply capture shard specs.
 	if err = applyCaptureShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying capture shards: %w", err)
-	}
-	// Apply derivation shard specs.
-	if err = applyDerivationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
+	} else if err = applyDerivationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
-	}
-	// Apply materialization shards.
-	if err = applyMaterializationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
+	} else if err = applyMaterializationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying materialization shards: %w", err)
 	} else if err = cluster.WaitForShardsToAssign(); err != nil {
-		return err
+		return fmt.Errorf("waiting for shards to assign: %w", err)
 	}
 
 	if cmd.Poll {
