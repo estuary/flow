@@ -201,6 +201,9 @@ pub fn drain_combiner(
 
         // Send packed key.
         let begin = arena.len();
+        // Update arena_len with each component of the key so that we can assert that every
+        // component of the key extends the arena by at least one byte.
+        let mut arena_len = begin;
         let mut null_count = 0;
         for p in key_ptrs.iter() {
             let v = p.query(&doc).unwrap_or(&Value::Null);
@@ -209,6 +212,13 @@ pub fn drain_combiner(
             }
             // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
             let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+            if arena.len() <= arena_len {
+                panic!(
+                    "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
+                    p, v, doc
+                );
+            }
+            arena_len = arena.len();
         }
         if null_count == key_ptrs.len() {
             tracing::debug!(out_pos = ?out.len(), arena_pos = ?begin, doc = ?doc, "extracted null key")
