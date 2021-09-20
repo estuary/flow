@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"testing"
 
@@ -147,14 +148,14 @@ func TestProtoRecordBreaks(t *testing.T) {
 }
 
 func TestStderrCapture(t *testing.T) {
-	var s = new(connectorStderr)
+	var s = connectorStderr{delegate: ioutil.Discard}
 
 	var n, err = s.Write([]byte("whoops"))
 	require.Equal(t, 6, n)
 	require.NoError(t, err)
-	require.Equal(t, "whoops", s.err.String())
+	require.Equal(t, "whoops", s.buffer.String())
 
 	// Expect it caps the amount of output collected.
 	s.Write(bytes.Repeat([]byte("x"), maxStderrBytes))
-	require.Equal(t, maxStderrBytes, s.err.Len())
+	require.Equal(t, maxStderrBytes, s.buffer.Len())
 }
