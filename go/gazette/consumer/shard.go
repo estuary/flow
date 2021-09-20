@@ -24,8 +24,8 @@ const (
 	// be rather large, to minimize processing stalls. The current value will
 	// tolerate a data delay of up to 82ms @ 100K messages / sec without stalling.
 	messageBufferSize = 1 << 13 // 8192.
-	// Size of the ring buffer used by message.Sequencer.
-	messageRingSize = messageBufferSize
+	// Size of the ring buffer used by message.Sequencer if the ShardSpec doesn't specify.
+	defaultMessageRingSize = messageBufferSize
 	// Maximum interval between the newest and an older producer within a journal,
 	// before the message sequencer will prune the older producer state.
 	messageSequencerPruneHorizon = time.Hour * 24
@@ -248,10 +248,14 @@ func servePrimary(s *shard) (err error) {
 			startReadingMessages(s, cp, msgCh)
 		}
 
+		var ringSize = s.Spec().RingBufferSize
+		if ringSize == 0 {
+			ringSize = defaultMessageRingSize
+		}
 		s.sequencer = message.NewSequencer(
 			pc.FlattenReadThrough(cp),
 			pc.FlattenProducerStates(cp),
-			messageRingSize,
+			int(ringSize),
 		)
 
 		if err = runTransactions(s, cp, msgCh, hintsCh); err != nil {

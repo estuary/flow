@@ -204,6 +204,17 @@ message ShardSpec {
   // produced -- an ACK which can't arrive until the transaction closes.
   bool disable_wait_for_ack = 11
       [ (gogoproto.moretags) = "yaml:\"disable_wait_for_ack,omitempty\"" ];
+
+  // Size of the ring buffer used to sequence read-uncommitted messages
+  // into consumed, read-committed ones. The ring buffer is a performance
+  // optimization only: applications will replay portions of journals as
+  // needed when messages aren't available in the buffer.
+  // It can remain small if source journal transactions are small,
+  // but larger transactions will achieve better performance with a
+  // larger ring.
+  // If zero, a reasonable default (currently 8192) is used.
+  uint32 ring_buffer_size = 12
+      [ (gogoproto.moretags) = "yaml:\"ring_buffer_size,omitempty\"" ];
 }
 
 // ConsumerSpec describes a Consumer process instance and its configuration.

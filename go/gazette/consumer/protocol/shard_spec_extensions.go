@@ -143,7 +143,7 @@ func UnionShardSpecs(a, b ShardSpec) ShardSpec {
 	if a.MinTxnDuration == 0 {
 		a.MinTxnDuration = b.MinTxnDuration
 	}
-	if a.Disable == false {
+	if !a.Disable {
 		a.Disable = b.Disable
 	}
 	if a.HotStandbys == 0 {
@@ -151,8 +151,11 @@ func UnionShardSpecs(a, b ShardSpec) ShardSpec {
 	}
 	a.LabelSet = pb.UnionLabelSets(a.LabelSet, b.LabelSet, pb.LabelSet{})
 
-	if a.DisableWaitForAck == false {
+	if !a.DisableWaitForAck {
 		a.DisableWaitForAck = b.DisableWaitForAck
+	}
+	if a.RingBufferSize == 0 {
+		a.RingBufferSize = b.RingBufferSize
 	}
 	return a
 }
@@ -189,6 +192,9 @@ func IntersectShardSpecs(a, b ShardSpec) ShardSpec {
 	if a.DisableWaitForAck != b.DisableWaitForAck {
 		a.DisableWaitForAck = false
 	}
+	if a.RingBufferSize != b.RingBufferSize {
+		a.RingBufferSize = 0
+	}
 	return a
 }
 
@@ -223,6 +229,9 @@ func SubtractShardSpecs(a, b ShardSpec) ShardSpec {
 
 	if a.DisableWaitForAck == b.DisableWaitForAck {
 		a.DisableWaitForAck = false
+	}
+	if a.RingBufferSize == b.RingBufferSize {
+		a.RingBufferSize = 0
 	}
 	return a
 }
