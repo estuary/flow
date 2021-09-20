@@ -27,6 +27,8 @@ func CaptureResponseChannel(stream pc.Driver_CaptureClient) <-chan CaptureRespon
 	var ch = make(chan CaptureResponse, 4)
 	go func() {
 		for {
+			// Use Recv because ownership of |m| is transferred to |ch|,
+			// and |m| cannot be reused.
 			var m, err = stream.Recv()
 
 			if err == nil {
@@ -43,6 +45,32 @@ func CaptureResponseChannel(stream pc.Driver_CaptureClient) <-chan CaptureRespon
 	}()
 
 	return ch
+}
+
+// Rx receives from a CaptureResponse channel.
+// It destructures CaptureResponse into its parts,
+// and also returns an explicit io.EOF for channel closures.
+func Rx(ch <-chan CaptureResponse, block bool) (*pc.CaptureResponse, error) {
+	var rx CaptureResponse
+	var ok bool
+
+	if block {
+		rx, ok = <-ch
+	} else {
+		select {
+		case rx, ok = <-ch:
+		default:
+			ok = true
+		}
+	}
+
+	if !ok {
+		return nil, io.EOF
+	} else if rx.Error != nil {
+		return nil, rx.Error
+	} else {
+		return rx.CaptureResponse, nil
+	}
 }
 
 // AdaptServerToClient wraps an in-process DriverServer to provide a DriverClient.

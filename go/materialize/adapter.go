@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// TransactionRequest is a channel-oriented wrapper of pf.TransactionRequest.
-type TransactionRequest struct {
+// transactionRequest is a channel-oriented wrapper of pf.transactionRequest.
+type transactionRequest struct {
 	*pm.TransactionRequest
 	Error error
 }
@@ -54,6 +54,32 @@ func TransactionResponseChannel(stream pm.Driver_TransactionsClient) <-chan Tran
 	return ch
 }
 
+// Rx receives from a TransactionResponse channel.
+// It destructures TransactionResponse into its parts,
+// and also returns an explicit io.EOF for channel closures.
+func Rx(ch <-chan TransactionResponse, block bool) (*pm.TransactionResponse, error) {
+	var rx TransactionResponse
+	var ok bool
+
+	if block {
+		rx, ok = <-ch
+	} else {
+		select {
+		case rx, ok = <-ch:
+		default:
+			ok = true
+		}
+	}
+
+	if !ok {
+		return nil, io.EOF
+	} else if rx.Error != nil {
+		return nil, rx.Error
+	} else {
+		return rx.TransactionResponse, nil
+	}
+}
+
 // AdaptServerToClient wraps an in-process DriverServer to provide a DriverClient.
 func AdaptServerToClient(srv pm.DriverServer) pm.DriverClient {
 	return adapter{srv}
@@ -75,7 +101,7 @@ func (a adapter) Apply(ctx context.Context, in *pm.ApplyRequest, opts ...grpc.Ca
 }
 
 func (a adapter) Transactions(ctx context.Context, opts ...grpc.CallOption) (pm.Driver_TransactionsClient, error) {
-	var reqCh = make(chan TransactionRequest, 4)
+	var reqCh = make(chan transactionRequest, 4)
 	var respCh = make(chan TransactionResponse, 4)
 	var doneCh = make(chan struct{})
 
@@ -107,7 +133,7 @@ func (a adapter) Transactions(ctx context.Context, opts ...grpc.CallOption) (pm.
 
 type adapterStreamClient struct {
 	ctx  context.Context
-	tx   chan<- TransactionRequest
+	tx   chan<- transactionRequest
 	rx   <-chan TransactionResponse
 	done <-chan struct{}
 }
@@ -118,7 +144,7 @@ func (a *adapterStreamClient) Context() context.Context {
 
 func (a *adapterStreamClient) Send(m *pm.TransactionRequest) error {
 	select {
-	case a.tx <- TransactionRequest{TransactionRequest: m}:
+	case a.tx <- transactionRequest{TransactionRequest: m}:
 		return nil
 	case <-a.done:
 		// The server already closed the RPC, revoking our ability to transmit.
@@ -149,7 +175,7 @@ func (a *adapterStreamClient) RecvMsg(m interface{}) error  { panic("not impleme
 type adapterStreamServer struct {
 	ctx context.Context
 	tx  chan<- TransactionResponse
-	rx  <-chan TransactionRequest
+	rx  <-chan transactionRequest
 }
 
 var _ pm.Driver_TransactionsServer = new(adapterStreamServer)
