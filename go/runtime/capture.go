@@ -161,10 +161,8 @@ func (c *Capture) serveDriverTransactions(
 	// Restore the largest Clock value previously recorded in the Checkpoint.
 	var clock message.Clock
 	for _, n := range []pb.Journal{txnJournal.Name, eofJournal.Name} {
-		if src := cp.Sources[n]; src != nil {
-			if c := message.Clock(src.ReadThrough); c > clock {
-				clock = c
-			}
+		if c := message.Clock(cp.Sources[n].ReadThrough); c > clock {
+			clock = c
 		}
 	}
 
