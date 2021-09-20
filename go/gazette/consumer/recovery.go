@@ -11,13 +11,12 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/labels"
-	"go.gazette.dev/core/message"
 	"google.golang.org/grpc/codes"
 )
 
@@ -312,8 +311,6 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		}
 	}
 
-	s.publisher = message.NewPublisher(s.ajc, &s.clock)
-	s.sequencer = message.NewSequencer(pc.FlattenProducerStates(cp), messageRingSize)
 	close(s.storeReadyCh) // Unblocks Resolve().
 
 	return cp, nil

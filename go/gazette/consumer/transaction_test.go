@@ -2,10 +2,10 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -28,7 +28,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
-		txn            = transaction{readThrough: make(pb.Offsets)}
+		txn            = transaction{}
 		store          = shard.store.(*JSONFileStore)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -64,7 +64,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	require.Equal(t, message.NewClock(txn.beganAt.Add(time.Hour))+1, shard.clock) // Shard clock was updated.
 
 	// Expect it continues to block.
-	require.True(t, txnBlocks(shard, &txn, &prior))
+	require.True(t, txnBlocks(shard, &txn))
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "2"})
 	require.Equal(t, false, mustTxnStep(t, shard, &txn, &prior))
 
@@ -75,7 +75,7 @@ func TestTxnPriorSyncsThenMinDurElapses(t *testing.T) {
 	require.Equal(t, maxDur-minDur, timer.reset) // Was Reset to |maxDur| remainder.
 
 	// Consume additional ready message.
-	require.False(t, txnBlocks(shard, &txn, &prior))
+	require.False(t, txnBlocks(shard, &txn))
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "3"})
 	msgCh <- <-msgCh // Ensure message is buffered.
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
@@ -121,7 +121,7 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
-		txn            = transaction{readThrough: make(pb.Offsets)}
+		txn            = transaction{}
 		store          = shard.store.(*JSONFileStore)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -149,7 +149,7 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 	require.False(t, prior.committedAt.IsZero())
 	require.True(t, prior.ackedAt.IsZero())
 
-	require.True(t, txnBlocks(shard, &txn, &prior)) // Still blocking.
+	require.True(t, txnBlocks(shard, &txn)) // Still blocking.
 
 	// |prior| ACKs.
 	timer.timepoint = faketime(minDur + 2)
@@ -158,7 +158,7 @@ func TestTxnMinDurElapsesThenPriorSyncs(t *testing.T) {
 	require.False(t, prior.ackedAt.IsZero())
 
 	// Consume additional ready message.
-	require.False(t, txnBlocks(shard, &txn, &prior))
+	require.False(t, txnBlocks(shard, &txn))
 	_, _ = tf.pub.PublishCommitted(toSourceA, &testMessage{Key: "key", Value: "3"})
 	msgCh <- <-msgCh // Ensure message is buffered.
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
@@ -204,7 +204,7 @@ func TestTxnMaxDurElapsesThenPriorSyncs(t *testing.T) {
 			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
-		txn            = transaction{readThrough: make(pb.Offsets)}
+		txn            = transaction{}
 		store          = shard.store.(*JSONFileStore)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -281,7 +281,7 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
-		txn            = transaction{readThrough: make(pb.Offsets)}
+		txn            = transaction{}
 		store          = shard.store.(*JSONFileStore)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -310,26 +310,26 @@ func TestTxnDoesntStartUntilFirstACK(t *testing.T) {
 	require.Equal(t, minDur, timer.reset) // Was Reset to |minDur|.
 	require.Equal(t, 4, txn.consumedCount)
 
-	require.True(t, txnBlocks(shard, &txn, &prior))
+	require.True(t, txnBlocks(shard, &txn))
 
 	// |minDur| has elapsed.
 	timer.timepoint = faketime(time.Second + minDur)
 	timer.signal()
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
-	require.Equal(t, maxDur-minDur, timer.reset)     // Was Reset to |maxDur| remainder.
-	require.False(t, txnBlocks(shard, &txn, &prior)) // May now commit.
+	require.Equal(t, maxDur-minDur, timer.reset) // Was Reset to |maxDur| remainder.
+	require.False(t, txnBlocks(shard, &txn))     // May now commit.
 
 	// Another ready, pending message is read.
 	_, _ = tf.pub.PublishUncommitted(toSourceA, &testMessage{Key: "D", Value: "v"})
 	msgCh <- <-msgCh // Ensure message is buffered.
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
-	require.True(t, txnBlocks(shard, &txn, &prior)) // Wait for ACK.
+	require.True(t, txnBlocks(shard, &txn)) // Wait for ACK.
 
 	// ACK pending message, and read.
 	timer.timepoint = faketime(time.Second + minDur + 1)
 	tf.writeTxnPubACKs()
 	require.False(t, mustTxnStep(t, shard, &txn, &prior))
-	require.False(t, txnBlocks(shard, &txn, &prior)) // May commit again.
+	require.False(t, txnBlocks(shard, &txn)) // May commit again.
 
 	// |msgCh| stalls, and the transaction begins to commit.
 	timer.timepoint = faketime(time.Second + minDur + 2)
@@ -372,7 +372,7 @@ func TestTxnReadChannelDrain(t *testing.T) {
 			prepareDoneAt: timer.timepoint,
 		}
 		minDur, maxDur = shard.Spec().MinTxnDuration, shard.Spec().MaxTxnDuration
-		txn            = transaction{readThrough: make(pb.Offsets)}
+		txn            = transaction{}
 		store          = shard.store.(*JSONFileStore)
 	)
 	startReadingMessages(shard, cp, msgCh)
@@ -462,7 +462,7 @@ func TestRunTxnsUpdatesRecordedHints(t *testing.T) {
 	startReadingMessages(shard, cp, msgCh)
 
 	go func() {
-		require.Equal(t, context.Canceled, errors.Cause(runTransactions(shard, cp, msgCh, hintsCh)))
+		require.True(t, errors.Is(runTransactions(shard, cp, msgCh, hintsCh), context.Canceled))
 	}()
 	// Precondition: recorded hints are not set.
 	require.Len(t, etcdGet(t, tf.etcd, shard.Spec().HintPrimaryKey()).Kvs, 0)
@@ -523,5 +523,10 @@ func TestRunTxnsAppErrorCases(t *testing.T) {
 func mustTxnStep(t require.TestingT, s *shard, txn, prior *transaction) bool {
 	var done, err = txnStep(s, txn, prior)
 	require.NoError(t, err)
+
+	for s.sequencer.Dequeued != nil {
+		done, err = txnStep(s, txn, prior)
+		require.NoError(t, err)
+	}
 	return done
 }

@@ -1,11 +1,11 @@
 package consumer
 
 import (
+	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -26,21 +26,19 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 			Now:   time.Now,
 		}
 		prev = transaction{
-			readThrough:   pc.FlattenReadThrough(cp),
+			checkpoint:    cp,
 			commitBarrier: client.FinishedOperation(nil),
 			acks:          make(OpFutures),
 			prepareDoneAt: txnTimer.Now(),
 		}
-		txn = transaction{
-			readThrough: make(pb.Offsets),
-		}
+		txn = transaction{}
 	)
 	<-realTimer.C // Timer starts as idle.
 
 	// Begin by acknowledging (or re-acknowledging) messages published as part
 	// of the most-recent recovered transaction checkpoint.
 	if err := txnAcknowledge(s, &prev, cp); err != nil {
-		return errors.WithMessage(err, "txnAcknowledge(recovered Checkpoint)")
+		return fmt.Errorf("txnAcknowledge(recovered Checkpoint): %w", err)
 	}
 
 	for {
@@ -51,7 +49,7 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 				err = storeRecordedHints(s, hints)
 			}
 			if err != nil {
-				return errors.WithMessage(err, "storeRecordedHints")
+				return fmt.Errorf("storeRecordedHints: %w", err)
 			}
 			continue
 		default:
@@ -74,9 +72,9 @@ type transaction struct {
 	waitForAck     bool                   // Wait for ACKs of pending messages read this txn?
 	barrierCh      <-chan struct{}        // Next barrier of previous transaction to resolve.
 	readCh         <-chan EnvelopeOrError // Message source. Nil'd upon reaching |maxDur|.
-	readThrough    pb.Offsets             // Offsets read through this transaction.
 	consumedCount  int                    // Number of acknowledged Messages consumed.
 	consumedBytes  int64                  // Number of acknowledged Message bytes consumed.
+	checkpoint     pc.Checkpoint          // Checkpoint upon the commit of this transaction.
 	commitBarrier  OpFuture               // Barrier at which this transaction commits.
 	acks           OpFutures              // ACKs of published messages, queued on |commitBarrier|.
 
@@ -96,7 +94,6 @@ func txnInit(s *shard, txn, prev *transaction, readCh <-chan EnvelopeOrError, ti
 
 	*txn = transaction{
 		readCh:            readCh,
-		readThrough:       txn.readThrough,
 		acks:              make(OpFutures, len(prev.acks)),
 		timer:             timer,
 		minDur:            spec.MinTxnDuration,
@@ -104,9 +101,6 @@ func txnInit(s *shard, txn, prev *transaction, readCh <-chan EnvelopeOrError, ti
 		waitForAck:        !spec.DisableWaitForAck,
 		barrierCh:         prev.commitBarrier.Done(),
 		prevPrepareDoneAt: prev.prepareDoneAt,
-	}
-	for j, o := range prev.readThrough {
-		txn.readThrough[j] = o
 	}
 }
 
@@ -117,7 +111,7 @@ func txnRun(s *shard, txn, prev *transaction) error {
 		done, err = txnStep(s, txn, prev)
 	}
 
-	if bf, ok := s.svc.App.(BeginFinisher); ok && txn.consumedCount != 0 {
+	if bf, ok := s.svc.App.(BeginFinisher); ok && !txn.beganAt.IsZero() {
 		if err != nil {
 			bf.FinishedTxn(s, s.store, client.FinishedOperation(err))
 		} else {
@@ -127,27 +121,47 @@ func txnRun(s *shard, txn, prev *transaction) error {
 	return err
 }
 
-func txnBlocks(s *shard, txn, prev *transaction) bool {
+func txnBlocks(s *shard, txn *transaction) bool {
 	// We always block to await a prior commit.
 	if txn.barrierCh != nil {
 		return true
 	}
-	// We otherwise don't block if we're no longer reading messages.
-	if txn.readCh == nil {
+	// We don't block if the read channel has drained and no
+	// transaction has been started (and now cannot ever start).
+	if txn.readCh == nil && txn.consumedCount == 0 {
 		return false
 	}
 	// Block if we haven't consumed messages yet.
 	return txn.consumedCount == 0 ||
 		// Or if the minimum batching duration hasn't elapsed.
 		txn.minDur != -1 ||
-		// Or if the maximum batching duration hasn't elapsed, and a sequence
-		// started this transaction awaits an ACK which we want to wait for.
-		(txn.waitForAck && txn.maxDur != -1 && s.sequencer.HasPending(prev.readThrough))
+		// Or if the maximum batching duration hasn't elapsed, we're still
+		// reading messages, and a sequence started this transaction
+		// awaits an ACK which we want to wait for.
+		(txn.waitForAck && txn.readCh != nil && txn.maxDur != -1 && s.sequencer.HasPending())
 }
 
 // txnStep steps the transaction one time, and returns true iff it has started to commit.
 func txnStep(s *shard, txn, prev *transaction) (bool, error) {
-	if txnBlocks(s, txn, prev) {
+
+	// Attempt to consume a dequeued, committed message.
+	if txn.readCh != nil && s.sequencer.Dequeued != nil {
+		// Poll for a timer tick.
+		select {
+		case tick := <-txn.timer.C:
+			return false, txnTick(s, txn, tick)
+		default:
+			// No ready tick.
+		}
+
+		if err := txnConsume(s, txn); err != nil {
+			return false, err
+		} else {
+			return false, nil // We consumed one message.
+		}
+	}
+
+	if txnBlocks(s, txn) {
 		select {
 		case env, ok := <-txn.readCh:
 			return false, txnRead(s, txn, prev, env, ok)
@@ -170,9 +184,9 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 	if txn.consumedCount == 0 {
 		return true, nil // |readCh| has closed and drained.
 	} else if cp, err := txnStartCommit(s, txn); err != nil {
-		return false, errors.WithMessage(err, "txnStartCommit")
+		return false, fmt.Errorf("txnStartCommit: %w", err)
 	} else if err = txnAcknowledge(s, txn, cp); err != nil {
-		return false, errors.WithMessage(err, "txnAcknowledge")
+		return false, fmt.Errorf("txnAcknowledge: %w", err)
 	}
 
 	// If the timer is still running, stop and drain it.
@@ -187,80 +201,98 @@ func txnRead(s *shard, txn, prev *transaction, env EnvelopeOrError, ok bool) err
 		txn.readCh = nil // Channel is closed, don't select it again.
 		return nil
 	} else if env.Error != nil {
-		return errors.WithMessage(env.Error, "readMessage")
+		return fmt.Errorf("readMessage: %w", env.Error)
 	}
-	txn.readThrough[env.Journal.Name] = env.End
 
 	// DEPRECATED metrics to be removed:
 	bytesConsumedTotal.Add(float64(env.End - env.Begin))
 	readHeadGauge.WithLabelValues(env.Journal.Name.String()).Set(float64(env.End))
 	// End DEPRECATED metrics.
 
-	if !s.sequencer.QueueUncommitted(env.Envelope) {
-		// Envelope is a continuation of an ongoing sequence of messages.
-		// No need to dequeue for committed messages (there are none).
-		return nil
-	}
+	// |env| is read-uncommitted. Queue and act on its sequencing outcome.
+	var outcome = s.sequencer.QueueUncommitted(env.Envelope)
 
-	for {
-		switch deq, err := s.sequencer.DequeCommitted(); err {
-		case nil:
-			if err = txnConsume(s, txn, deq); err != nil {
-				return err
-			}
+	switch outcome {
+	case message.QueueAckCommitReplay:
 
-		case io.EOF:
-			if txn.consumedCount != 0 {
-				// We're inside a current transaction. Take no action.
-			} else if txn.barrierCh != nil {
-				// We're outside of a current transaction, but a previous one is still
-				// committing. Extend it's readThrough, which hasn't yet been reported
-				// as progress, to include this no-op envelope.
-				prev.readThrough[env.Journal.Name] = env.End
-			} else {
-				// We're currently idle, and must update progress to reflect that
-				// |env| was read. If we didn't do this, then a Stat RPC
-				// could stall indefinitely if its read-through offsets include a
-				// message which doesn't cause a transaction to begin (such as a
-				// duplicate ACK), and no further messages are forthcoming.
-				signalProgress(s, func(readThrough, _ pb.Offsets) {
-					readThrough[env.Journal.Name] = env.End
-				})
-			}
-			return nil
+		var journal, from, to = s.sequencer.ReplayRange()
+		var it message.Iterator
 
-		case message.ErrMustStartReplay:
-			var from, to = s.sequencer.ReplayRange()
-			var it message.Iterator
-
-			if mp, ok := s.svc.App.(MessageProducer); ok {
-				it = mp.ReplayRange(s, s.store, deq.Journal.Name, from, to)
-			} else {
-				var rr = client.NewRetryReader(s.ctx, s.ajc, pb.ReadRequest{
-					Journal:    deq.Journal.Name,
-					Offset:     from,
-					EndOffset:  to,
-					Block:      true,
-					DoNotProxy: !s.ajc.IsNoopRouter(),
-				})
-				it = message.NewReadUncommittedIter(rr, s.svc.App.NewMessage)
-			}
-			s.sequencer.StartReplay(it)
-
-		default:
-			return errors.WithMessage(err, "dequeCommitted")
+		if mp, ok := s.svc.App.(MessageProducer); ok {
+			it = mp.ReplayRange(s, s.store, journal, from, to)
+		} else {
+			var rr = client.NewRetryReader(s.ctx, s.ajc, pb.ReadRequest{
+				Journal:    journal,
+				Offset:     from,
+				EndOffset:  to,
+				Block:      true,
+				DoNotProxy: !s.ajc.IsNoopRouter(),
+			})
+			it = message.NewReadUncommittedIter(rr, s.svc.App.NewMessage)
 		}
+		s.sequencer.StartReplay(it)
+		fallthrough
+
+	case message.QueueAckCommitRing, message.QueueAckEmpty, message.QueueOutsideCommit:
+
+		// Acknowledged messages are ready to dequeue.
+		// We don't expect io.EOF here (we'll minimally dequeue |env| itself).
+		if err := s.sequencer.Step(); err != nil {
+			return fmt.Errorf("initial sequencer.Step: %w", err)
+		}
+		return nil
+
+	case message.QueueContinueBeginSpan, message.QueueContinueExtendSpan:
+
+		// A transactional message was enqueued,
+		// and we expect to see a forthcoming commit or rollback.
+		return nil
+
+	case message.QueueAckRollback,
+		message.QueueContinueAlreadyAcked,
+		message.QueueContinueTxnClockLarger,
+		message.QueueOutsideAlreadyAcked:
+
+		// This was a duplicated message and there's no reason to expect it will
+		// be followed by further messages.
+
+		if txn.consumedCount != 0 {
+			// We're inside a current transaction, and read progress will be
+			// reported on its commit. Take no action.
+		} else if txn.barrierCh != nil {
+			// We're outside of a current transaction, but a previous one is still
+			// committing. Extend it's checkpoint, which hasn't yet been reported
+			// as progress, to include this no-op envelope. Note that this doesn't
+			// change the persisted checkpoint (that's already been serialized).
+			// It serves only to report progress for Stat RPCs.
+			var s = prev.checkpoint.Sources[env.Journal.Name]
+			s.ReadThrough = env.End
+			prev.checkpoint.Sources[env.Journal.Name] = s
+		} else {
+			// We're currently idle, and must update progress to reflect that
+			// |env| was read. If we didn't do this, then a Stat RPC
+			// could stall indefinitely if its read-through offsets include a
+			// message which doesn't cause a transaction to begin (such as a
+			// duplicate ACK), and no further messages are forthcoming.
+			signalProgress(s, func(readThrough, _ pb.Offsets) {
+				readThrough[env.Journal.Name] = env.End
+			})
+		}
+		return nil
+
+	default:
+		panic(fmt.Errorf("unhandled outcome %v", outcome))
 	}
 }
 
-func txnConsume(s *shard, txn *transaction, env message.Envelope) error {
+func txnConsume(s *shard, txn *transaction) error {
 	// Does this message begin the transaction?
 	if txn.consumedCount == 0 {
 		if ba, ok := s.svc.App.(BeginFinisher); ok {
 			// BeginTxn may block arbitrarily, for example by obtaining a
 			// semaphore to constrain maximum concurrency.
 			if err := ba.BeginTxn(s, s.store); err != nil {
-				return errors.WithMessage(err, "app.BeginTxn")
+				return fmt.Errorf("app.BeginTxn: %w", err)
 			}
 		}
 		txn.beganAt = txn.timer.Now()
@@ -269,13 +301,28 @@ func txnConsume(s *shard, txn *transaction, env message.Envelope) error {
 		var delta = atomic.LoadInt64((*int64)(&s.svc.PublishClockDelta))
 		s.clock.Update(txn.beganAt.Add(time.Duration(delta)))
 	}
-	txn.consumedCount++
-	txn.consumedBytes += (env.End - env.Begin)
 
-	if err := s.svc.App.ConsumeMessage(s, s.store, env, s.publisher); err != nil {
-		return errors.WithMessage(err, "app.ConsumeMessage")
+	var err = s.svc.App.ConsumeMessage(s, s.store, *s.sequencer.Dequeued, s.publisher)
+
+	if err == ErrDeferToNextTransaction && txn.consumedCount == 0 {
+		return fmt.Errorf("consumer transaction is empty, but application deferred the first message")
+	} else if err == ErrDeferToNextTransaction {
+		txn.readCh = nil // Stop reading further messages.
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("app.ConsumeMessage: %w", err)
 	}
-	return nil
+
+	txn.consumedCount++
+	txn.consumedBytes += (s.sequencer.Dequeued.End - s.sequencer.Dequeued.Begin)
+
+	if err := s.sequencer.Step(); err == io.EOF {
+		// sequencer.Dequeued is now nil, and a further call to txnStep
+		// will queue additional ready read-uncommitted messages.
+	} else if err != nil {
+		return fmt.Errorf("sequencer.Step: %w", err)
+	}
+	return nil // sequencer.Dequeued is the next message to consume.
 }
 
 func txnTick(_ *shard, txn *transaction, tick time.Time) error {
@@ -311,7 +358,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 
 	if prev.committedAt.IsZero() {
 		if prev.commitBarrier.Err() != nil {
-			return errors.WithMessage(prev.commitBarrier.Err(), "store.StartCommit")
+			return fmt.Errorf("store.StartCommit: %w", prev.commitBarrier.Err())
 		}
 		prev.committedAt = now
 	}
@@ -322,7 +369,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 		select {
 		case <-ack.Done(): // Already resolved?
 			if ack.Err() != nil {
-				return errors.WithMessage(ack.Err(), "prev.ack")
+				return fmt.Errorf("prev.ack: %w", ack.Err())
 			}
 		default:
 			txn.barrierCh = ack.Done()
@@ -337,8 +384,8 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 
 	// Signal shard progress from results of |prev| transaction.
 	signalProgress(s, func(readThrough, publishAt pb.Offsets) {
-		for j, o := range prev.readThrough {
-			readThrough[j] = o
+		for journal, source := range prev.checkpoint.Sources {
+			readThrough[journal] = source.ReadThrough
 		}
 		for op := range prev.acks {
 			if ack, ok := op.(*client.AsyncAppend); ok {
@@ -357,17 +404,15 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 
 	var err = s.svc.App.FinalizeTxn(s, s.store, s.publisher)
 	if err != nil {
-		return pc.Checkpoint{}, errors.WithMessage(err, "app.FinalizeTxn")
+		return pc.Checkpoint{}, fmt.Errorf("app.FinalizeTxn: %w", err)
 	}
 
-	var bca = pc.BuildCheckpointArgs{
-		ReadThrough:    txn.readThrough,
-		ProducerStates: s.sequencer.ProducerStates(messageSequencerPruneHorizon),
-	}
+	var offsets, states = s.sequencer.Checkpoint(messageSequencerPruneHorizon)
+	var bca = pc.BuildCheckpointArgs{ReadThrough: offsets, ProducerStates: states}
 	if bca.AckIntents, err = s.publisher.BuildAckIntents(); err != nil {
-		return pc.Checkpoint{}, errors.WithMessage(err, "publisher.BuildAckIntents")
+		return pc.Checkpoint{}, fmt.Errorf("publisher.BuildAckIntents: %w", err)
 	}
-	var cp = pc.BuildCheckpoint(bca)
+	txn.checkpoint = pc.BuildCheckpoint(bca)
 
 	// Collect pending journal writes before we start to commit. We'll require
 	// that the Store wait on all |waitFor| operations before it commits, to
@@ -376,10 +421,10 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 	// which step past those messages.
 	var waitFor = s.ajc.PendingExcept(s.recovery.log)
 
-	txn.commitBarrier = s.store.StartCommit(s, cp, waitFor)
+	txn.commitBarrier = s.store.StartCommit(s, txn.checkpoint, waitFor)
 	txn.prepareDoneAt = txn.timer.Now()
 
-	return cp, nil
+	return txn.checkpoint, nil
 }
 
 func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
@@ -397,7 +442,7 @@ func txnAcknowledge(s *shard, txn *transaction, cp pc.Checkpoint) error {
 		_, _ = aa.Writer().Write(ack)
 
 		if err := aa.Release(); err != nil {
-			return errors.WithMessage(err, "writing ACK")
+			return fmt.Errorf("writing ACK: %w", err)
 		}
 		txn.acks[aa] = struct{}{}
 	}
@@ -434,10 +479,10 @@ func recordMetrics(s *shard, txn *transaction) {
 	shardTxnTotal.WithLabelValues(s.FQN()).Inc()
 	shardReadMsgsTotal.WithLabelValues(s.FQN()).Add(float64(txn.consumedCount))
 	shardReadBytesTotal.WithLabelValues(s.FQN()).Add(float64(txn.consumedBytes))
-	for journal, offset := range txn.readThrough {
+	for journal, source := range txn.checkpoint.Sources {
 		shardReadHeadGauge.
 			WithLabelValues(s.FQN(), journal.String()).
-			Set(float64(offset))
+			Set(float64(source.ReadThrough))
 	}
 
 	var (
@@ -465,3 +510,9 @@ type txnTimer struct {
 	Stop  func() bool
 	Now   func() time.Time
 }
+
+// ErrDeferToNextTransaction may be returned by Application.ConsumeMessage to
+// indicate that processing of the Envelope should be deferred to a following
+// transaction. It's an error to return it on the very first message of the
+// transaction (it cannot be empty).
+var ErrDeferToNextTransaction = fmt.Errorf("consumer application deferred message")

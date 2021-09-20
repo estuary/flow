@@ -3,15 +3,15 @@ package consumer
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -408,8 +408,18 @@ func expectStatusCode(t require.TestingT, state *allocator.State, code pc.Replic
 func playAndComplete(t require.TestingT, shard *shard) pc.Checkpoint {
 	go func() { require.NoError(t, beginRecovery(shard)) }()
 
+	// This steps are ordinarily done by servePrimary(),
+	// which we're not running in order to instead build
+	// a shard that we can manually drive within our test.
 	var cp, err = completeRecovery(shard)
 	require.NoError(t, err)
+
+	shard.publisher = message.NewPublisher(shard.ajc, &shard.clock)
+	shard.sequencer = message.NewSequencer(
+		pc.FlattenReadThrough(cp),
+		pc.FlattenProducerStates(cp),
+		messageRingSize,
+	)
 	return cp
 }
 
@@ -439,12 +449,12 @@ func verifyStoreAndEchoOut(t require.TestingT, s *shard, expect map[string]strin
 		client.NewRetryReader(context.Background(), s.ajc,
 			pb.ReadRequest{Journal: echoOut.Name}),
 		new(testApplication).NewMessage,
-		message.NewSequencer(nil, 16))
+		message.NewSequencer(nil, nil, 16))
 
 	var m = make(map[string]string)
 	for {
 		var env, err = it.Next()
-		if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
+		if errors.Is(err, client.ErrOffsetNotYetAvailable) {
 			require.Equal(t, expect, m)
 			return
 		}

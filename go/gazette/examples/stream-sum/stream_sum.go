@@ -28,6 +28,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc64"
 	"io"
@@ -35,7 +36,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -116,7 +116,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 
 	var chunksMapping, err = newChunkMapping(ctx, rjc)
 	if err != nil {
-		return errors.Wrap(err, "building chunks mapping")
+		return fmt.Errorf("building chunks mapping: %w", err)
 	}
 
 	// Issue an empty append transaction (a write barrier) to determine the
@@ -126,7 +126,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 		_, err = <-barrier.Done(), barrier.Err()
 	}
 	if err != nil {
-		return errors.Wrap(err, "writing barrier")
+		return fmt.Errorf("writing barrier: %w", err)
 	}
 
 	// All workers share a Publisher.
@@ -211,7 +211,7 @@ func (Summer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consume
 				ON CONFLICT(id) DO UPDATE SET seq_no=:seqno, val=:val;`,
 		)
 	default:
-		return nil, errors.Errorf("expected ShardSpec label 'store' to be one"+
+		return nil, fmt.Errorf("expected ShardSpec label 'store' to be one"+
 			" of 'rocksdb' or 'sqlite' (got %q)", v)
 	}
 }
@@ -494,10 +494,10 @@ func verify(emit func(Chunk), chunkCh <-chan Chunk, verifyCh, actualCh <-chan Su
 func pumpSums(rr *client.RetryReader, ch chan<- Sum) {
 	var it = message.NewReadCommittedIter(rr,
 		func(spec *pb.JournalSpec) (i message.Message, e error) { return new(Sum), nil },
-		message.NewSequencer(nil, 16))
+		message.NewSequencer(nil, nil, 16))
 
 	for {
-		if env, err := it.Next(); errors.Cause(err) == context.Canceled || err == io.EOF {
+		if env, err := it.Next(); errors.Is(err, context.Canceled) || err == io.EOF {
 			return
 		} else if err != nil {
 			log.WithField("err", err).Fatal("reading sum")

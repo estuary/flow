@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -232,7 +232,9 @@ func servePrimary(s *shard) (err error) {
 		defer t.Stop()
 		hintsCh = t.C
 	}
+
 	// Run consumer transactions until an error occurs (such as context.Cancelled).
+	s.publisher = message.NewPublisher(s.ajc, &s.clock)
 	for {
 		var msgCh = make(chan EnvelopeOrError, messageBufferSize)
 
@@ -241,6 +243,12 @@ func servePrimary(s *shard) (err error) {
 		} else {
 			startReadingMessages(s, cp, msgCh)
 		}
+
+		s.sequencer = message.NewSequencer(
+			pc.FlattenReadThrough(cp),
+			pc.FlattenProducerStates(cp),
+			messageRingSize,
+		)
 
 		if err = runTransactions(s, cp, msgCh, hintsCh); err != nil {
 			return errors.WithMessage(err, "runTransactions")
@@ -254,7 +262,6 @@ func servePrimary(s *shard) (err error) {
 		if err != nil {
 			return errors.WithMessage(err, "restart store.RestoreCheckpoint")
 		}
-		s.sequencer = message.NewSequencer(pc.FlattenProducerStates(cp), messageRingSize)
 	}
 }
 
@@ -332,10 +339,8 @@ func startReadingMessages(s *shard, cp pc.Checkpoint, ch chan<- EnvelopeOrError)
 	for _, src := range s.Spec().Sources {
 
 		// Lower-bound checkpoint offset to the ShardSpec.Source.MinOffset.
-		var offset int64
-		if s := cp.Sources[src.Journal]; s != nil {
-			offset = s.ReadThrough
-		}
+		var offset = cp.Sources[src.Journal].ReadThrough
+
 		if offset < src.MinOffset {
 			offset = src.MinOffset
 		}
