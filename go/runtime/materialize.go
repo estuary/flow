@@ -131,12 +131,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	}
 
 	// Read Opened response with driver's Checkpoint.
-	var opened = <-m.driverRx
-	if opened.Error != nil {
-		return pc.Checkpoint{}, fmt.Errorf("reading Opened: %w", opened.Error)
+	opened, err := materialize.Rx(m.driverRx, true)
+	if err != nil {
+		return pc.Checkpoint{}, fmt.Errorf("reading Opened: %w", err)
 	} else if opened.Opened == nil {
-		return pc.Checkpoint{}, fmt.Errorf("expected Opened, got %#v",
-			opened.TransactionResponse.String())
+		return pc.Checkpoint{}, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
 
 	// Release left-over Combiners (if any), then initialize combiners and
@@ -202,10 +201,9 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 
 	// Drain remaining Loaded responses, until we read Prepared.
 	for {
-		var next = <-m.driverRx
-		if next.Error != nil {
+		if next, err := materialize.Rx(m.driverRx, true); err != nil {
 			return client.FinishedOperation(fmt.Errorf(
-				"reading Loaded or Prepared: %w", next.Error))
+				"reading Loaded or Prepared: %w", err))
 		} else if next.Loaded != nil {
 			if err := m.reduceLoaded(next.Loaded); err != nil {
 				return client.FinishedOperation(err)
@@ -218,9 +216,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 		} else {
 			// Protocol error.
 			return client.FinishedOperation(fmt.Errorf(
-				"expected Loaded or Prepared, got %#v",
-				next.TransactionResponse.String(),
-			))
+				"expected Loaded or Prepared, got %#v", next.String()))
 		}
 	}
 
@@ -330,12 +326,10 @@ func drainBinding(
 }
 
 func awaitCommitted(driverRx <-chan materialize.TransactionResponse, result *client.AsyncOperation) {
-	var m = <-driverRx
-
-	if m.Error != nil {
-		result.Resolve(fmt.Errorf("reading Committed: %w", m.Error))
-	} else if m.Committed == nil {
-		result.Resolve(fmt.Errorf("expected Committed, got %#v", m.TransactionResponse))
+	if rx, err := materialize.Rx(driverRx, true); err != nil {
+		result.Resolve(fmt.Errorf("reading Committed: %w", err))
+	} else if rx.Committed == nil {
+		result.Resolve(fmt.Errorf("expected Committed, got %#v", rx))
 	} else {
 		result.Resolve(nil)
 	}
@@ -366,21 +360,14 @@ func (m *Materialize) BeginTxn(shard consumer.Shard) error {
 // pollLoaded selects and processes Loaded responses which can be read without blocking.
 func (m *Materialize) pollLoaded() error {
 	for {
-		var resp materialize.TransactionResponse
-		select {
-		case resp = <-m.driverRx:
-		default:
-			return nil
-		}
-
-		if resp.Error != nil {
-			return fmt.Errorf("reading Loaded: %w", resp.Error)
-		} else if resp.Loaded != nil {
-			if err := m.reduceLoaded(resp.Loaded); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("expected Loaded, got %#v", resp.TransactionResponse)
+		if resp, err := materialize.Rx(m.driverRx, false); err != nil {
+			return fmt.Errorf("reading Loaded: %w", err)
+		} else if resp == nil {
+			return nil // Nothing to poll.
+		} else if resp.Loaded == nil {
+			return fmt.Errorf("expected Loaded, got %#v", resp)
+		} else if err := m.reduceLoaded(resp.Loaded); err != nil {
+			return err
 		}
 	}
 }

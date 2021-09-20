@@ -126,11 +126,10 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 	}
 	var driverRx = capture.CaptureResponseChannel(driverStream)
 
-	var opened = <-driverRx
-	if opened.Error != nil {
-		return nil, fmt.Errorf("reading Opened: %w", opened.Error)
+	if opened, err := capture.Rx(driverRx, true); err != nil {
+		return nil, fmt.Errorf("reading Opened: %w", err)
 	} else if opened.Opened == nil {
-		return nil, fmt.Errorf("expected Opened, got %#v", opened.CaptureResponse.String())
+		return nil, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
 
 	return driverRx, nil
