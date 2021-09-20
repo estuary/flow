@@ -11,6 +11,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/testing"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -194,10 +195,18 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		return err
 	}
 
-	if !cmd.Poll {
-		// We may have bound a random port. Let the user know which one.
-		fmt.Println("Listening at: ", cluster.Server.Endpoint().URL())
+	if cmd.Poll {
+		return doPoll(ctx, cluster, built)
 	}
+
+	// We may have bound a random port. Let the user know which one.
+	fmt.Println("Listening at: ", cluster.Server.Endpoint().URL())
+	<-ctx.Done() // Wait to be signaled before exiting.
+
+	return nil
+}
+
+func doPoll(ctx context.Context, cluster *testing.Cluster, built *catalog.BuiltCatalog) error {
 
 	cluster.Consumer.Journals.KeySpace.Mu.RLock()
 	var header = pbx.FromEtcdResponseHeader(cluster.Consumer.Journals.Header)
@@ -260,14 +269,9 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		)
 	}
 
-	_, err = testing.RunTestCase(graph, cluster, &pf.TestSpec{})
+	var _, err = testing.RunTestCase(graph, cluster, &pf.TestSpec{})
 	if ctx.Err() == nil && err != nil {
 		return fmt.Errorf("polling the catalog: %w", err)
-	}
-
-	if !cmd.Poll {
-		log.Info("finished polling the catalog")
-		<-ctx.Done() // Wait to be signaled before exiting.
 	}
 
 	return nil
