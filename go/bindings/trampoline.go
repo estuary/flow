@@ -81,7 +81,7 @@ func (s *trampolineServer) startTask(request []byte) {
 		"id":      taskID,
 		"code":    taskCode,
 		"decoded": decoded,
-	}).Debug("serving trampoline task")
+	}).Trace("serving trampoline task")
 
 	s.wg.Add(1)
 	go func() {
@@ -104,7 +104,7 @@ func (s *trampolineServer) startTask(request []byte) {
 			"code":    taskCode,
 			"decoded": decoded,
 			"err":     err,
-		}).Debug("resolving trampoline task")
+		}).Trace("resolving trampoline task")
 
 		select {
 		case s.resolvedCh <- response:
