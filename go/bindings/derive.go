@@ -372,6 +372,7 @@ func newDeriveInvokeHandler(shardFqn string, derivation *pf.DerivationSpec, tsCl
 		var lambda *pf.LambdaSpec
 		var lambdaType string
 		var timer *prometheus.Timer
+
 		if invoke.RegistersLength != 0 {
 			lambda = transform.PublishLambda
 			lambdaType = "publish"
@@ -382,7 +383,7 @@ func newDeriveInvokeHandler(shardFqn string, derivation *pf.DerivationSpec, tsCl
 			timer = prometheus.NewTimer(updateLambdaTimes)
 		}
 		defer timer.ObserveDuration()
-		log.WithField("lambda", lambda).Debug("invoking lambda")
+
 		var tr = trace.New("flow.Lambda", shardFqn)
 		// Add additional information lazily. This will only be evaluated when the /debug/requests
 		// page is actually rendered.
