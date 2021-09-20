@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jgraettinger/gorocksdb"
 	"github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
-	"github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -90,7 +90,7 @@ func TestStoreCommitAndRecover(t *testing.T) {
 	// Begin a commit which won't finish until |waitFor| resolves.
 	var waitFor = client.NewAsyncOperation()
 	var commitOp = store.StartCommit(nil, pc.Checkpoint{
-		Sources: map[pb.Journal]*pc.Checkpoint_Source{
+		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/A": {ReadThrough: 1234},
 		},
 	}, client.OpFutures{waitFor: {}})
@@ -106,7 +106,7 @@ func TestStoreCommitAndRecover(t *testing.T) {
 	checkpoint, err = store.RestoreCheckpoint(nil)
 	require.NoError(t, err)
 	require.Equal(t, pc.Checkpoint{
-		Sources: map[pb.Journal]*pc.Checkpoint_Source{
+		Sources: map[pb.Journal]pc.Checkpoint_Source{
 			"journal/A": {ReadThrough: 1234},
 		},
 	}, checkpoint)

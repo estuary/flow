@@ -271,8 +271,10 @@ message Checkpoint {
   }
 
   // Sources is metadata of journals consumed by the shard.
-  map<string, Source> sources = 1
-      [ (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  map<string, Source> sources = 1 [
+    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
+    (gogoproto.nullable) = false
+  ];
 
   // AckIntents is acknowledgement intents to be written to journals to which
   // uncommitted messages were published during the transaction which produced

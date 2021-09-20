@@ -15,16 +15,15 @@ type BuildCheckpointArgs struct {
 // BuildCheckpoint builds a Checkpoint message instance from the arguments.
 func BuildCheckpoint(args BuildCheckpointArgs) Checkpoint {
 	var cp = Checkpoint{
-		Sources:    make(map[pb.Journal]*Checkpoint_Source, len(args.ReadThrough)),
+		Sources:    make(map[pb.Journal]Checkpoint_Source, len(args.ReadThrough)),
 		AckIntents: make(map[pb.Journal][]byte, len(args.AckIntents)),
 	}
 	for j, o := range args.ReadThrough {
-		cp.Sources[j] = &Checkpoint_Source{
-			ReadThrough: o,
-		}
+		cp.Sources[j] = Checkpoint_Source{ReadThrough: o}
 	}
 	for _, p := range args.ProducerStates {
-		cp.Sources[p.Journal].Producers = append(cp.Sources[p.Journal].Producers,
+		var source = cp.Sources[p.Journal]
+		source.Producers = append(source.Producers,
 			Checkpoint_Source_ProducerEntry{
 				Id: append([]byte(nil), p.Producer[:]...),
 				State: Checkpoint_ProducerState{
@@ -32,6 +31,8 @@ func BuildCheckpoint(args BuildCheckpointArgs) Checkpoint {
 					Begin:   p.Begin,
 				},
 			})
+		// Update because |source| is by-value.
+		cp.Sources[p.Journal] = source
 	}
 	for _, ack := range args.AckIntents {
 		cp.AckIntents[ack.Journal] = ack.Intent

@@ -3,9 +3,9 @@ package protocol
 import (
 	"sort"
 
-	gc "gopkg.in/check.v1"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
+	gc "gopkg.in/check.v1"
 )
 
 type CheckpointSuite struct{}
@@ -52,7 +52,7 @@ func (s *CheckpointSuite) TestRoundTrip(c *gc.C) {
 		"baz":  []byte("intent"),
 		"bing": []byte("other-intent"),
 	})
-	c.Check(cp.Sources, gc.DeepEquals, map[pb.Journal]*Checkpoint_Source{
+	c.Check(cp.Sources, gc.DeepEquals, map[pb.Journal]Checkpoint_Source{
 		"foo": {
 			ReadThrough: 111,
 			Producers: []Checkpoint_Source_ProducerEntry{
