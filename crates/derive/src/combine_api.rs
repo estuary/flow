@@ -201,10 +201,17 @@ pub fn drain_combiner(
 
         // Send packed key.
         let begin = arena.len();
+        let mut null_count = 0;
         for p in key_ptrs.iter() {
             let v = p.query(&doc).unwrap_or(&Value::Null);
+            if v.is_null() {
+                null_count += 1;
+            }
             // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
             let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+        }
+        if null_count == key_ptrs.len() {
+            tracing::debug!(out_pos = ?out.len(), arena_pos = ?begin, doc = ?doc, "extracted null key")
         }
         cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
 
