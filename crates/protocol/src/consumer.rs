@@ -112,6 +112,16 @@ pub struct ShardSpec {
     /// produced -- an ACK which can't arrive until the transaction closes.
     #[prost(bool, tag="11")]
     pub disable_wait_for_ack: bool,
+    /// Size of the ring buffer used to sequence read-uncommitted messages
+    /// into consumed, read-committed ones. The ring buffer is a performance
+    /// optimization only: applications will replay portions of journals as
+    /// needed when messages aren't available in the buffer.
+    /// It can remain small if source journal transactions are small,
+    /// but larger transactions will achieve better performance with a
+    /// larger ring.
+    /// If zero, a reasonable default (currently 8192) is used.
+    #[prost(uint32, tag="12")]
+    pub ring_buffer_size: u32,
 }
 /// Nested message and enum types in `ShardSpec`.
 pub mod shard_spec {
@@ -425,4 +435,10 @@ pub enum Status {
     /// expect_mod_revision of the UpdateRequest differs from the current
     /// ModRevision of the ShardSpec within the store.
     EtcdTransactionFailed = 4,
+    /// The current primary shard has stopped, either due to reassignment or
+    /// processing failure, and will not make further progress toward the
+    /// requested operation.
+    /// For example, a Stat RPC will return SHARD_STOPPED if the StatRequest
+    /// cannot be satisfied.
+    ShardStopped = 5,
 }

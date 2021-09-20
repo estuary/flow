@@ -568,8 +568,8 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.0/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3
 go.etcd.io/etcd/client/v3 v3.5.0 h1:62Eh0XOro+rDwkrypAGDfgmNh5Joq+z+W9HZdlXMzek=
 go.etcd.io/etcd/client/v3 v3.5.0/go.mod h1:AIKXXVX/DQXtfTEqBryiLTUXwON+GuvO6Z7lLS/oTh0=
 go.gazette.dev/core v0.88.0/go.mod h1:29BmfOIru2l+dcO5GiD7r9sFvtJVPbF2eXZ1AYn7VdI=
-go.gazette.dev/core v0.89.1-0.20210914224834-2d07306a0edb h1:Hi67MT7pb9Pj88Uo3nJNMxhyj9Pm+lB//RLKfLQNJ4o=
-go.gazette.dev/core v0.89.1-0.20210914224834-2d07306a0edb/go.mod h1:D8leP5T11xEW/kaNWGOWhQQYl+HyzM/qHpOfhsEYCtM=
+go.gazette.dev/core v0.89.1-0.20210920041439-c167e9161541 h1:a9TgaEh4XS0gBXsVgfG1uJaHeuX2oW+w7IVhpfc6xtg=
+go.gazette.dev/core v0.89.1-0.20210920041439-c167e9161541/go.mod h1:D8leP5T11xEW/kaNWGOWhQQYl+HyzM/qHpOfhsEYCtM=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
