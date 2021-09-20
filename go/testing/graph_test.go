@@ -210,37 +210,43 @@ func TestReadyStats(t *testing.T) {
 		{ReadyAt: 5, TaskName: "C", ReadThrough: clockFixture(3, nil, nil)},
 	}
 
-	var ready, next = graph.PopReadyStats()
+	var ready, nextTime, nextName = graph.PopReadyStats()
 	require.Empty(t, ready)
-	require.Equal(t, TestTime(5), next)
+	require.Equal(t, TestTime(5), nextTime)
+	require.Equal(t, TaskName("C"), nextName)
 	graph.CompletedAdvance(4)
 
-	ready, next = graph.PopReadyStats()
+	ready, nextTime, nextName = graph.PopReadyStats()
 	require.Empty(t, ready)
-	require.Equal(t, TestTime(1), next)
+	require.Equal(t, TestTime(1), nextTime)
+	require.Equal(t, TaskName("C"), nextName)
 	graph.CompletedAdvance(1)
 
-	ready, next = graph.PopReadyStats()
+	ready, nextTime, nextName = graph.PopReadyStats()
 	require.Equal(t, []PendingStat{
 		{ReadyAt: 5, TaskName: "C", ReadThrough: clockFixture(3, nil, nil)},
 	}, ready)
-	require.Equal(t, TestTime(0), next)
+	require.Equal(t, TestTime(0), nextTime)
+	require.Equal(t, TaskName("C"), nextName)
 
-	ready, next = graph.PopReadyStats()
+	ready, nextTime, nextName = graph.PopReadyStats()
 	require.Empty(t, ready)
-	require.Equal(t, TestTime(5), next)
+	require.Equal(t, TestTime(5), nextTime)
+	require.Equal(t, TaskName("A"), nextName)
 	graph.CompletedAdvance(5)
 
-	ready, next = graph.PopReadyStats()
+	ready, nextTime, nextName = graph.PopReadyStats()
 	require.Equal(t, []PendingStat{
 		{ReadyAt: 10, TaskName: "A", ReadThrough: clockFixture(1, nil, nil)},
 		{ReadyAt: 10, TaskName: "B", ReadThrough: clockFixture(2, nil, nil)},
 	}, ready)
-	require.Equal(t, TestTime(0), next)
+	require.Equal(t, TestTime(0), nextTime)
+	require.Equal(t, TaskName("A"), nextName)
 
-	ready, next = graph.PopReadyStats()
+	ready, nextTime, nextName = graph.PopReadyStats()
 	require.Empty(t, ready)
-	require.Equal(t, TestTime(-1), next)
+	require.Equal(t, TestTime(-1), nextTime)
+	require.Equal(t, TaskName(""), nextName)
 }
 
 func TestTaskIndexing(t *testing.T) {

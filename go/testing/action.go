@@ -20,6 +20,7 @@ type Driver interface {
 	Advance(TestTime) error
 }
 
+// ErrAdvanceDisabled is a specific error returned when clock advance is called when advance is disabled.
 var ErrAdvanceDisabled = errors.New("advance disabled")
 
 // RunTestCase runs a test case using the given Graph and Driver.
@@ -28,7 +29,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 	var testStep = 0
 
 	for {
-		var ready, nextReady = graph.PopReadyStats()
+		var ready, nextReady, nextName = graph.PopReadyStats()
 
 		for _, stat := range ready {
 			var read, write, err = driver.Stat(stat)
@@ -75,7 +76,10 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 		if nextReady != -1 {
 			err := driver.Advance(nextReady)
 			if err == ErrAdvanceDisabled {
-				log.Warnf("time advance disabled with action in %s.", nextReady)
+				log.WithFields(log.Fields{
+					"delay": nextReady,
+					"task":  nextName,
+				}).Warn("sleeping until next task is ready.")
 			} else if err != nil {
 				return scope, fmt.Errorf("driver.Advance: %w", err)
 			} else {

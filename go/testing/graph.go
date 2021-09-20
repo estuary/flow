@@ -147,10 +147,11 @@ func (g *Graph) HasPendingWrite(collection pf.Collection) bool {
 // PopReadyStats removes and returns tracked PendingStats having ready-at
 // times equal to the current test time. It also returns the delta between
 // the current TestTime, and the next ready PendingStat (which is always
-// zero if PendingStats are returned).
-func (g *Graph) PopReadyStats() ([]PendingStat, TestTime) {
+// zero if PendingStats are returned) as well as the TaskName associated.
+func (g *Graph) PopReadyStats() ([]PendingStat, TestTime, TaskName) {
 	var ready []PendingStat
-	var nextReady TestTime = -1
+	var nextReadyTime TestTime = -1
+	var nextReadyName TaskName
 	var r, w int // Read & write index.
 
 	// Process |pending| by copying out matched elements and
@@ -158,8 +159,9 @@ func (g *Graph) PopReadyStats() ([]PendingStat, TestTime) {
 	for ; r != len(g.pending); r++ {
 		var delta = g.pending[r].ReadyAt - g.atTime
 
-		if nextReady == -1 || delta < nextReady {
-			nextReady = delta
+		if nextReadyTime == -1 || delta < nextReadyTime {
+			nextReadyTime = delta
+			nextReadyName = g.pending[r].TaskName
 		}
 
 		if delta == 0 {
@@ -171,7 +173,7 @@ func (g *Graph) PopReadyStats() ([]PendingStat, TestTime) {
 	}
 	g.pending = g.pending[:w]
 
-	return ready, nextReady
+	return ready, nextReadyTime, nextReadyName
 }
 
 // CompletedIngest tells the Graph of a completed ingestion step.
