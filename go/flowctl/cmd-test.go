@@ -167,7 +167,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if err = applyDerivationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
 		return fmt.Errorf("applying derivation shards: %w", err)
 	} else if err = cluster.WaitForShardsToAssign(); err != nil {
-		return err
+		return fmt.Errorf("waiting for shards to assign: %w", err)
 	}
 
 	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
