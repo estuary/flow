@@ -24,7 +24,7 @@ func TestReadIterators(t *testing.T) {
 		spec       = newTestMsgSpec("a/journal")
 		bk         = brokertest.NewBroker(t, etcd, "local", "broker")
 		ajc        = client.NewAppendService(context.Background(), bk.Client())
-		seq        = NewSequencer(nil, 0) // Very limited ring look-back.
+		seq        = NewSequencer(nil, nil, 0) // Very limited ring look-back.
 		A, B       = NewProducerID(), NewProducerID()
 	)
 	brokertest.CreateJournals(t, bk, spec)

@@ -11,9 +11,9 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-func TestSequencerRingAddAndEvict(t *testing.T) {
+func TestSequencerRingAddAndEvictTwo(t *testing.T) {
 	var (
-		seq      = NewSequencer(nil, 5)
+		seq      = NewSequencer(nil, nil, 5)
 		generate = newTestMsgGenerator()
 		A, B     = NewProducerID(), NewProducerID()
 		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
@@ -34,105 +34,114 @@ func TestSequencerRingAddAndEvict(t *testing.T) {
 	require.Equal(t, []Envelope{}, seq.ring)
 	require.Equal(t, []int{}, seq.next)
 	require.Equal(t, 0, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{}, seq.partials)
+	require.Equal(t, map[JournalProducer]*partialSeq{}, seq.partials)
+	require.False(t, seq.HasPending())
 
-	require.False(t, seq.QueueUncommitted(e1)) // A.
+	require.Equal(t, QueueContinueBeginSpan, seq.QueueUncommitted(e1)) // A.
 	require.Equal(t, []Envelope{e1}, seq.ring)
 	require.Equal(t, []int{-1}, seq.next)
 	require.Equal(t, 1, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 0, ringStop: 0, minClock: 99, maxClock: 100},
 	}, seq.partials)
+	require.True(t, seq.HasPending())
 
-	require.False(t, seq.QueueUncommitted(e2)) // B.
+	// Continuations always update read-through offsets.
+	require.Equal(t, pb.Offsets{"test/journal": e1.End}, seq.offsets)
+
+	require.Equal(t, QueueContinueBeginSpan, seq.QueueUncommitted(e2)) // B.
 	require.Equal(t, []Envelope{e1, e2}, seq.ring)
 	require.Equal(t, []int{-1, -1}, seq.next)
 	require.Equal(t, 2, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 0, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 0, ringStop: 0, minClock: 99, maxClock: 100},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 1, minClock: 199, maxClock: 200},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e3)) // A.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e3)) // A.
 	require.Equal(t, []Envelope{e1, e2, e3}, seq.ring)
 	require.Equal(t, []int{2, -1, -1}, seq.next) // e1 => e3.
 	require.Equal(t, 3, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 2, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 0, ringStop: 2, minClock: 99, maxClock: 300},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 1, minClock: 199, maxClock: 200},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e4)) // A.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e4)) // A.
 	require.Equal(t, []Envelope{e1, e2, e3, e4}, seq.ring)
 	require.Equal(t, []int{2, -1, 3, -1}, seq.next) // e3 => e4.
 	require.Equal(t, 4, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 1, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 0, ringStop: 3, minClock: 99, maxClock: 400},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 1, minClock: 199, maxClock: 200},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e5)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e5)) // B.
 	require.Equal(t, []Envelope{e1, e2, e3, e4, e5}, seq.ring)
 	require.Equal(t, []int{2, 4, 3, -1, -1}, seq.next) // e2 => e5.
 	require.Equal(t, 0, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 0, ringStop: 3, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 4, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 0, ringStop: 3, minClock: 99, maxClock: 400},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 4, minClock: 199, maxClock: 500},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e6)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e6)) // B.
 	require.Equal(t, []Envelope{e6, e2, e3, e4, e5}, seq.ring)
 	require.Equal(t, []int{-1, 4, 3, -1, 0}, seq.next) // e5 => e6.
 	require.Equal(t, 1, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 2, ringStop: 3, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 2, ringStop: 3, minClock: 99, maxClock: 400},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 0, minClock: 199, maxClock: 600},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e7)) // B.
-	require.False(t, seq.QueueUncommitted(e8)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e7)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e8)) // B.
 	require.Equal(t, []Envelope{e6, e7, e8, e4, e5}, seq.ring)
 	require.Equal(t, []int{1, 2, -1, -1, 0}, seq.next)
 	require.Equal(t, 3, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: 3, ringStop: 3, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 2, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: 3, ringStop: 3, minClock: 99, maxClock: 400},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 4, ringStop: 2, minClock: 199, maxClock: 800},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e9)) // B. Evicts final A entry.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e9)) // B. Evicts final A entry.
 	require.Equal(t, []Envelope{e6, e7, e8, e9, e5}, seq.ring)
 	require.Equal(t, []int{1, 2, 3, -1, 0}, seq.next)
 	require.Equal(t, 4, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
+	require.Equal(t, map[JournalProducer]*partialSeq{
 		// A's begin is still tracked, but it's no longer in the ring.
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99},
-		jpB: {begin: e2.Begin, ringStart: 4, ringStop: 3, lastACK: 199},
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: -1, ringStop: -1, minClock: 99, maxClock: 400},
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 4, ringStop: 3, minClock: 199, maxClock: 900},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e10)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e10)) // B.
 	require.Equal(t, []Envelope{e6, e7, e8, e9, e10}, seq.ring)
 	require.Equal(t, []int{1, 2, 3, 4, -1}, seq.next)
 	require.Equal(t, 0, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
-		jpB: {begin: e2.Begin, ringStart: 0, ringStop: 4, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: -1, ringStop: -1, minClock: 99, maxClock: 400}, // Unchanged.
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 0, ringStop: 4, minClock: 199, maxClock: 1000},
 	}, seq.partials)
 
-	require.False(t, seq.QueueUncommitted(e11)) // B.
+	require.Equal(t, QueueContinueExtendSpan, seq.QueueUncommitted(e11)) // B.
 	require.Equal(t, []Envelope{e11, e7, e8, e9, e10}, seq.ring)
 	require.Equal(t, []int{-1, 2, 3, 4, 0}, seq.next)
 	require.Equal(t, 1, seq.head)
-	require.Equal(t, map[JournalProducer]partialSeq{
-		jpA: {begin: e1.Begin, ringStart: -1, ringStop: -1, lastACK: 99}, // Unchanged.
-		jpB: {begin: e2.Begin, ringStart: 1, ringStop: 0, lastACK: 199},
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: e1.Begin, ringStart: -1, ringStop: -1, minClock: 99, maxClock: 400}, // Unchanged.
+		jpB: {jp: jpB, begin: e2.Begin, ringStart: 1, ringStop: 0, minClock: 199, maxClock: 1100},
 	}, seq.partials)
+
+	require.Equal(t, pb.Offsets{"test/journal": e11.End}, seq.offsets)
 }
 
-func TestSequencerTxnSequenceCases(t *testing.T) {
+func TestSequencerTxnSequenceCasesTwo(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()
-		seq      = NewSequencer(nil, 3)
+		seq      = NewSequencer(nil, nil, 3)
 		A, B     = NewProducerID(), NewProducerID()
+		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
+		jpB      = JournalProducer{Journal: "test/journal", Producer: B}
 	)
 
 	// Case: Sequence with internal duplicates served from the ring.
@@ -143,14 +152,22 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a2Dup = generate(A, 2, Flag_CONTINUE_TXN)
 		a3ACK = generate(A, 3, Flag_ACK_TXN)
 	)
-	require.Equal(t, []bool{false, false, true, true, true},
-		queue(seq, a1, a2, a1Dup, a2Dup, a3ACK))
-	expectDeque(t, seq, a1, a2, a3ACK)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueExtendSpan,
+			QueueContinueTxnClockLarger,
+			QueueContinueTxnClockLarger,
+			QueueAckCommitRing,
+		},
+		queueFoo(seq, a1, a2, a1Dup, a2Dup, a3ACK))
+	expectDequeFoo(t, seq, a1, a2, a3ACK)
+	require.False(t, seq.HasPending())
 
 	// Case: ACK w/o preceding CONTINUE. Unusual but allowed.
 	var a4ACK = generate(A, 4, Flag_ACK_TXN)
-	require.Equal(t, []bool{true}, queue(seq, a4ACK))
-	expectDeque(t, seq, a4ACK)
+	require.Equal(t, []QueueOutcome{QueueAckEmpty}, queueFoo(seq, a4ACK))
+	expectDequeFoo(t, seq, a4ACK)
 
 	// Case: Partial ACK of preceding messages.
 	var (
@@ -158,9 +175,14 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a7NoACK = generate(A, 7, Flag_CONTINUE_TXN) // Not included in a6ACK.
 		a6ACK   = generate(A, 6, Flag_ACK_TXN)      // Served from ring.
 	)
-	require.Equal(t, []bool{false, false, true},
-		queue(seq, a5, a7NoACK, a6ACK))
-	expectDeque(t, seq, a5, a6ACK)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueExtendSpan,
+			QueueAckCommitRing,
+		},
+		queueFoo(seq, a5, a7NoACK, a6ACK))
+	expectDequeFoo(t, seq, a5, a6ACK)
 
 	// Case: Rollback with interleaved producer B.
 	var (
@@ -170,15 +192,28 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b2         = generate(B, 2, Flag_CONTINUE_TXN)
 		a6Abort    = generate(A, 6, Flag_ACK_TXN) // Aborts back to SeqNo 6.
 	)
-	require.Equal(t, []bool{false, false, true, false, false, true},
-		queue(seq, a7Rollback, b1, a7Rollback, a8Rollback, b2, a6Abort))
-	expectDeque(t, seq) // No messages deque.
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueBeginSpan,
+			QueueContinueTxnClockLarger,
+			QueueContinueExtendSpan,
+			QueueContinueExtendSpan,
+			QueueAckRollback,
+		},
+		queueFoo(seq, a7Rollback, b1, a7Rollback, a8Rollback, b2, a6Abort))
+	require.Nil(t, seq.emit) // No messages to dequeue.
+
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: -1, ringStart: -1, ringStop: -1, minClock: 6, maxClock: 6},
+		jpB: {jp: jpB, begin: b1.Begin, ringStart: 1, ringStop: 1, minClock: 0, maxClock: 2},
+	}, seq.partials)
 
 	// Case: Interleaved producer ACKs. A replay is required due to eviction.
 	var b3ACK = generate(B, 3, Flag_ACK_TXN)
-	require.Equal(t, []bool{true}, queue(seq, b3ACK))
-	expectReplay(t, seq, b1.Begin, b2.Begin, b1, a7Rollback, a8Rollback)
-	expectDeque(t, seq, b1, b2, b3ACK)
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq, b3ACK))
+	expectReplayFoo(t, seq, b1.Begin, b2.Begin, b1, a7Rollback, a8Rollback)
+	expectDequeFoo(t, seq, b1, b2, b3ACK)
 
 	// Case: Sequence which requires replay, with duplicates internal
 	// to the sequence and from before it, which are encountered in
@@ -193,10 +228,20 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b7    = generate(B, 7, Flag_CONTINUE_TXN)
 		b8ACK = generate(B, 8, Flag_ACK_TXN)
 	)
-	require.Equal(t, []bool{false, true, true, false, false, true, false, true},
-		queue(seq, b4, b1Dup, b4Dup, b5, b6, b2Dup, b7, b8ACK))
-	expectReplay(t, seq, b4.Begin, b6.Begin, b4, b1Dup, b4Dup, b5)
-	expectDeque(t, seq, b4, b5, b6, b7, b8ACK)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueAlreadyAcked,
+			QueueContinueTxnClockLarger,
+			QueueContinueExtendSpan,
+			QueueContinueExtendSpan,
+			QueueContinueAlreadyAcked,
+			QueueContinueExtendSpan,
+			QueueAckCommitReplay,
+		},
+		queueFoo(seq, b4, b1Dup, b4Dup, b5, b6, b2Dup, b7, b8ACK))
+	expectReplayFoo(t, seq, b4.Begin, b6.Begin, b4, b1Dup, b4Dup, b5)
+	expectDequeFoo(t, seq, b4, b5, b6, b7, b8ACK)
 
 	// Case: Partial rollback where all ring entries are skipped.
 	var (
@@ -206,10 +251,18 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b13NoACK = generate(B, 13, Flag_CONTINUE_TXN)
 		b10ACK   = generate(B, 10, Flag_ACK_TXN)
 	)
-	require.Equal(t, []bool{false, false, false, false, true},
-		queue(seq, b9, b11NoACK, b12NoACK, b13NoACK, b10ACK))
-	expectReplay(t, seq, b9.Begin, b12NoACK.Begin, b9, b11NoACK)
-	expectDeque(t, seq, b9, b10ACK)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueExtendSpan,
+			QueueContinueExtendSpan,
+			QueueContinueExtendSpan,
+			QueueAckCommitReplay,
+		},
+		queueFoo(seq, b9, b11NoACK, b12NoACK, b13NoACK, b10ACK))
+	expectReplayFoo(t, seq, b9.Begin, b12NoACK.Begin, b9, b11NoACK)
+	expectDequeFoo(t, seq, b9, b10ACK)
+	require.False(t, seq.HasPending())
 
 	// Case: Interleaved ACK'd sequences requiring two replays.
 	var (
@@ -220,14 +273,22 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		a9ACK  = generate(A, 9, Flag_ACK_TXN)
 		b13ACK = generate(B, 13, Flag_ACK_TXN)
 	)
-	require.Equal(t, []bool{false, false, false, false, true},
-		queue(seq, b11, a7, a8, b12, a9ACK))
-	expectReplay(t, seq, a7.Begin, a8.Begin, a7)
-	expectDeque(t, seq, a7, a8, a9ACK)
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueContinueExtendSpan,
+		QueueAckCommitReplay,
+	},
+		queueFoo(seq, b11, a7, a8, b12, a9ACK))
+	expectReplayFoo(t, seq, a7.Begin, a8.Begin, a7)
+	expectDequeFoo(t, seq, a7, a8, a9ACK)
+	require.True(t, seq.HasPending())
 
-	require.Equal(t, []bool{true}, queue(seq, b13ACK))
-	expectReplay(t, seq, b11.Begin, b12.Begin, b11, a7, a8)
-	expectDeque(t, seq, b11, b12, b13ACK)
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq, b13ACK))
+	expectReplayFoo(t, seq, b11.Begin, b12.Begin, b11, a7, a8)
+	expectDequeFoo(t, seq, b11, b12, b13ACK)
+	require.False(t, seq.HasPending())
 
 	// Case: Reset to earlier ACK, followed by re-use of SeqNos.
 	var (
@@ -236,15 +297,20 @@ func TestSequencerTxnSequenceCases(t *testing.T) {
 		b10ACKReuse = generate(B, 10, Flag_ACK_TXN)
 	)
 
-	require.Equal(t, []bool{true, false, true},
-		queue(seq, b8ACKReset, b9Reuse, b10ACKReuse))
-	expectDeque(t, seq, b9Reuse, b10ACKReuse)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueAckRollback,
+			QueueContinueBeginSpan,
+			QueueAckCommitRing,
+		},
+		queueFoo(seq, b8ACKReset, b9Reuse, b10ACKReuse))
+	expectDequeFoo(t, seq, b9Reuse, b10ACKReuse)
 }
 
-func TestSequencerTxnWithoutBuffer(t *testing.T) {
+func TestSequencerTxnWithoutBufferTwo(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()
-		seq      = NewSequencer(nil, 0)
+		seq      = NewSequencer(nil, nil, 0)
 		A, B     = NewProducerID(), NewProducerID()
 
 		a1    = generate(A, 1, Flag_CONTINUE_TXN)
@@ -256,41 +322,58 @@ func TestSequencerTxnWithoutBuffer(t *testing.T) {
 		b2    = generate(B, 2, Flag_CONTINUE_TXN)
 		b3ACK = generate(B, 3, Flag_ACK_TXN)
 	)
-	require.Equal(t, []bool{false, false, false, false, false, true},
-		queue(seq, a1, a2, b1, a1Dup, a2Dup, a3ACK))
-	expectReplay(t, seq, a1.Begin, a3ACK.Begin, a1, a2, b1, a1Dup, a2Dup)
-	expectDeque(t, seq, a1, a2, a3ACK)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueExtendSpan,
+			QueueContinueBeginSpan,
+			QueueContinueTxnClockLarger,
+			QueueContinueTxnClockLarger,
+			QueueAckCommitReplay,
+		},
+		queueFoo(seq, a1, a2, b1, a1Dup, a2Dup, a3ACK))
+	expectReplayFoo(t, seq, a1.Begin, a3ACK.Begin, a1, a2, b1, a1Dup, a2Dup)
+	expectDequeFoo(t, seq, a1, a2, a3ACK)
 
-	require.Equal(t, []bool{false, true},
-		queue(seq, b2, b3ACK))
-	expectReplay(t, seq, b1.Begin, b3ACK.Begin, b1, a1Dup, a2Dup, a3ACK, b2)
-	expectDeque(t, seq, b1, b2, b3ACK)
+	require.Equal(t, []QueueOutcome{QueueContinueExtendSpan, QueueAckCommitReplay},
+		queueFoo(seq, b2, b3ACK))
+	expectReplayFoo(t, seq, b1.Begin, b3ACK.Begin, b1, a1Dup, a2Dup, a3ACK, b2)
+	expectDequeFoo(t, seq, b1, b2, b3ACK)
 }
 
-func TestSequencerOutsideTxnCases(t *testing.T) {
+func TestSequencerOutsideTxnCasesTwo(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()
-		seq      = NewSequencer(nil, 0)
+		seq      = NewSequencer(nil, nil, 0)
 		A        = NewProducerID()
+		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
 	)
 
-	// Case: OUTSIDE_TXN messages immediately deque.
+	// Case: OUTSIDE_TXN messages immediately dequeue.
 	var (
 		a1 = generate(A, 1, Flag_OUTSIDE_TXN)
 		a2 = generate(A, 2, Flag_OUTSIDE_TXN)
 	)
-	require.Equal(t, []bool{true}, queue(seq, a1))
-	expectDeque(t, seq, a1)
-	require.Equal(t, []bool{true}, queue(seq, a2))
-	expectDeque(t, seq, a2)
+	require.Equal(t, []QueueOutcome{QueueOutsideCommit}, queueFoo(seq, a1))
+	expectDequeFoo(t, seq, a1)
+	require.Equal(t, []QueueOutcome{QueueOutsideCommit}, queueFoo(seq, a2))
+	expectDequeFoo(t, seq, a2)
+
+	require.Equal(t, pb.Offsets{"test/journal": a2.End}, seq.offsets)
 
 	// Case: Duplicates are ignored.
 	var (
 		a1Dup = generate(A, 1, Flag_OUTSIDE_TXN)
 		a2Dup = generate(A, 2, Flag_OUTSIDE_TXN)
 	)
-	require.Equal(t, []bool{true, true}, queue(seq, a1Dup, a2Dup))
-	expectDeque(t, seq)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueOutsideAlreadyAcked,
+			QueueOutsideAlreadyAcked,
+		}, queueFoo(seq, a1Dup, a2Dup))
+	require.Nil(t, seq.emit) // No messages to dequeue.
+
+	require.Equal(t, pb.Offsets{"test/journal": a2Dup.End}, seq.offsets)
 
 	// Case: Any preceding CONTINUE_TXN messages are aborted.
 	var (
@@ -298,9 +381,15 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a4Discard = generate(A, 4, Flag_CONTINUE_TXN)
 		a5        = generate(A, 5, Flag_OUTSIDE_TXN)
 	)
-	require.Equal(t, []bool{false, false, true},
-		queue(seq, a3Discard, a4Discard, a5))
-	expectDeque(t, seq, a5)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueExtendSpan,
+			QueueOutsideCommit,
+		}, queueFoo(seq, a3Discard, a4Discard, a5))
+	expectDequeFoo(t, seq, a5)
+
+	require.Equal(t, pb.Offsets{"test/journal": a5.End}, seq.offsets)
 
 	// Case: Messages with unknown flags are treated as OUTSIDE_TXN.
 	var (
@@ -308,12 +397,17 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 		a7BadBits    = generate(A, 7, 0x100)
 		a7BadBitsDup = generate(A, 7, 0x100)
 	)
-	require.Equal(t, []bool{false, true}, queue(seq, a6Discard, a7BadBits))
-	expectDeque(t, seq, a7BadBits)
-	require.Equal(t, []bool{true}, queue(seq, a7BadBitsDup))
-	expectDeque(t, seq)
+	require.Equal(t,
+		[]QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueOutsideCommit,
+		}, queueFoo(seq, a6Discard, a7BadBits))
+	expectDequeFoo(t, seq, a7BadBits)
 
-	// Case: Messages with a zero UUID always deque.
+	require.Equal(t, []QueueOutcome{QueueOutsideAlreadyAcked}, queueFoo(seq, a7BadBitsDup))
+	require.Nil(t, seq.emit) // No messages to dequeue.
+
+	// Case: Messages with a zero UUID always dequeue.
 	var (
 		z1 = generate(ProducerID{}, 0, 0)
 		z2 = generate(ProducerID{}, 0, 0)
@@ -321,16 +415,22 @@ func TestSequencerOutsideTxnCases(t *testing.T) {
 	z1.SetUUID(UUID{})
 	z2.SetUUID(UUID{})
 
-	require.Equal(t, []bool{true}, queue(seq, z1))
-	expectDeque(t, seq, z1)
-	require.Equal(t, []bool{true}, queue(seq, z2))
-	expectDeque(t, seq, z2)
+	require.Equal(t, []QueueOutcome{QueueOutsideCommit}, queueFoo(seq, z1))
+	expectDequeFoo(t, seq, z1)
+	require.Equal(t, []QueueOutcome{QueueOutsideCommit}, queueFoo(seq, z2))
+	expectDequeFoo(t, seq, z2)
+
+	// A producer for the zero-valued UUID is not tracked, but it still updates offsets.
+	require.Equal(t, map[JournalProducer]*partialSeq{
+		jpA: {jp: jpA, begin: -1, ringStart: -1, ringStop: -1, minClock: 7, maxClock: 7},
+	}, seq.partials)
+	require.Equal(t, pb.Offsets{"test/journal": z2.End}, seq.offsets)
 }
 
-func TestSequencerProducerStatesRoundTrip(t *testing.T) {
+func TestSequencerProducerStatesRoundTripTwo(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()
-		seq1     = NewSequencer(nil, 12)
+		seq1     = NewSequencer(nil, nil, 12)
 		A, B, C  = NewProducerID(), NewProducerID(), NewProducerID()
 		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
 		jpB      = JournalProducer{Journal: "test/journal", Producer: B}
@@ -345,55 +445,166 @@ func TestSequencerProducerStatesRoundTrip(t *testing.T) {
 		c2         = generate(C, 2, Flag_CONTINUE_TXN)
 		c1Rollback = generate(C, 1, Flag_ACK_TXN)
 		a3ACK      = generate(A, 3, Flag_ACK_TXN)
+		z1         = generate(ProducerID{}, 0, 0)
 	)
-	require.Equal(t, []bool{false, false, false, false, true},
-		queue(seq1, a1, a2, b1, b2, c1ACK))
-	expectDeque(t, seq1, c1ACK)
+	z1.SetUUID(UUID{})
 
-	var states = seq1.ProducerStates(0)
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueAckEmpty,
+	}, queueFoo(seq1, a1, a2, b1, b2, c1ACK))
+	expectDequeFoo(t, seq1, c1ACK)
+
+	require.Equal(t, []QueueOutcome{
+		QueueOutsideCommit,
+	}, queueFoo(seq1, z1))
+	expectDequeFoo(t, seq1, z1)
+
+	// Take a checkpoint. The act of taking one causes pending
+	// sequences to no longer be pending. To be pending, they must
+	// have been updated *since* the last checkpoint was taken.
+	require.True(t, seq1.HasPending())
+	var offsets, states = seq1.Checkpoint(0)
+	require.False(t, seq1.HasPending())
+
+	// Recover a new Sequencer from persisted states & offsets.
+	var seq2 = NewSequencer(offsets, states, 12)
+	var _, states2 = seq2.Checkpoint(0)
+
+	// Expect |seq1| and |seq2| now produce identical states.
 	var expect = []ProducerState{
 		{JournalProducer: jpA, Begin: a1.Begin, LastAck: 0},
 		{JournalProducer: jpB, Begin: b1.Begin, LastAck: 0},
 		{JournalProducer: jpC, Begin: -1, LastAck: 1},
 	}
-	sort.Slice(states, func(i, j int) bool {
-		return bytes.Compare(states[i].Producer[:], states[j].Producer[:]) < 0
-	})
 	sort.Slice(expect, func(i, j int) bool {
 		return bytes.Compare(expect[i].Producer[:], expect[j].Producer[:]) < 0
 	})
-	require.Equal(t, expect, states)
-
-	// Recover Sequencer from persisted states.
-	var seq2 = NewSequencer(states, 12)
+	for _, states := range [][]ProducerState{states, states2} {
+		sort.Slice(states, func(i, j int) bool {
+			return bytes.Compare(states[i].Producer[:], states[j].Producer[:]) < 0
+		})
+		require.Equal(t, expect, states)
+		require.Equal(t, pb.Offsets{"test/journal": z1.End}, offsets)
+	}
 
 	// Expect both Sequencers produce the same output from here,
 	// though |seq2| requires replays while |seq1| does not.
-	require.Equal(t, []bool{true}, queue(seq1, b3ACK))
-	require.Equal(t, []bool{true}, queue(seq2, b3ACK))
-	expectReplay(t, seq2, b1.Begin, b3ACK.Begin, b1, b2, c1ACK)
+	require.Equal(t, []QueueOutcome{QueueAckCommitRing}, queueFoo(seq1, b3ACK))
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq2, b3ACK))
+	expectReplayFoo(t, seq2, b1.Begin, b3ACK.Begin, b1, b2, c1ACK)
 
-	expectDeque(t, seq1, b1, b2, b3ACK)
-	expectDeque(t, seq2, b1, b2, b3ACK)
+	expectDequeFoo(t, seq1, b1, b2, b3ACK)
+	expectDequeFoo(t, seq2, b1, b2, b3ACK)
 
-	require.Equal(t, []bool{false, true}, queue(seq1, c2, c1Rollback))
-	require.Equal(t, []bool{false, true}, queue(seq2, c2, c1Rollback))
+	require.Equal(t, []QueueOutcome{QueueContinueBeginSpan, QueueAckRollback}, queueFoo(seq1, c2, c1Rollback))
+	require.Equal(t, []QueueOutcome{QueueContinueBeginSpan, QueueAckRollback}, queueFoo(seq2, c2, c1Rollback))
 
-	expectDeque(t, seq1)
-	expectDeque(t, seq2)
+	// No messages to dequeue.
+	require.Nil(t, seq1.emit)
+	require.Nil(t, seq2.emit)
 
-	require.Equal(t, []bool{true}, queue(seq1, a3ACK))
-	require.Equal(t, []bool{true}, queue(seq2, a3ACK))
-	expectReplay(t, seq2, a1.Begin, a3ACK.Begin, a1, a2, b1, b2, c1ACK)
+	require.Equal(t, []QueueOutcome{QueueAckCommitRing}, queueFoo(seq1, a3ACK))
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq2, a3ACK))
+	expectReplayFoo(t, seq2, a1.Begin, a3ACK.Begin, a1, a2, b1, b2, c1ACK)
 
-	expectDeque(t, seq1, a1, a2, a3ACK)
-	expectDeque(t, seq2, a1, a2, a3ACK)
+	expectDequeFoo(t, seq1, a1, a2, a3ACK)
+	expectDequeFoo(t, seq2, a1, a2, a3ACK)
 }
 
-func TestSequencerProducerPruning(t *testing.T) {
+func TestSequencerProducerStatesRoundTripDuringDequeue(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()
-		seq1     = NewSequencer(nil, 12)
+		seq1     = NewSequencer(nil, nil, 12)
+		A        = NewProducerID()
+		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
+
+		a1    = generate(A, 1, Flag_CONTINUE_TXN)
+		a2    = generate(A, 2, Flag_CONTINUE_TXN)
+		a3ACK = generate(A, 3, Flag_ACK_TXN)
+		a4    = generate(A, 4, Flag_CONTINUE_TXN)
+		a5    = generate(A, 5, Flag_CONTINUE_TXN)
+		a6ACK = generate(A, 6, Flag_ACK_TXN)
+	)
+
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueAckCommitRing,
+	}, queueFoo(seq1, a1, a2, a3ACK))
+
+	require.NotNil(t, seq1.emit)
+	require.NoError(t, seq1.Step()) // Step to a1.
+
+	// Suppose the program crashes here, without having dequeued a1.
+	var offsets, states = seq1.Checkpoint(0)
+
+	// Initialize |seq2| a couple of times to verify we round-trip unchanged
+	// ProducerStates correctly.
+	var seq2 = NewSequencer(offsets.Copy(), states, 12)
+	offsets, states = seq2.Checkpoint(0)
+	seq2 = NewSequencer(offsets.Copy(), states, 12)
+
+	// Current states are immediately prior to a3ACK being processed.
+	for _, seq := range []*Sequencer{seq1, seq2} {
+		var offsets, states = seq.Checkpoint(0)
+		require.Equal(t, pb.Offsets{"test/journal": a2.End}, offsets)
+		require.Equal(t, []ProducerState{
+			{JournalProducer: jpA, Begin: a1.Begin, LastAck: 0},
+		}, states)
+	}
+
+	// |seq2| begins by reading a3ACK again.
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq2, a3ACK))
+	expectReplayFoo(t, seq2, a1.Begin, a3ACK.Begin, a1, a2)
+
+	// Now both sequencers are ready for dequeue.
+	require.NoError(t, seq1.Step())       // Step to a2.
+	require.NoError(t, seq1.Step())       // Step to a3ACK.
+	require.Equal(t, io.EOF, seq1.Step()) // Done.
+	expectDequeFoo(t, seq2, a1, a2, a3ACK)
+
+	// Suppose |seq1| generates a checkpoint partway through
+	// dequeue of the next sequence.
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueAckCommitRing,
+	}, queueFoo(seq1, a4, a5, a6ACK))
+
+	require.NotNil(t, seq1.emit)
+	require.NoError(t, seq1.Step()) // Step to a4.
+	require.NoError(t, seq1.Step()) // Step to a5. CRASH.
+
+	// Initialize |seq2| to |seq1|'s state checkpoint.
+	offsets, states = seq1.Checkpoint(0)
+	seq2 = NewSequencer(offsets.Copy(), states, 12)
+	offsets, states = seq2.Checkpoint(0)
+	seq2 = NewSequencer(offsets.Copy(), states, 12)
+
+	// Current states are immediately prior to a6ACK being processed,
+	// but have been tightened to reflect a4's consumption.
+	for _, seq := range []*Sequencer{seq1, seq2} {
+		var offsets, states = seq.Checkpoint(0)
+		require.Equal(t, pb.Offsets{"test/journal": a5.End}, offsets)
+		require.Equal(t, []ProducerState{
+			{JournalProducer: jpA, Begin: a5.Begin, LastAck: 4},
+		}, states)
+	}
+
+	// |seq2| begins by reading a6ACK again, then dequeues from a5 (and not a4).
+	require.Equal(t, []QueueOutcome{QueueAckCommitReplay}, queueFoo(seq2, a6ACK))
+	expectReplayFoo(t, seq2, a5.Begin, a6ACK.Begin, a5)
+	expectDequeFoo(t, seq2, a5, a6ACK)
+}
+
+func TestSequencerProducerPruningFoo(t *testing.T) {
+	var (
+		generate = newTestMsgGenerator()
+		seq1     = NewSequencer(nil, nil, 12)
 		A, B, C  = NewProducerID(), NewProducerID(), NewProducerID()
 		jpA      = JournalProducer{Journal: "test/journal", Producer: A}
 		jpB      = JournalProducer{Journal: "test/journal", Producer: B}
@@ -405,9 +616,14 @@ func TestSequencerProducerPruning(t *testing.T) {
 		bACK  = generate(B, 20<<4, Flag_ACK_TXN)
 		cCont = generate(C, 30<<4, Flag_CONTINUE_TXN)
 	)
-	require.Equal(t, []bool{false, false, true}, queue(seq1, aCont, bCont, bACK))
-	expectDeque(t, seq1, bCont, bACK)
-	require.Equal(t, []bool{false}, queue(seq1, cCont))
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueBeginSpan,
+		QueueAckCommitRing,
+	}, queueFoo(seq1, aCont, bCont, bACK))
+	expectDequeFoo(t, seq1, bCont, bACK)
+
+	require.Equal(t, []QueueOutcome{QueueContinueBeginSpan}, queueFoo(seq1, cCont))
 
 	var expect = func(a, b []ProducerState) {
 		sort.Slice(a, func(i, j int) bool {
@@ -420,28 +636,31 @@ func TestSequencerProducerPruning(t *testing.T) {
 	}
 
 	// Horizon prunes no producers: all states returned.
+	var _, states = seq1.Checkpoint(20 * 100)
 	expect([]ProducerState{
 		{JournalProducer: jpA, Begin: aCont.Begin, LastAck: (10 << 4) - 1},
 		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
-	}, seq1.ProducerStates(20*100))
+	}, states)
 	require.Len(t, seq1.partials, 3)
 
 	// Expect A is pruned.
+	_, states = seq1.Checkpoint(19 * 100)
 	expect([]ProducerState{
 		{JournalProducer: jpB, Begin: -1, LastAck: 20 << 4},
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
-	}, seq1.ProducerStates(19*100))
+	}, states)
 	require.Len(t, seq1.partials, 2)
 
 	// Expect B is pruned.
+	_, states = seq1.Checkpoint(1)
 	expect([]ProducerState{
 		{JournalProducer: jpC, Begin: cCont.Begin, LastAck: (30 << 4) - 1},
-	}, seq1.ProducerStates(1))
+	}, states)
 	require.Len(t, seq1.partials, 1)
 }
 
-func TestSequencerReplayReaderErrors(t *testing.T) {
+func TestSequencerReplayReaderErrorsTwo(t *testing.T) {
 	var A, B = NewProducerID(), NewProducerID()
 	var cases = []struct {
 		wrap   func(Iterator) func() (Envelope, error)
@@ -467,7 +686,7 @@ func TestSequencerReplayReaderErrors(t *testing.T) {
 					return
 				}
 			},
-			expect: "replay reader: wrong journal (wrong/journal; expected test/journal)",
+			expect: "replay of wrong journal (wrong/journal; expected test/journal)",
 		},
 		{ // Returns a Begin that's before the ReplayRange.
 			wrap: func(it Iterator) func() (Envelope, error) {
@@ -477,7 +696,7 @@ func TestSequencerReplayReaderErrors(t *testing.T) {
 					return
 				}
 			},
-			expect: "replay reader: wrong Begin (101; expected >= 102)",
+			expect: "replay has wrong Begin (101; expected >= 102)",
 		},
 		{ // Returns an End that's after the ReplayRange.
 			wrap: func(it Iterator) func() (Envelope, error) {
@@ -487,22 +706,26 @@ func TestSequencerReplayReaderErrors(t *testing.T) {
 					return
 				}
 			},
-			expect: "replay reader: wrong End (302; expected <= 204)",
+			expect: "replay has wrong End (302; expected <= 204)",
 		},
 	}
 	for _, tc := range cases {
 		var (
 			generate = newTestMsgGenerator()
-			seq      = NewSequencer(nil, 0)
+			seq      = NewSequencer(nil, nil, 0)
 			b1       = generate(B, 1, Flag_CONTINUE_TXN)
 			a2       = generate(A, 2, Flag_CONTINUE_TXN)
 			a3ACK    = generate(A, 3, Flag_ACK_TXN)
 		)
-		require.Equal(t, []bool{false, false, true}, queue(seq, b1, a2, a3ACK))
-		expectReplay(t, seq, a2.Begin, a3ACK.Begin, a2)
+		require.Equal(t, []QueueOutcome{
+			QueueContinueBeginSpan,
+			QueueContinueBeginSpan,
+			QueueAckCommitReplay,
+		}, queueFoo(seq, b1, a2, a3ACK))
+		expectReplayFoo(t, seq, a2.Begin, a3ACK.Begin, a2)
 
-		seq.replay = fnIterator(tc.wrap(seq.replay))
-		var _, err = seq.DequeCommitted()
+		seq.replayIt = fnIterator(tc.wrap(seq.replayIt))
+		var err = seq.Step()
 
 		if tc.expect == "" {
 			require.NoError(t, err)
@@ -516,31 +739,55 @@ type fnIterator func() (Envelope, error)
 
 func (fn fnIterator) Next() (Envelope, error) { return fn() }
 
-func queue(seq *Sequencer, envs ...Envelope) []bool {
-	var out = make([]bool, len(envs))
+func queueFoo(seq *Sequencer, envs ...Envelope) []QueueOutcome {
+	var out = make([]QueueOutcome, len(envs))
 	for i, e := range envs {
 		out[i] = seq.QueueUncommitted(e)
 	}
 	return out
 }
 
-func expectDeque(t *testing.T, seq *Sequencer, expect ...Envelope) {
-	for len(expect) != 0 {
-		var env, err = seq.DequeCommitted()
+func expectDequeFoo(t *testing.T, seq *Sequencer, expect ...Envelope) {
+	for i := 0; i != len(expect); i++ {
+		require.NoError(t, seq.Step())
+		require.Equal(t, &expect[i], seq.Dequeued)
 
-		require.NoError(t, err)
-		require.Equal(t, expect[0], env)
-		expect = expect[1:]
+		require.Equal(t, expect[i].Begin, seq.emit.begin)
+		if i > 0 {
+			require.Equal(t, GetClock(expect[i-1].GetUUID()), seq.emit.minClock)
+		}
 	}
-	var _, err = seq.DequeCommitted()
-	require.Equal(t, io.EOF, err)
+
+	require.Equal(t, io.EOF, seq.Step())
+	require.Nil(t, seq.Dequeued)
+
+	var last = expect[len(expect)-1]
+	var jp = JournalProducer{
+		Journal:  last.Journal.Name,
+		Producer: GetProducerID(last.GetUUID()),
+	}
+	var clock = GetClock(last.GetUUID())
+
+	// Expect internal tracked partial sequence was cleared & prepared
+	// for next message sequence.
+	if clock != 0 {
+		require.Equal(t, partialSeq{
+			jp:        jp,
+			minClock:  clock,
+			maxClock:  clock,
+			begin:     -1,
+			ringStart: -1,
+			ringStop:  -1,
+		}, *seq.partials[jp])
+	}
+
+	// Read-through of the ACK is tracked in offsets.
+	require.Equal(t, last.End, seq.offsets[last.Journal.Name])
 }
 
-func expectReplay(t *testing.T, seq *Sequencer, expectBegin, expectEnd pb.Offset, envs ...Envelope) {
-	var _, err = seq.DequeCommitted()
-	require.Equal(t, ErrMustStartReplay, err)
-
-	var begin, end = seq.ReplayRange()
+func expectReplayFoo(t *testing.T, seq *Sequencer, expectBegin, expectEnd pb.Offset, envs ...Envelope) {
+	var journal, begin, end = seq.ReplayRange()
+	require.Equal(t, envs[0].Journal.Name, journal)
 	require.Equal(t, expectBegin, begin)
 	require.Equal(t, expectEnd, end)
 

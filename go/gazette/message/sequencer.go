@@ -1,10 +1,10 @@
 package message
 
 import (
+	"fmt"
 	"io"
 	"time"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -12,81 +12,149 @@ import (
 // Sequencer observes read-uncommitted messages from journals and sequences them
 // into acknowledged, read-committed messages. Read uncommitted messages are fed
 // to QueueUncommitted, after which the client must repeatedly call
-// DequeCommitted to drain all acknowledged messages until io.EOF is returned.
+// Step to dequeue all acknowledged messages until io.EOF is returned.
 //
 // In more detail, messages observed by QueueUncommitted may acknowledge one
 // or more pending messages previously observed by QueueUncommitted. For example,
 // a non-duplicate message with Flag_OUTSIDE_TXN acknowledges itself, and a
 // message with Flag_ACK_TXN also acknowledges messages having a lower clock.
-// DequeCommitted will drain the complete set of now-committed messages,
+// Step will drain the complete set of now-committed messages into field Dequeued,
 // and then return io.EOF.
 //
 // An advantage of the design is that no head-of-line blocking occurs: committed
-// messages are immediately deque'd upon observing their corresponding ACK_TXN,
+// messages are immediately dequeued upon observing their corresponding ACK_TXN,
 // even if they're interleaved with still-pending messages of other producers.
 //
 // Sequencer maintains an internal ring buffer of messages, which is usually
 // sufficient to directly read committed messages. When recovering from a
 // checkpoint, or if a very long sequence or old producer is acknowledged, it
 // may be necessary to start a replay of already-read messages. In this case:
-//  * DequeCommitted will return ErrMustStartReplay.
-//  * ReplayRange will return the exact offset range required.
+//  * QueueUncommitted will return QueueAckCommitReplay.
+//  * The client calls ReplayRange to determine the exact offset range required.
 //  * The client must then supply an appropriate Iterator to StartReplay.
-// Having done this, calls to DequeCommitted may resume to drain messages.
+// Having done this, calls to Step may resume to drain messages.
 type Sequencer struct {
+	// Dequeued is non-nil if (and only if) the Sequencer is in the
+	// process of dequeuing an acknowledged sequence of messages.
+	// After the client is done inspecting Dequeued, Step() must be
+	// called to step to the next Envelope of the sequence, or to
+	// complete the sequence (in which case Step returns io.EOF and
+	// Dequeued is now nil).
+	Dequeued *Envelope
+	// Clock of the current non-nil Dequeued, or zero.
+	// dequeuedClock is used to tighten the minimum clock bound once
+	// Step is called, indicating Dequeued has been processed.
+	// We could just ask Dequeued for its UUID, but the application
+	// may have changed it out from under us. That's especially easy
+	// to do if the application published it (which assigns a new UUID).
+	dequeuedClock Clock
+	// Offsets of the next (uncommitted) message to process in each journal.
+	offsets pb.Offsets
+	// Offsets read through as-of the last Checkpoint taken.
+	lastOffsets pb.Offsets
 	// partials is partial and un-acknowledged sequences of JournalProducers.
-	partials map[JournalProducer]partialSeq
-	// emit is an acknowledged message sequence which is ready for deque.
-	emit struct {
-		jp         JournalProducer // Sequence producer.
-		next, last Clock           // Begin and end Clocks of the sequence, inclusive.
-		offset     pb.Offset       // Offset to replay. May be earlier than that of |ringIndex|.
-		ringIndex  int             // Next sequenced Envelope that's in the ring, or -1 if done.
-	}
-	replay Iterator   // Iterator supplied to StartReplay().
-	ring   []Envelope // Fixed ring buffer of Envelopes.
-	next   []int      // Linked-list of Envelopes having the same JournalProducer.
-	head   int        // Next |ring| index to be written.
+	partials map[JournalProducer]*partialSeq
+	// emit is an acknowledged message sequence which is ready for dequeue.
+	emit      *partialSeq
+	replayIt  Iterator   // Iterator supplied to StartReplay.
+	replayEnv Envelope   // Last Envelope read from the replay Iterator.
+	ring      []Envelope // Fixed ring buffer of Envelopes.
+	next      []int      // Linked-list of Envelopes having the same JournalProducer.
+	head      int        // Next |ring| index to be written.
 }
 
-// NewSequencer returns a new Sequencer initialized from the given
+// NewSequencer returns a new Sequencer initialized from the given offsets and
 // ProducerStates, and with an internal ring buffer of the given size.
-func NewSequencer(states []ProducerState, buffer int) *Sequencer {
+func NewSequencer(offsets pb.Offsets, states []ProducerState, buffer int) *Sequencer {
 	if buffer <= 0 {
 		buffer = 1
 	}
+	if offsets == nil {
+		offsets = make(pb.Offsets)
+	}
+
 	var s = &Sequencer{
-		partials: make(map[JournalProducer]partialSeq, len(states)),
-		ring:     make([]Envelope, 0, buffer),
-		next:     make([]int, 0, buffer),
-		head:     0,
+		offsets:     offsets,
+		lastOffsets: offsets.Copy(),
+		partials:    make(map[JournalProducer]*partialSeq, len(states)),
+		emit:        nil,
+		ring:        make([]Envelope, 0, buffer),
+		next:        make([]int, 0, buffer),
+		head:        0,
 	}
 	for _, state := range states {
-		s.partials[state.JournalProducer] = partialSeq{
-			lastACK:   state.LastAck,
+		s.partials[state.JournalProducer] = &partialSeq{
+			jp:        state.JournalProducer,
+			minClock:  state.LastAck,
+			maxClock:  state.LastAck,
 			begin:     state.Begin,
 			ringStart: -1,
 			ringStop:  -1,
 		}
 	}
-	s.emit.ringIndex = -1
+
 	return s
 }
 
 // partialSeq is a partially-read transactional sequence.
 type partialSeq struct {
-	lastACK             Clock     // See ProducerState.LastAck.
-	begin               pb.Offset // See ProducerState.Begin.
-	ringStart, ringStop int       // Indices (inclusive) of the sequence within |ring|.
+	jp                  JournalProducer // JournalProducer which produced this sequence.
+	minClock            Clock           // Exclusive-minimum clock of the current sequence.
+	maxClock            Clock           // Inclusive-maximum clock of the current sequence.
+	begin               pb.Offset       // See ProducerState.Begin.
+	ringStart, ringStop int             // Indices (inclusive) of the sequence within |ring|.
 }
 
+// QueueOutcome is a queing decision made by Sequencer.QueueUncommitted.
+type QueueOutcome int
+
+const (
+	// Zero is reserved to mark an invalid outcome.
+
+	// QueueOutsideAlreadyAcked means this OUTSIDE_TXN message was
+	// already acknowledged, and is ignored.
+	QueueOutsideAlreadyAcked QueueOutcome = iota
+	// QueueOutsideCommit means this OUTSIDE_TXN message was committed.
+	// The caller must now dequeue via Step.
+	QueueOutsideCommit QueueOutcome = iota
+	// QueueContinueAlreadyAcked means this CONTINUE_TXN message was
+	// already acknowledged, and is ignored.
+	QueueContinueAlreadyAcked QueueOutcome = iota
+	// QueueContinueTxnClockLarger means this CONTINUE_TXN message
+	// is ignored due to a prior, larger Clock in the same transaction.
+	QueueContinueTxnClockLarger QueueOutcome = iota
+	// QueueContinueBeginSpan means this CONTINUE_TXN message begins
+	// a new transactional sequence under this producer.
+	QueueContinueBeginSpan QueueOutcome = iota
+	// QueueContinueExtendSpan means this CONTINUE_TXN message extends
+	// a new transactional sequence under this producer.
+	QueueContinueExtendSpan QueueOutcome = iota
+	// QueueAckRollback means this ACK_TXN rolled back a partial
+	// sequence of messages, re-establishing an earlier Clock
+	// for this producer.
+	QueueAckRollback QueueOutcome = iota
+	// QueueAckEmpty means this ACK_TXN committed without any
+	// preceding messages.
+	// The caller must now dequeue via Step.
+	QueueAckEmpty QueueOutcome = iota
+	// QueueAckCommitRing means this ACK_TXN committed a sequence
+	// of preceding messages which is fully contained within the
+	// Sequencer's ring buffer.
+	// The caller must now dequeue via Step.
+	QueueAckCommitRing QueueOutcome = iota
+	// QueueAckCommitReplay means this ACK_TXN committed a sequence
+	// of preceding messages which is only partly contained within the
+	// Sequencer's ring buffer.
+	// The caller must determine the ReplayRange and StartReplay,
+	// and then dequeue via Step.
+	QueueAckCommitReplay QueueOutcome = iota
+)
+
 // QueueUncommitted applies the next read-uncommitted message Envelope to the
-// Sequencer. It panics if called while messages remain to dequeue.
-// It returns true if the Envelope completes a sequence of messages,
-// or is a duplicate or a roll-back, and false if the Envelope extends
-// a sequence of messages which is still pending.
-func (w *Sequencer) QueueUncommitted(env Envelope) bool {
-	if w.emit.ringIndex != -1 {
+// Sequencer. It panics if called while messages remain to dequeue,
+// and otherwise returns a QueueOutcome.
+func (w *Sequencer) QueueUncommitted(env Envelope) QueueOutcome {
+	if w.emit != nil {
 		panic("committed messages remain to dequeue")
 	}
 	w.evictAtHead()
@@ -97,19 +165,41 @@ func (w *Sequencer) QueueUncommitted(env Envelope) bool {
 			Journal:  env.Journal.Name,
 			Producer: GetProducerID(uuid),
 		}
-		clock       = GetClock(uuid)
-		flags       = GetFlags(uuid)
-		partial, ok = w.partials[jp]
+		clock   = GetClock(uuid)
+		flags   = GetFlags(uuid)
+		partial = w.partials[jp]
 	)
-	if !ok {
-		partial = partialSeq{lastACK: clock - 1, begin: -1, ringStart: -1, ringStop: -1}
-	}
-	if uuid == (UUID{}) {
-		flags = Flag_OUTSIDE_TXN // Emit. Don't track in |w.partials|.
-	} else {
-		defer func() { w.partials[jp] = partial }()
+
+	// Envelopes with a zero-valued Clock (including UUID{})
+	// are treated as immediately committed, and are not indexed.
+	if clock == 0 {
+		partial = &partialSeq{
+			jp:        jp,
+			minClock:  0,
+			maxClock:  0,
+			begin:     -1,
+			ringStart: -1,
+			ringStop:  -1,
+		}
+
+		flags = Flag_OUTSIDE_TXN
+		clock = 1
+	} else if partial == nil {
+		// If this |jp| doesn't have a partialSeq yet, create and index one.
+		partial = &partialSeq{
+			jp:        jp,
+			minClock:  clock - 1,
+			maxClock:  clock - 1,
+			begin:     -1,
+			ringStart: -1,
+			ringStop:  -1,
+		}
+		w.partials[jp] = partial
 	}
 
+	// Inspect |flags|, |clock|, and the |partial| sequence to determine an |outcome|.
+	// Keep state mutations *outside* of this if/else block.
+	var outcome QueueOutcome
 	switch flags {
 	default:
 		w.logError(env, partial, "unexpected UUID flags")
@@ -117,58 +207,31 @@ func (w *Sequencer) QueueUncommitted(env Envelope) bool {
 
 	case Flag_OUTSIDE_TXN:
 
-		// Duplicate of acknowledged message?
-		if clock <= partial.lastACK && clock != 0 {
-			sequencerQueuedTotal.WithLabelValues(
-				env.Journal.Name.String(), "OUTSIDE_TXN", "drop").Inc()
-			return true
-		}
-
-		if partial.begin != -1 {
+		if clock <= partial.minClock {
+			outcome = QueueOutsideAlreadyAcked
+		} else if partial.begin != -1 {
 			w.logError(env, partial, "unexpected OUTSIDE_TXN with a preceding CONTINUE_TXN"+
 				" (mixed use of PublishUncommitted and PublishCommitted to the same journal?)")
-			// Handled as an implicit roll-back of preceding messages.
+			outcome = QueueOutsideCommit
+		} else {
+			outcome = QueueOutsideCommit
 		}
-
-		// Add the message to the ring, and emit it.
-		partial = w.addAtHead(env, partial)
-		w.emit.jp = jp
-		w.emit.next, w.emit.last = clock, clock
-		w.emit.offset = env.Begin
-		w.emit.ringIndex = partial.ringStop
-		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
-
-		sequencerQueuedTotal.WithLabelValues(
-			env.Journal.Name.String(), "OUTSIDE_TXN", "emit").Inc()
-		return true
 
 	case Flag_CONTINUE_TXN:
-		// Duplicate of acknowledged message?
-		if clock < partial.lastACK {
-			sequencerQueuedTotal.WithLabelValues(
-				env.Journal.Name.String(), "CONTINUE_TXN", "drop").Inc()
-			return true
-		}
-		// Duplicate of message already in the ring?
-		if partial.ringStop != -1 && clock <= GetClock(w.ring[partial.ringStop].GetUUID()) {
-			sequencerQueuedTotal.WithLabelValues(
-				env.Journal.Name.String(), "CONTINUE_TXN", "drop-ring").Inc()
-			return true
-		}
 
-		// Does |env| implicitly begin the next span?
-		if partial.begin == -1 {
-			partial.begin = env.Begin
+		if clock <= partial.minClock {
+			outcome = QueueContinueAlreadyAcked
+		} else if clock <= partial.maxClock {
+			outcome = QueueContinueTxnClockLarger
+		} else if partial.begin == -1 {
+			outcome = QueueContinueBeginSpan
+		} else {
+			outcome = QueueContinueExtendSpan
 		}
-		partial = w.addAtHead(env, partial)
-
-		sequencerQueuedTotal.WithLabelValues(
-			env.Journal.Name.String(), "CONTINUE_TXN", "queue").Inc()
-		return false
 
 	case Flag_ACK_TXN:
 
-		if clock < partial.lastACK {
+		if clock < partial.minClock {
 			// Consumer shards checkpoint ACK intents to their stores before
 			// appending them, to ensure that they'll reliably be sent even
 			// if the process crashes.
@@ -186,105 +249,250 @@ func (w *Sequencer) QueueUncommitted(env Envelope) bool {
 			// furthest progress.
 			w.logError(env, partial,
 				"unexpected ACK_TXN which is less than lastACK (loss of exactly-once semantics)")
+			outcome = QueueAckRollback
+		} else if clock == partial.minClock {
+			outcome = QueueAckRollback
+		} else if partial.begin == -1 {
+			outcome = QueueAckEmpty
+		} else if partial.ringStart == -1 {
+			outcome = QueueAckCommitReplay // No portion is within the ring.
+		} else if partial.begin != w.ring[partial.ringStart].Begin {
+			outcome = QueueAckCommitReplay // A trailing portion is in the ring.
+		} else {
+			outcome = QueueAckCommitRing // The entire sequence is in the ring.
 		}
+	}
 
-		if clock <= partial.lastACK {
-			// Roll-back to this acknowledgement.
-			partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
+	switch outcome {
+	// Note: Each case of this switch must either set
+	// |emit| or update |offsets| -- but not both.
 
-			sequencerQueuedTotal.WithLabelValues(
-				env.Journal.Name.String(), "ACK_TXN", "rollback").Inc()
-			return true
-		}
+	case QueueOutsideAlreadyAcked,
+		QueueContinueAlreadyAcked,
+		QueueContinueTxnClockLarger:
 
-		if partial.begin == -1 {
-			// ACK without a preceding CONTINUE_TXN. Non-standard but permitted.
+		// Ignore this message, aside from updating our read-through offset.
+		w.offsets[env.Journal.Name] = env.End
+
+	case QueueContinueBeginSpan,
+		QueueContinueExtendSpan:
+
+		// Track an uncommitted, transactional span.
+		if outcome == QueueContinueBeginSpan {
 			partial.begin = env.Begin
 		}
-		partial = w.addAtHead(env, partial)
-		w.emit.jp = jp
-		w.emit.next, w.emit.last = partial.lastACK, clock
-		w.emit.offset = partial.begin
-		w.emit.ringIndex = partial.ringStart
-		partial = partialSeq{lastACK: clock, begin: -1, ringStart: -1, ringStop: -1}
+		w.addAtHead(env, partial)
+		partial.maxClock = clock
+		w.offsets[env.Journal.Name] = env.End
 
-		sequencerQueuedTotal.WithLabelValues(
-			env.Journal.Name.String(), "ACK_TXN", "emit").Inc()
-		return true
+	case QueueAckRollback:
+
+		// Roll back to a prior acknowledged clock, discarding
+		// any partial transactional span.
+		*partial = partialSeq{
+			jp:        partial.jp,
+			minClock:  clock,
+			maxClock:  clock,
+			begin:     -1,
+			ringStart: -1,
+			ringStop:  -1,
+		}
+		w.offsets[env.Journal.Name] = env.End
+
+	case QueueAckEmpty,
+		QueueAckCommitRing,
+		QueueAckCommitReplay,
+		QueueOutsideCommit:
+
+		// Commit a transactional span.
+		w.addAtHead(env, partial)
+
+		if outcome == QueueAckEmpty {
+			partial.begin = env.Begin // Was -1.
+		} else if outcome == QueueOutsideCommit {
+			// It's possible there was an uncommitted partial sequence.
+			// If so, we deliberately clobber it here, treating as an
+			// effective rollback. In all other cases, partial.begin
+			// is -1 and this OUTSIDE_TXN message is the only one in
+			// the sequence.
+			partial.begin = env.Begin            // Was (probably) -1.
+			partial.ringStart = partial.ringStop // Was (probably) already ringStop.
+		}
+
+		// Commit through |clock|. Which may be less than the maximum clock
+		// of the partial sequence! Any higher-clock messages are dropped.
+		partial.maxClock = clock
+		w.emit = partial
+
+	default:
+		panic(fmt.Sprintf("outcome %d", outcome))
 	}
-	panic("not reached")
+	sequencerQueuedTotal.WithLabelValues(
+		env.Journal.Name.String(), flags.String(), outcome.String()).Inc()
+
+	return outcome
 }
 
-// DequeCommitted returns the next acknowledged message, or io.EOF if no
-// acknowledged messages remain. It must be called repeatedly after
-// each QueueUncommitted until it returns io.EOF. If messages are no
-// longer within the Sequencer's buffer, it returns ErrMustStartReplay
-// and the caller must first StartReplay before trying again.
-func (w *Sequencer) DequeCommitted() (env Envelope, err error) {
-	for {
-		if env, err = w.dequeNext(); err != nil {
-			return
-		} else if w.replay != nil {
-			sequencerReplayTotal.WithLabelValues(env.Journal.Name.String()).Inc()
-		}
-		var uuid = env.GetUUID()
+// Step to the next committed message, or return io.EOF if none remain.
+// A nil result means that the next message is available as Sequencer.Dequeued.
+// Step panics if QueueUncommitted returned QueueAckCommitReplay,
+// and the caller didn't first call StartReplay.
+func (w *Sequencer) Step() error {
+	if w.emit == nil {
+		return io.EOF
+	}
+	if w.Dequeued == nil &&
+		w.replayIt == nil &&
+		w.emit.begin != w.ring[w.emit.ringStart].Begin {
+		panic("caller was required to StartReplay, and didn't")
+	}
 
-		if GetProducerID(uuid) != w.emit.jp.Producer {
-			// Pass.
-		} else if clock := GetClock(uuid); clock < w.emit.next || clock > w.emit.last {
-			// Pass.
+	if w.Dequeued != nil {
+		// Tighten clock to the processed Envelope.
+		w.emit.minClock = w.dequeuedClock
+	}
+
+	for w.emit.ringStart != -1 {
+
+		if w.replayIt == nil {
+			// We're consuming from the ring buffer.
+			w.Dequeued = &w.ring[w.emit.ringStart]
+			// Step such that ringStart reflects one *past* Dequeued.
+			w.emit.ringStart = w.next[w.emit.ringStart]
 		} else {
-			w.emit.next = clock + 1
-			return
+			// We're consuming from a replay Iterator.
+			var err error
+
+			if w.replayEnv, err = w.replayIt.Next(); err == io.EOF {
+				// Replay finished. Begin consuming from the ring.
+				w.replayEnv = Envelope{}
+				w.replayIt = nil
+				continue
+			} else if err != nil {
+				return fmt.Errorf("replay reader: %w", err)
+			} else if w.replayEnv.Journal.Name != w.emit.jp.Journal {
+				return fmt.Errorf("replay of wrong journal (%s; expected %s)",
+					w.replayEnv.Journal.Name, w.emit.jp.Journal)
+			} else if w.replayEnv.Begin < w.emit.begin {
+				return fmt.Errorf("replay has wrong Begin (%d; expected >= %d)",
+					w.replayEnv.Begin, w.emit.begin)
+			} else if w.replayEnv.End > w.ring[w.emit.ringStart].Begin {
+				return fmt.Errorf("replay has wrong End (%d; expected <= %d)",
+					w.replayEnv.End, w.ring[w.emit.ringStart].Begin)
+			}
+
+			sequencerReplayTotal.WithLabelValues(w.emit.jp.Journal.String()).Inc()
+
+			if GetProducerID(w.replayEnv.GetUUID()) != w.emit.jp.Producer {
+				// Not the producer we're replaying for. This is common,
+				// as the journal chunk holds the replayed sequence intermixed
+				// with other messages.
+				continue
+			}
+
+			w.Dequeued = &w.replayEnv
 		}
+
+		var uuid = w.Dequeued.GetUUID()
+		w.dequeuedClock = GetClock(uuid)
+
+		if w.dequeuedClock != 0 && w.dequeuedClock <= w.emit.minClock {
+			if w.replayIt != nil {
+				continue // These can happen during replays.
+			} else {
+				// We don't allow duplicates within the ring in the first place,
+				// with one exception: messages with zero-valued Clocks are not
+				// expected to be consistently ordered on clock.
+				// In QueueUncommitted we synthetically assigned a clock value.
+				panic("ring clock <= emit.minClock")
+			}
+		} else if w.dequeuedClock > w.emit.maxClock {
+			continue // ACK'd clock tells us not to commit.
+		}
+
+		// Tighten offset to the dequeued Envelope.
+		w.emit.begin = w.Dequeued.Begin
+
+		return nil
 	}
+
+	// The last message processed committed the sequence we just
+	// dequeued, and when we originally sequenced it we explicitly
+	// *didn't* update journal offsets. Do so now.
+	//
+	// More details: we didn't update offsets on seeing the ACK to ensure
+	// that a recovering sequencer would once again queue it,
+	// causing it to emit this message sequence. Further note that we've
+	// been tightening offset and clock bounds as we've been going,
+	// so that a recovering sequencer would only start from the portion
+	// of the sequence that remained to be processed.
+	w.offsets[w.emit.jp.Journal] = w.Dequeued.End
+
+	// We've completed consumption of the sequence.
+	// Update it to prepare to read the next sequence from this producer.
+	*w.emit = partialSeq{
+		jp:        w.emit.jp,
+		minClock:  w.emit.minClock,
+		maxClock:  w.emit.minClock,
+		begin:     -1,
+		ringStart: -1,
+		ringStop:  -1,
+	}
+
+	w.Dequeued = nil
+	w.emit = nil
+	w.dequeuedClock = 0
+
+	return io.EOF
 }
 
-// ReplayRange returns the [begin, end) exclusive byte offsets to be replayed.
-// Panics if ErrMustStartReplay was not returned by DequeCommitted.
-func (w *Sequencer) ReplayRange() (begin, end pb.Offset) {
-	if w.emit.ringIndex == -1 {
-		panic("no messages to deque")
+// ReplayRange returns the journal and [begin, end) offsets to be replayed
+// in order to dequeue committed messages.
+// Panics if there are no messages to dequeue.
+func (w *Sequencer) ReplayRange() (journal pb.Journal, begin, end pb.Offset) {
+	if w.emit == nil {
+		panic("emit == nil")
 	}
-	return w.emit.offset, w.ring[w.emit.ringIndex].Begin
+	// Safety: the ring is always >= 1, and a committed message
+	// causing |emit| to be set was the last message added.
+	return w.emit.jp.Journal, w.emit.begin, w.ring[w.emit.ringStart].Begin
 }
 
-// StartReplay is called with a read-uncommitted Iterator over ReplayRange.
-// Panics if ErrMustStartReplay was not returned by DequeCommitted.
+// StartReplay sets the read-uncommitted Iterator to read from
+// in order to dequeue a committed sequence of messages.
+// The Iterator must read from the Journal and offset range last
+// returned by ReplayRange.
+// Panics if there are no messages to dequeue.
 func (w *Sequencer) StartReplay(it Iterator) {
-	if w.emit.ringIndex == -1 {
-		panic("no messages to deque")
+	if w.emit == nil {
+		panic("emit == nil")
 	}
-	w.replay = it
+	w.replayIt = it
 }
 
-// HasPending returns true if any partial sequence has a first offset larger
-// than those of the Offsets (eg, the sequence started since |since| was read).
+// HasPending returns true if an uncompleted message sequence has been
+// started or extended since the last Checkpoint was taken.
 // Assuming liveness of producers, it hints that further messages are
 // forthcoming.
-func (w *Sequencer) HasPending(since pb.Offsets) bool {
+func (w *Sequencer) HasPending() bool {
 	for jp, partial := range w.partials {
-		if partial.begin >= since[jp.Journal] {
+		if partial.begin >= w.lastOffsets[jp.Journal] {
 			return true
 		}
 	}
 	return false
 }
 
-// ProducerStates returns a snapshot of producers and their states, after
-// pruning any producers having surpassed pruneHorizon in age relative to
-// the most recent producer within their journal. If pruneHorizon is zero,
-// no pruning is done. ProducerStates panics if messages still remain to deque.
-func (w *Sequencer) ProducerStates(pruneHorizon time.Duration) []ProducerState {
-	if w.emit.ringIndex != -1 {
-		panic("messages remain to deque")
-	}
-
-	// Collect the largest Clock seen with each journal.
+// Checkpoint returns a snapshot of read-through offsets, journal producers,
+// and their states. It additionally prunes any producers having surpassed
+// |pruneHorizon| in age, relative to the most recent producer within their journal.
+// If |pruneHorizon| is zero, no pruning is done.
+func (w *Sequencer) Checkpoint(pruneHorizon time.Duration) (pb.Offsets, []ProducerState) {
+	// Collect the largest committed Clock seen with each journal.
 	var prune = make(map[pb.Journal]Clock)
 	for jp, partial := range w.partials {
-		if partial.lastACK > prune[jp.Journal] {
-			prune[jp.Journal] = partial.lastACK
+		if partial.minClock > prune[jp.Journal] {
+			prune[jp.Journal] = partial.minClock
 		}
 	}
 	// Convert each to a minimum Clock bound before pruning is applied.
@@ -297,69 +505,26 @@ func (w *Sequencer) ProducerStates(pruneHorizon time.Duration) []ProducerState {
 		}
 	}
 	// Apply pruning and collect remaining states.
-	var out = make([]ProducerState, 0, len(w.partials))
+	var states = make([]ProducerState, 0, len(w.partials))
 	for jp, partial := range w.partials {
-		if partial.lastACK >= prune[jp.Journal] {
-			out = append(out, ProducerState{
+		if partial.maxClock >= prune[jp.Journal] {
+			states = append(states, ProducerState{
 				JournalProducer: jp,
-				LastAck:         partial.lastACK,
+				LastAck:         partial.minClock,
 				Begin:           partial.begin,
 			})
 		} else {
 			delete(w.partials, jp)
 		}
 	}
-	return out
-}
 
-func (w *Sequencer) dequeNext() (env Envelope, err error) {
-	if w.emit.ringIndex == -1 {
-		err = io.EOF
-		return
+	// Retain offsets at which this checkpoint was produced,
+	// for future evaluations of HasPending.
+	for j, o := range w.offsets {
+		w.lastOffsets[j] = o
 	}
 
-	// Can we deque directly from the ring (|replay| must be drained first)?
-	if env = w.ring[w.emit.ringIndex]; w.replay == nil && w.emit.offset == env.Begin {
-		// We can. Step |emit| to next ring entry before returning.
-		w.emit.ringIndex = w.next[w.emit.ringIndex]
-		if w.emit.ringIndex != -1 {
-			w.emit.offset = w.ring[w.emit.ringIndex].Begin
-		}
-		return
-	}
-
-	// Not within the ring. We must replay the range from w.emit.offset.
-	if w.replay == nil {
-		err = ErrMustStartReplay
-		return
-	}
-
-	var ringBegin = env.Begin
-
-	if env, err = w.replay.Next(); err == io.EOF {
-		// Finished reading the replay range. Deque remaining entries from the ring.
-		w.emit.offset = ringBegin
-		w.replay = nil
-		env, err = w.dequeNext()
-		return
-	}
-
-	if err != nil {
-		// Pass.
-	} else if env.Journal.Name != w.emit.jp.Journal {
-		err = errors.Errorf("wrong journal (%s; expected %s)", env.Journal.Name, w.emit.jp.Journal)
-	} else if env.Begin < w.emit.offset {
-		err = errors.Errorf("wrong Begin (%d; expected >= %d)", env.Begin, w.emit.offset)
-	} else if env.End > ringBegin {
-		err = errors.Errorf("wrong End (%d; expected <= %d)", env.End, ringBegin)
-	} else {
-		w.emit.offset = env.End
-	}
-
-	if err != nil {
-		err = errors.WithMessage(err, "replay reader")
-	}
-	return
+	return w.offsets, states
 }
 
 func (w *Sequencer) evictAtHead() {
@@ -377,8 +542,8 @@ func (w *Sequencer) evictAtHead() {
 		Producer: GetProducerID(w.ring[w.head].GetUUID()),
 	}
 
-	// We must update partial |p| if it still references |w.head|. It often will
-	// not, if the the latter has already been acknowledged or rolled back.
+	// We must update a partial sequence that still references |w.head|.
+	// It often will not, if the message has already been acknowledged or rolled back.
 	if p, ok := w.partials[jp]; ok && p.ringStart == w.head {
 		if p.ringStart == p.ringStop && w.next[p.ringStart] == -1 {
 			p.ringStart, p.ringStop = -1, -1 // No more entries.
@@ -387,12 +552,11 @@ func (w *Sequencer) evictAtHead() {
 		} else {
 			panic("invariant violated: ringStart == ringStop iff next[ringStart] == -1")
 		}
-		w.partials[jp] = p
 	}
 	w.ring[w.head], w.next[w.head] = Envelope{}, -1
 }
 
-func (w *Sequencer) addAtHead(env Envelope, partial partialSeq) partialSeq {
+func (w *Sequencer) addAtHead(env Envelope, partial *partialSeq) {
 	w.ring[w.head], w.next[w.head] = env, -1
 
 	if partial.ringStop == -1 {
@@ -403,10 +567,9 @@ func (w *Sequencer) addAtHead(env Envelope, partial partialSeq) partialSeq {
 	partial.ringStop = w.head
 
 	w.head = (w.head + 1) % cap(w.ring)
-	return partial
 }
 
-func (w *Sequencer) logError(env Envelope, partial partialSeq, msg string) {
+func (w *Sequencer) logError(env Envelope, partial *partialSeq, msg string) {
 	log.WithFields(log.Fields{
 		"env.Journal":       env.Journal.Name,
 		"env.Begin":         env.Begin,
@@ -415,13 +578,36 @@ func (w *Sequencer) logError(env Envelope, partial partialSeq, msg string) {
 		"env.UUID.Clock":    GetClock(env.GetUUID()),
 		"env.UUID.Time":     time.Unix(env.GetUUID().Time().UnixTime()),
 		"env.UUID.Flags":    GetFlags(env.GetUUID()),
-		"partial.lastACK":   partial.lastACK,
+		"partial.minClock":  partial.minClock,
+		"partial.maxClock":  partial.maxClock,
 		"partial.begin":     partial.begin,
 		"partial.ringStart": partial.ringStart,
 		"partial.ringStop":  partial.ringStop,
 	}).Error(msg)
 }
 
-// ErrMustStartReplay is returned by Sequencer to indicate that
-// a journal replay must be started before the dequeue may continue.
-var ErrMustStartReplay = errors.New("must start reader")
+func (o QueueOutcome) String() string {
+	switch o {
+	case QueueOutsideAlreadyAcked:
+		return "outsideAlreadyAcked"
+	case QueueOutsideCommit:
+		return "outsideCommit"
+	case QueueContinueAlreadyAcked:
+		return "continueAlreadyAcked"
+	case QueueContinueTxnClockLarger:
+		return "continueRingClockLarger"
+	case QueueContinueBeginSpan:
+		return "continueBeginSpan"
+	case QueueContinueExtendSpan:
+		return "continueExtendSpan"
+	case QueueAckRollback:
+		return "ackRollback"
+	case QueueAckEmpty:
+		return "ackEmpty"
+	case QueueAckCommitRing:
+		return "ackCommitRing"
+	case QueueAckCommitReplay:
+		return "ackCommitReplay"
+	}
+	return "invalidOutcome"
+}

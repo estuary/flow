@@ -3,6 +3,7 @@ package message
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/big"
 	"sync/atomic"
@@ -153,3 +154,17 @@ const (
 	// and 1 Jan 1970 (Unix epoch), in units of 100 nanoseconds.
 	g1582ns100 = 122192928000000000
 )
+
+// String returns a string representation of the Flags value.
+func (f Flags) String() string {
+	switch f {
+	case Flag_OUTSIDE_TXN:
+		return "OUTSIDE_TXN"
+	case Flag_ACK_TXN:
+		return "ACK_TXN"
+	case Flag_CONTINUE_TXN:
+		return "CONTINUE_TXN"
+	default:
+		return fmt.Sprintf("Flags(%x)", uint16(f))
+	}
+}

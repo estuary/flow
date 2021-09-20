@@ -2,6 +2,7 @@ package message
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -139,29 +140,23 @@ func NewReadCommittedIter(rr *client.RetryReader, newMsg NewMessageFunc, seq *Se
 // It returns EOF if none remain, or any other encountered error.
 func (it *ReadCommittedIter) Next() (Envelope, error) {
 	for {
-		switch env, err := it.seq.DequeCommitted(); err {
-		case nil:
-			return env, nil
-
-		case ErrMustStartReplay:
+		// Dequeue a committed message.
+		if err := it.seq.Step(); err == nil {
+			return *it.seq.Dequeued, nil
+		} else if err != io.EOF {
+			return Envelope{}, fmt.Errorf("reading committed message: %w", err)
+		}
+		// Read and queue an uncommitted message.
+		if env, err := it.rui.Next(); err == io.EOF {
+			return Envelope{}, io.EOF // Don't wrap io.EOF.
+		} else if err != nil {
+			return Envelope{}, fmt.Errorf("reading uncommitted message: %w", err)
+		} else if it.seq.QueueUncommitted(env) == QueueAckCommitReplay {
 			var req = it.rui.rr.Reader.Request
-			req.Offset, req.EndOffset = it.seq.ReplayRange()
+			req.Journal, req.Offset, req.EndOffset = it.seq.ReplayRange()
 
 			var rr = client.NewRetryReader(it.rui.rr.Context, it.rui.rr.Client, req)
 			it.seq.StartReplay(NewReadUncommittedIter(rr, it.rui.newMsg))
-
-		case io.EOF:
-			switch env, err = it.rui.Next(); err {
-			case nil:
-				it.seq.QueueUncommitted(env)
-			case io.EOF:
-				return Envelope{}, io.EOF // Don't wrap io.EOF.
-			default:
-				return Envelope{}, errors.WithMessage(err, "reading next uncommitted message")
-			}
-
-		default:
-			return Envelope{}, errors.WithMessage(err, "deque of committed message")
 		}
 	}
 }

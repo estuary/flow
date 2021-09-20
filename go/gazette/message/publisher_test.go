@@ -138,30 +138,27 @@ func TestIntegrationOfPublisherWithSequencerAndReader(t *testing.T) {
 	var r = NewReadUncommittedIter(rr, newTestMsg)
 
 	// Sequencer |seq| has a very limited look-back window.
-	var seq = NewSequencer(nil, 3)
+	var seq = NewSequencer(nil, nil, 3)
 
 	var seqPump = func() (out []testMsg) {
 		var env, err = r.Next()
 		require.NoError(t, err)
-		seq.QueueUncommitted(env)
 
+		if seq.QueueUncommitted(env) == QueueAckCommitReplay {
+			var journal, from, to = seq.ReplayRange()
+			var rr = client.NewRetryReader(ctx, bk.Client(), pb.ReadRequest{
+				Journal:   journal,
+				Offset:    from,
+				EndOffset: to,
+			})
+			seq.StartReplay(NewReadUncommittedIter(rr, newTestMsg))
+		}
 		for {
-			var env, err = seq.DequeCommitted()
-			if err == io.EOF {
+			if err := seq.Step(); err == io.EOF {
 				return
 			}
-			if err == ErrMustStartReplay {
-				var from, to = seq.ReplayRange()
-				var rr = client.NewRetryReader(ctx, bk.Client(), pb.ReadRequest{
-					Journal:   env.Journal.Name,
-					Offset:    from,
-					EndOffset: to,
-				})
-				seq.StartReplay(NewReadUncommittedIter(rr, newTestMsg))
-				continue
-			}
 			require.NoError(t, err)
-			out = append(out, *env.Message.(*testMsg))
+			out = append(out, *seq.Dequeued.Message.(*testMsg))
 		}
 	}
 
