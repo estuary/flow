@@ -131,7 +131,7 @@ func runCommand(
 			return err
 		},
 	}
-	cmd.Stderr = &connectorStderr{}
+	cmd.Stderr = &connectorStderr{delegate: os.Stderr}
 
 	log.WithField("args", args).Info("invoking connector")
 	if err := cmd.Start(); err != nil {
@@ -146,13 +146,24 @@ func runCommand(
 		_ = signal(syscall.SIGTERM)
 	}(cmd.Process.Signal)
 
-	if err := cmd.Wait(); err != nil {
+	err = cmd.Wait()
+	var closeErr = cmd.Stdout.(io.Closer).Close()
+
+	if err == nil {
+		// Expect clean output after a clean exit, regardless of cancellation status.
+		fe.onError(closeErr)
+	} else if ctx.Err() == nil {
+		// Expect a clean exit iff the context wasn't cancelled.
 		fe.onError(fmt.Errorf("%w with stderr:\n\n%s",
-			err, cmd.Stderr.(*connectorStderr).err.String()))
+			err, cmd.Stderr.(*connectorStderr).buffer.String()))
+	} else {
+		fe.onError(ctx.Err())
 	}
 
-	log.WithField("err", fe.unwrap()).Info("connector exited")
-	_ = cmd.Stdout.(io.Closer).Close()
+	log.WithFields(log.Fields{
+		"err":       fe.unwrap(),
+		"cancelled": ctx.Err() != nil,
+	}).Info("connector exited")
 
 	return fe.unwrap()
 }
@@ -361,18 +372,18 @@ func (o *jsonOutput) Close() error {
 }
 
 type connectorStderr struct {
-	err bytes.Buffer
+	delegate io.Writer
+	buffer   bytes.Buffer
 }
 
 func (s *connectorStderr) Write(p []byte) (int, error) {
-	var n = len(p)
-	var rem = maxStderrBytes - s.err.Len()
-
-	if rem < n {
-		p = p[:rem]
+	var rem = maxStderrBytes - s.buffer.Len()
+	if rem > len(p) {
+		rem = len(p)
 	}
-	s.err.Write(p)
-	return n, nil
+	s.buffer.Write(p[:rem])
+
+	return s.delegate.Write(p)
 }
 
 type firstError struct {
