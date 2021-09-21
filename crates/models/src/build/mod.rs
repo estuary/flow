@@ -92,6 +92,22 @@ pub fn journal_selector(
     }
 }
 
+/// The set of characters that must be percent-encoded when used as a URL path segment. This set
+/// matches the set of characters that must be percent encoded according to [RFC 3986 Section
+/// 3.3](https://datatracker.ietf.org/doc/html/rfc3986#section-3.3) This also matches the rules
+/// that are used in Go to encode partition fields.
+const PATH_SEGMENT_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~')
+    .remove(b'$')
+    .remove(b'&')
+    .remove(b'+')
+    .remove(b':')
+    .remove(b'=')
+    .remove(b'@');
+
 // Flatten partition selector fields into a Vec<Label>.
 // JSON strings are percent-encoded but un-quoted.
 // Other JSON types map to their literal JSON strings.
@@ -101,8 +117,7 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
         for value in value {
             let value = match value {
                 Value::String(s) => {
-                    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC)
-                        .to_string()
+                    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
                 }
                 _ => serde_json::to_string(value).unwrap(),
             };
@@ -246,29 +261,6 @@ pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
     name
 }
 
-#[cfg(test)]
-mod test {
-    use super::encode_resource_path;
-
-    #[test]
-    fn test_name_escapes() {
-        let out = encode_resource_path(&vec![
-            "he!lo৬".to_string(),
-            "a/part%".to_string(),
-            "_¾the-=res+.".to_string(),
-        ]);
-        assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+.");
-    }
-
-    #[test]
-    fn test_arbitrary_webhook_urls() {
-        let url =
-            "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
-        let out = encode_resource_path(&vec![url.to_string()]);
-        assert_eq!(&out, "http%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
-    }
-}
-
 pub fn materialization_shuffle(
     binding: &tables::MaterializationBinding,
     source: &flow::CollectionSpec,
@@ -333,5 +325,48 @@ pub fn test_step_spec(
             .collect::<Vec<_>>()
             .join("\n"),
         partitions: Some(journal_selector(&collection.collection, partitions)),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_name_escapes() {
+        let out = encode_resource_path(&vec![
+            "he!lo৬".to_string(),
+            "a/part%".to_string(),
+            "_¾the-=res+.".to_string(),
+        ]);
+        assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+.");
+    }
+
+    #[test]
+    fn journal_selector_percent_encodes_values() {
+        let mut include = BTreeMap::new();
+        let mut exclude = BTreeMap::new();
+        include.insert(
+            String::from("foo"),
+            vec!["some/val-ue".into(), "a_whole:nother".into()],
+        );
+        include.insert(
+            String::from("bar"),
+            vec![Value::from(123), Value::from(true)],
+        );
+        exclude.insert(String::from("foo"), vec!["no&no@no$yes();".into()]);
+
+        let selector = names::PartitionSelector { include, exclude };
+        let collection = names::Collection::new("the/collection");
+        let labels = journal_selector(&collection, &Some(selector));
+        insta::assert_debug_snapshot!(labels);
+    }
+
+    #[test]
+    fn test_arbitrary_webhook_urls() {
+        let url =
+            "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
+        let out = encode_resource_path(&vec![url.to_string()]);
+        assert_eq!(&out, "http%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
     }
 }
