@@ -1,9 +1,11 @@
 package testing
 
 import (
+	"errors"
 	"fmt"
 
 	pf "github.com/estuary/protocols/flow"
+	log "github.com/sirupsen/logrus"
 )
 
 // Driver executes test actions.
@@ -18,13 +20,16 @@ type Driver interface {
 	Advance(TestTime) error
 }
 
+// ErrAdvanceDisabled is a specific error returned when clock advance is called when advance is disabled.
+var ErrAdvanceDisabled = errors.New("advance disabled")
+
 // RunTestCase runs a test case using the given Graph and Driver.
 func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, err error) {
 	var initial = graph.writeClock.Copy()
 	var testStep = 0
 
 	for {
-		var ready, nextReady = graph.PopReadyStats()
+		var ready, nextReady, nextName = graph.PopReadyStats()
 
 		for _, stat := range ready {
 			var read, write, err = driver.Stat(stat)
@@ -69,11 +74,20 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 
 		// Advance time to unblock the next PendingStat.
 		if nextReady != -1 {
-			if err := driver.Advance(nextReady); err != nil {
-				return scope, fmt.Errorf("driver.Advance: %w", err)
+			err := driver.Advance(nextReady)
+			if err != nil {
+				if err == ErrAdvanceDisabled {
+					log.WithFields(log.Fields{
+						"delay": nextReady,
+						"task":  nextName,
+					}).Warn("sleeping until next task is ready.")
+				} else {
+					return scope, fmt.Errorf("driver.Advance: %w", err)
+				}
+			} else {
+				graph.CompletedAdvance(nextReady)
+				continue
 			}
-			graph.CompletedAdvance(nextReady)
-			continue
 		}
 
 		// All steps are completed, and no pending stats remain. All done.
