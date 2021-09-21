@@ -19,6 +19,7 @@ type cmdCombine struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Collection  string                `long:"collection" required:"true" description:"The name of the collection from which to take the schema and key"`
+	MaxDocs     uint64                `long:"max-docs" default:"0" description:"Maximum number of documents to add to the combiner before draining it. If 0, then there is no maximum"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -83,8 +84,11 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	}
 
 	var scanner = bufio.NewScanner(os.Stdin)
-	var inputDocs = 0
+	var inputDocs uint64 = 0
 	var inputBytes uint64 = 0
+	var outputDocs uint64 = 0
+	var outputBytes uint64 = 0
+	var drained = true
 	for scanner.Scan() {
 		var bytes = append([]byte(nil), scanner.Bytes()...)
 		inputDocs++
@@ -103,32 +107,29 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		if err = combine.CombineRight(json.RawMessage(bytes)); err != nil {
 			return fmt.Errorf("at stdin line %d: %w", inputDocs, err)
 		}
+		drained = false
 
-		if inputDocs%10000 == 0 {
+		if cmd.MaxDocs > 0 && inputDocs%cmd.MaxDocs == 0 {
 			log.WithFields(log.Fields{
 				"inputDocs":  inputDocs,
 				"inputBytes": inputBytes,
-			}).Info("read input progress")
+			}).Info("draining combiner")
+			oDocs, oBytes, err := drainToStdout(combine)
+			if err != nil {
+				return fmt.Errorf("draining combiner: %w", err)
+			}
+			outputDocs += oDocs
+			outputBytes += oBytes
+			drained = true
 		}
 	}
-	if err = combine.PrepareToDrain(); err != nil {
-		return fmt.Errorf("preparing to drain: %w", err)
-	}
-
-	var outputDocs = 0
-	var outputBytes uint64 = 0
-	err = combine.Drain(func(full bool, doc json.RawMessage, packedKey []byte, packedFields []byte) error {
-		outputDocs++
-		outputBytes = outputBytes + uint64(len(doc))
-		fmt.Println(string(doc))
-
-		if len(packedKey) <= 1 {
-			return fmt.Errorf("Failed to extract key from output docuement: %d", outputDocs)
+	if !drained {
+		oDocs, oBytes, err := drainToStdout(combine)
+		if err != nil {
+			return fmt.Errorf("draining combiner: %w", err)
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("draining document %d: %w", outputDocs, err)
+		outputDocs += oDocs
+		outputBytes += oBytes
 	}
 
 	log.WithFields(log.Fields{
@@ -138,4 +139,18 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		"outputBytes": outputBytes,
 	}).Info("completed combine")
 	return nil
+}
+
+func drainToStdout(combiner *bindings.Combine) (outputDocs uint64, outputBytes uint64, err error) {
+	err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey []byte, packedFields []byte) error {
+		outputDocs++
+		outputBytes = outputBytes + uint64(len(doc))
+		fmt.Println(string(doc))
+
+		if len(packedKey) <= 1 {
+			return fmt.Errorf("Failed to extract key from output document: %d", outputDocs)
+		}
+		return nil
+	})
+	return
 }
