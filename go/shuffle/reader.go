@@ -230,6 +230,14 @@ func (g *governor) poll(ctx context.Context) error {
 		case <-g.tp.Ready():
 			return g.onTick()
 		default:
+			// Notify the *read that it is drained.
+			// This may awake an ongoing call to read.sendReadResult()
+			// which is currently sitting in a backoff timer.
+			select {
+			case r.drainedCh <- struct{}{}:
+			default:
+			}
+
 			if !r.resp.Tailing() {
 				// We know that more data is already available for this reader
 				// and it should be forthcoming. We must block for its next read

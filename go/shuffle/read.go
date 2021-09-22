@@ -108,9 +108,10 @@ type read struct {
 	readDelay message.Clock
 
 	// Fields filled when a read is start()'d.
-	ctx    context.Context
-	cancel context.CancelFunc
-	ch     chan *pf.ShuffleResponse
+	ctx       context.Context
+	cancel    context.CancelFunc       // Cancel this read.
+	ch        chan *pf.ShuffleResponse // Read responses.
+	drainedCh chan struct{}            // Signaled when |ch| is emptied.
 
 	// Terminal error, which is set immediately prior to |ch| being closed,
 	// and which may be accessed only after reading a |ch| close.
@@ -243,6 +244,7 @@ func (r *read) start(
 	r.log().Debug("starting shuffled journal read")
 	r.ctx, r.cancel = context.WithCancel(ctx)
 	r.ch = make(chan *pf.ShuffleResponse, readChannelCapacity)
+	r.drainedCh = make(chan struct{}, 1)
 
 	// Resolve coordinator shard to a current member process.
 	var resolution, err = resolveFn(consumer.ResolveArgs{
@@ -345,9 +347,29 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 	}
 
 	if queue != 0 {
+		var dur = time.Millisecond << (queue - 1)
+		var timer = time.NewTimer(dur)
+
 		select {
-		case <-time.After(time.Millisecond << (queue - 1)):
+		case <-r.drainedCh:
+			// Our channel was emptied while awaiting an (uncompleted) backoff,
+			// which is now aborted.
+			//
+			// Or we read a stale notification (since cap(drainedCh) == 1),
+			// and we're aborting the first (1ms) backoff interval prematurely.
+			// This is an acceptable race and can only happen when len(ch) == 1.
+			_ = timer.Stop() // Cleanup.
 			// Fall through to send to channel.
+
+		case <-timer.C:
+			if queue > 10 { // Log values > 1s.
+				r.log().WithFields(log.Fields{
+					"queue":   queue,
+					"backoff": dur,
+				}).Info("backpressure timer elapsed on a slow read")
+			}
+			// Fall through to send to channel.
+
 		case <-r.ctx.Done():
 			return r.ctx.Err()
 		}
@@ -595,8 +617,8 @@ func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
 }
 
 // readChannelCapacity is sized so that sendReadResult will overflow and
-// cancel the read after ~8 seconds of no progress (1 << (14 - 1) millis).
-var readChannelCapacity = 15
+// cancel the read after ~65 seconds of no progress (1<<15 + 1<<14 + 1<<13 ... millis).
+var readChannelCapacity = 17
 
 func backoff(attempt int) time.Duration {
 	// The choices of backoff time reflect that we're usually waiting for the
