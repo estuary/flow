@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
@@ -330,6 +331,33 @@ func TestReadSendBackoffAndCancel(t *testing.T) {
 	require.Equal(t, io.ErrUnexpectedEOF, r.chErr)
 
 	<-wakeCh // Was signaled.
+}
+
+func TestReadSendBackoffAndWake(t *testing.T) {
+	const capacity = 24 // Very long backoff interval.
+	var r = &read{
+		ctx:       context.Background(),
+		ch:        make(chan *pf.ShuffleResponse, capacity),
+		drainedCh: make(chan struct{}, 1),
+	}
+
+	for i := 0; i != cap(r.ch)-1; i++ {
+		r.ch <- new(pf.ShuffleResponse)
+	}
+
+	time.AfterFunc(time.Millisecond, func() {
+		for i := 0; i != cap(r.ch)-1; i++ {
+			<-r.ch // Empty it.
+		}
+		r.drainedCh <- struct{}{} // Notify of being emptied.
+	})
+
+	// A send starts a very long backoff timer, which is cancelled by
+	// the above routine draining the channel while we're waiting.
+	require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, nil))
+
+	<-r.ch // Blocked response was sent.
+	require.Empty(t, r.ch)
 }
 
 func TestWalkingReads(t *testing.T) {
