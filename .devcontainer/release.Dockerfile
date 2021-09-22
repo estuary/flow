@@ -13,7 +13,7 @@ RUN apt update -y \
  && export NODE_KEYRING=/usr/share/keyrings/nodesource.gpg \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee "$NODE_KEYRING" >/dev/null \
  && gpg --no-default-keyring --keyring "$NODE_KEYRING" --list-keys \
- && echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_16.x bullseye main" | tee /etc/apt/sources.list.d/nodesource.list \
+ && echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_14.x bullseye main" | tee /etc/apt/sources.list.d/nodesource.list \
  && apt update -y \
  && apt upgrade -y \
  && apt install --no-install-recommends -y \
