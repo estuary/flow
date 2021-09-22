@@ -29,6 +29,7 @@ DOCKER_UID="$UID"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
 DOCKER_EXTRA_OPTS=""
 DOCKER_COMMAND="flowctl"
+DOCKER_PULL="missing"
 FLOWCTL_DIRECTORY=$(pwd)
 FLOWCTL_SOURCE=""
 FLOWCTL_CONTAINAER_DIRECTORY="/home/flow/project"
@@ -108,6 +109,9 @@ for (( argpos=0; argpos < "${#ARGS[@]}"; argpos++ )); do
         --docker-image*)
             parse_option "--docker-image" DOCKER_IMAGE "consume" $ARGS
             ;;
+        --docker-pull*)
+            parse_option "--docker-pull" DOCKER_PULL "consume" $ARGS
+            ;;
         --debug-script*)
             parse_option "--debug-script" DEBUG_SCRIPT "consume" $ARGS
             ;;
@@ -182,6 +186,7 @@ CMD="${DOCKER_EXEC} run -it --rm \
 -v ${FLOWCTL_DIRECTORY}:${FLOWCTL_CONTAINAER_DIRECTORY} \
 -v ${DOCKER_SOCK}:/var/run/docker.sock \
 --network ${FLOWCTL_NETWORK} \
+--pull ${DOCKER_PULL} \
 ${DOCKER_EXTRA_OPTS} \
 -v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
 -e HOME=/tmp \
