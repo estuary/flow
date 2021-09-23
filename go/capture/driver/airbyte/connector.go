@@ -55,7 +55,7 @@ func RunConnector(
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
 	}
 
-	if argsString := os.Getenv("CONNECTOR_EXTRA_DOCKER_ARGS"); argsString != "" {
+	if argsString := os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"); argsString != "" {
 		args := strings.Split(argsString, " ")
 		imageArgs = append(imageArgs, args...)
 	}

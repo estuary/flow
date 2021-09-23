@@ -170,7 +170,13 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
     if [[ `uname -m` == 'arm64' ]]; then
         DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+        DOCKER_EXTRA_CONNECTOR_OPTS+="--platform linux/amd64 "
     fi
+fi
+
+# Allow passing extra docker arguments to the connector
+if [[ ! -z "$DOCKER_EXTRA_CONNECTOR_OPTS" ]]; then
+    DOCKER_EXTRA_OPTS+="-e DOCKER_EXTRA_CONNECTOR_OPTS='$DOCKER_EXTRA_CONNECTOR_OPTS' "
 fi
 
 # Build the docker command:
