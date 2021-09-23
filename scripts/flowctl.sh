@@ -176,7 +176,7 @@ fi
 
 # Allow passing extra docker arguments to the connector
 if [[ ! -z "$DOCKER_EXTRA_CONNECTOR_OPTS" ]]; then
-    DOCKER_EXTRA_OPTS+="-e DOCKER_EXTRA_CONNECTOR_OPTS='$DOCKER_EXTRA_CONNECTOR_OPTS' "
+    DOCKER_EXTRA_OPTS+="-e DOCKER_EXTRA_CONNECTOR_OPTS "
 fi
 
 # Build the docker command:
