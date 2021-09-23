@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -52,6 +53,11 @@ func RunConnector(
 
 	if networkName != "" {
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
+	}
+
+	if argsString := os.Getenv("CONNECTOR_EXTRA_DOCKER_ARGS"); argsString != "" {
+		args := strings.Split(argsString, " ")
+		imageArgs = append(imageArgs, args...)
 	}
 
 	for name, m := range jsonFiles {
