@@ -425,7 +425,7 @@ func playAndComplete(t require.TestingT, shard *shard) pc.Checkpoint {
 	shard.sequencer = message.NewSequencer(
 		pc.FlattenReadThrough(cp),
 		pc.FlattenProducerStates(cp),
-		defaultMessageRingSize,
+		defaultRingBufferSize,
 	)
 	return cp
 }

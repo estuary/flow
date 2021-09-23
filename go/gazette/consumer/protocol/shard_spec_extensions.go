@@ -157,6 +157,9 @@ func UnionShardSpecs(a, b ShardSpec) ShardSpec {
 	if a.RingBufferSize == 0 {
 		a.RingBufferSize = b.RingBufferSize
 	}
+	if a.ReadChannelSize == 0 {
+		a.ReadChannelSize = b.ReadChannelSize
+	}
 	return a
 }
 
@@ -195,6 +198,9 @@ func IntersectShardSpecs(a, b ShardSpec) ShardSpec {
 	if a.RingBufferSize != b.RingBufferSize {
 		a.RingBufferSize = 0
 	}
+	if a.ReadChannelSize != b.ReadChannelSize {
+		a.ReadChannelSize = 0
+	}
 	return a
 }
 
@@ -232,6 +238,9 @@ func SubtractShardSpecs(a, b ShardSpec) ShardSpec {
 	}
 	if a.RingBufferSize == b.RingBufferSize {
 		a.RingBufferSize = 0
+	}
+	if a.ReadChannelSize == b.ReadChannelSize {
+		a.ReadChannelSize = 0
 	}
 	return a
 }

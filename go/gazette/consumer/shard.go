@@ -20,12 +20,17 @@ import (
 const (
 	// Frequency with which current FSM hints are written to Etcd.
 	storeHintsInterval = 5 * time.Minute
-	// Size of the channel used between message decode & consumption. Needs to
-	// be rather large, to minimize processing stalls. The current value will
-	// tolerate a data delay of up to 82ms @ 100K messages / sec without stalling.
-	messageBufferSize = 1 << 13 // 8192.
-	// Size of the ring buffer used by message.Sequencer if the ShardSpec doesn't specify.
-	defaultMessageRingSize = messageBufferSize
+	// Default size of the channel used between message decode & consumption.
+	// This value is conservative, but will tolerate a data delay of up to
+	// 82ms @ 100K messages / sec without stalling.
+	// May be overridden in the ShardSpec.
+	defaultReadChannelSize = 1 << 13 // 8192.
+	// Default size of the ring buffer used for exactly-once sequencing of
+	// messages. If upstream transactions are large, then larger ring values
+	// may reduce the occurrence of replay reads required to re-fetch messages
+	// which have fallen out of the ring.
+	// May be overridden in the ShardSpec.
+	defaultRingBufferSize = 1 << 13 // 8192.
 	// Maximum interval between the newest and an older producer within a journal,
 	// before the message sequencer will prune the older producer state.
 	messageSequencerPruneHorizon = time.Hour * 24
@@ -240,7 +245,11 @@ func servePrimary(s *shard) (err error) {
 	// Run consumer transactions until an error occurs (such as context.Cancelled).
 	s.publisher = message.NewPublisher(s.ajc, &s.clock)
 	for {
-		var msgCh = make(chan EnvelopeOrError, messageBufferSize)
+		var chanSize = s.Spec().ReadChannelSize
+		if chanSize == 0 {
+			chanSize = defaultReadChannelSize
+		}
+		var msgCh = make(chan EnvelopeOrError, chanSize)
 
 		if mp, ok := s.svc.App.(MessageProducer); ok {
 			mp.StartReadingMessages(s, s.store, cp, msgCh)
@@ -250,7 +259,7 @@ func servePrimary(s *shard) (err error) {
 
 		var ringSize = s.Spec().RingBufferSize
 		if ringSize == 0 {
-			ringSize = defaultMessageRingSize
+			ringSize = defaultRingBufferSize
 		}
 		s.sequencer = message.NewSequencer(
 			pc.FlattenReadThrough(cp),

@@ -215,6 +215,14 @@ message ShardSpec {
   // If zero, a reasonable default (currently 8192) is used.
   uint32 ring_buffer_size = 12
       [ (gogoproto.moretags) = "yaml:\"ring_buffer_size,omitempty\"" ];
+
+  // Size of the channel used to bridge message read and decode with
+  // sequencing and consumption. Larger values may reduce data stalls,
+  // particularly for larger transactions and/or bursty custom
+  // MessageProducer implementations.
+  // If zero, a reasonable default (currently 8192) is used.
+  uint32 read_channel_size = 13
+      [ (gogoproto.moretags) = "yaml:\"read_channel_size,omitempty\"" ];
 }
 
 // ConsumerSpec describes a Consumer process instance and its configuration.

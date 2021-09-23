@@ -129,6 +129,7 @@ func (s *SpecSuite) TestSetOperations(c *gc.C) {
 		},
 		DisableWaitForAck: true,
 		RingBufferSize:    123,
+		ReadChannelSize:   456,
 	}
 	var other = ShardSpec{
 		Sources: []ShardSpec_Source{
@@ -150,6 +151,7 @@ func (s *SpecSuite) TestSetOperations(c *gc.C) {
 		},
 		DisableWaitForAck: false,
 		RingBufferSize:    456,
+		ReadChannelSize:   789,
 	}
 
 	c.Check(UnionShardSpecs(ShardSpec{}, model), gc.DeepEquals, model)
