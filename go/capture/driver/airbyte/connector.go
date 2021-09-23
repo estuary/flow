@@ -57,7 +57,11 @@ func RunConnector(
 
 	if argsString := os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"); argsString != "" {
 		args := strings.Split(argsString, " ")
-		imageArgs = append(imageArgs, args...)
+		for _, arg := range args {
+			if arg := strings.TrimSpace(arg); arg != "" {
+				imageArgs = append(imageArgs, arg)
+			}
+		}
 	}
 
 	for name, m := range jsonFiles {
