@@ -3,9 +3,11 @@ package consumer
 import (
 	"fmt"
 	"io"
+	"runtime/trace"
 	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -25,11 +27,16 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 			Stop:  realTimer.Stop,
 			Now:   time.Now,
 		}
-		prev = transaction{
-			checkpoint:    cp,
-			commitBarrier: client.FinishedOperation(nil),
-			acks:          make(OpFutures),
-			prepareDoneAt: txnTimer.Now(),
+		started = txnTimer.Now()
+		prev    = transaction{
+			checkpoint:        cp,
+			commitBarrier:     client.FinishedOperation(nil),
+			acks:              make(OpFutures),
+			prevPrepareDoneAt: started,
+			beganAt:           started,
+			stalledAt:         started,
+			prepareBeganAt:    started,
+			prepareDoneAt:     started,
 		}
 		txn = transaction{}
 	)
@@ -106,6 +113,8 @@ func txnInit(s *shard, txn, prev *transaction, readCh <-chan EnvelopeOrError, ti
 
 // txnRun runs a single consumer transaction |txn| until it starts to commit.
 func txnRun(s *shard, txn, prev *transaction) error {
+	trace.Log(s.ctx, "txnRun", s.resolved.fqn)
+
 	var done, err = txnStep(s, txn, prev)
 	for !done && err == nil {
 		done, err = txnStep(s, txn, prev)
@@ -156,9 +165,8 @@ func txnStep(s *shard, txn, prev *transaction) (bool, error) {
 
 		if err := txnConsume(s, txn); err != nil {
 			return false, err
-		} else {
-			return false, nil // We consumed one message.
 		}
+		return false, nil // We consumed one message.
 	}
 
 	if txnBlocks(s, txn) {
@@ -216,8 +224,9 @@ func txnRead(s *shard, txn, prev *transaction, env EnvelopeOrError, ok bool) err
 	case message.QueueAckCommitReplay:
 
 		var journal, from, to = s.sequencer.ReplayRange()
-		var it message.Iterator
+		trace.Logf(s.ctx, "StartReplay", "journal %s, range %d:%d", journal, from, to)
 
+		var it message.Iterator
 		if mp, ok := s.svc.App.(MessageProducer); ok {
 			it = mp.ReplayRange(s, s.store, journal, from, to)
 		} else {
@@ -288,6 +297,8 @@ func txnRead(s *shard, txn, prev *transaction, env EnvelopeOrError, ok bool) err
 func txnConsume(s *shard, txn *transaction) error {
 	// Does this message begin the transaction?
 	if txn.consumedCount == 0 {
+		trace.Log(s.ctx, "BeginTxn", s.resolved.fqn)
+
 		if ba, ok := s.svc.App.(BeginFinisher); ok {
 			// BeginTxn may block arbitrarily, for example by obtaining a
 			// semaphore to constrain maximum concurrency.
@@ -325,7 +336,7 @@ func txnConsume(s *shard, txn *transaction) error {
 	return nil // sequencer.Dequeued is the next message to consume.
 }
 
-func txnTick(_ *shard, txn *transaction, tick time.Time) error {
+func txnTick(s *shard, txn *transaction, tick time.Time) error {
 	if tick.Before(txn.beganAt.Add(txn.minDur)) {
 		panic("unexpected tick")
 	}
@@ -337,6 +348,7 @@ func txnTick(_ *shard, txn *transaction, tick time.Time) error {
 
 	if tick.Before(txn.beganAt.Add(txn.maxDur)) {
 		txn.timer.Reset(txn.beganAt.Add(txn.maxDur).Sub(tick))
+		trace.Log(s.ctx, "txnTick(minDur)", s.resolved.fqn)
 	} else {
 		txn.maxDur = -1  // Mark as completed.
 		txn.readCh = nil // Stop reading messages.
@@ -345,6 +357,9 @@ func txnTick(_ *shard, txn *transaction, tick time.Time) error {
 			// If the prior transaction hasn't completed, we must wait until it
 			// does but are now "stalled" as we cannot also read messages.
 			txn.stalledAt = tick
+			trace.Log(s.ctx, "txnTick(stalled)", s.resolved.fqn)
+		} else {
+			trace.Log(s.ctx, "txnTick(maxDur)", s.resolved.fqn)
 		}
 	}
 	return nil
@@ -365,6 +380,7 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 
 	// Find the next ACK append that hasn't finished.
 	// It must resolve before |prev| is considered complete.
+	txn.barrierCh = nil
 	for ack := range prev.acks {
 		select {
 		case <-ack.Done(): // Already resolved?
@@ -373,12 +389,16 @@ func txnBarrierResolved(s *shard, txn, prev *transaction) error {
 			}
 		default:
 			txn.barrierCh = ack.Done()
-			return nil
 		}
 	}
 
+	if txn.barrierCh != nil {
+		trace.Log(s.ctx, "txnBarrier(partial)", s.resolved.fqn)
+		return nil
+	}
+
 	// All barriers have finished. |prev| transaction is complete.
-	txn.barrierCh = nil
+	trace.Log(s.ctx, "txnBarrier(done)", s.resolved.fqn)
 	prev.ackedAt = now
 	recordMetrics(s, prev)
 
@@ -402,6 +422,7 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 		txn.stalledAt = txn.prepareBeganAt // We spent no time stalled.
 	}
 
+	trace.Log(s.ctx, "App.FinalizeTxn", s.resolved.fqn)
 	var err = s.svc.App.FinalizeTxn(s, s.store, s.publisher)
 	if err != nil {
 		return pc.Checkpoint{}, fmt.Errorf("app.FinalizeTxn: %w", err)
@@ -421,6 +442,7 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 	// which step past those messages.
 	var waitFor = s.ajc.PendingExcept(s.recovery.log)
 
+	trace.Log(s.ctx, "store.StartCommit", s.resolved.fqn)
 	txn.commitBarrier = s.store.StartCommit(s, txn.checkpoint, waitFor)
 	txn.prepareDoneAt = txn.timer.Now()
 
@@ -493,6 +515,19 @@ func recordMetrics(s *shard, txn *transaction) {
 		durCommitting    = txn.committedAt.Sub(txn.prepareDoneAt)
 		durAcknowledging = txn.ackedAt.Sub(txn.committedAt)
 	)
+
+	log.WithFields(log.Fields{
+		"id":              s.Spec().Id,
+		"10NotRunning":    durNotRunning,
+		"20Consuming":     durConsuming,
+		"30Stalled":       durStalled,
+		"40Prepare":       durPreparing,
+		"50Committing":    durCommitting,
+		"60Acknowledging": durAcknowledging,
+		"messages":        txn.consumedCount,
+		"bytes":           txn.consumedBytes,
+	}).Debug("transaction metrics")
+
 	// Phases which run synchronously within the transaction loop.
 	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "10-not-running", "sync").Add(durNotRunning.Seconds())
 	shardTxnPhaseSecondsTotal.WithLabelValues(s.FQN(), "20-consuming", "sync").Add(durConsuming.Seconds())
