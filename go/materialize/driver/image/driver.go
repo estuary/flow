@@ -30,6 +30,10 @@ func (c EndpointSpec) Validate() error {
 }
 
 // driver implements the pm.DriverServer interface.
+// Though driver is a gRPC service stub, it's called in synchronous and
+// in-process contexts to minimize ser/de & memory copies. As such it
+// doesn't get to assume deep ownership of its requests, and must
+// proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
 }
@@ -112,6 +116,7 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
 	// Unwrap layer of proxied configuration.
+	req.Materialization = proto.Clone(req.Materialization).(*pf.MaterializationSpec)
 	req.Materialization.EndpointSpecJson = source.Config
 
 	var resp *pm.ApplyResponse
@@ -150,6 +155,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		return fmt.Errorf("parsing connector configuration: %w", err)
 	}
 	// Unwrap layer of proxied configuration.
+	open.Open.Materialization = proto.Clone(open.Open.Materialization).(*pf.MaterializationSpec)
 	open.Open.Materialization.EndpointSpecJson = source.Config
 
 	return airbyte.RunConnector(
