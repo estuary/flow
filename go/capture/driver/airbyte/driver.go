@@ -56,6 +56,10 @@ func (c ResourceSpec) Validate() error {
 }
 
 // driver implements the pm.DriverServer interface.
+// Though driver is a gRPC service stub, it's called in synchronous and
+// in-process contexts to minimize ser/de & memory copies. As such it
+// doesn't get to assume deep ownership of its requests, and must
+// proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
 }
