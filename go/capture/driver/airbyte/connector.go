@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -55,8 +56,19 @@ func RunConnector(
 	}
 
 	// Check if we have any extra arguments for docker from the environment and pass them along
-	if opts := os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"); len(opts) > 0 {
-		imageArgs = append(imageArgs, opts)
+	// We need to split args properly and handle quoting to split the arguments.
+	var quote rune = 0x00
+	if args := strings.FieldsFunc(os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"), func(r rune) bool {
+		if r == '"' || r == '\'' {
+			if r == quote {
+				quote = 0x00
+			} else {
+				quote = r
+			}
+		}
+		return quote == 0x00 && r == ' '
+	}); len(args) > 0 {
+		imageArgs = append(imageArgs, args...)
 	}
 
 	for name, m := range jsonFiles {
