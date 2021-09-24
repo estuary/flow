@@ -60,9 +60,6 @@ func (c *Combine) Configure(
 	keyPtrs []string,
 	fieldPtrs []string,
 ) error {
-	if len(keyPtrs) == 0 || keyPtrs[0] == "" {
-		return fmt.Errorf("attempt to configure with empty keyPtrs")
-	}
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 
 	c.metrics = newCombineMetrics(fqn, collection)

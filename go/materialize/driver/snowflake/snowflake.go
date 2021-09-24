@@ -293,9 +293,6 @@ func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_
 func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
 	for it.Next() {
 		var b = d.bindings[it.Binding]
-		if len(it.Key) == 0 {
-			return fmt.Errorf("load was given an empty key: %+v", it)
-		}
 		if converted, err := b.load.params.Convert(it.Key); err != nil {
 			return fmt.Errorf("converting Load key: %w", err)
 		} else if err = b.load.stage.Encode(converted); err != nil {
