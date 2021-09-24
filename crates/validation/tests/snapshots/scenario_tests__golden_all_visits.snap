@@ -3831,7 +3831,6 @@ All {
             dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
         },
     ],
-    shard_rules: [],
     test_steps: [
         TestStep {
             scope: test://example/int-string-tests#/tests/A%20Test/0,
