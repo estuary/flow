@@ -55,6 +55,8 @@ func RunConnector(
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
 	}
 
+	log.Warnf("DECO: %s", os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"))
+
 	// Check if we have any extra arguments for docker from the environment and pass them along
 	if args := strings.Fields(os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS")); len(args) > 0 {
 		imageArgs = append(imageArgs, args...)
