@@ -1091,7 +1091,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         mut projections,
         resources,
         schema_docs,
-        shard_rules,
         test_steps,
         transforms,
     } = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
@@ -1121,7 +1120,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         &projections,
         &resources,
         &schema_docs,
-        &shard_rules,
         &test_steps,
         &transforms,
     ));
@@ -1152,7 +1150,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         projections,
         resources,
         schema_docs,
-        shard_rules,
         test_steps,
         transforms,
     }

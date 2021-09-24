@@ -45,15 +45,6 @@ tables!(
         spec: protocol::flow::journal_rules::Rule,
     }
 
-    table ShardRules (row ShardRule, order_by [rule], sql "shard_rules") {
-        scope: url::Url,
-        // Name of this rule, which also encodes its priority as
-        // lexicographic order determines evaluation and application order.
-        rule: names::Rule,
-        // Rule selector and patch template.
-        spec: protocol::flow::shard_rules::Rule,
-    }
-
     table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         collection: names::Collection,
@@ -286,7 +277,6 @@ pub struct All {
     pub projections: Projections,
     pub resources: Resources,
     pub schema_docs: SchemaDocs,
-    pub shard_rules: ShardRules,
     pub test_steps: TestSteps,
     pub transforms: Transforms,
 }
@@ -318,7 +308,6 @@ impl All {
             projections,
             resources,
             schema_docs,
-            shard_rules,
             test_steps,
             transforms,
         } = self;
@@ -346,7 +335,6 @@ impl All {
             projections,
             resources,
             schema_docs,
-            shard_rules,
             test_steps,
             transforms,
         ]
@@ -377,7 +365,6 @@ impl All {
             projections,
             resources,
             schema_docs,
-            shard_rules,
             test_steps,
             transforms,
         } = self;
@@ -405,7 +392,6 @@ impl All {
             projections,
             resources,
             schema_docs,
-            shard_rules,
             test_steps,
             transforms,
         ]
