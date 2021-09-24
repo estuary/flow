@@ -122,6 +122,13 @@ pub struct ShardSpec {
     /// If zero, a reasonable default (currently 8192) is used.
     #[prost(uint32, tag="12")]
     pub ring_buffer_size: u32,
+    /// Size of the channel used to bridge message read and decode with
+    /// sequencing and consumption. Larger values may reduce data stalls,
+    /// particularly for larger transactions and/or bursty custom
+    /// MessageProducer implementations.
+    /// If zero, a reasonable default (currently 8192) is used.
+    #[prost(uint32, tag="13")]
+    pub read_channel_size: u32,
 }
 /// Nested message and enum types in `ShardSpec`.
 pub mod shard_spec {
