@@ -47,7 +47,6 @@ pub struct Tables {
     pub projections: tables::Projections,
     pub resources: tables::Resources,
     pub schema_docs: tables::SchemaDocs,
-    pub shard_rules: tables::ShardRules,
     pub test_steps: tables::TestSteps,
     pub transforms: tables::Transforms,
 }

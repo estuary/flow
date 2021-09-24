@@ -102,7 +102,6 @@ Tables {
             dom: true,
         },
     ],
-    shard_rules: [],
     test_steps: [],
     transforms: [],
 }
