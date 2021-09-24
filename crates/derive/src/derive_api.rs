@@ -1,6 +1,5 @@
 use super::pipeline::{self, Pipeline};
 use super::registers;
-use allocator::ThreadStatsReader;
 
 use prost::Message;
 use protocol::{
@@ -25,8 +24,6 @@ pub enum Error {
 /// API provides a derivation capability as a cgo::Service.
 pub struct API {
     state: State,
-    // Running tally of the total number of bytes allocated during all invocations of this API.
-    allocated_bytes: i64,
 }
 
 // State is the private inner state machine of the API.
@@ -43,10 +40,7 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        Self {
-            state: State::Init,
-            allocated_bytes: 0,
-        }
+        Self { state: State::Init }
     }
 
     fn invoke(
@@ -60,10 +54,7 @@ impl cgo::Service for API {
             Some(c) => c,
             None => return Err(Error::InvalidState),
         };
-        let span = tracing::span!(tracing::Level::TRACE, "derive_invoke", code = ?code);
-        let _guard = span.enter();
-        let mem_stats = ThreadStatsReader::new();
-        let initial = mem_stats.current();
+        tracing::trace!(code = ?code, "derive_invoke");
 
         match (code, std::mem::replace(&mut self.state, State::Init)) {
             (Code::Open, State::Init) => {
@@ -147,10 +138,6 @@ impl cgo::Service for API {
                 // If we poll to idle, drain the combiner and transition to Prepare.
                 // Otherwise we're still flushing.
                 if pipeline.poll_and_trampoline(arena, out)? {
-                    tracing::debug!(
-                    allocated_before_drain = ?self.allocated_bytes,
-                    "memory before draining"
-                               );
                     pipeline.drain(arena, out);
                     self.state = State::Prepare(pipeline);
                 } else {
@@ -166,11 +153,6 @@ impl cgo::Service for API {
             _ => return Err(Error::InvalidState),
         }
 
-        // Get the difference in memory allocations for this invocation, and use it to update our
-        // running tally.
-        let diff = (mem_stats.current() - initial).total_allocated();
-        self.allocated_bytes += diff;
-        tracing::trace!(allocated_bytes = ?self.allocated_bytes, allocated_bytes_delta = ?diff, "mem usage");
         Ok(())
     }
 }
