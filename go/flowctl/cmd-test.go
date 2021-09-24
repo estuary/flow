@@ -232,7 +232,7 @@ func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
 
 	etcdClient, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{"unix://" + cmd.Dir + "/client.sock:0"},
-		DialTimeout: 5 * time.Second,
+		DialTimeout: 20 * time.Second, // Need to up this timeout for slow machines (Mac Emulation)
 		DialOptions: []grpc.DialOption{grpc.WithBlock()},
 		// Require a reasonably recent server cluster.
 		RejectOldCluster: true,

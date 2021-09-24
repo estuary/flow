@@ -175,6 +175,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     fi
 fi
 
+# Export this environment variable to the flowctl container
+export DOCKER_EXTRA_CONNECTOR_OPTS
+
 # Build the docker command:
 #
 # We try to run as the same uid as the logged in user to maintain file permissions except on MacOS where it must
