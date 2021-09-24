@@ -1,5 +1,4 @@
 use super::combiner::{self, Combiner};
-use allocator::ThreadStatsReader;
 
 use doc::{Pointer, Validator};
 use prost::Message;
@@ -41,8 +40,6 @@ pub enum Error {
 /// API provides a combine capability as a cgo::Service.
 pub struct API {
     state: Option<State>,
-    // Running tally of the total number of bytes allocated during all invocations of this API.
-    allocated_bytes: i64,
 }
 
 struct State {
@@ -56,10 +53,7 @@ impl cgo::Service for API {
     type Error = Error;
 
     fn create() -> Self {
-        Self {
-            state: None,
-            allocated_bytes: 0,
-        }
+        Self { state: None }
     }
 
     fn invoke(
@@ -73,11 +67,9 @@ impl cgo::Service for API {
             Some(c) => c,
             None => return Err(Error::InvalidState),
         };
-        tracing::trace!(?code, "invoke");
-        let mem_stats = ThreadStatsReader::new();
-        let initial = mem_stats.current();
 
-        let result = match (code, std::mem::take(&mut self.state)) {
+        tracing::trace!(?code, "invoke");
+        match (code, std::mem::take(&mut self.state)) {
             (Code::Configure, _) => {
                 let combine_api::Config {
                     schema_index_memptr,
@@ -86,13 +78,6 @@ impl cgo::Service for API {
                     field_ptrs,
                     uuid_placeholder_ptr,
                 } = combine_api::Config::decode(data)?;
-                tracing::debug!(
-                schema_index = ?schema_index_memptr,
-                schema_uri = ?schema_uri,
-                key_ptr = ?key_ptr,
-                "configuring combiner"
-                       );
-
                 tracing::debug!(
                     ?schema_index_memptr,
                     ?schema_uri,
@@ -144,10 +129,6 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::Drain, Some(mut state)) => {
-                tracing::debug!(
-                allocated_before_drain = ?self.allocated_bytes,
-                "memory before draining"
-                           );
                 drain_combiner(
                     &mut state.combiner,
                     &state.uuid_placeholder_ptr,
@@ -160,14 +141,7 @@ impl cgo::Service for API {
                 Ok(())
             }
             _ => Err(Error::InvalidState),
-        };
-
-        // Get the difference in memory allocations for this invocation, and use it to update our
-        // running tally.
-        let diff = (mem_stats.current() - initial).total_allocated();
-        self.allocated_bytes += diff;
-        tracing::trace!(allocated_bytes = ?self.allocated_bytes, allocated_bytes_delta = ?diff, "mem usage");
-        result
+        }
     }
 }
 
@@ -203,25 +177,19 @@ pub fn drain_combiner(
         let begin = arena.len();
         // Update arena_len with each component of the key so that we can assert that every
         // component of the key extends the arena by at least one byte.
-        let mut arena_len = begin;
-        let mut null_count = 0;
+        // This was added in response to: https://github.com/estuary/flow/issues/238
+        let mut prev_arena_len = begin;
         for p in key_ptrs.iter() {
             let v = p.query(&doc).unwrap_or(&Value::Null);
-            if v.is_null() {
-                null_count += 1;
-            }
             // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
             let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
-            if arena.len() <= arena_len {
+            if arena.len() <= prev_arena_len {
                 panic!(
                     "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
                     p, v, doc
                 );
             }
-            arena_len = arena.len();
-        }
-        if null_count == key_ptrs.len() {
-            tracing::debug!(out_pos = ?out.len(), arena_pos = ?begin, doc = ?doc, "extracted null key")
+            prev_arena_len = arena.len();
         }
         cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
 

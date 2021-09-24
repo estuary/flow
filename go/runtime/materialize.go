@@ -272,15 +272,14 @@ func drainBinding(
 	// Drain the combiner into materialization Store requests.
 	if err := combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
 		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
-		if flightedDoc, ok := flighted[string(packedKey)]; !ok {
+		if _, ok := flighted[string(packedKey)]; !ok {
 			var key, _ = tuple.Unpack(packedKey)
 			return fmt.Errorf(
 				"driver implementation error: "+
-					"loaded key %v (rawKey: %q) was not requested by Flow in this transaction (document %s), (flightedDoc: %s)",
+					"loaded key %v (rawKey: %q) was not requested by Flow in this transaction (document %s)",
 				key,
 				string(packedKey),
 				string(docRaw),
-				string(flightedDoc),
 			)
 		}
 
