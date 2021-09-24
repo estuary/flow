@@ -55,13 +55,9 @@ func RunConnector(
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
 	}
 
-	if argsString := os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"); argsString != "" {
-		args := strings.Split(argsString, " ")
-		for _, arg := range args {
-			if arg := strings.TrimSpace(arg); arg != "" {
-				imageArgs = append(imageArgs, arg)
-			}
-		}
+	// Check if we have any extra arguments for docker from the environment and pass them along
+	if args := strings.Fields(os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS")); len(args) > 0 {
+		imageArgs = append(imageArgs, args...)
 	}
 
 	for name, m := range jsonFiles {
