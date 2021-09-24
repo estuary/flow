@@ -66,7 +66,6 @@ Tables {
             dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$ref":"test://fake/root"},
         },
     ],
-    shard_rules: [],
     test_steps: [],
     transforms: [],
 }

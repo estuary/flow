@@ -59,7 +59,6 @@ pub async fn validate<D: Drivers>(
     projections: &[tables::Projection],
     resources: &[tables::Resource],
     schema_docs: &[tables::SchemaDoc],
-    _shard_rules: &[tables::ShardRule], // TODO.
     test_steps: &[tables::TestStep],
     transforms: &[tables::Transform],
 ) -> Tables {
