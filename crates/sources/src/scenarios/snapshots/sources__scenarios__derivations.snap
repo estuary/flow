@@ -145,7 +145,6 @@ Tables {
             dom: {"$defs":{"qib":true}},
         },
     ],
-    shard_rules: [],
     test_steps: [],
     transforms: [
         Transform {
