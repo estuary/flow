@@ -106,7 +106,7 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 # We use LLVM for faster linking. See .cargo/config.
 .PHONY: extra-ci-setup
 extra-ci-runner-setup:
-	sudo ln --force --symbolic /usr/bin/ld.lld-11 /usr/bin/ld.lld
+	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
 .PHONY: print-versions
 print-versions:
