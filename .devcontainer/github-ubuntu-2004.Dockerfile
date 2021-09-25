@@ -11,25 +11,25 @@ FROM ubuntu:20.04
 ## Set a configured locale.
 ARG LOCALE=en_US.UTF-8
 
+# See the package list in the GitHub reference link above, at the very bottom,
+# which lists installed apt packages.
 RUN apt-get update -y \
  && apt-get upgrade -y \
  && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
-      # See the package list in the GitHub reference link above, at the very bottom,
-      # which lists installed apt packages.
       bash-completion \
       build-essential \
       ca-certificates \
-      clang-11 \
+      clang-12 \
       curl \
       git \
       gnupg2 \
       iproute2 \
       jq \
-      libclang-11-dev \
+      libclang-12-dev \
       libncurses5-dev \
       libreadline-dev \
       libssl-dev \
-      lld-11 \
+      lld-12 \
       locales \
       net-tools \
       netcat \
