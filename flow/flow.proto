@@ -218,9 +218,7 @@ message CollectionSpec {
   // Schema document of the collection, in a bundled and stand-alone form.
   // All external references within the document have been bundled as
   // included internal definitions.
-  string schema_json = 8 [
-    (gogoproto.casttype) = "encoding/json.RawMessage"
-  ];
+  string schema_json = 8 [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
   // Composite key of the collection, as JSON-Pointers.
   repeated string key_ptrs = 3;
   // JSON pointer locating the UUID of each collection document.
@@ -231,9 +229,8 @@ message CollectionSpec {
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  string ack_json_template = 7 [
-    (gogoproto.casttype) = "encoding/json.RawMessage"
-  ];
+  string ack_json_template = 7
+      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
 }
 
 // TransformSpec describes a specific transform of a derivation.
@@ -343,10 +340,11 @@ message MaterializationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Bindings of endpoint resources and collections from which they're materialized.
-  // Bindings are ordered and unique on the bound collection name.
+  // Bindings of endpoint resources and collections from which they're
+  // materialized. Bindings are ordered and unique on the bound collection name.
   message Binding {
-    // JSON-encoded object which specifies the endpoint resource to be materialized.
+    // JSON-encoded object which specifies the endpoint resource to be
+    // materialized.
     string resource_spec_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceSpec"
@@ -853,7 +851,8 @@ message BuildAPI {
     // Should the TypeScript package be packaged into the catalog?
     // Implies generation and compilation.
     bool typescript_package = 9;
-    // The Docker network the connectors are given access to during catalog builds.
+    // The Docker network the connectors are given access to during catalog
+    // builds.
     string connector_network = 10;
   }
 
