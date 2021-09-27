@@ -138,6 +138,10 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 			},
 		),
 	)
+
+	if resp == nil {
+		resp = &pm.ApplyResponse{}
+	}
 	return resp, err
 }
 
