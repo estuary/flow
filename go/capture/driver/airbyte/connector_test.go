@@ -95,12 +95,17 @@ func TestProtoRecordBreaks(t *testing.T) {
 	// Create a decoder of CollectionSpec, which expects to see parsed
 	// copies of our fixture, and counts its number of invocations.
 	var verifyCount int
+	var verifyEmptyCount int
 	var s = NewConnectorProtoOutput(new(flow.CollectionSpec), func(m proto.Message) error {
-		require.Equal(t, m, &flow.CollectionSpec{
-			Collection: "a/collection",
-			KeyPtrs:    []string{"/a", "/b", "/c"},
-		})
-		verifyCount++
+		if m.String() != "" {
+			require.Equal(t, m, &flow.CollectionSpec{
+				Collection: "a/collection",
+				KeyPtrs:    []string{"/a", "/b", "/c"},
+			})
+			verifyCount++
+		} else {
+			verifyEmptyCount++
+		}
 		return nil
 	})
 
@@ -113,6 +118,7 @@ func TestProtoRecordBreaks(t *testing.T) {
 	// Complete message.
 	w(fixture.Bytes())
 	require.Equal(t, verifyCount, 1)
+	require.Equal(t, verifyEmptyCount, 0)
 	verifyCount = 0
 
 	// Multiple writes for each of header & message.
@@ -123,6 +129,7 @@ func TestProtoRecordBreaks(t *testing.T) {
 	w(fixture.Bytes()[10:15])
 	w(fixture.Bytes()[15:]) // Message is complete.
 	require.Equal(t, verifyCount, 1)
+	require.Equal(t, verifyEmptyCount, 0)
 	verifyCount = 0
 
 	// Multiple messages in a single write.
@@ -130,6 +137,7 @@ func TestProtoRecordBreaks(t *testing.T) {
 	w(multi[:len(multi)/2])
 	w(multi[len(multi)/2:])
 	require.Equal(t, verifyCount, 9)
+	require.Equal(t, verifyEmptyCount, 0)
 	verifyCount = 0
 
 	// Again, but use randomized chunking.
@@ -139,6 +147,26 @@ func TestProtoRecordBreaks(t *testing.T) {
 		multi = multi[n:]
 	}
 	require.Equal(t, verifyCount, 9)
+	require.Equal(t, verifyEmptyCount, 0)
+	verifyCount = 0
+
+	// Multiple messages with empty messages.
+	var emptyFixture bytes.Buffer
+	require.NoError(t, io.NewUint32DelimitedWriter(&emptyFixture, binary.LittleEndian).
+		WriteMsg(&flow.CollectionSpec{}))
+
+	w(emptyFixture.Bytes()) // Write an empty message as a whole.
+	require.Equal(t, verifyEmptyCount, 1)
+	require.Equal(t, verifyCount, 0)
+
+	w(emptyFixture.Bytes()[:2])
+	w(emptyFixture.Bytes()[2:]) // Write an empty message(length only) in chunks.
+	require.Equal(t, verifyEmptyCount, 2)
+	require.Equal(t, verifyCount, 0)
+
+	w(fixture.Bytes()) // Write a non-empty message.
+	require.Equal(t, verifyEmptyCount, 2)
+	require.Equal(t, verifyCount, 1)
 
 	// If the message header is too large, we error
 	// (rather than attempting to allocate it).
