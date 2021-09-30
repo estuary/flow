@@ -21,22 +21,22 @@ macro_rules! gen_schema {
     };
 }
 
-/// Adds ops collections to the given partiall built catalog. The tables will be modified in place
+/// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
 pub fn generate_ops_collections(tables: &mut sources::Tables) {
     let tenants = all_tenant_names(tables);
-    let task_schema = gen_schema!("ops-task-schema.json");
+    let shard_schema = gen_schema!("ops-shard-schema.json");
     let stats_schema = gen_schema!("ops-stats-schema.json");
     let log_schema = gen_schema!("ops-log-schema.json");
 
-    for schema in &[&task_schema, &stats_schema, &log_schema] {
+    for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
             schema.url.clone(),
             ContentType::JsonSchema,
             bytes::Bytes::from_static(schema.content),
         );
         let dom = serde_json::from_slice::<Value>(schema.content)
-            .expect("failed to compile builtin schema");
+            .expect("failed to parse builtin schema");
         tables.schema_docs.insert_row(schema.url.clone(), dom);
     }
 
@@ -86,9 +86,9 @@ fn add_ops_collection(
 
     let name = names::Collection::new(name);
     let mut key = vec![
-        names::JsonPointer::new("/task/name"),
-        names::JsonPointer::new("/task/keyBegin"),
-        names::JsonPointer::new("/task/rClockBegin"),
+        names::JsonPointer::new("/shard/name"),
+        names::JsonPointer::new("/shard/keyBegin"),
+        names::JsonPointer::new("/shard/rClockBegin"),
     ];
     if let Some(add) = add_key {
         key.push(add);
@@ -101,11 +101,16 @@ fn add_ops_collection(
         names::CompositeKey::new(key),
     );
 
+    // Ops collections are partitioned by shard, so that each shard has dedicated journals for
+    // logs and stats. The names of these partition fields are important because partitions are
+    // ordered lexicographically, and we want the partitions to be ordered from most general to
+    // most specific (kind -> name -> rangeKeyBegin -> rangeRClockBegin). This corresponds to the
+    // hierarchy that will be used for storing fragments.
     let projections = &[
-        ("taskKind", "/task/kind"),
-        ("taskName", "/task/name"),
-        ("taskRangeKeyBegin", "/task/keyBegin"),
-        ("taskRangeRClockBegin", "/task/rClockBegin"),
+        ("kind", "/shard/kind"),
+        ("name", "/shard/name"),
+        ("rangeKeyBegin", "/shard/keyBegin"),
+        ("rangeRClockBegin", "/shard/rClockBegin"),
     ];
     for projection in projections {
         tables.projections.insert_row(

@@ -1,8 +1,8 @@
 {
 
     "$schema": "https://json-schema.org/draft-07/schema",
-    "title": "Flow catalog task id",
-    "description": "Identifies a task, which may be the source of a log message or metrics",
+    "title": "Flow shard id",
+    "description": "Identifies a specific shard of a task, which may be the source of a log message or metrics",
     "type": "object",
     "properties": {
         "kind": {
