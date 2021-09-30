@@ -9,17 +9,16 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/protocols/fdb/tuple"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/message"
-	//pb "go.gazette.dev/core/broker/protocol"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
+	"go.gazette.dev/core/message"
 )
 
-// TaskRef is a reference to a specific task shard that represents the source of logs and stats.
+// ShardRef is a reference to a specific task shard that represents the source of logs and stats.
 // This struct definition matches the JSON schema for the ops collections at:
 // crates/build/src/ops/ops-task-schema.json
-type TaskRef struct {
+type ShardRef struct {
 	Name        string `json:"name"`
 	Kind        string `json:"kind"`
 	KeyBegin    string `json:"keyBegin"`
@@ -29,7 +28,7 @@ type TaskRef struct {
 // LogEvent is a Go struct definition that matches the log event documents defined by:
 // crates/build/src/ops/ops-log-schema.json
 type LogEvent struct {
-	Task      *TaskRef      `json:"task"`
+	Shard     *ShardRef     `json:"shard"`
 	Timestamp time.Time     `json:"ts"`
 	Level     logrus.Level  `json:"level"`
 	Message   string        `json:"message"`
@@ -41,7 +40,7 @@ type LogEvent struct {
 type LogPublisher struct {
 	level         logrus.Level
 	opsCollection *pf.CollectionSpec
-	task          TaskRef
+	task          ShardRef
 	root          *LogService
 	mapper        flow.Mapper
 	// We currently use a combiner to extract the key and partition fields, perform validation, and
@@ -66,7 +65,7 @@ type LogService struct {
 
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
-func (r *LogService) NewPublisher(opsCollectionName string, task TaskRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
+func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
 	var catalogTask, commons, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
 	if err != nil {
 		return nil, err
@@ -135,7 +134,7 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 
 func (p *LogPublisher) tryLog(level logrus.Level, fields logrus.Fields, message string) error {
 	var event = LogEvent{
-		Task:      &p.task,
+		Shard:     &p.task,
 		Timestamp: time.Now().UTC(),
 		Level:     level,
 		Fields:    fields,

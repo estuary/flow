@@ -104,7 +104,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 
 	defer func() {
 		if err == nil {
-			m.shuffleTaskTerm.logPublisher.Log(log.InfoLevel, log.Fields{
+			m.shuffleTaskTerm.logPublisher.Log(log.DebugLevel, log.Fields{
 				"checkpoint": cp,
 			}, "resolved materialization resumption checkpoint")
 		} else {

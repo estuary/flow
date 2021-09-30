@@ -569,7 +569,7 @@ export type OpsAcmeBankLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -615,7 +615,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -633,7 +633,7 @@ export type OpsExamplesLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -679,7 +679,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -697,7 +697,7 @@ export type OpsMarketingLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -743,7 +743,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -761,7 +761,7 @@ export type OpsPatternsLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -807,7 +807,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -825,7 +825,7 @@ export type OpsSoakLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -871,7 +871,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -889,7 +889,7 @@ export type OpsStockLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -935,7 +935,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -953,7 +953,7 @@ export type OpsTemperatureLogs =
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -999,7 +999,7 @@ captures and materializations this relates to the size of Flow JSON documents no
                 invocations_total: /* The number of invocations during this transaction */ number;
             };
         };
-        task: /* Flow catalog task id */ /* Identifies a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
