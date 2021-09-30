@@ -27,7 +27,8 @@ DEBUG_SHELL="false"
 DOCKER_SOCK="/var/run/docker.sock"
 DOCKER_UID="$UID"
 DOCKER_IMAGE="quay.io/estuary/flow:dev"
-DOCKER_EXTRA_OPTS=""
+DOCKER_EXTRA_OPTS=${DOCKER_EXTRA_OPTS:=''}
+DOCKER_EXTRA_CONNECTOR_OPTS=${DOCKER_EXTRA_CONNECTOR_OPTS:=''}
 DOCKER_COMMAND="flowctl"
 DOCKER_PULL="missing"
 FLOWCTL_DIRECTORY=$(pwd)
@@ -141,7 +142,7 @@ if ! DOCKER_SOCK_GID=$(stat -Lc '%g' ${DOCKER_SOCK} 2>/dev/null); then
     fi
 fi
 if [[ ! -z "$DOCKER_SOCK_GID" ]]; then
-    DOCKER_EXTRA_OPTS+="--group-add ${DOCKER_SOCK_GID} "
+    DOCKER_EXTRA_OPTS+=" --group-add ${DOCKER_SOCK_GID}"
 fi
 
 # Make sure FLOWCTL_DIRECTORY exists before mapping
@@ -154,12 +155,12 @@ fi
 # Provide the full mapping to the source file if specified and make sure the workdir is set to the path
 if [[ ! -z "${FLOWCTL_SOURCE}" ]]; then
     FLOWCTL_SOURCE_DIR="$(realpath $(dirname ${FLOWCTL_SOURCE}))"
-    DOCKER_EXTRA_OPTS+="-v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR} "
+    DOCKER_EXTRA_OPTS+=" -v ${FLOWCTL_SOURCE_DIR}:${FLOWCTL_SOURCE_DIR} -w ${FLOWCTL_SOURCE_DIR}"
 fi
 
 # If the port option was specified map the same port outside of the container
 if [[ ! -z "${FLOWCTL_PORT}" ]]; then
-    DOCKER_EXTRA_OPTS+="-p ${FLOWCTL_PORT}:${FLOWCTL_PORT} "
+    DOCKER_EXTRA_OPTS+=" -p ${FLOWCTL_PORT}:${FLOWCTL_PORT}"
 fi
 
 # This is a workaround on MacOS because it requires root in order to run docker-in-docker
@@ -169,9 +170,13 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 
     # Attempt to use docker in qemu (assuming it's supported) until we can more accurately work with multiple architectures
     if [[ `uname -m` == 'arm64' ]]; then
-        DOCKER_EXTRA_OPTS+="--platform linux/amd64 "
+        DOCKER_EXTRA_OPTS+=" --platform linux/amd64"
+        DOCKER_EXTRA_CONNECTOR_OPTS+=" --platform linux/amd64"
     fi
 fi
+
+# Export this environment variable to the flowctl container
+export DOCKER_EXTRA_CONNECTOR_OPTS
 
 # Build the docker command:
 #
@@ -188,8 +193,9 @@ CMD="${DOCKER_EXEC} run -it --rm \
 --network ${FLOWCTL_NETWORK} \
 --pull ${DOCKER_PULL} \
 ${DOCKER_EXTRA_OPTS} \
--v /var/tmp:/var/tmp -e TMPDIR=/var/tmp \
--e HOME=/tmp \
+-v /var/tmp:/var/tmp --env TMPDIR=/var/tmp \
+--env HOME=/tmp \
+--env DOCKER_EXTRA_CONNECTOR_OPTS \
 ${DOCKER_IMAGE}"
 
 # Build the full docker command
