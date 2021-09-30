@@ -235,6 +235,8 @@ func (o *protoOutput) Write(p []byte) (n int, err error) {
 		if o.next == 0 {
 			if _, err = o.decodeLen(o.rem); err != nil {
 				return 0, err
+			} else if o.next == 0 {
+				o.decodeMsg([]byte{})
 			}
 		} else {
 			if _, err = o.decodeMsg(o.rem); err != nil {
@@ -252,6 +254,8 @@ func (o *protoOutput) Write(p []byte) (n int, err error) {
 				return n, nil
 			} else if p, err = o.decodeLen(p); err != nil {
 				return 0, err
+			} else if o.next == 0 {
+				o.decodeMsg([]byte{})
 			}
 		} else {
 			if len(p) < o.next {
