@@ -57,7 +57,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	}
 	t.shardID = spec.Id
 
-	var taskRef = TaskRef{
+	var taskRef = ShardRef{
 		Name:        taskName,
 		Kind:        spec.LabelSet.ValueOf(labels.TaskType),
 		KeyBegin:    spec.LabelSet.ValueOf(labels.KeyBegin),
