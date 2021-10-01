@@ -31,7 +31,8 @@ type taskTerm struct {
 	// Current catalog task definition.
 	task *pf.CatalogTask
 	// Logger used to publish logs that are scoped to this task.
-	logPublisher *LogPublisher
+	// It is embedded to allow directly calling .Log on a taskTerm.
+	*LogPublisher
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -69,11 +70,11 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return fmt.Errorf("parsing %q: %w", labels.LogLevel, err)
 	}
 
-	t.logPublisher, err = host.LogService.NewPublisher(logCollection, taskRef, taskCreated, logLevel)
+	t.LogPublisher, err = host.LogService.NewPublisher(logCollection, taskRef, taskCreated, logLevel)
 	if err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
 	}
-	t.logPublisher.Log(log.InfoLevel, log.Fields{
+	t.LogPublisher.Log(log.InfoLevel, log.Fields{
 		"revision":     t.revision,
 		"lastRevision": lastRevision,
 	}, "initialized catalog task term")

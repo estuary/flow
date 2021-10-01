@@ -89,7 +89,7 @@ func (c *Capture) StartReadingMessages(shard consumer.Shard, cp pgc.Checkpoint,
 
 	var driverRx, err = c.openCapture(ctx)
 	if err != nil {
-		c.taskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+		c.Log(log.ErrorLevel, log.Fields{
 			"error": err.Error(),
 		}, "failed to open capture")
 		ch <- consumer.EnvelopeOrError{Error: err}
@@ -112,7 +112,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 		c.task.Capture.EndpointSpecJson,
 		c.localDir,
 		c.host.Config.ConnectorNetwork,
-		c.taskTerm.logPublisher,
+		c.taskTerm.LogPublisher,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building endpoint driver: %w", err)
@@ -182,7 +182,7 @@ func (c *Capture) serveDriverTransactions(
 				// No-op.
 			default:
 				// For now, we log these (only), and will retry the connector at its usual cadence.
-				c.taskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+				c.taskTerm.LogPublisher.Log(log.ErrorLevel, log.Fields{
 					"error": err.Error(),
 				}, "capture connector failed (will retry)")
 			}
