@@ -190,7 +190,7 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 	// Note we're performing this comparasion in a hex-encoded space.
 	var ind = sort.Search(len(physical), func(i int) bool {
 		var keyEnd = physical[i].Decoded.(*pb.JournalSpec).LabelSet.ValueOf(flowLabels.KeyEnd)
-		return keyEnd > string(hexKey)
+		return keyEnd >= string(hexKey)
 	})
 
 	if ind == len(physical) {
