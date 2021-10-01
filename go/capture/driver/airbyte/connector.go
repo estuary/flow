@@ -191,22 +191,22 @@ func (w *writeErrInterceptor) Close() error {
 // NewConnectorProtoOutput returns an io.WriteCloser for use as
 // the stdout handler of a connector. Its Write function parses
 // connector output as uint32-delimited protobuf records using
-// the provided message and post-decoding callback.
+// the provided new message and post-decoding callbacks.
 func NewConnectorProtoOutput(
-	message proto.Message,
+	newRecord func() proto.Message,
 	onDecode func(proto.Message) error,
 ) io.WriteCloser {
 	return &protoOutput{
-		message:  message,
-		onDecode: onDecode,
+		newRecord: newRecord,
+		onDecode:  onDecode,
 	}
 }
 
 type protoOutput struct {
-	rem      []byte
-	next     int // next body length, or zero if we're reading a header next.
-	message  proto.Message
-	onDecode func(proto.Message) error
+	rem       []byte
+	next      int // next body length, or zero if we're reading a header next.
+	newRecord func() proto.Message
+	onDecode  func(proto.Message) error
 }
 
 func (o *protoOutput) Write(p []byte) (n int, err error) {
@@ -232,40 +232,21 @@ func (o *protoOutput) Write(p []byte) (n int, err error) {
 		o.rem = append(o.rem, p[:delta]...)
 		p = p[delta:]
 
-		if o.next == 0 {
-			if _, err = o.decodeLen(o.rem); err != nil {
-				return 0, err
-			} else if o.next == 0 {
-				o.decodeMsg([]byte{})
-			}
-		} else {
-			if _, err = o.decodeMsg(o.rem); err != nil {
-				return 0, err
-			}
+		if r, err := o.decode(o.rem); len(r) != 0 {
+			panic("didn't consume stitched remainder")
+		} else if err != nil {
+			return 0, err
 		}
 
 		o.rem = o.rem[:0] // Truncate for re-use.
 	}
 
-	for {
-		if o.next == 0 {
-			if len(p) < 4 {
-				o.rem = append(o.rem, p...) // We need more data.
-				return n, nil
-			} else if p, err = o.decodeLen(p); err != nil {
-				return 0, err
-			} else if o.next == 0 {
-				o.decodeMsg([]byte{})
-			}
-		} else {
-			if len(p) < o.next {
-				o.rem = append(o.rem, p...) // We need more data.
-				return n, nil
-			} else if p, err = o.decodeMsg(p); err != nil {
-				return 0, err
-			}
+	for len(p) != 0 {
+		if p, err = o.decode(p); err != nil {
+			return 0, err
 		}
 	}
+	return n, nil
 }
 
 func (o *protoOutput) Close() error {
@@ -275,18 +256,36 @@ func (o *protoOutput) Close() error {
 	return nil
 }
 
-func (o *protoOutput) decodeLen(p []byte) ([]byte, error) {
-	o.next = int(binary.LittleEndian.Uint32(p[:4]))
-	if o.next > maxMessageSize {
-		return nil, fmt.Errorf("message is too large: %d", o.next)
-	}
-	return p[4:], nil
-}
+func (o *protoOutput) decode(p []byte) ([]byte, error) {
+	if o.next == 0 {
+		if len(p) < 4 {
+			o.rem = append(o.rem, p...) // We need more data.
+			return nil, nil
+		}
 
-func (o *protoOutput) decodeMsg(p []byte) ([]byte, error) {
-	if err := proto.Unmarshal(p[:o.next], o.message); err != nil {
+		// Consume 4 byte header.
+		o.next = int(binary.LittleEndian.Uint32(p[:4]))
+		p = p[4:]
+
+		if o.next > maxMessageSize {
+			return nil, fmt.Errorf("message is too large: %d", o.next)
+		}
+
+		// Fall through to attempt decode of the message.
+		// Note that explicit, zero-length messages are a possibility.
+		// Falling through correctly handles this case.
+	}
+
+	if len(p) < o.next {
+		o.rem = append(o.rem, p...) // We need more data.
+		return nil, nil
+	}
+
+	// Consume |o.next| length message.
+	var m = o.newRecord()
+	if err := proto.Unmarshal(p[:o.next], m); err != nil {
 		return nil, fmt.Errorf("decoding output: %w", err)
-	} else if err = o.onDecode(o.message); err != nil {
+	} else if err = o.onDecode(m); err != nil {
 		return nil, err
 	}
 

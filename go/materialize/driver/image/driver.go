@@ -61,7 +61,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 				WriteMsg(req)
 		},
 		airbyte.NewConnectorProtoOutput(
-			new(pm.SpecResponse),
+			func() proto.Message { return new(pm.SpecResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
 					return fmt.Errorf("read more than one SpecResponse")
@@ -94,7 +94,7 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 				WriteMsg(req)
 		},
 		airbyte.NewConnectorProtoOutput(
-			new(pm.ValidateResponse),
+			func() proto.Message { return new(pm.ValidateResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
 					return fmt.Errorf("read more than one ValidateResponse")
@@ -128,7 +128,7 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 				WriteMsg(req)
 		},
 		airbyte.NewConnectorProtoOutput(
-			new(pm.ApplyResponse),
+			func() proto.Message { return new(pm.ApplyResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
 					return fmt.Errorf("read more than one ApplyResponse")
@@ -166,7 +166,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error { return protoWriteLoop(stream, open, w) },
 		airbyte.NewConnectorProtoOutput(
-			new(pm.TransactionResponse),
+			func() proto.Message { return new(pm.TransactionResponse) },
 			func(m proto.Message) error { return stream.Send(m.(*pm.TransactionResponse)) },
 		),
 	)
