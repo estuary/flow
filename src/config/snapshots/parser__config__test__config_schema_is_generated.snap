@@ -59,6 +59,15 @@ expression: schema
         }
       ]
     },
+    "errorThreshold": {
+      "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
+      "default": null,
+      "allOf": [
+        {
+          "$ref": "#/definitions/errorThreshold"
+        }
+      ]
+    },
     "fileExtensionMappings": {
       "description": "Mappings from file extensions to format identifiers.",
       "default": {},
@@ -202,6 +211,15 @@ expression: schema
       "description": "An encoding scheme, identified by WHATWG label. The list of allowable values is available at: https://encoding.spec.whatwg.org/#names-and-labels",
       "type": "string",
       "pattern": "^[a-z0-9_\\-:]{2,20}$"
+    },
+    "errorThreshold": {
+      "title": "errorThreshold",
+      "description": "The percentage of malformed rows which can be encountered without halting the parsing process. Only the most recent 1000 rows are used to calculate the error rate.",
+      "type": [
+        "integer"
+      ],
+      "maximum": 100.0,
+      "minimum": 0.0
     },
     "format": {
       "title": "format",

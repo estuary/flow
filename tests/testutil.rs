@@ -1,5 +1,9 @@
 //! Common functions and types for writing end-to-end tests of the parser CLI.
 
+// Functions in this file are only run in tests, which don't count for coverage.
+// This prevents "unused function" warnings from being emitted.
+#![allow(dead_code)]
+
 use parser::{Input, ParseConfig};
 use serde_json::Value;
 use std::fs::File;
@@ -16,6 +20,30 @@ pub struct CommandResult {
     pub parsed: Vec<Value>,
     pub raw_stdout: String,
     pub exit_code: i32,
+}
+
+impl CommandResult {
+    pub fn assert_success(&self, parsed_rows: usize) {
+        assert_eq!(
+            parsed_rows,
+            self.parsed.len(),
+            "expected to output {} records, but instead got {} records",
+            parsed_rows,
+            self.parsed.len()
+        );
+        assert_eq!(self.exit_code, 0, "expected parsing to succeed");
+    }
+
+    pub fn assert_failure(&self, parsed_rows: usize) {
+        assert_eq!(
+            parsed_rows,
+            self.parsed.len(),
+            "expected to output {} records, but instead got {} records",
+            parsed_rows,
+            self.parsed.len()
+        );
+        assert_eq!(self.exit_code, 1, "expected parsing to fail");
+    }
 }
 
 /// Returns the path to the parser executable, accounting for

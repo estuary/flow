@@ -112,8 +112,8 @@ where
         match self {
             Ok(t) => t,
             Err(e) => {
-                tracing::debug!("Error details: {:#?}", e);
-                tracing::error!("{}: {}", message, e);
+                tracing::debug!(error_details = ?e, message);
+                tracing::error!(error = %e, message);
                 std::process::exit(1);
             }
         }

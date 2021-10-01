@@ -2,9 +2,11 @@ mod csv;
 mod json;
 mod projection;
 
+use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
 use crate::input::{detect_compression, CompressionError, Input};
 use crate::{Compression, Format, ParseConfig};
+
 use serde_json::Value;
 use std::io::{self, Write};
 
@@ -39,6 +41,9 @@ pub enum ParseError {
 
     #[error("unable to decompress input: {0}")]
     Decompression(#[from] CompressionError),
+
+    #[error("error limit exceeded")]
+    ErrorLimitExceeded(ErrorThreshold),
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -110,9 +115,12 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
     }
 }
 
+/// A parser will produce a valid json document or a parser error.
+type ParseResult = Result<Value, ParseError>;
+
 /// Type of output returned by a parser, which will lazily return parsed JSON or an error. Once an
 /// error is returned, the iterator will not be polled again.
-pub type Output = Box<dyn Iterator<Item = Result<Value, ParseError>>>;
+pub type Output = Box<dyn Iterator<Item = ParseResult>>;
 
 /// Parser is an object-safe trait for parsing a particular format, such as CSV or JSONL.
 /// Implementations live in the various sub-modules.
@@ -140,15 +148,9 @@ fn format_output(
     let decorator = Decorator::from_config(config);
     let mut buffer = io::BufWriter::new(dest);
     let mut record_count = 0u64;
+
     for result in output {
-        let mut value = result.map_err(|e| {
-            tracing::warn!(
-                record_count = record_count,
-                "parsing failed after {} records",
-                record_count
-            );
-            e
-        })?;
+        let mut value = result?;
 
         decorator.add_fields(record_count, &mut value)?;
         serde_json::to_writer(&mut buffer, &value)?;

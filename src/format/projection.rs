@@ -2,7 +2,7 @@
 use crate::config::ParseConfig;
 use caseless::Caseless;
 use doc::inference::{Exists, Shape};
-use doc::{Pointer, Schema, SchemaIndex};
+use doc::{Pointer, Schema, SchemaIndexBuilder};
 use json::schema::build::Error as SchemaBuildError;
 use json::schema::index::Error as SchemaIndexError;
 use json::schema::types;
@@ -66,8 +66,9 @@ pub fn build_projections(config: &ParseConfig) -> Result<BTreeMap<String, TypeIn
         &config.schema
     };
     let schema: Schema = json::schema::build::build_schema(schema_uri.clone(), &schema_json)?;
-    let mut index = SchemaIndex::new();
-    index.add(&schema)?;
+    let mut builder = SchemaIndexBuilder::new();
+    builder.add(&schema)?;
+    let index = builder.into_index();
     let shape = Shape::infer(&schema, &index);
 
     let mut results = BTreeMap::new();

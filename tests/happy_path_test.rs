@@ -1,9 +1,10 @@
 mod testutil;
 
+use std::fs::{self};
+use std::path::PathBuf;
+
 use parser::{JsonPointer, ParseConfig};
 use serde_json::json;
-use std::fs;
-use std::path::PathBuf;
 use testutil::{input_for_file, run_test};
 
 #[test]
@@ -32,9 +33,7 @@ fn csv_requires_explicit_quote() {
 
     {
         let input = input_for_file(path);
-        let output = run_test(&no_quote, input);
-        assert_eq!(1, output.exit_code);
-        assert!(output.parsed.is_empty());
+        run_test(&no_quote, input).assert_failure(0);
     }
 
     let with_quote = ParseConfig {
@@ -47,8 +46,7 @@ fn csv_requires_explicit_quote() {
     };
     let same_input = input_for_file(path);
     let output = run_test(&with_quote, same_input);
-    assert_eq!(0, output.exit_code);
-    assert_eq!(1, output.parsed.len());
+    output.assert_success(1);
     // Confirm the number of columns as a way of confirming that we're using the correct quote in
     // the parse configuration.
     assert_eq!(206, output.parsed[0].as_object().unwrap().len());

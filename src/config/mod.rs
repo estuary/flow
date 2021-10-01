@@ -235,6 +235,76 @@ impl schemars::JsonSchema for Compression {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ErrorThreshold {
+    pub max_percent: u8,
+}
+
+impl ErrorThreshold {
+    pub fn new(percent: u64) -> Result<Self, ConfigError> {
+        if percent <= 100 {
+            Ok(Self {
+                max_percent: percent as u8,
+            })
+        } else {
+            Err(ConfigError::InvalidErrorThreshold(percent))
+        }
+    }
+
+    pub fn exceeded(&self, test_percent: u8) -> bool {
+        test_percent >= self.max_percent
+    }
+}
+
+impl Default for ErrorThreshold {
+    fn default() -> Self {
+        Self { max_percent: 0 }
+    }
+}
+
+impl<'de> Deserialize<'de> for ErrorThreshold {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'v> serde::de::Visitor<'v> for Visitor {
+            type Value = ErrorThreshold;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("expected a percentage value between 0 and 100")
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                ErrorThreshold::new(v).map_err(|e| E::custom(e))
+            }
+        }
+
+        deserializer.deserialize_u64(Visitor)
+    }
+}
+
+impl schemars::JsonSchema for ErrorThreshold {
+    fn schema_name() -> String {
+        "errorThreshold".to_string()
+    }
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        serde_json::from_value(serde_json::json!({
+            "type": ["integer"],
+            "title": "errorThreshold",
+            "description": "The percentage of malformed rows which can be encountered without halting the parsing process. Only the most recent 1000 rows are used to calculate the error rate.",
+            "minimum": 0,
+            "maximum": 100,
+        }))
+        .unwrap()
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ParseConfig {
@@ -303,6 +373,11 @@ pub struct ParseConfig {
     /// Configures handling of tab-separated values (TSV) format.
     #[serde(default)]
     pub tsv: Option<CharacterSeparatedConfig>,
+
+    /// Allows a percentage of errors to be ignored without failing the entire
+    /// parsing process. When this limit is exceeded, parsing halts.
+    #[serde(default)]
+    pub error_threshold: Option<ErrorThreshold>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -312,6 +387,9 @@ pub enum ConfigError {
 
     #[error("failed to parse config: {0}")]
     Parse(#[from] serde_json::Error),
+
+    #[error("ErrorThreshold cannot be greater than 100%: {0}%")]
+    InvalidErrorThreshold(u64),
 }
 
 impl ParseConfig {
@@ -384,6 +462,10 @@ impl ParseConfig {
             }
         }
 
+        if other.error_threshold.is_some() {
+            self.error_threshold = other.error_threshold.clone();
+        }
+
         self
     }
 
@@ -409,6 +491,7 @@ impl Default for ParseConfig {
             content_type_mappings: default_content_type_mappings(),
             csv: None,
             tsv: None,
+            error_threshold: None,
         }
     }
 }
