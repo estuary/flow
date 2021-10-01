@@ -96,18 +96,20 @@ func TestProtoRecordBreaks(t *testing.T) {
 	// copies of our fixture, and counts its number of invocations.
 	var verifyCount int
 	var verifyEmptyCount int
-	var s = NewConnectorProtoOutput(new(flow.CollectionSpec), func(m proto.Message) error {
-		if m.String() != "" {
-			require.Equal(t, m, &flow.CollectionSpec{
-				Collection: "a/collection",
-				KeyPtrs:    []string{"/a", "/b", "/c"},
-			})
-			verifyCount++
-		} else {
-			verifyEmptyCount++
-		}
-		return nil
-	})
+	var s = NewConnectorProtoOutput(
+		func() proto.Message { return new(flow.CollectionSpec) },
+		func(m proto.Message) error {
+			if m.String() != "" {
+				require.Equal(t, m, &flow.CollectionSpec{
+					Collection: "a/collection",
+					KeyPtrs:    []string{"/a", "/b", "/c"},
+				})
+				verifyCount++
+			} else {
+				verifyEmptyCount++
+			}
+			return nil
+		})
 
 	var w = func(p []byte) {
 		var n, err = s.Write(p)
