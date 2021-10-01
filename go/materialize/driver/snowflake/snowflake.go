@@ -91,10 +91,10 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource: func(endpoint *sqlDriver.Endpoint) sqlDriver.Resource {
-			return &tableConfig{base: endpoint.Config.(*config)}
+		NewResource: func(endpoint sqlDriver.Endpoint) sqlDriver.Resource {
+			return &tableConfig{base: endpoint.(*sqlDriver.SqlDbEndpoint).Config.(*config)}
 		},
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Snowflake configuration: %w", err)
@@ -133,27 +133,30 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			}
 			parsed.tempdir = tempdir
 
-			var endpoint = &sqlDriver.Endpoint{
+			var endpoint = &sqlDriver.SqlDbEndpoint{
 				Config:    parsed,
-				Context:   ctx,
 				DB:        db,
 				Generator: SQLGenerator(),
+				FlowTables: &sqlDriver.FlowTables{
+					Checkpoints: sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints),
+					Specs:       sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations),
+				},
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			ep := epi.(*sqlDriver.SqlDbEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
+				ctx: ctx,
 				cfg: ep.Config.(*config),
-				gen: &ep.Generator,
+				gen: ep.Generator,
 			}
 			d.store.fence = fence
 
@@ -183,7 +186,7 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 }
 
 // SQLGenerator returns a SQLGenerator for the Snowflake SQL dialect.
-func SQLGenerator() sqlDriver.Generator {
+func SQLGenerator() *sqlDriver.Generator {
 	var variantMapper = sqlDriver.ConstColumnType{
 		SQLType: "VARIANT",
 		ValueConverter: func(i interface{}) (interface{}, error) {
@@ -215,12 +218,20 @@ func SQLGenerator() sqlDriver.Generator {
 		Inner:       typeMappings,
 	}
 
-	return sqlDriver.Generator{
-		CommentConf:      sqlDriver.LineComment(),
-		IdentifierQuotes: sqlDriver.DoubleQuotes(),
-		Placeholder:      sqlDriver.QuestionMarkPlaceholder,
-		TypeMappings:     nullable,
-		QuoteStringValue: sqlDriver.DefaultQuoteStringValue,
+	return &sqlDriver.Generator{
+		CommentRenderer: sqlDriver.LineCommentRenderer(),
+		IdentifierRenderer: &sqlDriver.Renderer{
+			Wrapper:     sqlDriver.DoubleQuotes().Wrap,
+			SkipWrapper: sqlDriver.DefaultUnwrappedIdentifiers.MatchString,
+			Sanitizer:   nil,
+		},
+		ValueRenderer: &sqlDriver.Renderer{
+			Wrapper:     sqlDriver.SingleQuotes().Wrap,
+			SkipWrapper: nil,                                    // Never skip
+			Sanitizer:   strings.NewReplacer("'", "''").Replace, // Convert single quotes into 2 single
+		},
+		Placeholder:  sqlDriver.QuestionMarkPlaceholder,
+		TypeMappings: nullable,
 	}
 }
 
@@ -263,7 +274,7 @@ type binding struct {
 func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
 	var d = new(binding)
 	var err error
-	var target = sqlDriver.TableForMaterialization(targetName, "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(targetName, "", t.gen.IdentifierRenderer, spec)
 
 	// Create local scratch files used for loads and stores.
 	if d.load.stage, err = newScratchFile(t.cfg.tempdir); err != nil {
@@ -392,8 +403,8 @@ func (d *transactor) Commit() error {
 	defer txn.Rollback()
 
 	// Apply the client's prepared checkpoint to our fence.
-	if err = d.store.fence.Update(
-		func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
+	if err = d.store.fence.Update(d.ctx,
+		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			if result, err := txn.Exec(sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {

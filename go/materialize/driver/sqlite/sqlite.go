@@ -55,8 +55,8 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewResource:      func(sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing SQLite configuration: %w", err)
@@ -99,26 +99,29 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				return nil, fmt.Errorf("opening SQLite database %q: %w", parsed.Path, err)
 			}
 
-			var endpoint = &sqlDriver.Endpoint{
+			var endpoint = &sqlDriver.SqlDbEndpoint{
 				Config:    parsed,
-				Context:   ctx,
 				DB:        db,
 				Generator: sqlDriver.SQLiteSQLGenerator(),
+				FlowTables: &sqlDriver.FlowTables{
+					Checkpoints: sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints),
+					Specs:       sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations),
+				},
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			ep := epi.(*sqlDriver.SqlDbEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
-				gen: &ep.Generator,
+				ctx: ctx,
+				gen: ep.Generator,
 			}
 			d.store.fence = fence
 
@@ -212,7 +215,7 @@ type binding struct {
 func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var b = new(binding)
-	var target = sqlDriver.TableForMaterialization(targetName, "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(targetName, "", t.gen.IdentifierRenderer, spec)
 
 	// Build all SQL statements and parameter converters.
 	var keyCreateSQL string
@@ -367,8 +370,8 @@ func (d *transactor) Commit() error {
 		}
 	}
 
-	if err = d.store.fence.Update(
-		func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
+	if err = d.store.fence.Update(d.ctx,
+		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			if result, err := d.store.txn.Exec(sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {

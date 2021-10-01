@@ -85,8 +85,8 @@ func NewPostgresDriver() *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewResource:      func(sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Postgresql configuration: %w", err)
@@ -104,26 +104,29 @@ func NewPostgresDriver() *sqlDriver.Driver {
 				return nil, fmt.Errorf("opening Postgres database: %w", err)
 			}
 
-			var endpoint = &sqlDriver.Endpoint{
+			var endpoint = &sqlDriver.SqlDbEndpoint{
 				Config:    parsed,
-				Context:   ctx,
 				DB:        db,
 				Generator: sqlDriver.PostgresSQLGenerator(),
+				FlowTables: &sqlDriver.FlowTables{
+					Checkpoints: sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints),
+					Specs:       sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations),
+				},
 			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
 
 			return endpoint, nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
 			fence *sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			ep := epi.(*sqlDriver.SqlDbEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
-				gen: &ep.Generator,
+				ctx: ctx,
+				gen: ep.Generator,
 			}
 			d.store.fence = fence
 
@@ -210,7 +213,7 @@ func (t *transactor) addBinding(spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var bind = new(binding)
 	var index = len(t.bindings)
-	var target = sqlDriver.TableForMaterialization(strings.Join(spec.ResourcePath, "."), "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(strings.Join(spec.ResourcePath, "."), "", t.gen.IdentifierRenderer, spec)
 
 	// Build all SQL statements and parameter converters.
 	var keyCreateSQL string
@@ -380,7 +383,7 @@ func (d *transactor) Commit() error {
 	}
 	defer txn.Rollback(d.ctx)
 
-	err = d.store.fence.Update(
+	err = d.store.fence.Update(d.ctx,
 		func(ctx context.Context, sql string, args ...interface{}) (int64, error) {
 			// Add the update to the fence as the last statement in the batch
 			var docs = d.store.batch.Len()
