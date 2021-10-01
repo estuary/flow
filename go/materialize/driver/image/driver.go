@@ -39,7 +39,7 @@ type driver struct {
 }
 
 // NewDriver returns a new Docker image driver.
-func NewDriver(networkName string) pm.DriverServer { return driver{} }
+func NewDriver(networkName string) pm.DriverServer { return driver{networkName: networkName} }
 
 // Spec returns the specification of the connector.
 func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
