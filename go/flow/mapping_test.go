@@ -47,7 +47,7 @@ func TestPartitionPicking(t *testing.T) {
 		}},
 		{Decoded: &pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=77",
-			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "77", flowLabels.KeyEnd, "dd"),
+			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "78", flowLabels.KeyEnd, "dd"),
 		}},
 		{Decoded: &pb.JournalSpec{
 			Name:     "a/collection/bar=42/foo=A/pivot=00",
@@ -72,6 +72,16 @@ func TestPartitionPicking(t *testing.T) {
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
 		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("ab")).Name.String(),
+	)
+
+	// Issue #255 regression cases.
+	require.Equal(t,
+		"a/collection/bar=32/foo=A/pivot=00",
+		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("77")).Name.String(),
+	)
+	require.Equal(t,
+		"a/collection/bar=42/foo=A/pivot=00",
+		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("dd")).Name.String(),
 	)
 }
 
