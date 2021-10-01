@@ -57,7 +57,7 @@ type LogPublisher struct {
 // LogService instance for the entire flow consumer application.
 type LogService struct {
 	ctx              context.Context
-	appendService    *client.AppendService
+	ajc              *client.AppendService
 	journals         flow.Journals
 	catalog          flow.Catalog
 	messagePublisher *message.Publisher
@@ -77,7 +77,7 @@ func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskR
 	var opsCollection = catalogTask.Ingestion
 	var mapper = flow.Mapper{
 		Ctx:           r.ctx,
-		JournalClient: r.appendService,
+		JournalClient: r.ajc,
 		Journals:      r.journals,
 		JournalRules:  commons.JournalRules.Rules,
 	}

@@ -223,34 +223,35 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	// Setup a logger that shards can use to publish logs and metrics
 	var ajc = client.NewAppendService(args.Context, args.Service.Journals)
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
-	// TODO: fix PublishClockDelta handling
-	var logClock = message.NewClock(f.Timepoint.Now.Time)
-	go func(tp *flow.Timepoint) {
-		for {
-			logClock.Update(tp.Time.Add(f.Service.PublishClockDelta))
-			<-tp.Next.Ready()
-			tp = tp.Next
-		}
-	}(f.Timepoint.Now)
 
 	// Start a ticker of the shared *Timepoint.
 	if !f.Config.DisableClockTicks {
 		go func() {
-			// TODO: should we perhaps just panic if PublishClockDelta is > 0?
+			// When running flowctl test, clock ticks will be disabled and PublishClockDelta will be
+			// used to manually adjust the clock. When running _normally_, we should only adjust the
+			// clock using these ticks, and the PublishClockDelta should never be applied.
+			if f.Service.PublishClockDelta > 0 {
+				panic("PublishClockDelta must be 0 if DisableClockTicks is false, but was > 0")
+			}
 			for t := range time.Tick(time.Second) {
 				f.Timepoint.Mu.Lock()
-				f.Timepoint.Now.Next.Resolve(t) // In theory adjust for PublishDelta but not actually ever non-zero.
+				f.Timepoint.Now.Next.Resolve(t)
 				f.Timepoint.Now = f.Timepoint.Now.Next
 				f.Timepoint.Mu.Unlock()
 			}
 		}()
 	}
 	f.LogService = &LogService{
-		ctx:              args.Context,
-		appendService:    ajc,
-		journals:         journals,
-		catalog:          catalog,
-		messagePublisher: message.NewPublisher(ajc, &logClock),
+		ctx:      args.Context,
+		ajc:      ajc,
+		journals: journals,
+		catalog:  catalog,
+		// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
+		// UUID of log documents will always reflect the current wall-clock time, even when those
+		// log documents were produced during test runs, where `readDelay`s might normally cause
+		// time to skip forward. This probably only matters in extremely outlandish test scenarios,
+		// and so it doesn't seem worth the complexity to modify this timepoint during tests.
+		messagePublisher: message.NewPublisher(ajc, nil),
 	}
 
 	return nil
