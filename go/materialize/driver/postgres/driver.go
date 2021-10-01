@@ -85,8 +85,8 @@ func NewPostgresDriver() *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewResource:      func(sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Postgresql configuration: %w", err)
@@ -103,35 +103,27 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			if err != nil {
 				return nil, fmt.Errorf("opening Postgres database: %w", err)
 			}
-
-			var endpoint = &sqlDriver.Endpoint{
-				Config:    parsed,
-				Context:   ctx,
-				DB:        db,
-				Generator: sqlDriver.PostgresSQLGenerator(),
-			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
-
-			return endpoint, nil
+			return sqlDriver.NewStdEndpoint(parsed, db, sqlDriver.PostgresSQLGenerator(), sqlDriver.DefaultFlowTables("")), nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
-			fence *sqlDriver.Fence,
+			fence sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
-				gen: &ep.Generator,
+				ctx: ctx,
+				gen: ep.Generator(),
 			}
-			d.store.fence = fence
+			d.store.fence = fence.(*sqlDriver.StdFence)
 
 			// Establish connections.
-			if d.load.conn, err = pgxStd.AcquireConn(ep.DB); err != nil {
+			if d.load.conn, err = pgxStd.AcquireConn(ep.DB()); err != nil {
 				return nil, fmt.Errorf("load pgx.AcquireConn: %w", err)
 			}
-			if d.store.conn, err = pgxStd.AcquireConn(ep.DB); err != nil {
+			if d.store.conn, err = pgxStd.AcquireConn(ep.DB()); err != nil {
 				return nil, fmt.Errorf("store pgx.AcquireConn: %w", err)
 			}
 
@@ -172,7 +164,7 @@ type transactor struct {
 	store struct {
 		batch *pgx.Batch
 		conn  *pgx.Conn
-		fence *sqlDriver.Fence
+		fence *sqlDriver.StdFence
 	}
 	bindings []*binding
 }
@@ -210,7 +202,7 @@ func (t *transactor) addBinding(spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var bind = new(binding)
 	var index = len(t.bindings)
-	var target = sqlDriver.TableForMaterialization(strings.Join(spec.ResourcePath, "."), "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(strings.Join(spec.ResourcePath, "."), "", t.gen.IdentifierRenderer, spec)
 
 	// Build all SQL statements and parameter converters.
 	var keyCreateSQL string
@@ -344,7 +336,7 @@ func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(in
 }
 
 func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.TransactionResponse_Prepared, err error) {
-	d.store.fence.Checkpoint = prepare.FlowCheckpoint
+	d.store.fence.SetCheckpoint(prepare.FlowCheckpoint)
 	d.store.batch = new(pgx.Batch)
 
 	return &pm.TransactionResponse_Prepared{}, nil
@@ -380,13 +372,13 @@ func (d *transactor) Commit() error {
 	}
 	defer txn.Rollback(d.ctx)
 
-	err = d.store.fence.Update(
+	err = d.store.fence.Update(d.ctx,
 		func(ctx context.Context, sql string, args ...interface{}) (int64, error) {
 			// Add the update to the fence as the last statement in the batch
 			var docs = d.store.batch.Len()
 			d.store.batch.Queue(sql, args...)
 
-			var results = txn.SendBatch(d.ctx, d.store.batch)
+			var results = txn.SendBatch(ctx, d.store.batch)
 			d.store.batch = nil
 
 			for i := 0; i != docs; i++ {
