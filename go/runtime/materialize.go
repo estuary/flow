@@ -104,11 +104,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 
 	defer func() {
 		if err == nil {
-			m.shuffleTaskTerm.logPublisher.Log(log.DebugLevel, log.Fields{
+			m.Log(log.DebugLevel, log.Fields{
 				"checkpoint": cp,
 			}, "resolved materialization resumption checkpoint")
 		} else {
-			m.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+			m.Log(log.ErrorLevel, log.Fields{
 				"error": err.Error(),
 			}, "failed to read materialization resumption checkpoint")
 		}
@@ -198,14 +198,14 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 }
 
 func (m *Materialize) logErr(err error, message string) {
-	m.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+	m.Log(log.ErrorLevel, log.Fields{
 		"error": err.Error(),
 	}, message)
 }
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	m.taskTerm.logPublisher.Log(log.DebugLevel, log.Fields{
+	m.Log(log.DebugLevel, log.Fields{
 		"task":       m.task.Name(),
 		"shardID":    m.shardID,
 		"checkpoint": checkpoint,

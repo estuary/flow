@@ -143,7 +143,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 		return err
 	})
 	if err != nil {
-		d.shuffleTaskTerm.logPublisher.Log(log.ErrorLevel, log.Fields{
+		d.Log(log.ErrorLevel, log.Fields{
 			"error": err.Error(),
 		}, "derive transaction failed")
 	}

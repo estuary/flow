@@ -40,6 +40,12 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
         tables.schema_docs.insert_row(schema.url.clone(), dom);
     }
 
+    // Setup imports to allow derivations and materializations to reference these ops collections.
+    // Flow currently validates that an import path exists whenever a derivation or materialization
+    // references a collection as a source, so without these imports you wouldn't be able to
+    // actually derive or materialize the ops collections. This is a restriction that we'll
+    // probably need to revisit, but in the meantime we'll just set it up so that everything
+    // implicitly imports the resource URL of the ops collections.
     let importers = tables
         .resources
         .iter()
