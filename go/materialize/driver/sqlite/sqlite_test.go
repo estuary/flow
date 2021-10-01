@@ -40,11 +40,16 @@ func TestSQLGeneration(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	var gen = sqlDriver.SQLiteSQLGenerator()
+	var identifierRenderer = &sqlDriver.Renderer{
+		Sanitizer:   nil,
+		SkipWrapper: sqlDriver.DefaultUnwrappedIdentifiers.MatchString,
+		Wrapper:     sqlDriver.DoubleQuotes().Wrap,
+	}
 	var spec = &built.Materializations[0]
-	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec.Bindings[0])
+	var table = sqlDriver.TableForMaterialization("test_table", "", identifierRenderer, spec.Bindings[0])
 
 	keyCreate, keyInsert, keyJoin, keyTruncate, err := sqlite.BuildSQL(
-		&gen, 123, table, spec.Bindings[0].FieldSelection)
+		gen, 123, table, spec.Bindings[0].FieldSelection)
 	require.NoError(t, err)
 
 	require.Equal(t, `
@@ -412,10 +417,14 @@ func TestSQLiteDriver(t *testing.T) {
 	require.Equal(t, io.EOF, err)
 
 	// Last thing is to snapshot the database tables we care about.
-	var quotes = sqlDriver.DoubleQuotes()
+	var identifierRenderer = &sqlDriver.Renderer{
+		Sanitizer:   nil,
+		SkipWrapper: sqlDriver.DefaultUnwrappedIdentifiers.MatchString,
+		Wrapper:     sqlDriver.DoubleQuotes().Wrap,
+	}
 	var tab = sqlDriver.TableForMaterialization(
 		"test_target", // Matches fixture in testdata/driver-steps.yaml
-		"", &quotes,
+		"", identifierRenderer,
 		&pf.MaterializationSpec_Binding{
 			Collection:     model.Bindings[0].Collection,
 			FieldSelection: fields,

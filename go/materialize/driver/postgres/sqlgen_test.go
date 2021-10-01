@@ -29,10 +29,15 @@ func TestSQLGeneration(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	var gen = sqlDriver.PostgresSQLGenerator()
+	var identifierRenderer = &sqlDriver.Renderer{
+		Sanitizer:   nil,
+		SkipWrapper: sqlDriver.DefaultUnwrappedIdentifiers.MatchString,
+		Wrapper:     sqlDriver.DoubleQuotes().Wrap,
+	}
 	var spec = &built.Materializations[0]
-	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec.Bindings[0])
+	var table = sqlDriver.TableForMaterialization("test_table", "", identifierRenderer, spec.Bindings[0])
 
-	keyCreate, keyInsert, keyJoin, err := postgres.BuildSQL(&gen, 123, table, spec.Bindings[0].FieldSelection)
+	keyCreate, keyInsert, keyJoin, err := postgres.BuildSQL(gen, 123, table, spec.Bindings[0].FieldSelection)
 	require.NoError(t, err)
 
 	require.Equal(t, `
