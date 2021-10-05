@@ -40,9 +40,8 @@ func TestSQLGeneration(t *testing.T) {
 	require.Empty(t, built.Errors)
 
 	var gen = sqlDriver.SQLiteSQLGenerator()
-	var identifierRenderer = sqlDriver.NewRenderer(nil, sqlDriver.DoubleQuotesWrapper(), sqlDriver.DefaultUnwrappedIdentifiers)
 	var spec = &built.Materializations[0]
-	var table = sqlDriver.TableForMaterialization("test_table", "", identifierRenderer, spec.Bindings[0])
+	var table = sqlDriver.TableForMaterialization("test_table", "", gen.IdentifierRenderer, spec.Bindings[0])
 
 	keyCreate, keyInsert, keyJoin, keyTruncate, err := sqlite.BuildSQL(
 		&gen, 123, table, spec.Bindings[0].FieldSelection)

@@ -112,7 +112,7 @@ func NewPostgresDriver() *sqlDriver.Driver {
 			fence sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
-			ep := epi.(*sqlDriver.StdEndpoint)
+			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
 				ctx: ctx,
 				gen: ep.Generator(),
@@ -378,7 +378,7 @@ func (d *transactor) Commit() error {
 			var docs = d.store.batch.Len()
 			d.store.batch.Queue(sql, args...)
 
-			var results = txn.SendBatch(d.ctx, d.store.batch)
+			var results = txn.SendBatch(ctx, d.store.batch)
 			d.store.batch = nil
 
 			for i := 0; i != docs; i++ {

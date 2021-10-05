@@ -109,7 +109,7 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 			fence sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
-			ep := epi.(*sqlDriver.StdEndpoint)
+			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
 				ctx: ctx,
 				gen: ep.Generator(),
@@ -362,7 +362,7 @@ func (d *transactor) Commit() error {
 
 	if err = d.store.fence.Update(d.ctx,
 		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
-			if result, err := d.store.txn.Exec(sql, arguments...); err != nil {
+			if result, err := d.store.txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {
 				return 0, fmt.Errorf("result.RowsAffected: %w", err)
