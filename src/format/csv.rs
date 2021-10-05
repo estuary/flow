@@ -169,8 +169,10 @@ impl Parser for CsvParser {
             current_row: csv::StringRecord::new(),
             row_num: 0,
         };
-        let iterator =
-            ParseErrorBuffer::new(csv_output, config.error_threshold.unwrap_or_default());
+        let iterator = ParseErrorBuffer::new(
+            csv_output,
+            user_provided_config.error_threshold.unwrap_or_default(),
+        );
         Ok(Box::new(iterator))
     }
 }

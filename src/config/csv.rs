@@ -1,5 +1,5 @@
 //! Configuration related to the various character-separated formats, like CSV.
-use super::EncodingRef;
+use super::{EncodingRef, ErrorThreshold};
 use schemars::{
     gen::SchemaGenerator,
     schema::{InstanceType, Schema, SchemaObject},
@@ -134,6 +134,7 @@ impl ser::Serialize for LineEnding {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, JsonSchema, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CharacterSeparatedConfig {
     /// Manually specified headers, which can be used in cases where the file itself doesn't
     /// contain a header row. If specified, then the parser will assume that the first row is data,
@@ -161,6 +162,10 @@ pub struct CharacterSeparatedConfig {
     /// known, it is best to specify. Encodings are specified by their WHATWG label.
     #[serde(default)]
     pub encoding: Option<EncodingRef>,
+    /// Allows a percentage of errors to be ignored without failing the entire
+    /// parsing process. When this limit is exceeded, parsing halts.
+    #[serde(default)]
+    pub error_threshold: Option<ErrorThreshold>,
 }
 
 impl CharacterSeparatedConfig {
@@ -183,6 +188,9 @@ impl CharacterSeparatedConfig {
         if other.encoding.is_some() {
             self.encoding = other.encoding;
         }
+        if other.error_threshold.is_some() {
+            self.error_threshold = other.error_threshold.clone();
+        }
     }
 }
 
@@ -196,18 +204,21 @@ mod test {
             delimiter: Some(Char(20)),
             headers: vec![String::from("nope")],
             quote: Some(Char(34)),
+            error_threshold: Some(ErrorThreshold::new(33).unwrap()),
             ..Default::default()
         };
         base.merge(&CharacterSeparatedConfig {
             delimiter: Some(Char(44)),
             headers: vec![String::from("foo")],
             escape: Some(Char(22)),
+            error_threshold: Some(ErrorThreshold::new(77).unwrap()),
             ..Default::default()
         });
 
         assert_eq!(Some(Char(44)), base.delimiter);
         assert_eq!(Some(Char(34)), base.quote);
         assert_eq!(Some(Char(22)), base.escape);
+        assert_eq!(Some(ErrorThreshold::new(77).unwrap()), base.error_threshold);
         assert_eq!(&[String::from("foo")], base.headers.as_slice());
     }
 }

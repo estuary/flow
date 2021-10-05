@@ -2,7 +2,7 @@ mod testutil;
 
 use std::io::{Cursor, Seek, Write};
 
-use parser::{ErrorThreshold, Input, ParseConfig};
+use parser::{csv, ErrorThreshold, Input, ParseConfig};
 use testutil::run_test;
 
 #[test]
@@ -112,7 +112,10 @@ impl EphemeralCsv {
     fn parse_config(&self, error_threshold: Option<ErrorThreshold>) -> ParseConfig {
         ParseConfig {
             filename: Some("data.csv".to_owned()),
-            error_threshold: error_threshold,
+            csv: Some(csv::CharacterSeparatedConfig {
+                error_threshold,
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }

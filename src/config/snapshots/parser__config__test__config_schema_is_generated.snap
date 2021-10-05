@@ -59,15 +59,6 @@ expression: schema
         }
       ]
     },
-    "errorThreshold": {
-      "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
-      "default": null,
-      "allOf": [
-        {
-          "$ref": "#/definitions/errorThreshold"
-        }
-      ]
-    },
     "fileExtensionMappings": {
       "description": "Mappings from file extensions to format identifiers.",
       "default": {},
@@ -140,6 +131,15 @@ expression: schema
             }
           ]
         },
+        "errorThreshold": {
+          "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
+          "default": null,
+          "allOf": [
+            {
+              "$ref": "#/definitions/errorThreshold"
+            }
+          ]
+        },
         "escape": {
           "description": "The escape character, used to escape quotes within fields.",
           "default": null,
@@ -157,7 +157,7 @@ expression: schema
             "type": "string"
           }
         },
-        "line_ending": {
+        "lineEnding": {
           "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
           "default": null,
           "allOf": [

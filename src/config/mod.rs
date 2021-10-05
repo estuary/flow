@@ -373,11 +373,6 @@ pub struct ParseConfig {
     /// Configures handling of tab-separated values (TSV) format.
     #[serde(default)]
     pub tsv: Option<CharacterSeparatedConfig>,
-
-    /// Allows a percentage of errors to be ignored without failing the entire
-    /// parsing process. When this limit is exceeded, parsing halts.
-    #[serde(default)]
-    pub error_threshold: Option<ErrorThreshold>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -461,11 +456,6 @@ impl ParseConfig {
                 self.tsv = Some(other_tsv.clone());
             }
         }
-
-        if other.error_threshold.is_some() {
-            self.error_threshold = other.error_threshold.clone();
-        }
-
         self
     }
 
@@ -491,7 +481,6 @@ impl Default for ParseConfig {
             content_type_mappings: default_content_type_mappings(),
             csv: None,
             tsv: None,
-            error_threshold: None,
         }
     }
 }
