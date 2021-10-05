@@ -125,7 +125,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	}
 	var collection = &d.task.Derivation.Collection
 
-	var err = d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	return d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("derivation produces only partially combined documents")
 		}
@@ -142,12 +142,6 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 		})
 		return err
 	})
-	if err != nil {
-		d.Log(log.ErrorLevel, log.Fields{
-			"error": err.Error(),
-		}, "derive transaction failed")
-	}
-	return err
 }
 
 // StartCommit implements the Store interface, and writes the current transaction
@@ -172,7 +166,9 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pc.Checkpoint, waitFor client.
 }
 
 // FinishedTxn is a no-op.
-func (d *Derive) FinishedTxn(_ consumer.Shard, _ consumer.OpFuture) {}
+func (d *Derive) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
+	logTxnFinished(d.LogPublisher, op)
+}
 
 // Coordinator returns the shard's *shuffle.Coordinator.
 func (d *Derive) Coordinator() *shuffle.Coordinator { return d.coordinator }

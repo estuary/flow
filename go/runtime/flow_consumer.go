@@ -119,6 +119,17 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 	store.(Application).FinishedTxn(shard, future)
 }
 
+// logTxnFinished spawns a goroutine that waits for the given op to complete and logs the error if
+// it fails. All task types should delegate to this function so that the error logging is
+// consistent.
+func logTxnFinished(logger *LogPublisher, op consumer.OpFuture) {
+	go func() {
+		if err := op.Err(); err != nil {
+			logger.Log(log.ErrorLevel, log.Fields{"error": err}, "shard failed")
+		}
+	}()
+}
+
 // StartReadingMessages delegates to the Application.
 func (f *FlowConsumer) StartReadingMessages(shard consumer.Shard, store consumer.Store, checkpoint pc.Checkpoint, envOrErr chan<- consumer.EnvelopeOrError) {
 	f.Timepoint.Mu.Lock()

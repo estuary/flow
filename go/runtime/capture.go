@@ -182,7 +182,7 @@ func (c *Capture) serveDriverTransactions(
 				// No-op.
 			default:
 				// For now, we log these (only), and will retry the connector at its usual cadence.
-				c.taskTerm.LogPublisher.Log(log.ErrorLevel, log.Fields{
+				c.Log(log.ErrorLevel, log.Fields{
 					"error": err.Error(),
 				}, "capture connector failed (will retry)")
 			}
@@ -377,7 +377,10 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 
 func (c *Capture) BeginTxn(consumer.Shard) error                        { return nil } // No-op.
 func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return nil } // No-op.
-func (c *Capture) FinishedTxn(consumer.Shard, consumer.OpFuture)        {}             // No-op.
+
+func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
+	logTxnFinished(c.LogPublisher, op)
+}
 
 // Coordinator implements shuffle.Store.Coordinator
 func (c *Capture) Coordinator() *shuffle.Coordinator {

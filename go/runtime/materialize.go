@@ -197,17 +197,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	return cp, nil
 }
 
-func (m *Materialize) logErr(err error, message string) {
-	m.Log(log.ErrorLevel, log.Fields{
-		"error": err.Error(),
-	}, message)
-}
-
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
 	m.Log(log.DebugLevel, log.Fields{
-		"task":       m.task.Name(),
-		"shardID":    m.shardID,
 		"checkpoint": checkpoint,
 	}, "StartCommit")
 
@@ -220,7 +212,6 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	// Drain remaining Loaded responses, until we read Prepared.
 	for {
 		if next, err := materialize.Rx(m.driverRx, true); err != nil {
-			m.logErr(err, "driver error reading Loaded or Prepared")
 			return client.FinishedOperation(fmt.Errorf(
 				"reading Loaded or Prepared: %w", err))
 		} else if next.Loaded != nil {
@@ -234,12 +225,10 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 			break // All done.
 		} else {
 			// Protocol error.
-			var err = fmt.Errorf(
+			return client.FinishedOperation(fmt.Errorf(
 				"expected Loaded or Prepared, got %#v",
 				next.String(),
-			)
-			m.logErr(err, "driver error reading Loaded or Prepared")
-			return client.FinishedOperation(err)
+			))
 		}
 	}
 
@@ -509,7 +498,9 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 }
 
 // FinishedTxn implements Application.FinishedTxn
-func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}
+func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
+	logTxnFinished(m.LogPublisher, op)
+}
 
 // TODO(johnny): This is an interesting knob that should be exposed.
 const cachedDocumentBound = 2048
