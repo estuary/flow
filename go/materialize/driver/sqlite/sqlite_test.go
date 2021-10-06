@@ -41,7 +41,7 @@ func TestSQLGeneration(t *testing.T) {
 
 	var gen = sqlDriver.SQLiteSQLGenerator()
 	var spec = &built.Materializations[0]
-	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec.Bindings[0])
+	var table = sqlDriver.TableForMaterialization("test_table", "", gen.IdentifierRenderer, spec.Bindings[0])
 
 	keyCreate, keyInsert, keyJoin, keyTruncate, err := sqlite.BuildSQL(
 		&gen, 123, table, spec.Bindings[0].FieldSelection)
@@ -412,10 +412,10 @@ func TestSQLiteDriver(t *testing.T) {
 	require.Equal(t, io.EOF, err)
 
 	// Last thing is to snapshot the database tables we care about.
-	var quotes = sqlDriver.DoubleQuotes()
+	var identifierRenderer = sqlDriver.NewRenderer(nil, sqlDriver.DoubleQuotesWrapper(), sqlDriver.DefaultUnwrappedIdentifiers)
 	var tab = sqlDriver.TableForMaterialization(
 		"test_target", // Matches fixture in testdata/driver-steps.yaml
-		"", &quotes,
+		"", identifierRenderer,
 		&pf.MaterializationSpec_Binding{
 			Collection:     model.Bindings[0].Collection,
 			FieldSelection: fields,

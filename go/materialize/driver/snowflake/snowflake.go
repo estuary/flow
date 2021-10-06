@@ -91,10 +91,10 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource: func(endpoint *sqlDriver.Endpoint) sqlDriver.Resource {
-			return &tableConfig{base: endpoint.Config.(*config)}
+		NewResource: func(endpoint sqlDriver.Endpoint) sqlDriver.Resource {
+			return &tableConfig{base: endpoint.(*sqlDriver.StdEndpoint).Config().(*config)}
 		},
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing Snowflake configuration: %w", err)
@@ -133,35 +133,29 @@ func NewDriver(tempdir string) *sqlDriver.Driver {
 			}
 			parsed.tempdir = tempdir
 
-			var endpoint = &sqlDriver.Endpoint{
-				Config:    parsed,
-				Context:   ctx,
-				DB:        db,
-				Generator: SQLGenerator(),
-			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
+			return sqlDriver.NewStdEndpoint(parsed, db, SQLGenerator(), sqlDriver.DefaultFlowTables("")), nil
 
-			return endpoint, nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
-			fence *sqlDriver.Fence,
+			fence sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
-				cfg: ep.Config.(*config),
-				gen: &ep.Generator,
+				ctx: ctx,
+				cfg: ep.Config().(*config),
+				gen: ep.Generator(),
 			}
-			d.store.fence = fence
+			d.store.fence = fence.(*sqlDriver.StdFence)
 
 			// Establish connections.
-			if d.load.conn, err = ep.DB.Conn(d.ctx); err != nil {
+			if d.load.conn, err = ep.DB().Conn(d.ctx); err != nil {
 				return nil, fmt.Errorf("load DB.Conn: %w", err)
 			}
-			if d.store.conn, err = ep.DB.Conn(d.ctx); err != nil {
+			if d.store.conn, err = ep.DB().Conn(d.ctx); err != nil {
 				return nil, fmt.Errorf("store DB.Conn: %w", err)
 			}
 
@@ -216,11 +210,11 @@ func SQLGenerator() sqlDriver.Generator {
 	}
 
 	return sqlDriver.Generator{
-		CommentConf:      sqlDriver.LineComment(),
-		IdentifierQuotes: sqlDriver.DoubleQuotes(),
-		Placeholder:      sqlDriver.QuestionMarkPlaceholder,
-		TypeMappings:     nullable,
-		QuoteStringValue: sqlDriver.DefaultQuoteStringValue,
+		CommentRenderer:    sqlDriver.LineCommentRenderer(),
+		IdentifierRenderer: sqlDriver.NewRenderer(nil, sqlDriver.DoubleQuotesWrapper(), sqlDriver.DefaultUnwrappedIdentifiers),
+		ValueRenderer:      sqlDriver.NewRenderer(sqlDriver.DefaultQuoteSanitizer, sqlDriver.SingleQuotesWrapper(), nil),
+		Placeholder:        sqlDriver.QuestionMarkPlaceholder,
+		TypeMappings:       nullable,
 	}
 }
 
@@ -236,7 +230,7 @@ type transactor struct {
 	// Variables accessed by Prepare, Store, and Commit.
 	store struct {
 		conn  *sql.Conn
-		fence *sqlDriver.Fence
+		fence *sqlDriver.StdFence
 	}
 	bindings []*binding
 }
@@ -263,7 +257,7 @@ type binding struct {
 func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
 	var d = new(binding)
 	var err error
-	var target = sqlDriver.TableForMaterialization(targetName, "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(targetName, "", t.gen.IdentifierRenderer, spec)
 
 	// Create local scratch files used for loads and stores.
 	if d.load.stage, err = newScratchFile(t.cfg.tempdir); err != nil {
@@ -348,7 +342,7 @@ func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(in
 }
 
 func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (_ *pm.TransactionResponse_Prepared, err error) {
-	d.store.fence.Checkpoint = prepare.FlowCheckpoint
+	d.store.fence.SetCheckpoint(prepare.FlowCheckpoint)
 
 	return &pm.TransactionResponse_Prepared{}, nil
 }
@@ -391,9 +385,9 @@ func (d *transactor) Commit() error {
 	defer txn.Rollback()
 
 	// Apply the client's prepared checkpoint to our fence.
-	if err = d.store.fence.Update(
-		func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
-			if result, err := txn.Exec(sql, arguments...); err != nil {
+	if err = d.store.fence.Update(d.ctx,
+		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
+			if result, err := txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {
 				return 0, fmt.Errorf("result.RowsAffected: %w", err)
