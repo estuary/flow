@@ -30,7 +30,7 @@ func TestSQLGeneration(t *testing.T) {
 
 	var gen = sqlDriver.PostgresSQLGenerator()
 	var spec = &built.Materializations[0]
-	var table = sqlDriver.TableForMaterialization("test_table", "", &gen.IdentifierQuotes, spec.Bindings[0])
+	var table = sqlDriver.TableForMaterialization("test_table", "", gen.IdentifierRenderer, spec.Bindings[0])
 
 	keyCreate, keyInsert, keyJoin, err := postgres.BuildSQL(&gen, 123, table, spec.Bindings[0].FieldSelection)
 	require.NoError(t, err)

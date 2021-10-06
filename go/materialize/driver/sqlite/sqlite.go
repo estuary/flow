@@ -55,8 +55,8 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 		DocumentationURL: "https://docs.estuary.dev/#FIXME",
 		EndpointSpecType: new(config),
 		ResourceSpecType: new(tableConfig),
-		NewResource:      func(*sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
-		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (*sqlDriver.Endpoint, error) {
+		NewResource:      func(sqlDriver.Endpoint) sqlDriver.Resource { return new(tableConfig) },
+		NewEndpoint: func(ctx context.Context, raw json.RawMessage) (sqlDriver.Endpoint, error) {
 			var parsed = new(config)
 			if err := pf.UnmarshalStrict(raw, parsed); err != nil {
 				return nil, fmt.Errorf("parsing SQLite configuration: %w", err)
@@ -99,34 +99,28 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 				return nil, fmt.Errorf("opening SQLite database %q: %w", parsed.Path, err)
 			}
 
-			var endpoint = &sqlDriver.Endpoint{
-				Config:    parsed,
-				Context:   ctx,
-				DB:        db,
-				Generator: sqlDriver.SQLiteSQLGenerator(),
-			}
-			endpoint.Tables.Checkpoints = sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints)
-			endpoint.Tables.Specs = sqlDriver.FlowMaterializationsTable(sqlDriver.DefaultFlowMaterializations)
+			return sqlDriver.NewStdEndpoint(parsed, db, sqlDriver.SQLiteSQLGenerator(), sqlDriver.DefaultFlowTables("")), nil
 
-			return endpoint, nil
 		},
 		NewTransactor: func(
-			ep *sqlDriver.Endpoint,
+			ctx context.Context,
+			epi sqlDriver.Endpoint,
 			spec *pf.MaterializationSpec,
-			fence *sqlDriver.Fence,
+			fence sqlDriver.Fence,
 			resources []sqlDriver.Resource,
 		) (_ pm.Transactor, err error) {
+			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
-				ctx: ep.Context,
-				gen: &ep.Generator,
+				ctx: ctx,
+				gen: ep.Generator(),
 			}
-			d.store.fence = fence
+			d.store.fence = fence.(*sqlDriver.StdFence)
 
 			// Establish connections.
-			if d.load.conn, err = ep.DB.Conn(d.ctx); err != nil {
+			if d.load.conn, err = ep.DB().Conn(d.ctx); err != nil {
 				return nil, fmt.Errorf("load DB.Conn: %w", err)
 			}
-			if d.store.conn, err = ep.DB.Conn(d.ctx); err != nil {
+			if d.store.conn, err = ep.DB().Conn(d.ctx); err != nil {
 				return nil, fmt.Errorf("store DB.Conn: %w", err)
 			}
 
@@ -171,7 +165,7 @@ type transactor struct {
 	// Variables accessed by Prepare, Store, and Commit.
 	store struct {
 		conn  *sql.Conn
-		fence *sqlDriver.Fence
+		fence *sqlDriver.StdFence
 		txn   *sql.Tx
 	}
 	bindings []*binding
@@ -212,7 +206,7 @@ type binding struct {
 func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var b = new(binding)
-	var target = sqlDriver.TableForMaterialization(targetName, "", &t.gen.IdentifierQuotes, spec)
+	var target = sqlDriver.TableForMaterialization(targetName, "", t.gen.IdentifierRenderer, spec)
 
 	// Build all SQL statements and parameter converters.
 	var keyCreateSQL string
@@ -311,8 +305,7 @@ func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(in
 }
 
 func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error) {
-	d.store.fence.Checkpoint = prepare.FlowCheckpoint
-
+	d.store.fence.SetCheckpoint(prepare.FlowCheckpoint)
 	return &pm.TransactionResponse_Prepared{}, nil
 }
 
@@ -367,9 +360,9 @@ func (d *transactor) Commit() error {
 		}
 	}
 
-	if err = d.store.fence.Update(
-		func(_ context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
-			if result, err := d.store.txn.Exec(sql, arguments...); err != nil {
+	if err = d.store.fence.Update(d.ctx,
+		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
+			if result, err := d.store.txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {
 				return 0, fmt.Errorf("result.RowsAffected: %w", err)
