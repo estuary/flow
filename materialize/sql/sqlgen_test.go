@@ -9,51 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIdentifierQuoting(t *testing.T) {
-	var quotes = &TokenPair{
-		Left:  "L",
-		Right: "R",
-	}
-	var quote = []string{
-		"f o o",
-		"3two_one",
-		"wello$horld",
-		"a/b",
-	}
-	for _, name := range quote {
-		require.Equal(t, "L"+name+"R", toIdentifier(name, quotes))
-	}
-
-	var noQuote = []string{
-		"FOO",
-		"foo",
-		"没有双引号",
-		"_bar",
-		"one_2_3",
-	}
-	for _, name := range noQuote {
-		require.Equal(t, name, toIdentifier(name, quotes))
-	}
-}
-
 func TestSQLGenerator(t *testing.T) {
 	var testTable = testTable()
 	var flowCheckpoints = FlowCheckpointsTable(DefaultFlowCheckpoints)
 	var flowMaterializations = FlowMaterializationsTable(DefaultFlowMaterializations)
 	var allTables = []*Table{&testTable, flowCheckpoints, flowMaterializations}
 
-	var pgGen = PostgresSQLGenerator()
-	var sqliteGen = SQLiteSQLGenerator()
-	var generators = map[string]Generator{
-		"postgres": pgGen,
-		"sqlite":   sqliteGen,
+	var endpoints = map[string]Endpoint{
+		"postgres": NewStdEndpoint(nil, nil, PostgresSQLGenerator(), FlowTables{}),
+		"sqlite":   NewStdEndpoint(nil, nil, SQLiteSQLGenerator(), FlowTables{}),
 	}
 
-	for dialect, gen := range generators {
+	for dialect, ep := range endpoints {
 		for _, table := range allTables {
 			// Test all the generic sql generation functions for each table
 			t.Run(fmt.Sprintf("%s_%s", dialect, table.Identifier), func(t *testing.T) {
-				var createTable, err = gen.CreateTable(table)
+				var createTable, err = ep.CreateTableStatement(table)
 				require.NoError(t, err)
 
 				// Store the Names of the key and value columns so we can reference them when
@@ -67,30 +38,17 @@ func TestSQLGenerator(t *testing.T) {
 						valueColumns = append(valueColumns, col.Name)
 					}
 				}
-				query, _, err := gen.QueryOnPrimaryKey(table, valueColumns...)
+				query, _, err := ep.Generator().QueryOnPrimaryKey(table, valueColumns...)
 				require.NoError(t, err)
-				insertStatement, _, err := gen.InsertStatement(table)
+				insertStatement, _, err := ep.Generator().InsertStatement(table)
 				require.NoError(t, err)
-				updateStatement, _, err := gen.UpdateStatement(table, valueColumns, keyColumns)
+				updateStatement, _, err := ep.Generator().UpdateStatement(table, valueColumns, keyColumns)
 				require.NoError(t, err)
 
 				var allSQL = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
 				cupaloy.SnapshotT(t, allSQL)
 			})
 		}
-	}
-}
-
-func TestDefaultQuoteStringValue(t *testing.T) {
-	var testCases = map[string]string{
-		"foo":            "'foo'",
-		"he's 'bouta go": "'he''s ''bouta go'",
-		"'moar quotes'":  "'''moar quotes'''",
-		"":               "''",
-	}
-	for input, expected := range testCases {
-		var actual = DefaultQuoteStringValue(input)
-		require.Equal(t, expected, actual)
 	}
 }
 

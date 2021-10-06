@@ -12,14 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Fence is an installed barrier in a shared checkpoints table which prevents
+// StdFence is an installed barrier in a shared checkpoints table which prevents
 // other sessions from committing transactions under the fenced ID --
 // and prevents this Fence from committing where another session has in turn
-// fenced this instance off.
-type Fence struct {
-	// Checkpoint associated with this Fence.
-	Checkpoint []byte
-
+// fenced this instance off. This implementation of the Fence interface is for
+// standard *sql.DB compatable databases.
+type StdFence struct {
+	// checkpoint associated with this Fence.
+	checkpoint []byte
 	// fence is the current value of the monotonically increasing integer used to identify unique
 	// instances of transactions rpcs.
 	fence int64
@@ -29,12 +29,11 @@ type Fence struct {
 	keyBegin uint32
 	keyEnd   uint32
 
-	ctx       context.Context
 	updateSQL string
 }
 
-// LogEntry returns a log.Entry with pre-set fields that identify the Shard ID and Fence
-func (f *Fence) LogEntry() *log.Entry {
+// LogEntry returns a log.Entry with pre-set fields that identify the Shard ID and Fence.
+func (f *StdFence) LogEntry() *log.Entry {
 	return log.WithFields(log.Fields{
 		"materialization": f.materialization,
 		"keyBegin":        f.keyBegin,
@@ -43,17 +42,27 @@ func (f *Fence) LogEntry() *log.Entry {
 	})
 }
 
-// NewFence installs and returns a new *Fence. On return, all older fences of
+// Checkpoint returns the current checkpoint.
+func (f *StdFence) Checkpoint() []byte {
+	return f.checkpoint
+}
+
+// SetCheckpoint sets the current checkpoint.
+func (f *StdFence) SetCheckpoint(checkpoint []byte) {
+	f.checkpoint = checkpoint
+}
+
+// NewStdFence installs and returns a new *StdFence. On return, all older fences of
 // this |shardFqn| have been fenced off from committing further transactions.
-func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd uint32) (*Fence, error) {
-	var txn, err = e.DB.BeginTx(e.Context, nil)
+func (e *StdEndpoint) NewFence(ctx context.Context, materialization pf.Materialization, keyBegin, keyEnd uint32) (Fence, error) {
+	var txn, err = e.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("db.BeginTx: %w", err)
 	}
 
 	defer func() {
 		if txn != nil {
-			txn.Rollback()
+			_ = txn.Rollback()
 		}
 	}()
 
@@ -67,10 +76,10 @@ func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd
 				AND key_begin<=%s
 			;
 			`,
-			e.Tables.Checkpoints.Identifier,
-			e.Generator.Placeholder(0),
-			e.Generator.Placeholder(1),
-			e.Generator.Placeholder(2),
+			e.flowTables.Checkpoints.Identifier,
+			e.generator.Placeholder(0),
+			e.generator.Placeholder(1),
+			e.generator.Placeholder(2),
 		),
 		materialization,
 		keyBegin,
@@ -96,10 +105,10 @@ func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd
 				LIMIT 1
 			;
 			`,
-			e.Tables.Checkpoints.Identifier,
-			e.Generator.Placeholder(0),
-			e.Generator.Placeholder(1),
-			e.Generator.Placeholder(2),
+			e.flowTables.Checkpoints.Identifier,
+			e.generator.Placeholder(0),
+			e.generator.Placeholder(1),
+			e.generator.Placeholder(2),
 		),
 		materialization,
 		keyBegin,
@@ -122,12 +131,12 @@ func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd
 	} else if _, err = txn.Exec(
 		fmt.Sprintf(
 			"INSERT INTO %s (materialization, key_begin, key_end, checkpoint, fence) VALUES (%s, %s, %s, %s, %s);",
-			e.Tables.Checkpoints.Identifier,
-			e.Generator.Placeholder(0),
-			e.Generator.Placeholder(1),
-			e.Generator.Placeholder(2),
-			e.Generator.Placeholder(3),
-			e.Generator.Placeholder(4),
+			e.flowTables.Checkpoints.Identifier,
+			e.generator.Placeholder(0),
+			e.generator.Placeholder(1),
+			e.generator.Placeholder(2),
+			e.generator.Placeholder(3),
+			e.generator.Placeholder(4),
 		),
 		materialization,
 		keyBegin,
@@ -153,17 +162,16 @@ func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd
 	// Craft SQL which is used for future commits under this fence.
 	var updateSQL = fmt.Sprintf(
 		"UPDATE %s SET checkpoint=%s WHERE materialization=%s AND key_begin=%s AND key_end=%s AND fence=%s;",
-		e.Tables.Checkpoints.Identifier,
-		e.Generator.Placeholder(0),
-		e.Generator.Placeholder(1),
-		e.Generator.Placeholder(2),
-		e.Generator.Placeholder(3),
-		e.Generator.Placeholder(4),
+		e.flowTables.Checkpoints.Identifier,
+		e.generator.Placeholder(0),
+		e.generator.Placeholder(1),
+		e.generator.Placeholder(2),
+		e.generator.Placeholder(3),
+		e.generator.Placeholder(4),
 	)
 
-	return &Fence{
-		Checkpoint:      checkpoint,
-		ctx:             e.Context,
+	return &StdFence{
+		checkpoint:      checkpoint,
 		fence:           fence,
 		materialization: materialization,
 		keyBegin:        keyBegin,
@@ -176,11 +184,11 @@ func (e *Endpoint) NewFence(materialization pf.Materialization, keyBegin, keyEnd
 // has in turn been fenced off by another.
 // Update takes a ExecFn callback which should be scoped to a database transaction,
 // such as sql.Tx or a database-specific transaction implementation.
-func (f *Fence) Update(execFn ExecFn) error {
+func (f *StdFence) Update(ctx context.Context, execFn ExecFn) error {
 	rowsAffected, err := execFn(
-		f.ctx,
+		ctx,
 		f.updateSQL,
-		base64.StdEncoding.EncodeToString(f.Checkpoint),
+		base64.StdEncoding.EncodeToString(f.checkpoint),
 		f.materialization,
 		f.keyBegin,
 		f.keyEnd,
