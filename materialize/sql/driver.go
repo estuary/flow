@@ -40,11 +40,11 @@ type Driver struct {
 	// Instance of the type into which resource specifications are parsed.
 	ResourceSpecType Resource
 	// NewEndpoint returns an Endpoint, which will be used to handle interactions with the database.
-	NewEndpoint func(context.Context, json.RawMessage) (*Endpoint, error)
+	NewEndpoint func(context.Context, json.RawMessage) (Endpoint, error)
 	// NewResource returns an uninitialized Resource which may be parsed into.
-	NewResource func(ep *Endpoint) Resource
+	NewResource func(ep Endpoint) Resource
 	// NewTransactor returns a Transactor ready for pm.RunTransactions.
-	NewTransactor func(*Endpoint, *pf.MaterializationSpec, *Fence, []Resource) (pm.Transactor, error)
+	NewTransactor func(context.Context, Endpoint, *pf.MaterializationSpec, Fence, []Resource) (pm.Transactor, error)
 }
 
 var _ pm.DriverServer = &Driver{}
@@ -86,7 +86,7 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 		return nil, fmt.Errorf("building endpoint: %w", err)
 	}
 	// Load existing bindings indexed under their target table.
-	_, existing, err := indexBindings(d, endpoint, req.Materialization)
+	_, existing, err := indexBindings(ctx, d, endpoint, req.Materialization)
 	if err != nil {
 		return nil, err
 	}
@@ -136,17 +136,17 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 		return nil, fmt.Errorf("building endpoint: %w", err)
 	}
 	// Load existing bindings indexed under their target table.
-	loaded, existing, err := indexBindings(d, endpoint, req.Materialization.Materialization)
+	loaded, existing, err := indexBindings(ctx, d, endpoint, req.Materialization.Materialization)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create the materializations & checkpoints tables, if they don't exist.
-	createCheckpointsSQL, err := endpoint.Generator.CreateTable(endpoint.Tables.Checkpoints)
+	createCheckpointsSQL, err := endpoint.CreateTableStatement(endpoint.FlowTables().Checkpoints)
 	if err != nil {
 		return nil, fmt.Errorf("generating checkpoints schema: %w", err)
 	}
-	createSpecsSQL, err := endpoint.Generator.CreateTable(endpoint.Tables.Specs)
+	createSpecsSQL, err := endpoint.CreateTableStatement(endpoint.FlowTables().Specs)
 	if err != nil {
 		return nil, fmt.Errorf("generating specs schema: %w", err)
 	}
@@ -162,12 +162,14 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 	if err != nil {
 		panic(err) // Cannot fail.
 	}
+
+	var generator = endpoint.Generator()
 	upsertSpecSQL = fmt.Sprintf(upsertSpecSQL,
-		endpoint.Tables.Specs.Identifier,
+		endpoint.FlowTables().Specs.Identifier,
 		// Note that each version of upsertSpecSQL takes parameters in the same order.
-		endpoint.Generator.QuoteStringValue(req.Version),
-		endpoint.Generator.QuoteStringValue(base64.StdEncoding.EncodeToString(specBytes)),
-		endpoint.Generator.QuoteStringValue(req.Materialization.Materialization.String()),
+		generator.ValueRenderer.Render(req.Version),
+		generator.ValueRenderer.Render(base64.StdEncoding.EncodeToString(specBytes)),
+		generator.ValueRenderer.Render(req.Materialization.Materialization.String()),
 	)
 
 	var statements = []string{
@@ -178,16 +180,16 @@ func (d *Driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResp
 
 	// Validate and build SQL statements to apply each binding.
 	for _, spec := range req.Materialization.Bindings {
-		if built, err := generateApplyStatements(endpoint, existing, spec); err != nil {
-			return nil, err
+		if applyStatements, err := generateApplyStatements(endpoint, existing, spec); err != nil {
+			return nil, fmt.Errorf("building statement for binding %s: %w", ResourcePath(spec.ResourcePath).Join(), err)
 		} else {
-			statements = append(statements, built...)
+			statements = append(statements, applyStatements...)
 		}
 	}
 
-	// Apply the statements if not in DryRun.
+	// Execute the statements if not in DryRun.
 	if !req.DryRun {
-		if err = endpoint.ApplyStatements(statements); err != nil {
+		if err = endpoint.ExecuteStatements(ctx, statements); err != nil {
 			return nil, fmt.Errorf("applying schema updates: %w", err)
 		}
 	}
@@ -220,7 +222,7 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 
 	// Verify the opened materialization has been applied to the database,
 	// and that the versions match.
-	if version, spec, err := endpoint.LoadSpec(open.Open.Materialization.Materialization); err != nil {
+	if version, spec, err := endpoint.LoadSpec(stream.Context(), open.Open.Materialization.Materialization); err != nil {
 		return fmt.Errorf("loading materialization spec: %w", err)
 	} else if spec == nil {
 		return fmt.Errorf("materialization has not been applied")
@@ -231,6 +233,7 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	}
 
 	fence, err := endpoint.NewFence(
+		stream.Context(),
 		open.Open.Materialization.Materialization,
 		open.Open.KeyBegin,
 		open.Open.KeyEnd,
@@ -254,13 +257,13 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	}
 
 	transactor, err := d.NewTransactor(
-		endpoint, open.Open.Materialization, fence, resources)
+		stream.Context(), endpoint, open.Open.Materialization, fence, resources)
 	if err != nil {
 		return err
 	}
 
 	if err = stream.Send(&pm.TransactionResponse{
-		Opened: &pm.TransactionResponse_Opened{FlowCheckpoint: fence.Checkpoint}}); err != nil {
+		Opened: &pm.TransactionResponse_Opened{FlowCheckpoint: fence.Checkpoint()}}); err != nil {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
@@ -298,14 +301,14 @@ func loadConstraints(
 // Index the binding specifications of the persisted materialization |name|,
 // keyed on the Resource.TargetName() of each binding.
 // If |name| isn't persisted, an empty map is returned.
-func indexBindings(d *Driver, ep *Endpoint, name pf.Materialization) (
+func indexBindings(ctx context.Context, d *Driver, ep Endpoint, name pf.Materialization) (
 	*pf.MaterializationSpec,
 	map[string]*pf.MaterializationSpec_Binding,
 	error,
 ) {
 	var index = make(map[string]*pf.MaterializationSpec_Binding)
 
-	var _, loaded, err = ep.LoadSpec(name)
+	var _, loaded, err = ep.LoadSpec(ctx, name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading previously-stored spec: %w", err)
 	} else if loaded == nil {

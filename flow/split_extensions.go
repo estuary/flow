@@ -16,7 +16,7 @@ func (m *SplitRequest) Validate() error {
 func (m *SplitResponse) Validate() error {
 	if err := m.Header.Validate(); err != nil {
 		return pb.ExtendContext(err, "Header")
-	} else if m.Status.Validate(); err != nil {
+	} else if err = m.Status.Validate(); err != nil {
 		return pb.ExtendContext(err, "Status")
 	}
 

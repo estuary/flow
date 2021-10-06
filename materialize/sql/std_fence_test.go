@@ -8,25 +8,23 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	"github.com/stretchr/testify/require"
 )
 
-func TestFencingCases(t *testing.T) {
+func TestStdEndpointFencingCases(t *testing.T) {
 	// runTest takes zero or more key range fixtures, followed by a final pair
 	// which is the key range under test.
 	var runTest = func(t *testing.T, ranges ...uint32) {
 		var db, err = sql.Open("sqlite3", ":memory:")
 		require.NoError(t, err)
 
-		var ep = Endpoint{
-			Context:   context.Background(),
-			DB:        db,
-			Generator: SQLiteSQLGenerator(),
-		}
-		ep.Tables.Checkpoints = FlowCheckpointsTable(DefaultFlowCheckpoints)
+		ctx := context.Background()
 
-		sql, err := ep.Generator.CreateTable(ep.Tables.Checkpoints)
+		// Leverage the Endpoint interface
+		var endpoint Endpoint = NewStdEndpoint(nil, db, SQLiteSQLGenerator(), DefaultFlowTables(""))
+
+		sql, err := endpoint.CreateTableStatement(endpoint.FlowTables().Checkpoints)
 		require.NoError(t, err)
 		_, err = db.Exec(sql)
 		require.NoError(t, err)
@@ -36,7 +34,7 @@ func TestFencingCases(t *testing.T) {
 
 		for i := 0; i*2 < len(fixtures); i++ {
 			_, err = db.Exec(`
-			INSERT INTO `+ep.Tables.Checkpoints.Identifier+`
+			INSERT INTO `+endpoint.FlowTables().Checkpoints.Identifier+`
 				(materialization, fence, key_begin, key_end, checkpoint)
 				VALUES ("the/materialization", 5, ?, ?, ?)`,
 				ranges[i*2],
@@ -48,24 +46,24 @@ func TestFencingCases(t *testing.T) {
 
 		// Add an extra fixture from a different materialization.
 		_, err = db.Exec(`
-			INSERT INTO ` + ep.Tables.Checkpoints.Identifier + `
+			INSERT INTO ` + endpoint.FlowTables().Checkpoints.Identifier + `
 				(materialization, fence, key_begin, key_end, checkpoint)
 				VALUES ("other/one", 99, 0, 4294967295, "other-checkpoint")`)
 		require.NoError(t, err)
 
-		dump1, err := DumpTables(db, ep.Tables.Checkpoints)
+		dump1, err := DumpTables(db, endpoint.FlowTables().Checkpoints)
 		require.NoError(t, err)
 
-		// Install a fence.
-		fence, err := ep.NewFence("the/materialization", testCase[0], testCase[1])
+		// Install a StdEndpoint fence.
+		fence, err := endpoint.NewFence(ctx, "the/materialization", testCase[0], testCase[1])
 		require.NoError(t, err)
 
-		dump2, err := DumpTables(db, ep.Tables.Checkpoints)
+		dump2, err := DumpTables(db, endpoint.FlowTables().Checkpoints)
 		require.NoError(t, err)
 
 		// Update it once.
-		fence.Checkpoint = append(fence.Checkpoint, []byte{0, 0, 0, 0, 0, 0, 0, 0}...)
-		err = fence.Update(func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
+		fence.SetCheckpoint(append(fence.Checkpoint(), []byte{0, 0, 0, 0, 0, 0, 0, 0}...))
+		err = fence.(*StdFence).Update(ctx, func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			var result, err = db.ExecContext(ctx, sql, arguments...)
 			if err == nil {
 				rowsAffected, err = result.RowsAffected()
@@ -74,7 +72,7 @@ func TestFencingCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		dump3, err := DumpTables(db, ep.Tables.Checkpoints)
+		dump3, err := DumpTables(db, endpoint.FlowTables().Checkpoints)
 		require.NoError(t, err)
 
 		cupaloy.SnapshotT(t, dump1+"\n"+dump2+"\n"+dump3)

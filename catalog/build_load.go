@@ -212,7 +212,7 @@ func loadSpecs(
 
 		if err := rows.Scan(&b); err != nil {
 			return fmt.Errorf("scanning collection: %w", err)
-		} else if next.Unmarshal(b); err != nil {
+		} else if err = next.Unmarshal(b); err != nil {
 			return fmt.Errorf("unmarshal spec: %w", err)
 		} else if err = next.Validate(); err != nil {
 			return fmt.Errorf("validating spec %s: %w", next.String(), err)
