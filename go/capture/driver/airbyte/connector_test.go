@@ -189,3 +189,20 @@ func TestStderrCapture(t *testing.T) {
 	s.Write(bytes.Repeat([]byte("x"), maxStderrBytes))
 	require.Equal(t, maxStderrBytes, s.buffer.Len())
 }
+
+func TestParseArgs(t *testing.T) {
+
+	var tests = map[string][]string{
+		``:                         {},
+		`             `:            {},
+		`--platform "amd64/linux"`: {"--platform", "amd64/linux"},
+		`--thing "this" and 'that' --whatever=option`: {"--thing", "this", "and", "that", "--whatever=option"},
+		`option one two " "`:                          {"option", "one", "two", " "},
+		`trailing space   `:                           {"trailing", "space"},
+	}
+
+	for test, result := range tests {
+		require.Equal(t, result, parseArgs(test))
+	}
+
+}

@@ -56,20 +56,7 @@ func RunConnector(
 	}
 
 	// Check if we have any extra arguments for docker from the environment and pass them along.
-	// We need to split args properly (by unquoted spaces).
-	var quote rune = 0x00 // 0x00 = not currently inside a quote.
-	if args := strings.FieldsFunc(os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS"), func(r rune) bool {
-		if r == '"' || r == '\'' {
-			if r == quote {
-				// End of quoted string.
-				quote = 0x00
-			} else {
-				// Start of quoted string.
-				quote = r
-			}
-		}
-		return quote == 0x00 && r == ' ' // Not inside a quote and on a space, return true and split.
-	}); len(args) > 0 {
+	if args := parseArgs(os.Getenv("DOCKER_EXTRA_CONNECTOR_OPTS")); len(args) > 0 {
 		imageArgs = append(imageArgs, args...)
 	}
 
@@ -431,3 +418,39 @@ func (fe *firstError) unwrap() error {
 
 const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
+
+// parseArgs parses a string of arguments into a slice of individual arguments while handling quotes.
+func parseArgs(argsString string) []string {
+	var args = make([]string, 0)
+	var arg strings.Builder
+	var quote rune = 0x00 // Not in quoted string.
+	for _, r := range argsString {
+		if r == '"' || r == '\'' {
+			if r == quote {
+				// End of quoted string.
+				quote = 0x00
+				args = append(args, arg.String())
+				arg.Reset()
+			} else {
+				// Start of quoted string.
+				quote = r
+			}
+			continue
+		}
+		// Split on space delimeters if not in quotes.
+		if quote == 0x00 && r == ' ' {
+			if arg.Len() > 0 {
+				args = append(args, arg.String())
+				arg.Reset()
+			}
+			continue
+		}
+		arg.WriteRune(r)
+	}
+	// Append the last arg.
+	if arg.Len() > 0 {
+		args = append(args, arg.String())
+	}
+
+	return args
+}
