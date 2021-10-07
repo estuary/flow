@@ -45,6 +45,14 @@ tables!(
         spec: protocol::flow::journal_rules::Rule,
     }
 
+    table StorageMappings (row StorageMapping, order_by [prefix], sql "storage_mappings") {
+        scope: url::Url,
+        // Catalog prefix to which this storage mapping applies.
+        prefix: String,
+        // Stores for journal fragments under this prefix.
+        stores: Vec<names::Store>,
+    }
+
     table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         collection: names::Collection,
@@ -53,6 +61,8 @@ tables!(
         schema: url::Url,
         // JSON pointers which define the composite key of the collection.
         key: names::CompositeKey,
+        // Template for journal specifications of this collection.
+        journals: names::JournalTemplate,
     }
 
     table Projections (row Projection, order_by [collection field], sql "projections") {
@@ -75,6 +85,8 @@ tables!(
         register_schema: url::Url,
         // JSON value taken by registers which have never before been updated.
         register_initial: serde_json::Value,
+        // Template for shard specifications of this derivation.
+        shards: names::ShardTemplate,
     }
 
     table Transforms (row Transform, order_by [derivation transform], sql "transforms") {
@@ -117,6 +129,8 @@ tables!(
         endpoint_spec: serde_json::Value,
         // Interval between invocations of the capture.
         interval_seconds: u32,
+        // Template for shard specifications of this capture.
+        shards: names::ShardTemplate,
     }
 
     table CaptureBindings (row CaptureBinding, order_by [capture capture_index], sql "capture_bindings") {
@@ -139,6 +153,8 @@ tables!(
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
         endpoint_spec: serde_json::Value,
+        // Template for shard specifications of this materialization.
+        shards: names::ShardTemplate,
     }
 
     table MaterializationBindings (row MaterializationBinding, order_by [materialization materialization_index], sql "materialization_bindings") {
@@ -277,6 +293,7 @@ pub struct All {
     pub projections: Projections,
     pub resources: Resources,
     pub schema_docs: SchemaDocs,
+    pub storage_mappings: StorageMappings,
     pub test_steps: TestSteps,
     pub transforms: Transforms,
 }
@@ -308,6 +325,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            storage_mappings,
             test_steps,
             transforms,
         } = self;
@@ -335,6 +353,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            storage_mappings,
             test_steps,
             transforms,
         ]
@@ -365,6 +384,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            storage_mappings,
             test_steps,
             transforms,
         } = self;
@@ -392,6 +412,7 @@ impl All {
             projections,
             resources,
             schema_docs,
+            storage_mappings,
             test_steps,
             transforms,
         ]
@@ -420,10 +441,13 @@ string_wrapper_types!(
 json_sql_types!(
     BTreeMap<String, names::Object>,
     Vec<String>,
+    Vec<names::Store>,
     Vec<serde_json::Value>,
     names::CompositeKey,
+    names::JournalTemplate,
     names::Lambda,
     names::PartitionSelector,
+    names::ShardTemplate,
     protocol::flow::ContentType,
     protocol::flow::EndpointType,
     protocol::flow::test_spec::step::Type,
@@ -441,7 +465,6 @@ proto_sql_types!(
     protocol::flow::TransformSpec,
     protocol::flow::build_api::Config,
     protocol::flow::journal_rules::Rule,
-    protocol::flow::shard_rules::Rule,
 );
 
 // Modules that extend tables with additional implementations.
