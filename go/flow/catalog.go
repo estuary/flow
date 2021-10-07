@@ -14,6 +14,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.gazette.dev/core/broker/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
 )
 
@@ -227,7 +230,6 @@ func ApplyCatalogToEtcd(args ApplyArgs) (string, int64, error) {
 	var commons = pf.CatalogCommons{
 		CommonsId:             build.UUID.String(),
 		JournalRules:          build.JournalRules,
-		ShardRules:            build.ShardRules,
 		Schemas:               build.Schemas,
 		TypescriptLocalSocket: args.TypeScriptUDS,
 		TypescriptPackageUrl:  args.TypeScriptPackageURL,
@@ -325,4 +327,75 @@ func marshalString(m interface{ Marshal() ([]byte, error) }) string {
 		panic(err) // Cannot fail to marshal.
 	}
 	return string(b)
+}
+
+// OverrideForLocalExecution resets all configured journal and
+// shard replication factors to one, and clears append rate limits.
+func OverrideForLocalExecution(catalog *catalog.BuiltCatalog) {
+	walkCatalog(
+		catalog,
+		func(s *pb.JournalSpec) {
+			s.Replication = 1
+			s.MaxAppendRate = 0
+		},
+		func(s *pc.ShardSpec) {
+			s.HotStandbys = 0
+		},
+	)
+}
+
+// OverrideForLocalFragmentStores resets all configured fragment stores
+// to instead use the local "file:///" system.
+func OverrideForLocalFragmentStores(catalog *catalog.BuiltCatalog) {
+	walkCatalog(
+		catalog,
+		func(s *pb.JournalSpec) { s.Fragment.Stores = []protocol.FragmentStore{"file:///"} },
+		func(s *pc.ShardSpec) {},
+	)
+}
+
+// OverrideForNoFragmentStores resets all configured fragment stores
+// to be empty, meaning that fragments are not persisted at all.
+// This is only use for in-process testing.
+func OverrideForNoFragmentStores(catalog *catalog.BuiltCatalog) {
+	walkCatalog(
+		catalog,
+		func(s *pb.JournalSpec) { s.Fragment.Stores = nil },
+		func(s *pc.ShardSpec) {},
+	)
+}
+
+func walkCatalog(catalog *catalog.BuiltCatalog, onJournal func(*pb.JournalSpec), onShard func(*pc.ShardSpec)) {
+	for i := range catalog.Collections {
+		onJournal(catalog.Collections[i].PartitionTemplate)
+	}
+
+	for i := range catalog.Captures {
+		onShard(catalog.Captures[i].ShardTemplate)
+		onJournal(catalog.Captures[i].RecoveryLogTemplate)
+
+		// The nested collection is informational only.
+		// Failing to set this would have no actual impact.
+		for b := range catalog.Captures[i].Bindings {
+			onJournal(catalog.Captures[i].Bindings[b].Collection.PartitionTemplate)
+		}
+	}
+
+	for i := range catalog.Derivations {
+		onShard(catalog.Derivations[i].ShardTemplate)
+		onJournal(catalog.Derivations[i].RecoveryLogTemplate)
+
+		// As with Captures, this is informational only.
+		onJournal(catalog.Derivations[i].Collection.PartitionTemplate)
+	}
+
+	for i := range catalog.Materializations {
+		onShard(catalog.Materializations[i].ShardTemplate)
+		onJournal(catalog.Materializations[i].RecoveryLogTemplate)
+
+		// As with Captures, this is informational only.
+		for b := range catalog.Materializations[i].Bindings {
+			onJournal(catalog.Materializations[i].Bindings[b].Collection.PartitionTemplate)
+		}
+	}
 }
