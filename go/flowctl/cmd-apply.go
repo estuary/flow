@@ -26,7 +26,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/labels"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"google.golang.org/grpc"
 )
@@ -196,6 +195,7 @@ func applyCaptureShards(ctx context.Context, built *catalog.BuiltCatalog, client
 			spec.Capture.String(),
 			shards,
 			commonsRevision,
+			spec.ShardTemplate,
 		); err != nil {
 			return err
 		}
@@ -211,6 +211,7 @@ func applyDerivationShards(ctx context.Context, built *catalog.BuiltCatalog,
 			spec.Collection.Collection.String(),
 			shards,
 			commonsRevision,
+			spec.ShardTemplate,
 		); err != nil {
 			return err
 		}
@@ -226,6 +227,7 @@ func applyMaterializationShards(ctx context.Context, built *catalog.BuiltCatalog
 			spec.Materialization.String(),
 			shards,
 			commonsRevision,
+			spec.ShardTemplate,
 		); err != nil {
 			return err
 		}
@@ -233,8 +235,14 @@ func applyMaterializationShards(ctx context.Context, built *catalog.BuiltCatalog
 	return nil
 }
 
-func createTaskShards(ctx context.Context, client pc.ShardClient,
-	taskType, taskName string, shards int, taskCreated int64) error {
+func createTaskShards(
+	ctx context.Context,
+	client pc.ShardClient,
+	taskType, taskName string,
+	shards int,
+	taskCreated int64,
+	template *pf.ShardSpec,
+) error {
 	// Query for existing shards of this catalog task.
 	if resp, err := consumer.ListShards(ctx, client, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet(
@@ -250,24 +258,12 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 
 	log.WithField("task", taskName).Debug("shard doesn't exist (will create)")
 
-	// Build the names of the collections that logs and stats will be written to.
-	var taskPrefix = firstPathComponent(taskName)
-	var logsCollection = fmt.Sprintf("ops/%s/logs", taskPrefix)
-	var statsCollection = fmt.Sprintf("ops/%s/stats", taskPrefix)
 	var changes []pc.ApplyRequest_Change
 	for p := 0; p != shards; p++ {
 
 		var labels = pb.MustLabelSet(
-			labels.ManagedBy, flowLabels.ManagedByFlow,
-			flowLabels.TaskName, taskName,
-			flowLabels.TaskType, taskType,
 			flowLabels.TaskCreated, fmt.Sprintf("%d", taskCreated),
-			flowLabels.LogsCollection, logsCollection,
-			// TODO: how to thread through log level
-			flowLabels.LogLevel, "info",
-			flowLabels.StatsCollection, statsCollection,
 		)
-
 		labels = flowLabels.EncodeRange(pf.RangeSpec{
 			KeyBegin:    uint32((1 << 32) * (p + 0) / shards),
 			KeyEnd:      uint32(((1 << 32) * (p + 1) / shards) - 1),
@@ -275,23 +271,13 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 			RClockEnd:   math.MaxUint32,
 		}, labels)
 
-		var id, err = flowLabels.BuildShardID(labels)
+		var spec, err = flow.BuildShardSpec(template, labels)
 		if err != nil {
-			return fmt.Errorf("building shard ID: %w", err)
+			return fmt.Errorf("building shard spec: %w", err)
 		}
 
 		changes = append(changes, pc.ApplyRequest_Change{
-			Upsert: &pc.ShardSpec{
-				Id:                id,
-				Sources:           nil,
-				RecoveryLogPrefix: "recovery",
-				HintPrefix:        "/estuary/flow/hints",
-				HintBackups:       2,
-				MaxTxnDuration:    time.Second,
-				MinTxnDuration:    0,
-				HotStandbys:       0,
-				LabelSet:          labels,
-			},
+			Upsert:            spec,
 			ExpectModRevision: 0, // Apply fails if it exists.
 		})
 	}
@@ -324,9 +310,4 @@ func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dry
 		}
 	}
 	return nil
-}
-
-func firstPathComponent(taskName string) string {
-	var parts = strings.Split(taskName, "/")
-	return parts[0]
 }
