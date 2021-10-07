@@ -13,8 +13,6 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
-	go.gazette.dev/core v0.88.0
+	go.gazette.dev/core v0.89.1-0.20210923211114-a1ff40b2ced0
 	google.golang.org/grpc v1.40.0
 )
-
-replace go.gazette.dev/core => github.com/jgraettinger/gazette v0.0.0-20210726192503-178f10d4ba3d
