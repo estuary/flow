@@ -83,28 +83,14 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		SourceType:        pf.ContentType_CATALOG_SPEC,
 		TypescriptCompile: true,
 		TypescriptPackage: false,
-
-		// Install a testing override rule that applies after other rules,
-		// disables multi-broker replication, and uses a file:// fragment store.
-		ExtraJournalRules: &pf.JournalRules{
-			Rules: []pf.JournalRules_Rule{
-				{
-					// Order after other rules.
-					Rule: "\uFFFF\uFFFF-testing-overrides",
-					Template: pb.JournalSpec{
-						Replication: 1,
-						Fragment: pb.JournalSpec_Fragment{
-							Stores:           []pb.FragmentStore{"file:///"},
-							CompressionCodec: pb.CompressionCodec_SNAPPY,
-						},
-					},
-				},
-			},
-		},
 	})
 	if err != nil {
 		return err
 	}
+
+	// Override the catalog for a local, ephemeral testing context.
+	flow.OverrideForLocalExecution(built)
+	flow.OverrideForLocalFragmentStores(built)
 
 	// Spawn Etcd and NPM worker processes for cluster use.
 	etcd, etcdClient, err := startEtcd(runDir)
