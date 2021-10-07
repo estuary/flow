@@ -1,0 +1,38 @@
+collections:
+  example/collection:
+    schema: &schema
+      type: object
+      properties:
+        a_key: { type: string }
+        a_val: { type: integer }
+        a_bool: { type: boolean }
+        a_str: { type: [string, "null"] }
+      required: [a_key, a_bool, a_str]
+    key: [/a_key]
+    projections:
+      a_bool:
+        location: /a_bool
+        partition: true
+      a_str:
+        location: /a_str
+        partition: true
+    journals:
+      fragments:
+        # Expect this is reflected in data partitions.
+        flushInterval: 15m
+
+  example/derivation:
+    schema: *schema
+    key: [/a_key]
+    derivation:
+      transform:
+        fromCollection:
+          source: { name: example/collection }
+          publish: { lambda: typescript }
+      shards:
+        # Expect this is reflected in shard specs.
+        maxTxnDuration: 60s
+        hotStandbys: 3
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

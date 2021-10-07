@@ -3,9 +3,11 @@ package flow
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
@@ -19,12 +21,10 @@ import (
 )
 
 func TestPartitionPicking(t *testing.T) {
-	var fixtures = buildCombineFixtures()
+	var fixtures = buildCombineFixtures(t)
 	var logicalPrefix, hexKey, b []byte
 
-	var m = Mapper{
-		Journals: Journals{&keyspace.KeySpace{Root: "/items"}},
-	}
+	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/items"}})
 
 	for ind, tc := range []struct {
 		expectPrefix string
@@ -40,7 +40,7 @@ func TestPartitionPicking(t *testing.T) {
 		require.Equal(t, tc.expectKey, string(hexKey))
 	}
 
-	m.Journals.KeyValues = keyspace.KeyValues{
+	m.journals.KeyValues = keyspace.KeyValues{
 		{Decoded: &pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "77"),
@@ -54,8 +54,8 @@ func TestPartitionPicking(t *testing.T) {
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
 		}},
 	}
-	for i, j := range m.Journals.KeyValues {
-		m.Journals.KeyValues[i].Raw.Key = append([]byte(m.Journals.Root+"/"), j.Decoded.(*pb.JournalSpec).Name...)
+	for i, j := range m.journals.KeyValues {
+		m.journals.KeyValues[i].Raw.Key = append([]byte(m.journals.Root+"/"), j.Decoded.(*pb.JournalSpec).Name...)
 	}
 
 	require.Equal(t,
@@ -123,25 +123,25 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	journals.WatchApplyDelay = time.Millisecond * 10
 	go journals.Watch(ctx, etcd)
 
-	var fixtures = buildCombineFixtures()
-	var mapper = &Mapper{
-		Ctx:           ctx,
-		JournalClient: broker.Client(),
-		Journals:      journals,
-		JournalRules: []pf.JournalRules_Rule{
-			// Override for single `brokertest` broker.
-			{Template: pb.JournalSpec{Replication: 1}},
-		},
-	}
+	var fixtures = buildCombineFixtures(t)
+	var mapper = NewMapper(ctx, broker.Client(), journals)
 
 	// Apply one of the fixture partitions out-of-band. The Mapper initially
 	// will not see this partition, will attempt to create it, and will then
 	// conflict. We expect that it gracefully handles this conflict.
-	var applySpec = BuildPartitionSpec(fixtures[0].Spec, fixtures[0].Partitions, mapper.JournalRules)
+	applySpec, err := BuildPartitionSpec(fixtures[0].Spec.PartitionTemplate,
+		flowLabels.EncodePartitionLabels(
+			fixtures[0].Spec.PartitionFields, fixtures[0].Partitions,
+			pb.MustLabelSet(
+				flowLabels.KeyBegin, flowLabels.KeyBeginMin,
+				flowLabels.KeyEnd, flowLabels.KeyEndMax,
+			)))
+	require.NoError(t, err)
+
 	_, err = client.ApplyJournals(ctx, ajc, &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{
 			{
-				Upsert:            &applySpec,
+				Upsert:            applySpec,
 				ExpectModRevision: 0,
 			},
 		},
@@ -173,15 +173,25 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	require.NoError(t, broker.Tasks.Wait())
 }
 
-func buildCombineFixtures() []Mappable {
-	var spec = &pf.CollectionSpec{
-		Collection:      "a/collection",
-		PartitionFields: []string{"bar", "foo"},
-		Projections: []pf.Projection{
-			{Ptr: "/ptr"},
-			{Ptr: "/ptr"},
-		},
-	}
+func buildCombineFixtures(t *testing.T) []Mappable {
+	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:  context.Background(),
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///mapping_test.flow.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	// Override replication and fragment stores for use within
+	// a local brokertest broker.
+	OverrideForLocalExecution(built)
+	OverrideForNoFragmentStores(built)
+
+	var spec = &built.Collections[0]
 
 	return []Mappable{
 		{
