@@ -7,3 +7,6 @@ collections:
         s: { type: string }
       required: [i, s]
     key: [/i]
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

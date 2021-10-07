@@ -75,12 +75,8 @@ func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskR
 		return nil, fmt.Errorf("expected ops collection to be an ingestion, got: %+v", task)
 	}
 	var opsCollection = catalogTask.Ingestion
-	var mapper = flow.Mapper{
-		Ctx:           r.ctx,
-		JournalClient: r.ajc,
-		Journals:      r.journals,
-		JournalRules:  commons.JournalRules.Rules,
-	}
+	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
+
 	logrus.WithFields(logrus.Fields{
 		"logCollection": opsCollectionName,
 		"level":         level.String(),

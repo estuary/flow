@@ -323,13 +323,7 @@ func (c *Capture) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 }
 
 func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
-	var mapper = flow.Mapper{
-		Ctx:           shard.Context(),
-		JournalClient: shard.JournalClient(),
-		Journals:      c.host.Journals,
-		JournalRules:  c.commons.JournalRules.Rules,
-	}
-
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient(), c.host.Journals)
 	var msg = env.Message.(*captureMessage)
 
 	if msg.eof {
