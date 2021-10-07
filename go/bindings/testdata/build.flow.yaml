@@ -28,7 +28,7 @@ captures:
   example/capture:
     endpoint:
       airbyteSource:
-        image: ghcr.io/estuary/source-hello-world:897f766-dirty
+        image: ghcr.io/estuary/source-hello-world:293ed5c
         config:
           greetings: 1000
     bindings:
@@ -58,3 +58,6 @@ tests:
         documents:
           - { a_key: one }
           - { a_key: three }
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

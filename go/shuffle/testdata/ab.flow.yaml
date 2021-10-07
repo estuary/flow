@@ -22,3 +22,6 @@ collections:
         fromCollection:
           source: { name: a/collection }
           publish: { lambda: typescript }
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

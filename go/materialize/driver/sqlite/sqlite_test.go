@@ -162,6 +162,8 @@ func TestSQLiteDriver(t *testing.T) {
 					Shuffle:          model.Bindings[0].Shuffle,
 				},
 			},
+			ShardTemplate:       model.ShardTemplate,
+			RecoveryLogTemplate: model.RecoveryLogTemplate,
 		},
 		DryRun: true,
 	}

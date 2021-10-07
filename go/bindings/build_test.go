@@ -11,8 +11,6 @@ import (
 	pf "github.com/estuary/protocols/flow"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestBuildCatalog(t *testing.T) {
@@ -27,22 +25,6 @@ func TestBuildCatalog(t *testing.T) {
 			Source:      "file:///build.flow.yaml",
 			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(tempdir, "catalog.db"),
-			ExtraJournalRules: &pf.JournalRules{
-				Rules: []pf.JournalRules_Rule{
-					{
-						Rule:     "demonstrate pass through",
-						Template: pb.JournalSpec{Replication: 867},
-					},
-				},
-			},
-			ExtraShardRules: &pf.ShardRules{
-				Rules: []pf.ShardRules_Rule{
-					{
-						Rule:     "here too",
-						Template: pc.ShardSpec{HotStandbys: 5309},
-					},
-				},
-			},
 		}})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)

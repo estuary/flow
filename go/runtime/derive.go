@@ -117,12 +117,7 @@ func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 // FinalizeTxn finishes and drains the derive worker transaction,
 // and publishes each combined document to the derived collection.
 func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	var mapper = flow.Mapper{
-		Ctx:           shard.Context(),
-		JournalClient: shard.JournalClient(),
-		Journals:      d.host.Journals,
-		JournalRules:  d.commons.JournalRules.Rules,
-	}
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient(), d.host.Journals)
 	var collection = &d.task.Derivation.Collection
 
 	return d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {

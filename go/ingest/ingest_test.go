@@ -12,7 +12,6 @@ import (
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
-	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/etcdtest"
 	"go.gazette.dev/core/task"
@@ -27,17 +26,13 @@ func TestIngesterLifecycle(t *testing.T) {
 			Source:      "file:///flow.yaml",
 			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-			ExtraJournalRules: &pf.JournalRules{
-				Rules: []pf.JournalRules_Rule{
-					{
-						Rule:     "Override for single brokertest broker",
-						Template: pb.JournalSpec{Replication: 1},
-					},
-				},
-			},
 		}})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)
+
+	// Override for single brokertest broker.
+	flow.OverrideForLocalExecution(built)
+	flow.OverrideForNoFragmentStores(built)
 
 	var ctx = context.Background()
 	var etcd = etcdtest.TestClient()

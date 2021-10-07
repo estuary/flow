@@ -71,17 +71,12 @@ func TestConsumerIntegration(t *testing.T) {
 			Source:      "file:///ab.flow.yaml",
 			SourceType:  pf.ContentType_CATALOG_SPEC,
 			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-			ExtraJournalRules: &pf.JournalRules{
-				Rules: []pf.JournalRules_Rule{
-					{
-						Rule:     "Override for single brokertest broker",
-						Template: pb.JournalSpec{Replication: 1},
-					},
-				},
-			},
 		}})
 	require.NoError(t, err)
 	require.Empty(t, built.Errors)
+
+	// Override for local brokertest broker.
+	flow.OverrideForLocalExecution(built)
 
 	var ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
