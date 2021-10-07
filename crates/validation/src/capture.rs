@@ -1,8 +1,8 @@
-use super::{indexed, reference, Drivers, Error};
+use super::{indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
-use models::tables;
-use protocol::{capture, flow};
+use models::{build, tables};
+use protocol::{capture, flow, labels};
 
 pub async fn walk_all_captures<D: Drivers>(
     drivers: &D,
@@ -12,6 +12,7 @@ pub async fn walk_all_captures<D: Drivers>(
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     imports: &[tables::Import],
+    storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
     let mut validations = Vec::new();
@@ -73,102 +74,125 @@ pub async fn walk_all_captures<D: Drivers>(
     let mut built_captures = tables::BuiltCaptures::new();
 
     for (capture, binding_models, request, response) in validations {
-        match response {
-            Ok(response) => {
-                let tables::Capture {
-                    scope,
-                    interval_seconds,
-                    ..
-                } = capture;
-
-                let capture::ValidateRequest {
-                    endpoint_type,
-                    endpoint_spec_json,
-                    bindings: binding_requests,
-                    capture: name,
-                } = request;
-
-                let capture::ValidateResponse {
-                    bindings: binding_responses,
-                } = response;
-
-                // We constructed |binding_requests| while processing binding models.
-                assert!(binding_requests.len() == binding_models.len());
-
-                if binding_requests.len() != binding_responses.len() {
-                    Error::CaptureDriver {
-                        name: name.to_string(),
-                        detail: anyhow::anyhow!(
-                            "driver returned wrong number of bindings (expected {}, got {})",
-                            binding_requests.len(),
-                            binding_responses.len()
-                        ),
-                    }
-                    .push(&scope, errors);
-                }
-
-                // Join requests, responses and models to produce tuples
-                // of (binding scope, built binding).
-                let bindings: Vec<_> = binding_requests
-                    .into_iter()
-                    .zip(binding_responses.into_iter())
-                    .zip(binding_models.into_iter())
-                    .map(|((binding_request, binding_response), binding_model)| {
-                        let capture::validate_request::Binding {
-                            collection,
-                            resource_spec_json,
-                        } = binding_request;
-
-                        let capture::validate_response::Binding { resource_path } =
-                            binding_response;
-
-                        (
-                            &binding_model.scope,
-                            flow::capture_spec::Binding {
-                                resource_spec_json,
-                                resource_path,
-                                collection,
-                            },
-                        )
-                    })
-                    .collect();
-
-                // Look for (and error on) duplicated resource paths within the bindings.
-                for ((l_scope, _), (r_scope, binding)) in bindings
-                    .iter()
-                    .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
-                    .tuple_windows()
-                    .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
-                {
-                    Error::BindingDuplicatesResource {
-                        entity: "capture",
-                        name: name.to_string(),
-                        resource: binding.resource_path.iter().join("."),
-                        rhs_scope: (*r_scope).clone(),
-                    }
-                    .push(l_scope, errors);
-                }
-
-                // Unzip to strip scopes, leaving built bindings.
-                let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
-
-                let spec = flow::CaptureSpec {
-                    capture: name.clone(),
-                    endpoint_type,
-                    endpoint_spec_json,
-                    bindings,
-                    interval_seconds: *interval_seconds,
-                };
-                built_captures.insert_row(scope, name, spec);
-            }
+        // Unwrap |response| and continue if an Err.
+        let response = match response {
             Err(err) => {
                 Error::CaptureDriver {
                     name: request.capture,
                     detail: err,
                 }
                 .push(&capture.scope, errors);
+
+                continue;
             }
+            Ok(response) => response,
+        };
+
+        let tables::Capture {
+            scope,
+            interval_seconds,
+            shards,
+            ..
+        } = capture;
+
+        let capture::ValidateRequest {
+            endpoint_type,
+            endpoint_spec_json,
+            bindings: binding_requests,
+            capture: name,
+        } = request;
+
+        let capture::ValidateResponse {
+            bindings: binding_responses,
+        } = response;
+
+        // We constructed |binding_requests| while processing binding models.
+        assert!(binding_requests.len() == binding_models.len());
+
+        if binding_requests.len() != binding_responses.len() {
+            Error::CaptureDriver {
+                name: name.to_string(),
+                detail: anyhow::anyhow!(
+                    "driver returned wrong number of bindings (expected {}, got {})",
+                    binding_requests.len(),
+                    binding_responses.len()
+                ),
+            }
+            .push(&scope, errors);
         }
+
+        // Join requests, responses and models to produce tuples
+        // of (binding scope, built binding).
+        let bindings: Vec<_> = binding_requests
+            .into_iter()
+            .zip(binding_responses.into_iter())
+            .zip(binding_models.into_iter())
+            .map(|((binding_request, binding_response), binding_model)| {
+                let capture::validate_request::Binding {
+                    collection,
+                    resource_spec_json,
+                } = binding_request;
+
+                let capture::validate_response::Binding { resource_path } = binding_response;
+
+                (
+                    &binding_model.scope,
+                    flow::capture_spec::Binding {
+                        resource_spec_json,
+                        resource_path,
+                        collection,
+                    },
+                )
+            })
+            .collect();
+
+        // Look for (and error on) duplicated resource paths within the bindings.
+        for ((l_scope, _), (r_scope, binding)) in bindings
+            .iter()
+            .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
+            .tuple_windows()
+            .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
+        {
+            Error::BindingDuplicatesResource {
+                entity: "capture",
+                name: name.to_string(),
+                resource: binding.resource_path.iter().join("."),
+                rhs_scope: (*r_scope).clone(),
+            }
+            .push(l_scope, errors);
+        }
+
+        // Unzip to strip scopes, leaving built bindings.
+        let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
+
+        let recovery_stores = storage_mapping::mapped_stores(
+            scope,
+            "capture",
+            imports,
+            &format!("recovery/{}", name.as_str()),
+            storage_mappings,
+            errors,
+        );
+
+        let spec = flow::CaptureSpec {
+            capture: name.clone(),
+            endpoint_type,
+            endpoint_spec_json,
+            bindings,
+            interval_seconds: *interval_seconds,
+            recovery_log_template: Some(build::recovery_log_template(
+                &name,
+                labels::TASK_TYPE_CAPTURE,
+                recovery_stores,
+            )),
+            shard_template: Some(build::shard_template(
+                &name,
+                labels::TASK_TYPE_CAPTURE,
+                &shards,
+                false, // Don't disable wait_for_ack.
+            )),
+        };
+        built_captures.insert_row(scope, name, spec);
     }
 
     built_captures
@@ -193,6 +217,7 @@ fn walk_capture_request<'a>(
         endpoint_type,
         endpoint_spec,
         interval_seconds: _,
+        shards: _,
     } = capture;
 
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
