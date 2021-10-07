@@ -47,6 +47,7 @@ pub struct Tables {
     pub projections: tables::Projections,
     pub resources: tables::Resources,
     pub schema_docs: tables::SchemaDocs,
+    pub storage_mappings: tables::StorageMappings,
     pub test_steps: tables::TestSteps,
     pub transforms: tables::Transforms,
 }
@@ -336,6 +337,7 @@ impl<F: Fetcher> Loader<F> {
             materializations,
             captures,
             tests,
+            storage_mappings,
         } = self.fallible(scope, serde_yaml::from_value(dom))?;
 
         // Collect NPM dependencies.
@@ -360,6 +362,20 @@ impl<F: Fetcher> Loader<F> {
                 .borrow_mut()
                 .journal_rules
                 .insert_row(scope, name, rule.into_proto());
+        }
+
+        // Collect storage mappings.
+        for (index, mapping) in storage_mappings.into_iter().enumerate() {
+            let scope = scope
+                .push_prop("storageMappings")
+                .push_item(index)
+                .flatten();
+            let names::StorageMapping { prefix, stores } = mapping;
+
+            self.tables
+                .borrow_mut()
+                .storage_mappings
+                .insert_row(scope, prefix, stores)
         }
 
         // Task which loads all imports.
@@ -410,6 +426,7 @@ impl<F: Fetcher> Loader<F> {
                 endpoint,
                 bindings,
                 interval,
+                shards,
             } = capture;
             let endpoint_type = endpoint.endpoint_type();
 
@@ -420,6 +437,7 @@ impl<F: Fetcher> Loader<F> {
                     endpoint_type,
                     endpoint_spec,
                     interval.as_secs() as u32,
+                    shards,
                 );
             }
 
@@ -442,7 +460,11 @@ impl<F: Fetcher> Loader<F> {
         for (name, materialization) in materializations {
             let scope = scope.push_prop("materializations");
             let scope = scope.push_prop(&name);
-            let specs::MaterializationDef { endpoint, bindings } = materialization;
+            let specs::MaterializationDef {
+                endpoint,
+                bindings,
+                shards,
+            } = materialization;
             let endpoint_type = endpoint.endpoint_type();
 
             if let Some(endpoint_spec) = self.load_materialization_endpoint(scope, endpoint) {
@@ -451,6 +473,7 @@ impl<F: Fetcher> Loader<F> {
                     &name,
                     endpoint_type,
                     endpoint_spec,
+                    shards,
                 );
             }
 
@@ -538,6 +561,7 @@ impl<F: Fetcher> Loader<F> {
             key,
             projections,
             derivation,
+            journals,
         } = collection;
 
         // Visit all collection projections.
@@ -586,6 +610,7 @@ impl<F: Fetcher> Loader<F> {
                 collection_name,
                 schema,
                 key,
+                journals,
             );
         }
     }
@@ -603,6 +628,7 @@ impl<F: Fetcher> Loader<F> {
                     initial: register_initial,
                 },
             transform,
+            shards,
         } = derivation;
 
         // Task which loads & maps register schema => URL.
@@ -634,6 +660,7 @@ impl<F: Fetcher> Loader<F> {
                 derivation_name,
                 register_schema,
                 register_initial,
+                shards,
             );
         }
     }
