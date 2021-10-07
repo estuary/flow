@@ -1,13 +1,11 @@
 package labels
 
 import (
-	"fmt"
-	"strconv"
-
-	pf "github.com/estuary/protocols/flow"
-	pb "go.gazette.dev/core/broker/protocol"
-	pc "go.gazette.dev/core/consumer/protocol"
+	"strings"
 )
+
+// Heads up! Constants in this file must be mirrored to
+// crates/protocol/src/labels.rs
 
 // JournalSpec & ShardSpec labels.
 const (
@@ -44,7 +42,7 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
-	// TaskCreated is a base-10 integer of the ETCD revision of the task.
+	// TaskCreated is a base-10 integer of the Etcd creation revision of the task.
 	TaskCreated = "estuary.dev/task-created"
 	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
@@ -56,119 +54,37 @@ const (
 	RClockEnd = "estuary.dev/rclock-end"
 	// RClockEndMax is the maximum possible RClock.
 	RClockEndMax = KeyEndMax
-
 	// SplitTarget is the shard ID into which this shard is currently splitting.
 	SplitTarget = "estuary.dev/split-target"
 	// SplitSource is the shard ID from which this shard is currently splitting.
 	SplitSource = "estuary.dev/split-source"
-
-	// LogsCollection is the name of the Flow collection to which logs pertaining to this task
-	// should be written.
-	LogsCollection = "estuary.dev/logs-collection"
-
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
-	// StatsCollection is the name of the Flow collection to which stats pertaining to this task
-	// should be written.
-	StatsCollection = "estuary.dev/stats-collection"
 )
 
-// EncodeRange encodes the RangeSpec into the given LabelSet,
-// which is then returned.
-func EncodeRange(range_ pf.RangeSpec, set pb.LabelSet) pb.LabelSet {
-	EncodeHexU32Label(KeyBegin, range_.KeyBegin, &set)
-	EncodeHexU32Label(KeyEnd, range_.KeyEnd, &set)
-	EncodeHexU32Label(RClockBegin, range_.RClockBegin, &set)
-	EncodeHexU32Label(RClockEnd, range_.RClockEnd, &set)
-	return set
-}
-
-// ParseRangeSpec extracts a RangeSpec from its associated labels.
-func ParseRangeSpec(set pb.LabelSet) (pf.RangeSpec, error) {
-	if kb, err := ParseHexU32Label(KeyBegin, set); err != nil {
-		return pf.RangeSpec{}, err
-	} else if ke, err := ParseHexU32Label(KeyEnd, set); err != nil {
-		return pf.RangeSpec{}, err
-	} else if cb, err := ParseHexU32Label(RClockBegin, set); err != nil {
-		return pf.RangeSpec{}, err
-	} else if ce, err := ParseHexU32Label(RClockEnd, set); err != nil {
-		return pf.RangeSpec{}, err
-	} else {
-		var out = pf.RangeSpec{
-			KeyBegin:    kb,
-			KeyEnd:      ke,
-			RClockBegin: cb,
-			RClockEnd:   ce,
-		}
-		return out, out.Validate()
-	}
-}
-
-// MustParseRangeSpec parses a RangeSpec from the labels, and panics on an error.
-func MustParseRangeSpec(set pb.LabelSet) pf.RangeSpec {
-	if s, err := ParseRangeSpec(set); err != nil {
-		panic(err)
-	} else {
-		return s
-	}
-}
-
-// EncodeHexU32Label encodes label |name| as a hex-encoded uint32
-// |value| into the provided |LabelSet|, which is returned.
-func EncodeHexU32Label(name string, value uint32, set *pb.LabelSet) {
-	set.SetValue(name, fmt.Sprintf("%08x", value))
-}
-
-// ParseHexU32Label parses label |name|, a hex-encoded uint32, from the LabelSet.
-// It returns an error if the label value is malformed.
-func ParseHexU32Label(name string, set pb.LabelSet) (uint32, error) {
-	if l := set.ValuesOf(name); len(l) != 1 {
-		return 0, fmt.Errorf("missing required label: %s", name)
-	} else if len(l[0]) != 8 {
-		return 0, fmt.Errorf("expected %s to be a 4-byte, hex encoded integer; got %v", name, l[0])
-	} else if b, err := strconv.ParseUint(l[0], 16, 32); err != nil {
-		return 0, fmt.Errorf("decoding hex-encoded label %s: %w", name, err)
-	} else {
-		return uint32(b), nil
-	}
-}
-
-// BuildShardID builds the ShardID that's implied by the LabelSet.
-func BuildShardID(set pb.LabelSet) (pc.ShardID, error) {
-	// Pluck singleton label values we expect to exist.
-	var (
-		type_, err1       = valueOf(set, TaskType)
-		name, err2        = valueOf(set, TaskName)
-		keyBegin, err3    = valueOf(set, KeyBegin)
-		rclockBegin, err4 = valueOf(set, RClockBegin)
-	)
-	for _, err := range []error{err1, err2, err3, err4} {
-		if err != nil {
-			return "", err
-		}
+// IsRuntimeLabel returns whether the given |label| is managed by the Flow runtime,
+// as opposed to the Flow control plane.
+// Runtime labels and values use the data-plane's Etcd as their source of truth.
+// Non-runtime labels are populated during the catalog build process,
+// and use the catalog's models are their source-of-truth.
+func IsRuntimeLabel(label string) bool {
+	// If |label| has FieldPrefix as a prefix, its suffix is an encoded logical partition.
+	if strings.HasPrefix(label, FieldPrefix) {
+		return true
 	}
 
-	switch type_ {
-	case TaskTypeCapture:
-		type_ = "capture"
-	case TaskTypeDerivation:
-		type_ = "derivation"
-	case TaskTypeMaterialization:
-		type_ = "materialize"
+	switch label {
+	case
+		// Key splits are performed dynamically by the runtime.
+		KeyBegin, KeyEnd,
+		// Task creation encodes a runtime Etcd revision.
+		TaskCreated,
+		// R-Clock splits are performed dynamically by the runtime.
+		RClockBegin, RClockEnd,
+		// Shard splits are performed dynamically by the runtime.
+		SplitTarget, SplitSource:
+		return true
 	default:
-		return "", fmt.Errorf("unexpected %s: %s", TaskType, type_)
-	}
-
-	return pc.ShardID(
-		fmt.Sprintf("%s/%s/%s-%s", type_, name, keyBegin, rclockBegin),
-	), nil
-}
-
-func valueOf(set pb.LabelSet, name string) (string, error) {
-	var v = set.ValuesOf(name)
-	if len(v) != 1 {
-		return "", fmt.Errorf("expected one %s: %v", name, v)
-	} else {
-		return v[0], nil
+		return false
 	}
 }
