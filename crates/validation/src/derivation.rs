@@ -1,4 +1,4 @@
-use super::{collection, indexed, reference, schema, Error};
+use super::{collection, indexed, reference, schema, storage_mapping, Error};
 use itertools::Itertools;
 use json::schema::types;
 use models::{build, tables};
@@ -13,6 +13,7 @@ pub fn walk_all_derivations(
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
+    storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
     errors: &mut tables::Errors,
 ) -> tables::BuiltDerivations {
@@ -37,6 +38,7 @@ pub fn walk_all_derivations(
                 projections,
                 schema_index,
                 schema_shapes,
+                storage_mappings,
                 transforms,
                 errors,
             ),
@@ -54,14 +56,16 @@ fn walk_derivation(
     projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
+    storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
     errors: &mut tables::Errors,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope,
-        derivation: _,
+        derivation: name,
         register_schema,
         register_initial,
+        shards: _,
     } = derivation;
 
     // Verify that the register's initial value conforms to its schema.
@@ -132,7 +136,21 @@ fn walk_derivation(
         }
     }
 
-    build::derivation_spec(derivation, built_collection, built_transforms)
+    let recovery_stores = storage_mapping::mapped_stores(
+        scope,
+        "derivation",
+        imports,
+        &format!("recovery/{}", name.as_str()),
+        storage_mappings,
+        errors,
+    );
+
+    build::derivation_spec(
+        derivation,
+        built_collection,
+        built_transforms,
+        recovery_stores,
+    )
 }
 
 pub fn walk_transform(
@@ -209,8 +227,6 @@ pub fn walk_transform(
         }
         None => &source.schema,
     };
-
-    // TODO(johnny): Also require that shuffle hashes are the same!
 
     let shuffle_types = if shuffle_lambda.is_none() {
         // Map to an effective shuffle key.
