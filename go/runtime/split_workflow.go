@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"path/filepath"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/protocols/flow"
@@ -200,9 +201,13 @@ func StartSplit(ctx context.Context, svc *consumer.Service, req *pf.SplitRequest
 	}
 	rhsSpec.LabelSet = labels.EncodeRange(rhsRange, rhsSpec.LabelSet)
 
-	rhsSpec.Id, err = labels.BuildShardID(rhsSpec.LabelSet)
-	if err != nil {
-		return nil, fmt.Errorf("building child shard ID: %w", err)
+	// TODO(johnny): This is hacky and needs to be revisited as we work through
+	// control-plane / data-plane shard reconcilliation. In fact, this whole
+	// workflow should be moved into the control-plane!
+	if suffix, err := labels.ShardSuffix(rhsSpec.LabelSet); err != nil {
+		return nil, fmt.Errorf("building child shard suffix: %w", err)
+	} else {
+		rhsSpec.Id = pf.ShardID(filepath.Dir(rhsSpec.Id.String()) + "/" + suffix)
 	}
 
 	// Mark parent & child specs as having an in-progress split.
@@ -335,7 +340,8 @@ func CompleteSplit(svc *consumer.Service, shard consumer.Shard, rec *recoverylog
 		if err != nil {
 			return fmt.Errorf("parse label KeyBegin: %w", err)
 		}
-		labels.EncodeHexU32Label(labels.KeyEnd, rhsKeyBegin-1, lhsLabels) // Use rhsKeyBegin-1 as lhsKeyEnd
+		// Use rhsKeyBegin-1 as lhsKeyEnd.
+		*lhsLabels = labels.EncodeHexU32Label(labels.KeyEnd, rhsKeyBegin-1, *lhsLabels)
 
 	} else if lhsLabels.ValueOf(labels.RClockBegin) != rhsLabels.ValueOf(labels.RClockBegin) {
 		// RClock is different, use that to split
@@ -343,7 +349,8 @@ func CompleteSplit(svc *consumer.Service, shard consumer.Shard, rec *recoverylog
 		if err != nil {
 			return fmt.Errorf("parse label RClockBegin: %w", err)
 		}
-		labels.EncodeHexU32Label(labels.RClockEnd, rhsRClockBegin-1, lhsLabels) // Use rhsRClockBegin-1 as lhsRClockEnd
+		// Use rhsRClockBegin-1 as lhsRClockEnd.
+		*lhsLabels = labels.EncodeHexU32Label(labels.RClockEnd, rhsRClockBegin-1, *lhsLabels)
 
 	} else {
 		return fmt.Errorf("expect parent and child to differ on key or r-clock range")

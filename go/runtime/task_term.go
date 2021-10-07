@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
@@ -64,12 +65,12 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		KeyBegin:    spec.LabelSet.ValueOf(labels.KeyBegin),
 		RClockBegin: spec.LabelSet.ValueOf(labels.RClockBegin),
 	}
-	var logCollection = spec.LabelSet.ValueOf(labels.LogsCollection)
 	logLevel, err := log.ParseLevel(spec.LabelSet.ValueOf(labels.LogLevel))
 	if err != nil {
 		return fmt.Errorf("parsing %q: %w", labels.LogLevel, err)
 	}
 
+	var logCollection = fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0])
 	t.LogPublisher, err = host.LogService.NewPublisher(logCollection, taskRef, taskCreated, logLevel)
 	if err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
