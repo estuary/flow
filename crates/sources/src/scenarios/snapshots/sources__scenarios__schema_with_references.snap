@@ -12,6 +12,7 @@ Tables {
             collection: test,
             schema: test://external/a#/$defs/a,
             key: ["/a"],
+            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -102,6 +103,7 @@ Tables {
             dom: true,
         },
     ],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }

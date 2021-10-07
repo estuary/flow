@@ -34,6 +34,7 @@ file_tests! {
     test_schema_with_references,
     test_simple_catalog,
     test_test_case,
+    test_storage_mappings,
 }
 
 // MockFetcher queues and returns oneshot futures for started fetches.

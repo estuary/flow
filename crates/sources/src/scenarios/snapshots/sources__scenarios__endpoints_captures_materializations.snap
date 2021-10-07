@@ -34,6 +34,7 @@ Tables {
             endpoint_type: "Remote",
             endpoint_spec: {"address":"http://example/driver"},
             interval_seconds: 180,
+            shards: {"maxTxnDuration":"30s","logLevel":"debug"},
         },
         Capture {
             scope: test://example/catalog.yaml#/captures/first~1capture,
@@ -41,6 +42,7 @@ Tables {
             endpoint_type: "AirbyteSource",
             endpoint_spec: {"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"},
             interval_seconds: 300,
+            shards: {},
         },
     ],
     collections: [],
@@ -105,12 +107,14 @@ Tables {
             materialization: a/materialization,
             endpoint_type: "Postgresql",
             endpoint_spec: {"host":"localhost","password":"whoops","user":"somebody"},
+            shards: {},
         },
         Materialization {
             scope: test://example/catalog.yaml#/materializations/to~1sqlite,
             materialization: to/sqlite,
             endpoint_type: "Sqlite",
             endpoint_spec: {"path":"test://example/relative/to/scope.db"},
+            shards: {"ringBufferSize":12345},
         },
     ],
     named_schemas: [],
@@ -124,6 +128,7 @@ Tables {
         },
     ],
     schema_docs: [],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }

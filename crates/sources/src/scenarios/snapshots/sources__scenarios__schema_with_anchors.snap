@@ -12,6 +12,7 @@ Tables {
             collection: test,
             schema: test://example/schema.json,
             key: ["/a"],
+            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -72,6 +73,7 @@ Tables {
             dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
         },
     ],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }

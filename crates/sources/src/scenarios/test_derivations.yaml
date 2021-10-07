@@ -43,6 +43,10 @@ test://example/catalog.yaml:
     d2/collection:
       schema: a-schema.json
       key: [/d2-key]
+      journals:
+        fragments:
+          compressionCodec: ZSTANDARD
+          flushInterval: 15m
       derivation:
         transform:
           do-the-thing:
@@ -51,6 +55,13 @@ test://example/catalog.yaml:
             update:
               lambda:
                 remote: https://example/api
+        shards:
+          disable: true
+          minTxnDuration: 15s
+          maxTxnDuration: 6m
+          hotStandbys: 2
+          ringBufferSize: 12345
+          readChannelSize: 6789
 
 test://example/catalog.ts:
   typescript: "module placeholder"

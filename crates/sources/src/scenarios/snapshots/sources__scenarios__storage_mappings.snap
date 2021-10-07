@@ -40,35 +40,23 @@ Tables {
         },
     ],
     schema_docs: [],
-    storage_mappings: [],
-    test_steps: [
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/A%20test%20case/0,
-            collection: test/collection,
-            documents: [{"ingest":1},true],
-            partitions: NULL,
-            step_index: 0,
-            step_type: "Ingest",
-            test: A test case,
+    storage_mappings: [
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/2,
+            prefix: ,
+            stores: [{"provider":"S3","bucket":"root-bucket","prefix":null}],
         },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/A%20test%20case/1,
-            collection: test/collection,
-            documents: [{"verify":2},false],
-            partitions: NULL,
-            step_index: 1,
-            step_type: "Verify",
-            test: A test case,
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/0,
+            prefix: foo/bar/baz/,
+            stores: [{"provider":"GCS","bucket":"a-bucket","prefix":"and-prefix/"},{"provider":"S3","bucket":"s3-bucket","prefix":null}],
         },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/A%20test%20case/2,
-            collection: test/collection,
-            documents: [{"verify":3},"fin"],
-            partitions: {"include":{"a_field":["some-val"]},"exclude":{}},
-            step_index: 2,
-            step_type: "Verify",
-            test: A test case,
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/1,
+            prefix: other/thing/,
+            stores: [{"provider":"AZURE","bucket":"s3-bucket","prefix":null}],
         },
     ],
+    test_steps: [],
     transforms: [],
 }

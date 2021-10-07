@@ -191,6 +191,7 @@ Tables {
         },
     ],
     schema_docs: [],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }

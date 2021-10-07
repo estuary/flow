@@ -7,6 +7,16 @@ test://example/catalog.yaml:
         field_a: { location: /a/a, partition: true }
         field_b: { location: /b/b, partition: false }
 
+    test/collection/with-journals:
+      schema: schema.json#foobar
+      key: [/a/key]
+      journals:
+        fragments:
+          length: 12345
+          retention: 320h
+          flushInterval: 15m
+          compressionCodec: GZIP_OFFLOAD_DECOMPRESSION
+
 test://example/schema.json:
   $anchor: foobar
   type: object
