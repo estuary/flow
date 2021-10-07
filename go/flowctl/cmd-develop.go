@@ -28,6 +28,7 @@ type cmdDevelop struct {
 	Port        uint16                `long:"port" env:"PORT" default:"8080" description:"Service port for HTTP and gRPC requests"`
 	Shards      int                   `long:"shards" default:"1" description:"Number of shards to create for each catalog task"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	LocalFS     bool                  `long:"local-fs" description:"Ignore storage mappings, and write fragments under the local build directory instead"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -77,36 +78,15 @@ func (cmd cmdDevelop) Execute(_ []string) error {
 		SourceType:        pf.ContentType_CATALOG_SPEC,
 		TypescriptCompile: true,
 		TypescriptPackage: false,
-
-		// Install a testing override rule that applies after other rules,
-		// disables multi-broker replication, and uses a file:// fragment store.
-		ExtraJournalRules: &pf.JournalRules{
-			Rules: []pf.JournalRules_Rule{
-				{
-					// Order before other rules.
-					Rule: "\u0000\u0000-develop-overrides",
-					Template: pb.JournalSpec{
-						Fragment: pb.JournalSpec_Fragment{
-							// Persist to the local file system as a stand in for cloud storage.
-							Stores:           []pb.FragmentStore{"file:///"},
-							CompressionCodec: pb.CompressionCodec_GZIP,
-						},
-					},
-				},
-				{
-					// Order after other rules.
-					Rule: "\uFFFF\uFFFF-develop-overrides",
-					Template: pb.JournalSpec{
-						// We're running in single-process development mode.
-						// Override replication (which defaults to 3).
-						Replication: 1,
-					},
-				},
-			},
-		},
 	})
 	if err != nil {
 		return err
+	}
+
+	// Override the catalog for a local development context.
+	flow.OverrideForLocalExecution(built)
+	if cmd.LocalFS {
+		flow.OverrideForLocalFragmentStores(built)
 	}
 
 	if cmd.Poll && len(built.Captures) == 0 {
