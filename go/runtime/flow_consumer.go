@@ -219,7 +219,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return shardGetHints(c, s, ghr)
 	}
 	args.Service.ShardAPI.Apply = func(c context.Context, s *consumer.Service, ar *pc.ApplyRequest) (*pc.ApplyResponse, error) {
-		return shardApply(c, s, ar, f.Journals, f.Catalog)
+		return shardApply(c, s, ar, journals, catalog)
 	}
 	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
 	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
@@ -269,6 +269,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 }
 
 // shardApply delegates to consumer.ShardApply, but creates recovery logs as needed.
+// TODO(johnny): This should move to the control plane.
 func shardApply(ctx context.Context, svc *consumer.Service,
 	req *pc.ApplyRequest, journals flow.Journals,
 	catalog flow.Catalog) (*pc.ApplyResponse, error) {
@@ -319,17 +320,26 @@ func shardApply(ctx context.Context, svc *consumer.Service,
 
 		// Does a recovery log not exist, but should?
 		if nextSpec != nil && logSpec == nil {
-			// Grab labeled catalog task and its journal rules.
-			var name = nextSpec.LabelSet.ValueOf(labels.TaskName)
+			// Fetch the catalog task specification encoded in shard labels.
+			var taskName = nextSpec.LabelSet.ValueOf(labels.TaskName)
 			var taskCreated = nextSpec.LabelSet.ValueOf(labels.TaskCreated)
-			_, commons, _, err := catalog.GetTask(ctx, name, taskCreated)
+			task, _, _, err := catalog.GetTask(ctx, taskName, taskCreated)
 			if err != nil {
-				return nil, fmt.Errorf("looking up catalog task %q: %w", name, err)
+				return nil, fmt.Errorf("looking up catalog task %q: %w", taskName, err)
 			}
 
 			// Construct the desired recovery log spec.
+			var template *pf.JournalSpec
+			switch {
+			case task.Capture != nil:
+				template = task.Capture.RecoveryLogTemplate
+			case task.Derivation != nil:
+				template = task.Derivation.RecoveryLogTemplate
+			case task.Materialization != nil:
+				template = task.Materialization.RecoveryLogTemplate
+			}
 			journalChanges = append(journalChanges, pb.ApplyRequest_Change{
-				Upsert: flow.BuildRecoveryLogSpec(nextSpec, commons.JournalRules.Rules)})
+				Upsert: flow.BuildRecoverySpec(template, nextSpec)})
 
 			log.WithFields(log.Fields{
 				"shard": shardID,
