@@ -12,6 +12,7 @@ Tables {
             collection: test,
             schema: test://example/catalog.yaml?ptr=/collections/test/schema,
             key: ["/some-key"],
+            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -62,6 +63,7 @@ Tables {
             dom: {"additionalProperties":true,"type":"object"},
         },
     ],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }

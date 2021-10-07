@@ -12,6 +12,7 @@ Tables {
             collection: a/collection,
             schema: test://example/schema,
             key: ["/key"],
+            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -134,6 +135,7 @@ Tables {
             dom: true,
         },
     ],
+    storage_mappings: [],
     test_steps: [],
     transforms: [],
 }
