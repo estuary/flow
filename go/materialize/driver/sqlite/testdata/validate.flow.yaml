@@ -82,3 +82,6 @@ collections:
       intDifferentRanges: /intDifferentRanges
       intOrNumOverlappingRanges: /intOrNumOverlappingRanges
       boolOrString: /boolOrString
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

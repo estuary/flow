@@ -31,3 +31,6 @@ collections:
           source: { name: source }
           update: { lambda: typescript }
           publish: { lambda: typescript }
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]

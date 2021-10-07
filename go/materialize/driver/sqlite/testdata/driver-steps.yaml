@@ -21,3 +21,6 @@ materializations:
     bindings:
       - source: weird-types/optionals
         resource: { table: test_target }
+
+storageMappings:
+  - stores: [{provider: S3, bucket: a-bucket}]
