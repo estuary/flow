@@ -131,11 +131,151 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
                 ],
                 interval_seconds: 300,
+                shard_template: Some(
+                    ShardSpec {
+                        id: "capture/testing/db-cdc",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 1,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/db-cdc",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/capture/testing/db-cdc",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/db-cdc",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCapture {
@@ -264,6 +404,50 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -364,11 +548,151 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string.v2",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string.v2",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Zstandard,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
                 ],
                 interval_seconds: 600,
+                shard_template: Some(
+                    ShardSpec {
+                        id: "capture/testing/s3-source",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/s3-source",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/capture/testing/s3-source",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/s3-source",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
     ],
@@ -496,6 +820,50 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/array-key",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/array-key",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCollection {
@@ -549,6 +917,50 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/from-array-key",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/from-array-key",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCollection {
@@ -755,6 +1167,55 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/int-halve",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/int-halve",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 11223344,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 900,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCollection {
@@ -851,6 +1312,50 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/int-reverse",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/int-reverse",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCollection {
@@ -967,6 +1472,50 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/int-string",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/int-string",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltCollection {
@@ -1063,6 +1612,50 @@ All {
                     },
                 ],
                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/int-string.v2",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/int-string.v2",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Zstandard,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
     ],
@@ -1120,6 +1713,50 @@ All {
                             },
                         ],
                         ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                        partition_template: Some(
+                            JournalSpec {
+                                name: "testing/from-array-key",
+                                replication: 3,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "content-type",
+                                                value: "application/x-ndjson",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/from-array-key",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                fragment: Some(
+                                    Fragment {
+                                        length: 536870912,
+                                        compression_codec: Gzip,
+                                        stores: [
+                                            "s3://data-bucket/",
+                                        ],
+                                        refresh_interval: Some(
+                                            Duration {
+                                                seconds: 300,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        retention: None,
+                                        flush_interval: None,
+                                        path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                    },
+                                ),
+                                flags: 4,
+                                max_append_rate: 4194304,
+                            },
+                        ),
                     },
                 ),
                 register_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema",
@@ -1222,6 +1859,102 @@ All {
                         ),
                     },
                 ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "derivation/testing/from-array-key",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/from-array-key",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/derivation/testing/from-array-key",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/from-array-key",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltDerivation {
@@ -1430,6 +2163,55 @@ All {
                             },
                         ],
                         ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                        partition_template: Some(
+                            JournalSpec {
+                                name: "testing/int-halve",
+                                replication: 3,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "content-type",
+                                                value: "application/x-ndjson",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-halve",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                fragment: Some(
+                                    Fragment {
+                                        length: 11223344,
+                                        compression_codec: Gzip,
+                                        stores: [
+                                            "s3://data-bucket/",
+                                        ],
+                                        refresh_interval: Some(
+                                            Duration {
+                                                seconds: 300,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        retention: None,
+                                        flush_interval: Some(
+                                            Duration {
+                                                seconds: 900,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                    },
+                                ),
+                                flags: 4,
+                                max_append_rate: 4194304,
+                            },
+                        ),
                     },
                 ),
                 register_schema_uri: "test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema",
@@ -1543,6 +2325,102 @@ All {
                         ),
                     },
                 ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "derivation/testing/int-halve",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: true,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/int-halve",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: true,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/derivation/testing/int-halve",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/int-halve",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltDerivation {
@@ -1641,6 +2519,50 @@ All {
                             },
                         ],
                         ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                        partition_template: Some(
+                            JournalSpec {
+                                name: "testing/int-reverse",
+                                replication: 3,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "content-type",
+                                                value: "application/x-ndjson",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/int-reverse",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                fragment: Some(
+                                    Fragment {
+                                        length: 536870912,
+                                        compression_codec: Gzip,
+                                        stores: [
+                                            "s3://data-bucket/",
+                                        ],
+                                        refresh_interval: Some(
+                                            Duration {
+                                                seconds: 300,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        retention: None,
+                                        flush_interval: None,
+                                        path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                    },
+                                ),
+                                flags: 4,
+                                max_append_rate: 4194304,
+                            },
+                        ),
                     },
                 ),
                 register_schema_uri: "test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema",
@@ -1695,6 +2617,102 @@ All {
                         ),
                     },
                 ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "derivation/testing/int-reverse",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/int-reverse",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/derivation/testing/int-reverse",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/int-reverse",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
     ],
@@ -1824,6 +2842,50 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                         field_selection: Some(
@@ -1874,6 +2936,102 @@ All {
                         ),
                     },
                 ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/db-views",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 123,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "warn",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/db-views",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/db-views",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/db-views",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
         BuiltMaterialization {
@@ -2002,6 +3160,50 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                         field_selection: Some(
@@ -2269,6 +3471,55 @@ All {
                                     },
                                 ],
                                 ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-halve",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-halve",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 11223344,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 900,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                         field_selection: Some(
@@ -2326,6 +3577,102 @@ All {
                         ),
                     },
                 ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/webhook/deliveries",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/webhook/deliveries",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 131072,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/webhook/deliveries",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/webhook/deliveries",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "gs://recovery-bucket/some/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
             },
         },
     ],
@@ -2435,6 +3782,7 @@ All {
             endpoint_type: "AirbyteSource",
             endpoint_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database"},
             interval_seconds: 300,
+            shards: {"hotStandbys":1},
         },
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
@@ -2442,6 +3790,7 @@ All {
             endpoint_type: "AirbyteSource",
             endpoint_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"},
             interval_seconds: 600,
+            shards: {},
         },
     ],
     collections: [
@@ -2450,36 +3799,42 @@ All {
             collection: testing/array-key,
             schema: test://example/array-key.schema,
             key: ["/arr/0/aKey"],
+            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
             collection: testing/from-array-key,
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
             key: ["/someKey"],
+            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
             collection: testing/int-halve,
             schema: test://example/int-string-len.schema,
             key: ["/int"],
+            journals: {"fragments":{"length":11223344,"flushInterval":"15m"}},
         },
         Collection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
             schema: test://example/int-string.schema,
             key: ["/int"],
+            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string,
             collection: testing/int-string,
             schema: test://example/int-string.schema,
             key: ["/int"],
+            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
             schema: test://example/int-string.schema,
             key: ["/int"],
+            journals: {"fragments":{"compressionCodec":"ZSTANDARD"}},
         },
     ],
     derivations: [
@@ -2488,18 +3843,21 @@ All {
             derivation: testing/from-array-key,
             register_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
             register_initial: null,
+            shards: {},
         },
         Derivation {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
             derivation: testing/int-halve,
             register_schema: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
             register_initial: 42,
+            shards: {"disable":true},
         },
         Derivation {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
             derivation: testing/int-reverse,
             register_schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
             register_initial: null,
+            shards: {},
         },
     ],
     errors: [],
@@ -3423,12 +4781,14 @@ All {
             materialization: testing/db-views,
             endpoint_type: "FlowSink",
             endpoint_spec: {"config":{"foo":"bar"},"image":"database/image"},
+            shards: {"maxTxnDuration":"2m 3s","logLevel":"warn"},
         },
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
             endpoint_type: "Webhook",
             endpoint_spec: {"address":"http://example/webhook"},
+            shards: {},
         },
     ],
     meta: [],
@@ -3829,6 +5189,23 @@ All {
         SchemaDoc {
             schema: test://example/int-string.schema,
             dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/2,
+            prefix: not-matched/,
+            stores: [{"provider":"AZURE","bucket":"not-matched-bucket","prefix":null}],
+        },
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/1,
+            prefix: recovery/testing/,
+            stores: [{"provider":"GCS","bucket":"recovery-bucket","prefix":"some/"}],
+        },
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/0,
+            prefix: testing/,
+            stores: [{"provider":"S3","bucket":"data-bucket","prefix":null}],
         },
     ],
     test_steps: [

@@ -2,19 +2,18 @@ use super::Error;
 use models::tables;
 use url::Url;
 
-pub fn walk_reference<'a, T, F, N>(
+pub fn walk_reference<'a, T, F>(
     this_scope: &Url,
     this_thing: &str,
     ref_entity: &'static str,
-    ref_name: &N,
+    ref_name: &str,
     entities: &'a [T],
     entity_fn: F,
     imports: &'a [tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<&'a T>
 where
-    F: Fn(&'a T) -> (&'a N, &'a Url),
-    N: std::ops::Deref<Target = str> + Eq + 'static,
+    F: Fn(&'a T) -> (&'a str, &'a Url),
 {
     if let Some(entity) = entities.iter().find(|t| entity_fn(t).0 == ref_name) {
         let ref_scope = entity_fn(entity).1;
@@ -37,7 +36,7 @@ where
             let dist = strsim::osa_distance(&ref_name, &name);
 
             if dist <= 4 {
-                Some((dist, name.deref(), scope))
+                Some((dist, name, scope))
             } else {
                 None
             }

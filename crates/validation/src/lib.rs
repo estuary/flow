@@ -13,6 +13,7 @@ mod materialization;
 mod npm_dependency;
 mod reference;
 mod schema;
+mod storage_mapping;
 mod test_step;
 use errors::Error;
 
@@ -59,6 +60,7 @@ pub async fn validate<D: Drivers>(
     projections: &[tables::Projection],
     resources: &[tables::Resource],
     schema_docs: &[tables::SchemaDoc],
+    storage_mappings: &[tables::StorageMapping],
     test_steps: &[tables::TestStep],
     transforms: &[tables::Transform],
 ) -> Tables {
@@ -104,9 +106,16 @@ pub async fn validate<D: Drivers>(
     schema::walk_all_named_schemas(named_schemas, &mut errors);
     npm_dependency::walk_all_npm_dependencies(npm_dependencies, &mut errors);
     journal_rule::walk_all_journal_rules(journal_rules, &mut errors);
+    storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
 
-    let (built_collections, implicit_projections) =
-        collection::walk_all_collections(collections, projections, &schema_shapes, &mut errors);
+    let (built_collections, implicit_projections) = collection::walk_all_collections(
+        collections,
+        imports,
+        projections,
+        &schema_shapes,
+        storage_mappings,
+        &mut errors,
+    );
 
     let built_derivations = derivation::walk_all_derivations(
         &built_collections,
@@ -116,6 +125,7 @@ pub async fn validate<D: Drivers>(
         projections,
         &schema_index,
         &schema_shapes,
+        storage_mappings,
         transforms,
         &mut errors,
     );
@@ -146,6 +156,7 @@ pub async fn validate<D: Drivers>(
         collections,
         derivations,
         imports,
+        storage_mappings,
         &mut errors,
     );
 
@@ -159,6 +170,7 @@ pub async fn validate<D: Drivers>(
         materializations,
         projections,
         &schema_shapes,
+        storage_mappings,
         &mut tmp_errors,
     );
 

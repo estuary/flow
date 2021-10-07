@@ -1,4 +1,4 @@
-use super::{indexed, schema, Error};
+use super::{indexed, schema, storage_mapping, Error};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use models::{build, names, tables};
@@ -8,8 +8,10 @@ use url::Url;
 
 pub fn walk_all_collections(
     collections: &[tables::Collection],
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
+    storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> (tables::BuiltCollections, tables::Projections) {
     let mut implicit_projections = tables::Projections::new();
@@ -24,8 +26,10 @@ pub fn walk_all_collections(
             &collection.collection,
             walk_collection(
                 collection,
+                imports,
                 projections,
                 schema_shapes,
+                storage_mappings,
                 errors,
                 &mut implicit_projections,
             ),
@@ -37,8 +41,10 @@ pub fn walk_all_collections(
 
 fn walk_collection(
     collection: &tables::Collection,
+    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
+    storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
     implicit_projections: &mut tables::Projections,
 ) -> flow::CollectionSpec {
@@ -47,6 +53,7 @@ fn walk_collection(
         scope,
         schema,
         key,
+        journals: _,
     } = collection;
 
     indexed::walk_name(
@@ -82,7 +89,16 @@ fn walk_collection(
         implicit_projections,
     );
 
-    build::collection_spec(collection, projections, &schema.bundle)
+    let partition_stores = storage_mapping::mapped_stores(
+        scope,
+        "collection",
+        imports,
+        name.as_str(),
+        storage_mappings,
+        errors,
+    );
+
+    build::collection_spec(collection, projections, &schema.bundle, partition_stores)
 }
 
 fn walk_collection_projections(

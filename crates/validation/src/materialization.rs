@@ -1,8 +1,8 @@
-use super::{collection, indexed, reference, schema, Drivers, Error};
+use super::{collection, indexed, reference, schema, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
-use models::{names, tables};
-use protocol::{flow, materialize};
+use models::{build, names, tables};
+use protocol::{flow, labels, materialize};
 use std::collections::{BTreeMap, HashMap};
 use superslice::Ext;
 use url::Url;
@@ -16,6 +16,7 @@ pub async fn walk_all_materializations<D: Drivers>(
     materializations: &[tables::Materialization],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
+    storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     let mut validations = Vec::new();
@@ -70,129 +71,154 @@ pub async fn walk_all_materializations<D: Drivers>(
     }
 
     // Run all validations concurrently.
-    let validations = validations
-        .into_iter()
-        .map(|(scope, binding_models, request)| async move {
-            drivers
-                .validate_materialization(request.clone())
-                .map(|response| (scope, binding_models, request, response))
-                .await
-        });
+    let validations =
+        validations
+            .into_iter()
+            .map(|(materialization, binding_models, request)| async move {
+                drivers
+                    .validate_materialization(request.clone())
+                    .map(|response| (materialization, binding_models, request, response))
+                    .await
+            });
     let validations = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
-    for (scope, binding_models, request, response) in validations {
-        match response {
-            Ok(response) => {
-                let materialize::ValidateRequest {
-                    endpoint_type,
-                    endpoint_spec_json,
-                    bindings: binding_requests,
-                    materialization: name,
-                } = request;
-
-                let materialize::ValidateResponse {
-                    bindings: binding_responses,
-                } = response;
-
-                // We constructed |binding_requests| while processing binding models.
-                assert!(binding_requests.len() == binding_models.len());
-
-                if binding_requests.len() != binding_responses.len() {
-                    Error::MaterializationDriver {
-                        name: name.to_string(),
-                        detail: anyhow::anyhow!(
-                            "driver returned wrong number of bindings (expected {}, got {})",
-                            binding_requests.len(),
-                            binding_responses.len()
-                        ),
-                    }
-                    .push(scope, errors);
-                }
-
-                // Join requests, responses and models to produce tuples
-                // of (scope, built binding).
-                let bindings: Vec<_> = binding_requests
-                    .into_iter()
-                    .zip(binding_responses.into_iter())
-                    .zip(binding_models.into_iter())
-                    .map(|((binding_request, binding_response), binding_model)| {
-                        let materialize::validate_request::Binding {
-                            collection: collection_spec,
-                            field_config_json: _,
-                            resource_spec_json,
-                        } = binding_request;
-
-                        let materialize::validate_response::Binding {
-                            constraints,
-                            delta_updates,
-                            resource_path,
-                        } = binding_response;
-
-                        let collection_spec = collection_spec.unwrap();
-                        let fields = walk_materialization_response(
-                            &collection_spec,
-                            binding_model,
-                            constraints,
-                            errors,
-                        );
-                        let shuffle = models::build::materialization_shuffle(
-                            binding_model,
-                            &collection_spec,
-                            &resource_path,
-                        );
-
-                        (
-                            &binding_model.scope,
-                            flow::materialization_spec::Binding {
-                                collection: Some(collection_spec),
-                                field_selection: Some(fields),
-                                resource_spec_json,
-                                resource_path,
-                                delta_updates,
-                                shuffle: Some(shuffle),
-                            },
-                        )
-                    })
-                    .collect();
-
-                // Look for (and error on) duplicated resource paths within the bindings.
-                for ((l_scope, _), (r_scope, binding)) in bindings
-                    .iter()
-                    .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
-                    .tuple_windows()
-                    .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
-                {
-                    Error::BindingDuplicatesResource {
-                        entity: "materialization",
-                        name: name.to_string(),
-                        resource: binding.resource_path.iter().join("."),
-                        rhs_scope: (*r_scope).clone(),
-                    }
-                    .push(l_scope, errors);
-                }
-
-                // Unzip to strip scopes, leaving built bindings.
-                let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
-
-                let spec = flow::MaterializationSpec {
-                    bindings,
-                    endpoint_spec_json,
-                    endpoint_type,
-                    materialization: name.to_string(),
-                };
-
-                built_materializations.insert_row(scope, name, spec);
-            }
+    for (materialization, binding_models, request, response) in validations {
+        // Unwrap |response| and continue if an Err.
+        let response = match response {
+            Ok(response) => response,
             Err(err) => {
                 Error::MaterializationDriver {
                     name: request.materialization,
                     detail: err,
                 }
-                .push(scope, errors);
+                .push(&materialization.scope, errors);
+                continue;
             }
+        };
+
+        let materialize::ValidateRequest {
+            endpoint_type,
+            endpoint_spec_json,
+            bindings: binding_requests,
+            materialization: name,
+        } = request;
+
+        let materialize::ValidateResponse {
+            bindings: binding_responses,
+        } = response;
+
+        // We constructed |binding_requests| while processing binding models.
+        assert!(binding_requests.len() == binding_models.len());
+
+        let tables::Materialization { scope, shards, .. } = materialization;
+
+        if binding_requests.len() != binding_responses.len() {
+            Error::MaterializationDriver {
+                name: name.to_string(),
+                detail: anyhow::anyhow!(
+                    "driver returned wrong number of bindings (expected {}, got {})",
+                    binding_requests.len(),
+                    binding_responses.len()
+                ),
+            }
+            .push(scope, errors);
         }
+
+        // Join requests, responses and models to produce tuples
+        // of (scope, built binding).
+        let bindings: Vec<_> = binding_requests
+            .into_iter()
+            .zip(binding_responses.into_iter())
+            .zip(binding_models.into_iter())
+            .map(|((binding_request, binding_response), binding_model)| {
+                let materialize::validate_request::Binding {
+                    collection: collection_spec,
+                    field_config_json: _,
+                    resource_spec_json,
+                } = binding_request;
+
+                let materialize::validate_response::Binding {
+                    constraints,
+                    delta_updates,
+                    resource_path,
+                } = binding_response;
+
+                let collection_spec = collection_spec.unwrap();
+                let fields = walk_materialization_response(
+                    &collection_spec,
+                    binding_model,
+                    constraints,
+                    errors,
+                );
+                let shuffle = models::build::materialization_shuffle(
+                    binding_model,
+                    &collection_spec,
+                    &resource_path,
+                );
+
+                (
+                    &binding_model.scope,
+                    flow::materialization_spec::Binding {
+                        collection: Some(collection_spec),
+                        field_selection: Some(fields),
+                        resource_spec_json,
+                        resource_path,
+                        delta_updates,
+                        shuffle: Some(shuffle),
+                    },
+                )
+            })
+            .collect();
+
+        // Look for (and error on) duplicated resource paths within the bindings.
+        for ((l_scope, _), (r_scope, binding)) in bindings
+            .iter()
+            .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
+            .tuple_windows()
+            .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
+        {
+            Error::BindingDuplicatesResource {
+                entity: "materialization",
+                name: name.to_string(),
+                resource: binding.resource_path.iter().join("."),
+                rhs_scope: (*r_scope).clone(),
+            }
+            .push(l_scope, errors);
+        }
+
+        // Unzip to strip scopes, leaving built bindings.
+        let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
+
+        let recovery_stores = storage_mapping::mapped_stores(
+            scope,
+            "materialization",
+            imports,
+            &format!("recovery/{}", name.as_str()),
+            storage_mappings,
+            errors,
+        );
+
+        let spec = flow::MaterializationSpec {
+            bindings,
+            endpoint_spec_json,
+            endpoint_type,
+            materialization: name.to_string(),
+            recovery_log_template: Some(build::recovery_log_template(
+                &name,
+                labels::TASK_TYPE_MATERIALIZATION,
+                recovery_stores,
+            )),
+            shard_template: Some(build::shard_template(
+                &name,
+                labels::TASK_TYPE_MATERIALIZATION,
+                shards,
+                false, // Don't disable wait_for_ack.
+            )),
+        };
+
+        built_materializations.insert_row(scope, name, spec);
     }
 
     built_materializations
@@ -208,15 +234,16 @@ fn walk_materialization_request<'a>(
     schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
 ) -> (
-    &'a Url,
+    &'a tables::Materialization,
     Vec<&'a tables::MaterializationBinding>,
     materialize::ValidateRequest,
 ) {
     let tables::Materialization {
-        scope,
+        scope: _,
         materialization: name,
         endpoint_type,
         endpoint_spec,
+        shards: _,
     } = materialization;
 
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = materialization_bindings
@@ -242,7 +269,7 @@ fn walk_materialization_request<'a>(
         endpoint_spec_json: endpoint_spec.to_string(),
     };
 
-    (scope, binding_models, request)
+    (materialization, binding_models, request)
 }
 
 fn walk_materialization_binding<'a>(

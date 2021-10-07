@@ -10,6 +10,14 @@ test://example/catalog.yaml:
     - test://example/array-key
     - test://example/from-array-key
 
+  storageMappings:
+    - prefix: testing/
+      stores: [{provider: S3, bucket: data-bucket}]
+    - prefix: recovery/testing/
+      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+    - prefix: not-matched/
+      stores: [{provider: AZURE, bucket: not-matched-bucket}]
+
   journalRules:
     123 A Rule:
       selector:
@@ -38,6 +46,9 @@ test://example/int-string:
     testing/int-string.v2:
       schema: test://example/int-string.schema
       key: [/int]
+      journals:
+        fragments:
+          compressionCodec: ZSTANDARD
 
 test://example/int-string-captures:
   import:
@@ -69,6 +80,8 @@ test://example/int-string-captures:
           resource:
             stream: other-stream
             namespace: and namespace
+      shards:
+        hotStandbys: 1
 
 test://example/webhook-deliveries:
   import:
@@ -111,6 +124,9 @@ test://example/db-views:
       bindings:
         - source: testing/int-string
           resource: { table: the_table }
+      shards:
+        maxTxnDuration: 123s
+        logLevel: warn
 
 test://example/int-string-tests:
   import:
@@ -162,6 +178,10 @@ test://example/int-halve:
         # Not directly discovered from schema,
         # and instead inferred via additionalProperties.
         Extra: /extra
+      journals:
+        fragments:
+          length: 11223344
+          flushInterval: 15m
       derivation:
         register:
           schema:
@@ -189,6 +209,8 @@ test://example/int-halve:
             shuffle:
               key: [/len, /int]
             publish: { lambda: typescript }
+        shards:
+          disable: true
 
 test://example/int-halve.ts:
   typescript: "module placeholder"

@@ -1,0 +1,43 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+
+---
+[
+    Error {
+        scope: test://example/int-string#/storageMappings/8,
+        error: /leading/Slash/ cannot be used as name for storageMappings ("/leading/Slash/" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/4,
+        error: bad space cannot be used as name for storageMappings ("bad space" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/5,
+        error: bad!punctuation/ cannot be used as name for storageMappings ("bad!punctuation/" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/7,
+        error: double//slash/ cannot be used as name for storageMappings ("/slash/" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/6,
+        error: missingSlash cannot be used as name for storageMappings ("missingSlash" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/3,
+        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at test://example/int-string#/storageMappings/8,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/storageMappings/2,
+        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at test://example/int-string#/storageMappings/2,
+    },
+    Error {
+        scope: test://example/int-string#/storageMappings/1,
+        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at test://example/catalog.yaml#/storageMappings/1,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/storageMappings/0,
+        error: storageMapping testing collides with storageMapping testing, defined at test://example/int-string#/storageMappings/0,
+    },
+]
