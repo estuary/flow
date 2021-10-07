@@ -22,6 +22,9 @@ test://example/catalog.yaml:
       bindings:
         - target: third/collection
           resource: {}
+      shards:
+        maxTxnDuration: 30s
+        logLevel: debug
 
   materializations:
     a/materialization:
@@ -53,3 +56,5 @@ test://example/catalog.yaml:
       bindings:
         - source: final/source/collection
           resource: { table: "table_three" }
+      shards:
+        ringBufferSize: 12345

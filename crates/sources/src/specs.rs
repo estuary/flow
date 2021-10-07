@@ -53,6 +53,10 @@ pub struct Catalog {
     #[schemars(default = "Catalog::default_test")]
     #[schemars(example = "Catalog::example_test")]
     pub tests: BTreeMap<names::Test, Vec<TestStep>>,
+    // # Storage mappings of this Catalog.
+    #[serde(default)]
+    #[schemars(example = "names::StorageMapping::example")]
+    pub storage_mappings: Vec<names::StorageMapping>,
 }
 
 /// Collection describes a set of related documents, where each adheres to a
@@ -78,6 +82,9 @@ pub struct CollectionDef {
     pub projections: Projections,
     /// # Derivation which builds this collection from others.
     pub derivation: Option<Derivation>,
+    /// # Template for journals of this collection.
+    #[serde(default)]
+    pub journals: names::JournalTemplate,
 }
 
 /// Projections are named locations within a collection document which
@@ -159,6 +166,9 @@ pub struct Derivation {
     /// # Transforms which make up this derivation.
     #[schemars(default = "Derivation::default_transform")]
     pub transform: BTreeMap<names::Transform, Transform>,
+    /// # Template for shards of this derivation task.
+    #[serde(default)]
+    pub shards: names::ShardTemplate,
 }
 
 /// A Shuffle specifies how a shuffling key is to be extracted from
@@ -446,6 +456,9 @@ pub struct MaterializationDef {
     pub endpoint: MaterializationEndpoint,
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
+    /// # Template for shards of this materialization task.
+    #[serde(default)]
+    pub shards: names::ShardTemplate,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -520,6 +533,9 @@ pub struct CaptureDef {
     #[serde(default = "CaptureDef::default_interval", with = "humantime_serde")]
     #[schemars(schema_with = "CaptureDef::interval_schema")]
     pub interval: Duration,
+    /// # Template for shards of this capture task.
+    #[serde(default)]
+    pub shards: names::ShardTemplate,
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]

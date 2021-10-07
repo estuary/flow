@@ -1,0 +1,14 @@
+test://example/catalog.yaml:
+  storageMappings:
+    - prefix: foo/bar/baz/
+      stores:
+        - provider: GCS
+          bucket: a-bucket
+          prefix: and-prefix/
+        - provider: S3
+          bucket: s3-bucket
+
+    - prefix: other/thing/
+      stores: [{provider: AZURE, bucket: s3-bucket}]
+
+    - stores: [{provider: S3, bucket: root-bucket}]

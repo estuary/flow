@@ -12,12 +12,14 @@ Tables {
             collection: d1/collection,
             schema: test://example/a-schema.json,
             key: ["/d1-key"],
+            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/d2~1collection,
             collection: d2/collection,
             schema: test://example/a-schema.json,
             key: ["/d2-key"],
+            journals: {"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},
         },
     ],
     derivations: [
@@ -26,12 +28,14 @@ Tables {
             derivation: d1/collection,
             register_schema: test://example/reg-schema.json#/$defs/qib,
             register_initial: {"initial":["value",32]},
+            shards: {},
         },
         Derivation {
             scope: test://example/catalog.yaml#/collections/d2~1collection/derivation,
             derivation: d2/collection,
             register_schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
             register_initial: null,
+            shards: {"disable":true,"minTxnDuration":"15s","maxTxnDuration":"6m","hotStandbys":2,"ringBufferSize":12345,"readChannelSize":6789},
         },
     ],
     errors: [],
@@ -145,6 +149,7 @@ Tables {
             dom: {"$defs":{"qib":true}},
         },
     ],
+    storage_mappings: [],
     test_steps: [],
     transforms: [
         Transform {
