@@ -105,6 +105,7 @@ fn add_ops_collection(
         name.clone(),
         schema_url,
         names::CompositeKey::new(key),
+        names::JournalTemplate::default(),
     );
 
     // Ops collections are partitioned by shard, so that each shard has dedicated journals for
@@ -174,6 +175,7 @@ mod test {
             protocol::flow::EndpointType::AirbyteSource,
             serde_json::json!({}),
             7u32,
+            names::ShardTemplate::default(),
         );
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/shamazon~1bar"),
@@ -181,6 +183,7 @@ mod test {
             protocol::flow::EndpointType::AirbyteSource,
             serde_json::json!({}),
             8u32,
+            names::ShardTemplate::default(),
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/gooble~1ads"),
@@ -189,6 +192,7 @@ mod test {
                 "test-der.flow.yaml?ptr=/collections/shamazon~1bar/derivation/register/schema",
             ),
             Value::Null,
+            names::ShardTemplate::default(),
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/acmeCo~1tnt"),
@@ -197,12 +201,14 @@ mod test {
                 "test-der.flow.yaml?ptr=/collections/acmeCo~1tnt/derivation/register/schema",
             ),
             Value::Null,
+            names::ShardTemplate::default(),
         );
         tables.materializations.insert_row(
             builtin_url("test-mat.flow.yaml#/collections/justme"),
             names::Materialization::new("justme"),
             protocol::flow::EndpointType::Postgresql,
             Value::Null,
+            names::ShardTemplate::default(),
         );
 
         generate_ops_collections(&mut tables);

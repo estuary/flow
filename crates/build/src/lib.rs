@@ -54,21 +54,6 @@ where
         .meta
         .insert_row(uuid::Uuid::new_v4(), config.clone());
 
-    // Apply any extra journal rules of the configuration.
-    for (index, rule) in config
-        .extra_journal_rules
-        .unwrap_or_default()
-        .rules
-        .into_iter()
-        .enumerate()
-    {
-        all_tables.journal_rules.insert_row(
-            url::Url::parse(&format!("build://extra_journal_rules/{}", index)).unwrap(),
-            models::names::Rule::new(&rule.rule),
-            rule,
-        );
-    }
-
     tracing::info!(?config.catalog_path, "persisting catalog database");
     let db = rusqlite::Connection::open(&config.catalog_path)
         .context("failed to open catalog database")?;
@@ -130,6 +115,7 @@ where
         mut projections,
         resources,
         schema_docs,
+        storage_mappings,
         test_steps,
         transforms,
     } = tables;
@@ -159,6 +145,7 @@ where
         &projections,
         &resources,
         &schema_docs,
+        &storage_mappings,
         &test_steps,
         &transforms,
     )
@@ -190,6 +177,7 @@ where
         projections,
         resources,
         schema_docs,
+        storage_mappings,
         test_steps,
         transforms,
     }
