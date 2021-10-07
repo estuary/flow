@@ -47,18 +47,18 @@ fn test_invalid_collection_names_prefixes_and_duplicates() {
         r#"
 test://example/catalog.yaml:
   collections:
-    good: &spec
+    testing/good: &spec
       schema: test://example/int-string.schema
       key: [/int]
 
     "": *spec
-    bad name: *spec
-    bad!name: *spec
+    testing/bad name: *spec
+    testing/bad!name: *spec
 
     # We require a sequence of non-empty tokens, separated by exactly one '/'.
-    bad//name: *spec
-    bad/name/: *spec
-    /bad/name: *spec
+    testing/bad//name: *spec
+    testing/bad/name/: *spec
+    /testing/bad/name: *spec
 
     # Invalid prefix of testing/int-string & others.
     testing: *spec
@@ -209,34 +209,34 @@ fn test_cross_entity_name_prefixes_and_duplicates() {
 test://example/catalog.yaml:
 
   collections:
-    a/b/1: &collection_spec
+    testing/b/1: &collection_spec
       schema: test://example/int-string.schema
       key: [/int]
 
-    a/b/3/suffix: *collection_spec
-    a/b/2: *collection_spec
+    testing/b/3/suffix: *collection_spec
+    testing/b/2: *collection_spec
 
   materializations:
-    a/b/2: &materialization_spec
+    testing/b/2: &materialization_spec
       endpoint:
         flowSink:
           image: an/image
           config: { a: config }
       bindings: []
 
-    a/b/1/suffix: *materialization_spec
-    a/b/3: *materialization_spec
+    testing/b/1/suffix: *materialization_spec
+    testing/b/3: *materialization_spec
 
   captures:
-    a/b/3: &capture_spec
+    testing/b/3: &capture_spec
       endpoint:
         airbyteSource:
           image: an/image
           config: { a: value }
       bindings: []
 
-    a/b/1: *capture_spec
-    a/b/2/suffix: *capture_spec
+    testing/b/1: *capture_spec
+    testing/b/2/suffix: *capture_spec
 "#,
     );
 }
@@ -912,6 +912,87 @@ test://example/int-string:
 }
 
 #[test]
+fn test_invalid_and_duplicate_storage_mappings() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  storageMappings:
+    - prefix: testing/ # Exact match of a mapping.
+      stores: &stores [{provider: S3, bucket: alternate-data-bucket}]
+    - prefix: recoverY/ # Prefix of another mapping.
+      stores: *stores
+    - prefix: Not-Matched/foobar/ # Another mapping is a prefix of this.
+      stores: *stores
+
+    - {prefix: "", stores: *stores}
+    - {prefix: bad space, stores: *stores}
+    - {prefix: bad!punctuation/, stores: *stores}
+    - {prefix: missingSlash, stores: *stores}
+    - {prefix: double//slash/, stores: *stores}
+    - {prefix: /leading/Slash/, stores: *stores}
+"#,
+    );
+}
+
+#[test]
+fn test_storage_mappings_not_imported() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  storageMappings: []
+
+test://example/array-key:
+  storageMappings:
+    - prefix: testing/
+      stores: [{provider: S3, bucket: data-bucket}]
+    - prefix: recovery/testing/
+      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+"#,
+    );
+}
+
+#[test]
+fn test_storage_mappings_not_found() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  storageMappings:
+    - prefix: TestinG/
+      stores: [{provider: S3, bucket: data-bucket}]
+    - prefix: RecoverY/TestinG/
+      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+"#,
+    );
+}
+
+#[test]
+fn test_no_storage_mappings_defined() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  storageMappings: []
+"#,
+    );
+}
+
+#[test]
+fn test_storage_mappings_without_prefix() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  storageMappings:
+    # This is allowed, and matches for all journals and tasks.
+    - stores: [{provider: S3, bucket: a-bucket}]
+"#,
+    );
+}
+
+#[test]
 fn test_collection_schema_string() {
     run_test_errors(
         &GOLDEN,
@@ -1091,6 +1172,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         mut projections,
         resources,
         schema_docs,
+        storage_mappings,
         test_steps,
         transforms,
     } = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
@@ -1120,6 +1202,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         &projections,
         &resources,
         &schema_docs,
+        &storage_mappings,
         &test_steps,
         &transforms,
     ));
@@ -1150,6 +1233,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         projections,
         resources,
         schema_docs,
+        storage_mappings,
         test_steps,
         transforms,
     }
