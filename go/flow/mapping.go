@@ -44,10 +44,18 @@ var _ message.Message = Mappable{}
 // Mapper maps IndexedCombineResponse documents into a corresponding logical
 // partition, creating that partition if it doesn't yet exist.
 type Mapper struct {
-	Ctx           context.Context
-	JournalClient pb.JournalClient
-	JournalRules  []pf.JournalRules_Rule
-	Journals      Journals
+	ctx      context.Context // TODO(johnny): Fix gazette so this is passed on the Map call.
+	jc       pb.JournalClient
+	journals Journals
+}
+
+// NewMapper builds and returns a new Mapper.
+func NewMapper(ctx context.Context, jc pb.JournalClient, journals Journals) Mapper {
+	return Mapper{
+		ctx:      ctx,
+		jc:       jc,
+		journals: journals,
+	}
 }
 
 // PartitionPointers returns JSON-pointers of partitioned fields of the collection.
@@ -74,10 +82,10 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 
 	for attempt := 0; true; attempt++ {
 		// Pick a partition at the current Etcd |revision|.
-		m.Journals.Mu.RLock()
-		var revision = m.Journals.Header.Revision
+		m.journals.Mu.RLock()
+		var revision = m.journals.Header.Revision
 		var picked = m.pickPartition(logicalPrefix, hexKey)
-		m.Journals.Mu.RUnlock()
+		m.journals.Mu.RUnlock()
 
 		if picked != nil {
 			// Partition already exists (the common case).
@@ -85,11 +93,25 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		}
 
 		// Build and attempt to apply a new physical partition for this logical partition.
-		var applySpec = BuildPartitionSpec(msg.Spec, msg.Partitions, m.JournalRules)
-		var applyResponse, err = client.ApplyJournals(m.Ctx, m.JournalClient, &pb.ApplyRequest{
+		var applySpec, err = BuildPartitionSpec(msg.Spec.PartitionTemplate,
+			// Build runtime labels of this partition from encoded logical
+			// partition values, and an initial single physical partition.
+			flowLabels.EncodePartitionLabels(
+				msg.Spec.PartitionFields, msg.Partitions,
+				// We're creating a single physical partition, which covers
+				// the full range of keys in the logical partition.
+				pb.MustLabelSet(
+					flowLabels.KeyBegin, flowLabels.KeyBeginMin,
+					flowLabels.KeyEnd, flowLabels.KeyEndMax,
+				)))
+		if err != nil {
+			panic(err) // Cannot fail because KeyBegin is always set.
+		}
+
+		applyResponse, err := client.ApplyJournals(m.ctx, m.jc, &pb.ApplyRequest{
 			Changes: []pb.ApplyRequest_Change{
 				{
-					Upsert:            &applySpec,
+					Upsert:            applySpec,
 					ExpectModRevision: 0,
 				},
 			},
@@ -138,9 +160,9 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			createdPartitionsCounters.WithLabelValues(msg.Spec.Collection.String()).Inc()
 		}
 
-		m.Journals.Mu.RLock()
-		err = m.Journals.WaitForRevision(m.Ctx, readThrough)
-		m.Journals.Mu.RUnlock()
+		m.journals.Mu.RLock()
+		err = m.journals.WaitForRevision(m.ctx, readThrough)
+		m.journals.Mu.RUnlock()
 
 		if err != nil {
 			return "", "", fmt.Errorf("awaiting journal revision '%d': %w", readThrough, err)
@@ -150,15 +172,15 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 }
 
 func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
-	b = append(b, m.Journals.Root...)
+	b = append(b, m.journals.Root...)
 	b = append(b, '/')
-	b = append(b, msg.Spec.Collection...)
+	b = append(b, msg.Spec.PartitionTemplate.Name...)
 	b = append(b, '/')
 
 	for i, field := range msg.Spec.PartitionFields {
 		b = append(b, field...)
 		b = append(b, '=')
-		b = encodePartitionElement(b, msg.Partitions[i])
+		b = flowLabels.EncodePartitionValue(b, msg.Partitions[i])
 		b = append(b, '/')
 	}
 	var pivot = len(b)
@@ -184,7 +206,7 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 	// the journals.Prefixed call.
 	var logicalPrefixStrUnsafe = *(*string)(unsafe.Pointer(&logicalPrefix))
 	// Map |logicalPrefix| into a set of physical partitions.
-	var physical = m.Journals.Prefixed(logicalPrefixStrUnsafe)
+	var physical = m.journals.Prefixed(logicalPrefixStrUnsafe)
 
 	// Find the first physical partition having KeyEnd > hexKey.
 	// Note we're performing this comparasion in a hex-encoded space.
