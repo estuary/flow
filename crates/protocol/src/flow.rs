@@ -218,7 +218,7 @@ pub mod inference {
         pub max_length: u32,
     }
 }
-/// Next tag: 9.
+/// Next tag: 10.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
     /// Name of this collection.
@@ -249,6 +249,9 @@ pub struct CollectionSpec {
     /// transaction acknowledgements of writes into this collection.
     #[prost(string, tag="7")]
     pub ack_json_template: ::prost::alloc::string::String,
+    /// Template for partitions of this collection.
+    #[prost(message, optional, tag="9")]
+    pub partition_template: ::core::option::Option<super::protocol::JournalSpec>,
 }
 /// TransformSpec describes a specific transform of a derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -270,6 +273,8 @@ pub struct TransformSpec {
     pub publish_lambda: ::core::option::Option<LambdaSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
+///
+/// Next tag: 7.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
@@ -285,6 +290,12 @@ pub struct DerivationSpec {
     /// Transforms of this derivation.
     #[prost(message, repeated, tag="4")]
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
+    /// Template for shards of this derivation.
+    #[prost(message, optional, tag="5")]
+    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    /// Template for recovery logs of shards of this derivation.
+    #[prost(message, optional, tag="6")]
+    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
 }
 /// FieldSelection is a selection of a collection's projection fields.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -307,6 +318,8 @@ pub struct FieldSelection {
     pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// CaptureSpec describes a collection and its capture from an endpoint.
+///
+/// Next tag: 8.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
     /// Name of this capture.
@@ -324,6 +337,12 @@ pub struct CaptureSpec {
     /// Minimum interval of time between successive invocations of the capture.
     #[prost(uint32, tag="5")]
     pub interval_seconds: u32,
+    /// Template for shards of this capture.
+    #[prost(message, optional, tag="6")]
+    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    /// Template for recovery logs of shards of this capture.
+    #[prost(message, optional, tag="7")]
+    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -345,6 +364,8 @@ pub mod capture_spec {
 }
 /// MaterializationSpec describes a collection and its materialization to an
 /// endpoint.
+///
+/// Next tag: 7.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
     /// Name of this materialization.
@@ -359,14 +380,21 @@ pub struct MaterializationSpec {
     pub endpoint_spec_json: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="4")]
     pub bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
+    /// Template for shards of this materialization.
+    #[prost(message, optional, tag="5")]
+    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    /// Template for recovery logs of shards of this materialization.
+    #[prost(message, optional, tag="6")]
+    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
-    /// Bindings of endpoint resources and collections from which they're materialized.
-    /// Bindings are ordered and unique on the bound collection name.
+    /// Bindings of endpoint resources and collections from which they're
+    /// materialized. Bindings are ordered and unique on the bound collection name.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
-        /// JSON-encoded object which specifies the endpoint resource to be materialized.
+        /// JSON-encoded object which specifies the endpoint resource to be
+        /// materialized.
         #[prost(string, tag="1")]
         pub resource_spec_json: ::prost::alloc::string::String,
         /// Driver-supplied path components which fully qualify the
@@ -489,29 +517,6 @@ pub mod journal_rules {
         pub template: ::core::option::Option<super::super::protocol::JournalSpec>,
     }
 }
-/// ShardRules are an ordered sequence of Rules which specify a
-/// condition -- as a label selector -- and, if matched, a template
-/// to apply to the base ShardSpec.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShardRules {
-    #[prost(message, repeated, tag="1")]
-    pub rules: ::prost::alloc::vec::Vec<shard_rules::Rule>,
-}
-/// Nested message and enum types in `ShardRules`.
-pub mod shard_rules {
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Rule {
-        /// Name of the rule.
-        #[prost(string, tag="1")]
-        pub rule: ::prost::alloc::string::String,
-        /// Label selector which must pass for the template to be applied.
-        #[prost(message, optional, tag="2")]
-        pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
-        /// Template to union into the base ShardSpec.
-        #[prost(message, optional, tag="3")]
-        pub template: ::core::option::Option<super::super::consumer::ShardSpec>,
-    }
-}
 /// SchemaBundle is a bundle of JSON schemas and their base URI.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaBundle {
@@ -628,15 +633,16 @@ pub struct SplitResponse {
 /// A CatalogTask is associated with a CatalogCommons, which provides all
 /// resources required by the current specification that may be shared
 /// with other CatalogTasks.
+/// TODO(johnny): Deprecated. CatalogTask is expected to go away
+/// as we move task specifications out of Etcd.
 ///
-/// Tags 1-10 are available for future use.
+/// Tags 1-9 are available for future use.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CatalogTask {
     /// Catalog commons used by this task.
     #[prost(string, tag="10")]
     pub commons_id: ::prost::alloc::string::String,
     /// A capture of a data source into a collection.
-    /// These don't do anything quite yet.
     #[prost(message, optional, tag="11")]
     pub capture: ::core::option::Option<CaptureSpec>,
     /// An ingested collection.
@@ -653,6 +659,8 @@ pub struct CatalogTask {
 /// CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
 /// opaque and unique identifier. A commons is garbage-collected when it's
 /// no longer referred to by any CatalogTasks.
+/// TODO(johnny): Deprecated. CatalogCommons is expected to go away
+/// as we move task specifications out of Etcd.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CatalogCommons {
     /// ID of this commons.
@@ -661,11 +669,9 @@ pub struct CatalogCommons {
     // Tags 2-9 are available for future use.
 
     /// Journal rules applied to create and update JournalSpecs.
+    /// Deprecated.
     #[prost(message, optional, tag="10")]
     pub journal_rules: ::core::option::Option<JournalRules>,
-    /// Shard rules applied to create and update ShardSpecs.
-    #[prost(message, optional, tag="11")]
-    pub shard_rules: ::core::option::Option<ShardRules>,
     /// Schema definitions, against which registers and sourced or derived
     /// documents are validated.
     #[prost(message, optional, tag="12")]
@@ -929,14 +935,6 @@ pub mod build_api {
         /// Path of the catalog database to write.
         #[prost(string, tag="4")]
         pub catalog_path: ::prost::alloc::string::String,
-        /// Optional supplemental journal rules to add, beyond those already in the
-        /// catalog. This is used to add development & testing overrides.
-        #[prost(message, optional, tag="5")]
-        pub extra_journal_rules: ::core::option::Option<super::JournalRules>,
-        /// Optional supplemental shard rules to add, beyond those already in the
-        /// catalog. This is used to add development & testing overrides.
-        #[prost(message, optional, tag="6")]
-        pub extra_shard_rules: ::core::option::Option<super::ShardRules>,
         /// Should the TypeScript package be generated?
         #[prost(bool, tag="7")]
         pub typescript_generate: bool,
@@ -947,7 +945,8 @@ pub mod build_api {
         /// Implies generation and compilation.
         #[prost(bool, tag="9")]
         pub typescript_package: bool,
-        /// The Docker network the connectors are given access to during catalog builds.
+        /// The Docker network the connectors are given access to during catalog
+        /// builds.
         #[prost(string, tag="10")]
         pub connector_network: ::prost::alloc::string::String,
     }
