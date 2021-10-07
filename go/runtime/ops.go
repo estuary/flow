@@ -83,7 +83,7 @@ type LogService struct {
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
 func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
-	var catalogTask, commons, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
+	var catalogTask, _, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -95,12 +95,7 @@ func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, task
 	if err = validateLogCollection(opsCollection); err != nil {
 		return nil, fmt.Errorf("logs collection spec is invalid: %w", err)
 	}
-	var mapper = flow.Mapper{
-		Ctx:           r.ctx,
-		JournalClient: r.ajc,
-		Journals:      r.journals,
-		JournalRules:  commons.JournalRules.Rules,
-	}
+	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
 	var partitions = tuple.Tuple{
 		shard.Kind,
 		shard.Name,

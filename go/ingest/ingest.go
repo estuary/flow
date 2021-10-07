@@ -257,12 +257,7 @@ func (i *Ingestion) Prepare() error {
 	}
 
 	for _, combine := range i.combines {
-		var mapper = flow.Mapper{
-			Ctx:           context.Background(),
-			JournalClient: i.ingester.JournalClient,
-			JournalRules:  combine.commons.JournalRules.Rules,
-			Journals:      i.ingester.Journals,
-		}
+		var mapper = flow.NewMapper(context.Background(), i.ingester.JournalClient, i.ingester.Journals)
 
 		var err = combine.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
