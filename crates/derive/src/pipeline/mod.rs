@@ -115,6 +115,8 @@ impl Pipeline {
             transforms,
             register_initial_json,
             register_schema_uri,
+            shard_template: _,
+            recovery_log_template: _,
         } = derivation.unwrap_or_default();
 
         let collection = collection.unwrap_or_default();
