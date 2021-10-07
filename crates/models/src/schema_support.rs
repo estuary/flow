@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::names::*;
 
 use schemars::schema;
@@ -80,4 +82,74 @@ impl PartitionSelector {
         }))
         .unwrap()
     }
+}
+
+impl CompressionCodec {
+    pub fn example() -> Self {
+        CompressionCodec::GzipOffloadDecompression
+    }
+}
+
+impl BucketType {
+    pub fn example() -> Self {
+        BucketType::S3
+    }
+}
+
+impl Store {
+    pub fn example() -> Self {
+        Self {
+            provider: BucketType::S3,
+            bucket: "my-bucket".to_string(),
+            prefix: None,
+        }
+    }
+}
+
+impl StorageMapping {
+    pub fn example() -> Self {
+        Self {
+            prefix: "acmeCo/widgets".to_string(),
+            stores: vec![Store::example()],
+        }
+    }
+}
+
+impl FragmentTemplate {
+    pub fn example() -> Self {
+        Self {
+            compression_codec: Some(CompressionCodec::Zstandard),
+            flush_interval: Some(Duration::from_secs(3600)),
+            ..Default::default()
+        }
+    }
+    pub fn duration_schema(g: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
+        duration_schema(g)
+    }
+}
+
+impl JournalTemplate {
+    pub fn example() -> Self {
+        Self {
+            fragments: FragmentTemplate::example(),
+        }
+    }
+}
+
+impl ShardTemplate {
+    pub fn example() -> Self {
+        Self {
+            max_txn_duration: Some(Duration::from_secs(30)),
+            hot_standbys: Some(1),
+            ..Default::default()
+        }
+    }
+}
+
+fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
+    from_value(json!({
+        "type": ["string", "null"],
+        "pattern": "^\\d+(s|m|h)$"
+    }))
+    .unwrap()
 }

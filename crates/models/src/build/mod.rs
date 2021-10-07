@@ -1,9 +1,10 @@
 use crate::{names, tables};
 use doc::inference::{Exists, Shape};
 use json::schema::types;
-use protocol::{flow, protocol as broker};
+use protocol::{consumer, flow, labels, protocol as broker};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 mod bundle;
 pub use bundle::bundled_schema;
@@ -27,16 +28,289 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     }
 }
 
+// partition_template returns a template JournalSpec for creating
+// or updating data partitions of the collection.
+pub fn partition_template(
+    collection: &names::Collection,
+    journals: &names::JournalTemplate,
+    stores: &[names::Store],
+) -> broker::JournalSpec {
+    let names::JournalTemplate {
+        fragments:
+            names::FragmentTemplate {
+                compression_codec,
+                flush_interval,
+                length,
+                retention,
+            },
+    } = journals.clone();
+
+    use names::CompressionCodec;
+
+    // Until there's a good reason otherwise, we hard-code that partition journals are replicated 3x.
+    let replication = 3;
+
+    // Use a supplied compression codec. Or, if none, then default to gzip.
+    let compression_codec = compression_codec
+        .unwrap_or(CompressionCodec::Gzip)
+        .into_proto();
+
+    // If an explicit flush interval isn't provided, then don't set one.
+    let flush_interval = flush_interval.map(Into::into);
+
+    // If a fragment length isn't set, default to 512MB.
+    let length = length.unwrap_or(1 << 29) as i64;
+
+    // Until there's a good reason otherwise, we hard-code that fragments include the UTC date
+    // and hour they were created as components of their path. This makes it easy to filter
+    // collections on time when making ad-hoc queries using the Hive partitioning scheme.
+    let path_postfix_template = r#"utc_date={{.Spool.FirstAppendTime.Format "2006-01-02"}}/utc_hour={{.Spool.FirstAppendTime.Format "15"}}"#.to_string();
+
+    // Until there's a good reason otherwise, we hard-code that fragments are refreshed every five minutes.
+    let refresh_interval = Some(Duration::from_secs(5 * 60).into());
+
+    // If an explicit retention interval isn't provided, then don't set one.
+    let retention = retention.map(Into::into);
+
+    // Partition journals are readable and writable.
+    // We could get fancier here by disabling writes to a journal which has no captures.
+    let flags = broker::journal_spec::Flag::ORdwr as u32;
+
+    // We hard-code max_append_rate to 4MB/s, which back-pressures derivations
+    // that produce lots of register updates. They'll hopefully perform more
+    // aggregation per-transaction, and eventually stall until there's quota.
+    // TODO(johnny): I sized this to be over the steady-state of our current
+    // use cases. We'll want to revisit this value when we have better tooling
+    // for splitting journals, and are able to study its cumulative effects
+    // with varietes of journals and use cases.
+    let max_append_rate = 1 << 22; // 4MB.
+
+    // Map stores into their URL forms.
+    let stores = stores.iter().map(|s| s.to_url().into()).collect();
+
+    // Labels must be in alphabetical order.
+    let labels = vec![
+        broker::Label {
+            name: labels::MANAGED_BY.to_string(),
+            value: labels::MANAGED_BY_FLOW.to_string(),
+        },
+        broker::Label {
+            name: labels::CONTENT_TYPE.to_string(),
+            value: labels::CONTENT_TYPE_JSON_LINES.to_string(),
+        },
+        broker::Label {
+            name: labels::COLLECTION.to_string(),
+            value: collection.to_string(),
+        },
+    ];
+
+    broker::JournalSpec {
+        name: collection.to_string(),
+        replication,
+        fragment: Some(broker::journal_spec::Fragment {
+            compression_codec,
+            flush_interval,
+            length,
+            path_postfix_template,
+            refresh_interval,
+            retention,
+            stores,
+        }),
+        flags,
+        labels: Some(broker::LabelSet { labels }),
+        max_append_rate,
+    }
+}
+
+// recovery_log_template returns a template JournalSpec for creating
+// or updating recovery logs of task shards.
+pub fn recovery_log_template(
+    task_name: &str,
+    task_type: &str,
+    stores: &[names::Store],
+) -> broker::JournalSpec {
+    use names::CompressionCodec;
+
+    // Until there's a good reason otherwise, we hard-code that recovery logs are replicated 3x.
+    let replication = 3;
+
+    // Use Snappy compression. Note that lower levels of an LSM tree
+    // typically apply their own compression, but the rocks WAL is
+    // uncompressed. Snappy has good support for passing-through content
+    // that's already compressed.
+    // TODO(johnny): Switch gazette to https://github.com/klauspost/compress/tree/master/s2
+    let compression_codec = CompressionCodec::Snappy.into_proto();
+
+    // Never set a flush interval for recovery logs.
+    let flush_interval = None;
+
+    // We hard-code a 256MB fragment size, which matches the typical RocksDB SST size.
+    let length = 1 << 28;
+
+    // Recovery logs don't use postfix templates.
+    let path_postfix_template = String::new();
+
+    // Until there's a good reason otherwise, we hard-code that fragments
+    // are refreshed every five minutes.
+    let refresh_interval = Some(Duration::from_secs(5 * 60).into());
+
+    // Never set a retention. Recovery logs are pruned using a separate mechanism.
+    let retention = None;
+
+    // Recovery logs are readable and writable.
+    let flags = broker::journal_spec::Flag::ORdwr as u32;
+
+    // We hard-code max_append_rate to 4MB/s, which back-pressures derivations
+    // that produce lots of register updates. They'll hopefully perform more
+    // aggregation per-transaction, and eventually stall until there's quota.
+    // TODO(johnny): We'll want to revisit this value when we can better
+    // study its cumulative effects with a varietes of journals and use cases.
+    let max_append_rate = 1 << 22; // 4MB.
+
+    // Map stores into their URL forms.
+    let stores = stores.iter().map(|s| s.to_url().into()).collect();
+
+    // Labels must be in alphabetical order.
+    let labels = vec![
+        broker::Label {
+            name: labels::MANAGED_BY.to_string(),
+            value: labels::MANAGED_BY_FLOW.to_string(),
+        },
+        broker::Label {
+            name: labels::CONTENT_TYPE.to_string(),
+            value: labels::CONTENT_TYPE_RECOVERY_LOG.to_string(),
+        },
+        broker::Label {
+            name: labels::TASK_NAME.to_string(),
+            value: task_name.to_string(),
+        },
+        broker::Label {
+            name: labels::TASK_TYPE.to_string(),
+            value: task_type.to_string(),
+        },
+    ];
+
+    broker::JournalSpec {
+        name: format!("recovery/{}", shard_id_base(task_name, task_type)),
+        replication,
+        fragment: Some(broker::journal_spec::Fragment {
+            compression_codec,
+            flush_interval,
+            length,
+            path_postfix_template,
+            refresh_interval,
+            retention,
+            stores,
+        }),
+        flags,
+        labels: Some(broker::LabelSet { labels }),
+        max_append_rate,
+    }
+}
+
+// shard_id_base returns the base Gazette Shard ID for the task name and type.
+// At runtime, this base ID is then '/'-joined with a hex-encoded
+// "{KeyBegin}-{RClockBegin}" suffix of the specific splits of the task,
+// to form complete shard IDs.
+// See also ShardSuffix in go/labels/partitions.go
+pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
+    let task_type = match task_type {
+        labels::TASK_TYPE_CAPTURE => "capture",
+        labels::TASK_TYPE_DERIVATION => "derivation",
+        labels::TASK_TYPE_MATERIALIZATION => "materialize",
+        _ => panic!("invalid task type {}", task_type),
+    };
+
+    format!("{}/{}", task_type, task_name)
+}
+
+// shard_template returns a template ShardSpec for creating or updating
+// shards of the task.
+pub fn shard_template(
+    task_name: &str,
+    task_type: &str,
+    shard: &names::ShardTemplate,
+    disable_wait_for_ack: bool,
+) -> consumer::ShardSpec {
+    let names::ShardTemplate {
+        disable,
+        hot_standbys,
+        max_txn_duration,
+        min_txn_duration,
+        read_channel_size,
+        ring_buffer_size,
+        log_level,
+    } = shard;
+
+    // We hard-code that recovery logs always have prefix "recovery".
+    let recovery_log_prefix = "recovery".to_string();
+    // We hard-code that hints are stored under this Etcd prefix.
+    let hint_prefix = "/estuary/flow/hints".to_string();
+    // We hard-code two hint backups per shard.
+    let hint_backups = 2;
+
+    // If not set, the maximum transaction duration is one second and the minimum is zero.
+    let max_txn_duration = max_txn_duration
+        .or(Some(Duration::from_secs(1)))
+        .map(Into::into);
+    let min_txn_duration = min_txn_duration.or(Some(Duration::ZERO)).map(Into::into);
+    // If not set, no hot standbys are used.
+    let hot_standbys = hot_standbys.unwrap_or(0);
+
+    // If not set, the default ring buffer size is 64k.
+    let ring_buffer_size = ring_buffer_size.unwrap_or(1 << 16);
+    // If not set, the default read channel size is 128k.
+    let read_channel_size = read_channel_size.unwrap_or(1 << 17);
+
+    // Labels must be in alphabetical order.
+    let labels = vec![
+        broker::Label {
+            name: labels::MANAGED_BY.to_string(),
+            value: labels::MANAGED_BY_FLOW.to_string(),
+        },
+        broker::Label {
+            name: labels::LOG_LEVEL.to_string(),
+            value: log_level.clone().unwrap_or_else(|| "info".to_string()),
+        },
+        broker::Label {
+            name: labels::TASK_NAME.to_string(),
+            value: task_name.to_string(),
+        },
+        broker::Label {
+            name: labels::TASK_TYPE.to_string(),
+            value: task_type.to_string(),
+        },
+    ];
+
+    consumer::ShardSpec {
+        id: shard_id_base(task_name, task_type),
+        disable: *disable,
+        disable_wait_for_ack,
+        hint_backups,
+        hint_prefix,
+        hot_standbys,
+        labels: Some(broker::LabelSet { labels }),
+        max_txn_duration,
+        min_txn_duration,
+        read_channel_size,
+        recovery_log_prefix,
+        ring_buffer_size,
+        sources: Vec::new(),
+    }
+}
+
 pub fn collection_spec(
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     schema_bundle: &Value,
+    stores: &[names::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
         collection: name,
         scope: _,
         schema,
         key,
+        journals,
     } = collection;
 
     let partition_fields = projections
@@ -64,6 +338,7 @@ pub fn collection_spec(
             } })
         .to_string()
         .into(),
+        partition_template: Some(partition_template(name, journals, stores)),
     }
 }
 
@@ -72,7 +347,7 @@ pub fn journal_selector(
     selector: &Option<names::PartitionSelector>,
 ) -> broker::LabelSelector {
     let mut include = vec![broker::Label {
-        name: "estuary.dev/collection".to_owned(),
+        name: labels::COLLECTION.to_string(),
         value: collection.to_string(),
     }];
     let mut exclude = Vec::new();
@@ -208,21 +483,41 @@ pub fn derivation_spec(
     derivation: &tables::Derivation,
     collection: &tables::BuiltCollection,
     mut transforms: Vec<flow::TransformSpec>,
+    recovery_stores: &[names::Store],
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
-        derivation: _,
+        derivation: name,
         register_schema,
         register_initial,
+        shards,
     } = derivation;
 
     transforms.sort_by(|l, r| l.transform.cmp(&r.transform));
+
+    // We should disable waiting for acknowledgements only if
+    // the derivation reads from itself.
+    let disable_wait_for_ack = transforms
+        .iter()
+        .map(|t| &t.shuffle.as_ref().unwrap().source_collection)
+        .any(|n| n == name.as_str());
 
     flow::DerivationSpec {
         collection: Some(collection.spec.clone()),
         transforms,
         register_schema_uri: register_schema.to_string(),
         register_initial_json: register_initial.to_string(),
+        recovery_log_template: Some(recovery_log_template(
+            name,
+            labels::TASK_TYPE_DERIVATION,
+            recovery_stores,
+        )),
+        shard_template: Some(shard_template(
+            name,
+            labels::TASK_TYPE_DERIVATION,
+            shards,
+            disable_wait_for_ack,
+        )),
     }
 }
 

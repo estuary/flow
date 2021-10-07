@@ -11,9 +11,12 @@ protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
 bytes = "*"
+humantime-serde = "*"
+lazy_static = "*"
 pathfinding = "*"
 percent-encoding = "*"
 prost = "*"
+regex = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
@@ -21,6 +24,7 @@ serde_json = { version =  "*", features = ["raw_value"] }
 superslice = "*"
 url = "*"
 uuid = { version = "*", features = ["serde"] }
+validator = { version = "*", features = ["derive"] }
 
 [dev-dependencies]
 sources = { path = "../sources", version = "0.0.0" }
