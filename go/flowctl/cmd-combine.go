@@ -146,10 +146,6 @@ func drainToStdout(combiner *bindings.Combine) (outputDocs uint64, outputBytes u
 		outputDocs++
 		outputBytes = outputBytes + uint64(len(doc))
 		fmt.Println(string(doc))
-
-		if len(packedKey) <= 1 {
-			return fmt.Errorf("Failed to extract key from output document: %d", outputDocs)
-		}
 		return nil
 	})
 	return
