@@ -38,13 +38,8 @@ pub enum Error {
         suggest_name: String,
         suggest_scope: Url,
     },
-    #[error(
-        "could not map {this_entity} {this_thing} into a storage mapping because none are defined"
-    )]
-    NoStorageMappings {
-        this_thing: String,
-        this_entity: &'static str,
-    },
+    #[error("at least one storage mapping must be defined")]
+    NoStorageMappings {},
     #[error("could not map {this_entity} {this_thing} into a storage mapping; did you mean {suggest_name} defined at {suggest_scope}?")]
     NoStorageMappingSuggest {
         this_thing: String,
