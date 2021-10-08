@@ -72,6 +72,7 @@ pub async fn validate<D: Drivers>(
     if let Some(f) = fetches.first() {
         root_scope = &f.resource;
     }
+    let root_scope = root_scope;
 
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
         Ok(c) => c,
@@ -107,6 +108,12 @@ pub async fn validate<D: Drivers>(
     npm_dependency::walk_all_npm_dependencies(npm_dependencies, &mut errors);
     journal_rule::walk_all_journal_rules(journal_rules, &mut errors);
     storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
+
+    // At least one storage mapping is required iff this isn't a
+    // build of a JSON schema.
+    if storage_mappings.is_empty() && !collections.is_empty() {
+        Error::NoStorageMappings {}.push(root_scope, &mut errors);
+    }
 
     let (built_collections, implicit_projections) = collection::walk_all_collections(
         collections,
