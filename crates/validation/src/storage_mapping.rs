@@ -6,8 +6,12 @@ use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
     storage_mappings: &[tables::StorageMapping],
+    root_scope: &url::Url,
     errors: &mut tables::Errors,
 ) {
+    if storage_mappings.is_empty() {
+        Error::NoStorageMappings {}.push(root_scope, errors);
+    }
     for m in storage_mappings {
         if m.prefix.is_empty() {
             // Prefix is allowed to be empty. Continue because
@@ -68,12 +72,7 @@ pub fn mapped_stores<'a>(
             &m.stores
         }
         None if storage_mappings.is_empty() => {
-            Error::NoStorageMappings {
-                this_thing: name.to_string(),
-                this_entity: entity,
-            }
-            .push(scope, errors);
-
+            // We produce a single, top-level error if no mappings are defined.
             &EMPTY_STORES
         }
         None => {
