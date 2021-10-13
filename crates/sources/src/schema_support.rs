@@ -160,10 +160,10 @@ impl MaterializationBinding {
 impl MaterializationFields {
     pub fn example() -> Self {
         MaterializationFields {
-            include: vec![("added".to_string(), names::Object::new())]
+            include: vec![(names::Field::new("added"), names::Object::new())]
                 .into_iter()
                 .collect(),
-            exclude: vec!["removed".to_string()],
+            exclude: vec![names::Field::new("removed")],
             recommended: true,
         }
     }

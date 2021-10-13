@@ -334,8 +334,8 @@ fn walk_materialization_fields<'a>(
     scope: &Url,
     materialization: &str,
     built_collection: &tables::BuiltCollection,
-    include: &BTreeMap<String, names::Object>,
-    exclude: &[String],
+    include: &BTreeMap<names::Field, names::Object>,
+    exclude: &[names::Field],
     errors: &mut tables::Errors,
 ) -> Vec<(String, String)> {
     let flow::CollectionSpec {
@@ -347,12 +347,12 @@ fn walk_materialization_fields<'a>(
     let mut bag = Vec::new();
 
     for (field, config) in include {
-        if projections.iter().any(|p| p.field == *field) {
-            bag.push((field.clone(), serde_json::to_string(config).unwrap()));
+        if projections.iter().any(|p| p.field == field.as_str()) {
+            bag.push((field.to_string(), serde_json::to_string(config).unwrap()));
         } else {
             Error::NoSuchProjection {
                 category: "include".to_string(),
-                field: field.clone(),
+                field: field.to_string(),
                 collection: collection.clone(),
             }
             .push(scope, errors);
@@ -360,10 +360,10 @@ fn walk_materialization_fields<'a>(
     }
 
     for field in exclude {
-        if !projections.iter().any(|p| p.field == *field) {
+        if !projections.iter().any(|p| p.field == field.as_str()) {
             Error::NoSuchProjection {
                 category: "exclude".to_string(),
-                field: field.clone(),
+                field: field.to_string(),
                 collection: collection.clone(),
             }
             .push(scope, errors);
@@ -425,7 +425,7 @@ fn walk_materialization_response(
     let projections = projections
         .iter()
         .sorted_by_key(|p| {
-            let must_include = include.get(&p.field).is_some()
+            let must_include = include.get(&names::Field::new(&p.field)).is_some()
                 || constraints
                     .get(&p.field)
                     .map(|c| c.r#type == Type::FieldRequired as i32)
@@ -469,8 +469,8 @@ fn walk_materialization_response(
         let key_index = key_ptrs.iter().enumerate().find(|(_, k)| *k == ptr);
 
         let resolution = match (
-            include.get(field).is_some(),
-            exclude.iter().any(|f| f == field),
+            include.get(&names::Field::new(field)).is_some(),
+            exclude.iter().any(|f| f.as_str() == field),
             type_,
         ) {
             // Selector / driver constraints conflict internally:
@@ -536,7 +536,7 @@ fn walk_materialization_response(
                 }
 
                 // Pass-through JSON-encoded field configuration.
-                if let Some(cfg) = include.get(field) {
+                if let Some(cfg) = include.get(&names::Field::new(field)) {
                     field_config.insert(field.clone(), serde_json::to_string(cfg).unwrap());
                 }
                 // Mark location as having been selected.

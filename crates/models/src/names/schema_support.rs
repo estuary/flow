@@ -1,65 +1,8 @@
-use std::time::Duration;
-
-use super::names::*;
-
 use schemars::schema;
 use serde_json::{from_value, json};
+use std::time::Duration;
 
-impl Collection {
-    pub fn example() -> Self {
-        Self::new("acmeCo/collection")
-    }
-    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
-        from_value(json!({
-            "type": "string",
-            "pattern": "^[^ \t\n\\!@#$%^&*()+=\\<\\>?;:'\"\\[\\]\\|~`]+$",
-        }))
-        .unwrap()
-    }
-}
-
-impl Transform {
-    pub fn example() -> Self {
-        Self::new("my transform")
-    }
-}
-
-impl Capture {
-    pub fn example() -> Self {
-        Self::new("acmeCo/capture")
-    }
-}
-
-impl Materialization {
-    pub fn example() -> Self {
-        Self::new("acmeCo/materialization")
-    }
-}
-
-impl Test {
-    pub fn example() -> Self {
-        Self::new("my test")
-    }
-}
-
-impl Rule {
-    pub fn example() -> Self {
-        Self::new("00: Rule")
-    }
-}
-
-impl JsonPointer {
-    pub fn example() -> Self {
-        Self::new("/json/ptr")
-    }
-    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schema::Schema {
-        from_value(json!({
-            "type": "string",
-            "pattern": "^(/[^/]+)*$",
-        }))
-        .unwrap()
-    }
-}
+use crate::names::*;
 
 impl Lambda {
     pub fn example_typescript() -> Self {
@@ -109,7 +52,7 @@ impl Store {
 impl StorageMapping {
     pub fn example() -> Self {
         Self {
-            prefix: "acmeCo/widgets".to_string(),
+            prefix: Prefix::new("acmeCo/widgets/"),
             stores: vec![Store::example()],
         }
     }

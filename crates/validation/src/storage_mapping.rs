@@ -105,7 +105,7 @@ fn lookup_mapping<'a>(
         .checked_sub(1)
         .and_then(|i| storage_mappings.get(i))
         // Then test if it's indeed a prefix of |name|. It may not be.
-        .filter(|m| name.starts_with(&m.prefix))
+        .filter(|m| name.starts_with(m.prefix.as_str()))
 }
 
 static EMPTY_STORES: Vec<names::Store> = Vec::new();
@@ -113,15 +113,16 @@ static EMPTY_STORES: Vec<names::Store> = Vec::new();
 #[cfg(test)]
 mod test {
     use super::{lookup_mapping, tables::StorageMappings};
+    use models::names::Prefix;
 
     #[test]
     fn test_matched_mapping() {
         let mut mappings = StorageMappings::new();
         let scope = url::Url::parse("http://scope").unwrap();
 
-        mappings.insert_row(&scope, "foo/".to_string(), Vec::new());
-        mappings.insert_row(&scope, "bar/one/".to_string(), Vec::new());
-        mappings.insert_row(&scope, "bar/two/".to_string(), Vec::new());
+        mappings.insert_row(&scope, Prefix::new("foo/"), Vec::new());
+        mappings.insert_row(&scope, Prefix::new("bar/one/"), Vec::new());
+        mappings.insert_row(&scope, Prefix::new("bar/two/"), Vec::new());
 
         assert!(lookup_mapping(&mappings, "foo/foo").is_some());
         assert!(lookup_mapping(&mappings, "fooo/foo").is_none());

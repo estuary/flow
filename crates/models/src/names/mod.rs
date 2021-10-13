@@ -2,214 +2,18 @@ use lazy_static::lazy_static;
 use protocol::protocol as broker;
 use regex::Regex;
 use schemars::JsonSchema;
-use serde::{de::Error as SerdeError, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use validator::Validate;
 
-// This module holds project-wide, type-safe wrappers, enums, and *very* simple
-// structures which identify or name Flow concepts, and must be referenced from
-// multiple different crates.
+mod references;
+mod schema_support;
 
-/// Collection names consist of Unicode letters, numbers, and symbols: - _ . /
-///
-/// Spaces and other special characters are disallowed.
-#[derive(
-    Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[schemars(example = "Collection::example")]
-pub struct Collection(#[schemars(schema_with = "Collection::schema")] String);
-
-impl Collection {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Collection {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Transform::example")]
-pub struct Transform(String);
-
-impl Transform {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Transform {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Capture names a Flow capture.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Capture::example")]
-pub struct Capture(String);
-
-impl Capture {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Capture {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Materialization names a Flow materialization.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Materialization::example")]
-pub struct Materialization(String);
-
-impl Materialization {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Materialization {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Test names a Flow catalog test.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Test::example")]
-pub struct Test(String);
-
-impl Test {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for Test {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Rule names a specification rule.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "Rule::example")]
-pub struct Rule(String);
-
-impl Rule {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-}
-
-impl std::ops::Deref for Rule {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// JSON Pointer which identifies a location in a document.
-#[derive(Serialize, Debug, Clone, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[schemars(example = "JsonPointer::example")]
-pub struct JsonPointer(#[schemars(schema_with = "JsonPointer::schema")] String);
-
-impl JsonPointer {
-    pub fn new(ptr: impl Into<String>) -> Self {
-        Self(ptr.into())
-    }
-}
-
-impl std::ops::Deref for JsonPointer {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl AsRef<str> for JsonPointer {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for JsonPointer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-
-        if !s.is_empty() && !s.starts_with("/") {
-            Err(D::Error::custom(
-                "non-empty JSON pointer must begin with '/'",
-            ))
-        } else {
-            Ok(JsonPointer(s))
-        }
-    }
-}
-
-/// Ordered JSON-Pointers which define how a composite key may be extracted from
-/// a collection document.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
-#[schemars(example = "CompositeKey::example")]
-pub struct CompositeKey(Vec<JsonPointer>);
-
-impl CompositeKey {
-    pub fn new(parts: impl Into<Vec<JsonPointer>>) -> Self {
-        Self(parts.into())
-    }
-    pub fn example() -> Self {
-        CompositeKey(vec![JsonPointer::example()])
-    }
-}
-
-impl std::ops::Deref for CompositeKey {
-    type Target = Vec<JsonPointer>;
-
-    fn deref(&self) -> &Vec<JsonPointer> {
-        &self.0
-    }
-}
-
-/// Object is an alias for a JSON object.
-pub type Object = serde_json::Map<String, Value>;
+pub use references::{
+    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, Object, Prefix, Rule,
+    Test, Transform,
+};
 
 /// Lambdas are user functions which are invoked by the Flow runtime to
 /// process and transform source collection documents into derived collections.
@@ -294,20 +98,7 @@ pub enum BucketType {
     Azure,
 }
 
-// TODO(johnny): Regex validations that currently live in the `validation`
-// crate will consolidated and applied as #[validate(regex)] field annotations.
-// This also allows schemars to generate schemas with these patterns.
-const TOKEN: &'static str = r"[\p{Letter}\p{Digit}\-_\.]+";
-
 lazy_static! {
-    // CATALOG_NAME_RE is components of unicode letters and numbers with a strict
-    // subset of other allowed punctuation symbols, joined by a single '/'.
-    // Compare to Gazette's ValidateToken and TokenSymbols:
-    // https://github.com/gazette/core/blob/master/broker/protocol/validator.go#L52
-    static ref CATALOG_NAME_RE: Regex = Regex::new(&["^", TOKEN, "(/", TOKEN, ")*", "$"].concat()).unwrap();
-    // CATALOG_PREFIX_RE is components of CATALOG_NAME_RE, ending with a final '/'.
-    // Note that CATALOG_NAME_RE is *not* allowed to end in '/'.
-    static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["^", "(", TOKEN, "/)*", "$"].concat()).unwrap();
     // BUCKET_RE matches a cloud provider bucket. Simplified from (look-around removed):
     // https://stackoverflow.com/questions/50480924/regex-for-s3-bucket-name
     static ref BUCKET_RE: Regex =
@@ -316,41 +107,10 @@ lazy_static! {
 
 #[cfg(test)]
 mod test {
-    use super::{BUCKET_RE, CATALOG_NAME_RE, CATALOG_PREFIX_RE};
+    use super::BUCKET_RE;
 
     #[test]
     fn test_regexes() {
-        for (case, expect) in [
-            ("valid", true),
-            ("valid/1", true),
-            ("valid/one/va_lid", true),
-            ("valid-1/valid/2/th.ree", true),
-            ("Приключения/Foo", true),
-            ("/bad/leading/slash", false),
-            ("bad/trailing/slash/", false),
-            ("bad-middle//slash", false),
-            ("", false),
-            ("a-bad/sp ace", false),
-            ("/", false),
-        ] {
-            assert!(CATALOG_NAME_RE.is_match(case) == expect);
-        }
-
-        for (case, expect) in [
-            ("valid/", true),
-            ("valid/1/", true),
-            ("valid/one/va_lid/", true),
-            ("valid-1/valid/2/th.ree/", true),
-            ("Приключения/Foo/", true),
-            ("/bad/leading/slash", false),
-            ("bad-middle//slash", false),
-            ("", true),
-            ("a-bad/sp ace/", false),
-            ("/", false),
-        ] {
-            assert!(CATALOG_PREFIX_RE.is_match(case) == expect);
-        }
-
         for (case, expect) in [
             ("foo.bar.baz", true),
             ("foo-bar-baz", true),
@@ -383,9 +143,9 @@ pub struct Store {
     #[validate(regex = "BUCKET_RE")]
     pub bucket: String,
     /// Optional prefix of keys written to the bucket.
-    #[validate(regex = "CATALOG_PREFIX_RE")]
+    #[validate]
     #[serde(default)]
-    pub prefix: Option<String>,
+    pub prefix: Option<Prefix>,
 }
 
 impl Store {
@@ -395,7 +155,7 @@ impl Store {
             BucketType::Gcs => "gs",
             BucketType::S3 => "s3",
         };
-        let prefix = self.prefix.as_ref().map(String::as_str).unwrap_or("");
+        let prefix = self.prefix.as_ref().map(Prefix::as_str).unwrap_or("");
         url::Url::parse(&format!("{}://{}/{}", scheme, self.bucket, prefix))
             .expect("parsing as URL should never fail")
     }
@@ -407,9 +167,9 @@ impl Store {
 // #[schemars(example = "StorageMapping::example_absolute")]
 pub struct StorageMapping {
     // Catalog prefix to which this storage mapping applies.
-    #[validate(regex = "CATALOG_PREFIX_RE")]
+    #[validate]
     #[serde(default)]
-    pub prefix: String,
+    pub prefix: Prefix,
     /// # Stores for journal fragments under this prefix.
     ///
     /// Multiple stores may be specified, and all stores are periodically scanned

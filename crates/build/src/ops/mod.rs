@@ -119,12 +119,12 @@ fn add_ops_collection(
         ("rangeKeyBegin", "/shard/keyBegin"),
         ("rangeRClockBegin", "/shard/rClockBegin"),
     ];
-    for projection in projections {
+    for (field, ptr) in projections {
         tables.projections.insert_row(
             scope.clone(),
             name.clone(),
-            projection.0.to_string(),
-            names::JsonPointer::new(projection.1),
+            names::Field::new(*field),
+            names::JsonPointer::new(*ptr),
             true,
             true,
         );
