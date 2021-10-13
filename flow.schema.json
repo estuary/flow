@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
   "title": "Catalog",
   "description": "Each catalog source defines a portion of a Flow Catalog, by defining collections, derivations, tests, and materializations of the Catalog. Catalog sources may reference and import other sources, in order to collections and other entities that source defines.",
   "type": "object",
@@ -15,18 +15,46 @@
     "captures": {
       "title": "Captures of this Catalog.",
       "default": {},
+      "examples": [
+        {
+          "acmeCo/capture": {
+            "bindings": [
+              {
+                "resource": {
+                  "stream": "a_stream"
+                },
+                "target": "target/collection"
+              }
+            ],
+            "endpoint": {
+              "airbyteSource": {
+                "config": {},
+                "image": "connector/image:tag"
+              }
+            },
+            "interval": "5m",
+            "shards": {}
+          }
+        }
+      ],
       "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/CaptureDef"
-      }
+      "patternProperties": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
+          "$ref": "#/definitions/CaptureDef"
+        }
+      },
+      "additionalProperties": false
     },
     "collections": {
-      "title": "Collections defined by this Catalog.",
+      "title": "Collections of this Catalog.",
       "default": {},
       "examples": [
         {
           "acmeCo/collection": {
             "derivation": null,
+            "journals": {
+              "fragments": {}
+            },
             "key": [
               "/json/ptr"
             ],
@@ -36,41 +64,59 @@
         }
       ],
       "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/CollectionDef"
-      }
+      "patternProperties": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
+          "$ref": "#/definitions/CollectionDef"
+        }
+      },
+      "additionalProperties": false
     },
     "import": {
       "title": "Import other Flow catalog sources.",
       "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
       "default": [],
-      "examples": [
-        [
-          "../path/to/local.yaml",
-          "https://example/resource"
-        ]
-      ],
       "type": "array",
       "items": {
-        "$ref": "#/definitions/RelativeUrl"
-      }
-    },
-    "journalRules": {
-      "title": "Journal rules of the Catalog.",
-      "description": "Rules which template and modify the JournalSpecs managed by Flow. Each rule may specify a label selector, which must be matched for the rule to apply. Rules are evaluated in ascending global lexical order of their rule name.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/JournalRule"
+        "$ref": "#/definitions/Import"
       }
     },
     "materializations": {
       "title": "Materializations of this Catalog.",
       "default": {},
+      "examples": [
+        {
+          "acmeCo/materialization": {
+            "bindings": [
+              {
+                "fields": {
+                  "exclude": [],
+                  "include": {},
+                  "recommended": true
+                },
+                "partitions": null,
+                "resource": {
+                  "table": "a_table"
+                },
+                "source": "source/collection"
+              }
+            ],
+            "endpoint": {
+              "flowSink": {
+                "config": {},
+                "image": "connector/image:tag"
+              }
+            },
+            "shards": {}
+          }
+        }
+      ],
       "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MaterializationDef"
-      }
+      "patternProperties": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
+          "$ref": "#/definitions/MaterializationDef"
+        }
+      },
+      "additionalProperties": false
     },
     "npmDependencies": {
       "title": "NPM package dependencies of the Catalog.",
@@ -83,16 +129,48 @@
         "type": "string"
       }
     },
-    "tests": {
-      "default": {
-        "Test that fob quips ipsum": []
-      },
+    "resources": {
+      "title": "Inlined resources of the catalog.",
+      "description": "Inline resources are intended for Flow API clients (only), and are used to bundle multiple resources into a single POSTed catalog document. Each key must be an absolute URL which is referenced from elsewhere in the Catalog, which is also the URL from which this resource was fetched.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ResourceDef"
+      }
+    },
+    "storageMappings": {
+      "default": {},
       "examples": [
         {
-          "Test that fob quips ipsum": [
+          "acmeCo/widgets/": {
+            "stores": [
+              {
+                "bucket": "my-bucket",
+                "prefix": null,
+                "provider": "S3"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "object",
+      "patternProperties": {
+        "^([a-zA-Z0-9\\-_\\.]+/)*$": {
+          "$ref": "#/definitions/StorageDef"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tests": {
+      "title": "Tests of this Catalog.",
+      "default": {},
+      "examples": [
+        {
+          "acmeCo/conversions/test": [
             {
               "ingest": {
                 "collection": "acmeCo/collection",
+                "description": "Description of the ingestion.",
                 "documents": [
                   {
                     "example": "document"
@@ -106,6 +184,7 @@
             {
               "verify": {
                 "collection": "acmeCo/collection",
+                "description": "Description of the verification.",
                 "documents": [
                   {
                     "expected": "document"
@@ -118,12 +197,15 @@
         }
       ],
       "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "items": {
-          "$ref": "#/definitions/TestStep"
+      "patternProperties": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TestStep"
+          }
         }
-      }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -147,6 +229,26 @@
         }
       }
     },
+    "BucketType": {
+      "description": "BucketType is a provider of object storage buckets, which are used to durably storage journal fragments.",
+      "examples": [
+        "S3"
+      ],
+      "type": "string",
+      "enum": [
+        "GCS",
+        "S3",
+        "AZURE"
+      ]
+    },
+    "Capture": {
+      "description": "Capture names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "examples": [
+        "acmeCo/capture"
+      ],
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
+    },
     "CaptureBinding": {
       "examples": [
         {
@@ -169,11 +271,7 @@
         },
         "target": {
           "title": "Name of the collection to capture into.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
+          "$ref": "#/definitions/Collection"
         }
       },
       "additionalProperties": false
@@ -195,11 +293,7 @@
         },
         "endpoint": {
           "title": "Endpoint to capture from.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/CaptureEndpoint"
-            }
-          ]
+          "$ref": "#/definitions/CaptureEndpoint"
         },
         "interval": {
           "title": "Interval of time between invocations of the capture.",
@@ -210,13 +304,18 @@
             "null"
           ],
           "pattern": "^\\d+(s|m|h)$"
+        },
+        "shards": {
+          "title": "Template for shards of this capture task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
         }
       },
       "additionalProperties": false
     },
     "CaptureEndpoint": {
       "description": "An Endpoint connector used for Flow captures.",
-      "anyOf": [
+      "oneOf": [
         {
           "title": "An Airbyte source connector.",
           "type": "object",
@@ -227,35 +326,27 @@
             "airbyteSource": {
               "$ref": "#/definitions/AirbyteSourceConfig"
             }
-          }
-        },
-        {
-          "title": "A remote implementation of an endpoint gRPC driver.",
-          "type": "object",
-          "required": [
-            "remote"
-          ],
-          "properties": {
-            "remote": {
-              "$ref": "#/definitions/RemoteDriverConfig"
-            }
-          }
+          },
+          "additionalProperties": false
         }
       ]
     },
     "Collection": {
-      "description": "Collection names consist of Unicode letters, numbers, and symbols: - _ . /\n\nSpaces and other special characters are disallowed.",
+      "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
         "acmeCo/collection"
       ],
       "type": "string",
-      "pattern": "^[^ \t\n\\!@#$%^&*()+=\\<\\>?;:'\"\\[\\]\\|~`]+$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "CollectionDef": {
       "description": "Collection describes a set of related documents, where each adheres to a common schema and grouping key. Collections are append-only: once a document is added to a collection, it is never removed. However, it may be replaced or updated (either in whole, or in part) by a future document sharing its key. Each new document of a given key is \"reduced\" into existing documents of the key. By default, this reduction is achieved by completely replacing the previous document, but much richer reduction behaviors can be specified through the use of annotated reduction strategies of the collection schema.",
       "examples": [
         {
           "derivation": null,
+          "journals": {
+            "fragments": {}
+          },
           "key": [
             "/json/ptr"
           ],
@@ -280,39 +371,43 @@
             }
           ]
         },
+        "journals": {
+          "title": "Template for journals of this collection.",
+          "default": {
+            "fragments": {}
+          },
+          "$ref": "#/definitions/JournalTemplate"
+        },
         "key": {
           "title": "Composite key of this collection.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/CompositeKey"
-            }
-          ]
+          "$ref": "#/definitions/CompositeKey"
         },
         "projections": {
           "title": "Projections and logical partitions of this collection.",
-          "default": {
-            "a_field": "/json/ptr",
-            "a_partition": {
-              "location": "/json/ptr",
-              "partition": true
+          "default": {},
+          "examples": [
+            {
+              "a_field": "/json/ptr",
+              "a_partition": {
+                "location": "/json/ptr",
+                "partition": true
+              }
+            }
+          ],
+          "type": "object",
+          "patternProperties": {
+            "^([^/~]|(~[01]))+(/([^/~]|(~[01]))+)*$": {
+              "$ref": "#/definitions/Projection"
             }
           },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Projections"
-            }
-          ]
+          "additionalProperties": false
         },
         "schema": {
           "title": "Schema against which collection documents are validated and reduced.",
           "examples": [
             "../path/to/schema#/$defs/subPath"
           ],
-          "allOf": [
-            {
-              "$ref": "#/definitions/Schema"
-            }
-          ]
+          "$ref": "#/definitions/Schema"
         }
       },
       "additionalProperties": false
@@ -330,12 +425,12 @@
       }
     },
     "CompressionCodec": {
+      "description": "A CompressionCodec may be applied to compress journal fragments before they're persisted to cloud stoage. The compression applied to a journal fragment is included in its filename, such as \".gz\" for GZIP. A collection's compression may be changed at any time, and will affect newly-written journal fragments.",
       "examples": [
         "GZIP_OFFLOAD_DECOMPRESSION"
       ],
       "type": "string",
       "enum": [
-        "INVALID",
         "NONE",
         "GZIP",
         "ZSTANDARD",
@@ -343,33 +438,24 @@
         "GZIP_OFFLOAD_DECOMPRESSION"
       ]
     },
+    "ContentType": {
+      "description": "ContentType is the type of an imported resource's content.",
+      "examples": [
+        "CATALOG"
+      ],
+      "type": "string",
+      "enum": [
+        "CATALOG",
+        "JSON_SCHEMA",
+        "TYPESCRIPT_MODULE"
+      ]
+    },
     "Derivation": {
       "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
-      "examples": [
-        {
-          "register": {
-            "initial": null,
-            "schema": true
-          },
-          "transform": {
-            "nameOfTransform": {
-              "priority": 0,
-              "publish": {
-                "lambda": "typescript"
-              },
-              "readDelay": null,
-              "shuffle": null,
-              "source": {
-                "name": "source/collection",
-                "partitions": null,
-                "schema": null
-              },
-              "update": null
-            }
-          }
-        }
-      ],
       "type": "object",
+      "required": [
+        "transform"
+      ],
       "properties": {
         "register": {
           "title": "Register configuration of this derivation.",
@@ -377,28 +463,51 @@
             "initial": null,
             "schema": true
           },
-          "allOf": [
-            {
-              "$ref": "#/definitions/Register"
-            }
-          ]
+          "$ref": "#/definitions/Register"
+        },
+        "shards": {
+          "title": "Template for shards of this derivation task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
         },
         "transform": {
           "title": "Transforms which make up this derivation.",
-          "default": {
-            "nameOfTransform": {
-              "source": {
-                "name": "a/source/collection"
-              }
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9\\-_\\.]+$": {
+              "$ref": "#/definitions/TransformDef"
             }
           },
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/Transform"
-          }
+          "additionalProperties": false,
+          "example": [
+            {
+              "nameOfTransform": {
+                "priority": 0,
+                "publish": {
+                  "lambda": "typescript"
+                },
+                "readDelay": null,
+                "shuffle": null,
+                "source": {
+                  "name": "source/collection",
+                  "partitions": null,
+                  "schema": null
+                },
+                "update": null
+              }
+            }
+          ]
         }
       },
       "additionalProperties": false
+    },
+    "Field": {
+      "description": "Field names a projection of a document location. They may include '/', but cannot begin or end with one. Many Fields are automatically inferred by Flow from a collection JSON Schema, and are the JSON Pointer of the document location with the leading '/' removed. User-provided Fields which act as a logical partitions are restricted to Unicode letters, numbers, '-', '_', or '.'",
+      "examples": [
+        "my_field"
+      ],
+      "type": "string",
+      "pattern": "^([^/~]|(~[01]))+(/([^/~]|(~[01]))+)*$"
     },
     "FlowSinkConfig": {
       "description": "Flow sink connector specification.",
@@ -419,172 +528,30 @@
         }
       }
     },
-    "JournalRule": {
+    "FragmentTemplate": {
+      "description": "A FragmentTemplate configures how journal fragment files are produced as part of a collection.",
       "examples": [
         {
-          "selector": {
-            "exclude": {
-              "labels": []
-            },
-            "include": {
-              "labels": [
-                {
-                  "name": "estuary.dev/collection",
-                  "value": "a/collection"
-                }
-              ]
-            }
-          },
-          "template": {
-            "fragment": {
-              "compression_codec": "INVALID",
-              "flush_interval": "0s",
-              "length": 0,
-              "path_postfix_template": "",
-              "refresh_interval": "0s",
-              "retention": "0s",
-              "stores": [
-                "s3://my-bucket/path"
-              ]
-            },
-            "labels": {
-              "labels": []
-            },
-            "max_append_rate": 0,
-            "replication": 0
-          }
-        }
-      ],
-      "type": "object",
-      "required": [
-        "template"
-      ],
-      "properties": {
-        "selector": {
-          "title": "Selector which determines whether the rule applies.",
-          "default": {
-            "exclude": {
-              "labels": []
-            },
-            "include": {
-              "labels": []
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/LabelSelector"
-            }
-          ]
-        },
-        "template": {
-          "title": "Template applied to the journal's specification.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/JournalSpec"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "JournalSpec": {
-      "examples": [
-        {
-          "fragment": {
-            "compression_codec": "INVALID",
-            "flush_interval": "0s",
-            "length": 0,
-            "path_postfix_template": "",
-            "refresh_interval": "0s",
-            "retention": "0s",
-            "stores": [
-              "s3://bucket/and/path"
-            ]
-          },
-          "labels": {
-            "labels": []
-          },
-          "max_append_rate": 0,
-          "replication": 0
+          "compressionCodec": "ZSTANDARD",
+          "flushInterval": "1h"
         }
       ],
       "type": "object",
       "properties": {
-        "fragment": {
-          "title": "Fragment defines how journal content is mapped to fragment files.",
-          "default": {
-            "compression_codec": "INVALID",
-            "flush_interval": "0s",
-            "length": 0,
-            "path_postfix_template": "",
-            "refresh_interval": "0s",
-            "retention": "0s",
-            "stores": []
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/JournalSpecFragment"
-            }
-          ]
-        },
-        "labels": {
-          "title": "Assigned journal labels.",
-          "description": "Labels are a multi-map, where each label name may include multiple values.",
-          "default": {
-            "labels": []
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/LabelSet"
-            }
-          ]
-        },
-        "max_append_rate": {
-          "title": "Maximum rate, in bytes-per-second, at which data may be written to a journal.",
-          "description": "If zero, no journal-specific rate limiting is applied.",
-          "default": 0,
-          "type": "integer",
-          "format": "int64"
-        },
-        "replication": {
-          "title": "Desired replication of journals.",
-          "description": "The default value is three, meaning that three machines in two deployment zones must fail before data loss can occur.",
-          "default": 0,
-          "type": "integer",
-          "format": "int32"
-        }
-      },
-      "additionalProperties": false
-    },
-    "JournalSpecFragment": {
-      "examples": [
-        {
-          "compression_codec": "INVALID",
-          "flush_interval": "0s",
-          "length": 0,
-          "path_postfix_template": "",
-          "refresh_interval": "0s",
-          "retention": "0s",
-          "stores": [
-            "s3://bucket/and/path"
-          ]
-        }
-      ],
-      "type": "object",
-      "properties": {
-        "compression_codec": {
+        "compressionCodec": {
           "title": "Codec used to compress Journal Fragments.",
-          "default": "INVALID",
-          "allOf": [
+          "anyOf": [
             {
               "$ref": "#/definitions/CompressionCodec"
+            },
+            {
+              "type": "null"
             }
           ]
         },
-        "flush_interval": {
-          "title": "Maximum flush delay before in-progress fragments are closed and persisted into cloud storage.",
-          "description": "Intervals are converted into uniform time segments: 24h will \"roll\" all fragments at midnight UTC every day, 1h at the top of every hour, 15m a :00, :15, :30, :45 past the hour, and so on.",
-          "default": "0s",
+        "flushInterval": {
+          "title": "Maximum flush delay before in-progress fragments are closed and persisted",
+          "description": "into cloud storage. Intervals are converted into uniform time segments: 24h will \"roll\" all fragments at midnight UTC every day, 1h at the top of every hour, 15m a :00, :15, :30, :45 past the hour, and so on. If not set, then fragments are not flushed on time-based intervals.",
           "type": [
             "string",
             "null"
@@ -592,44 +559,79 @@
           "pattern": "^\\d+(s|m|h)$"
         },
         "length": {
-          "title": "Desired byte content length of each fragment, before compression.",
-          "description": "When a journal fragment reaches this threshold, it will be closed off and a new one started, making its way to cloud storage.",
-          "default": 0,
-          "type": "integer",
-          "format": "int64"
-        },
-        "path_postfix_template": {
-          "title": "Path postfix template evaluates to a partial path under which fragments are persisted to the store.",
-          "default": "",
-          "type": "string"
-        },
-        "refresh_interval": {
-          "title": "Period between refreshes of fragment listings from configured stores.",
-          "default": "0s",
+          "title": "Desired content length of each fragment, in megabytes before compression.",
+          "description": "When a collection journal fragment reaches this threshold, it will be closed off and pushed to cloud storage. If not set, a default of 512MB is used.",
           "type": [
-            "string",
+            "integer",
             "null"
           ],
-          "pattern": "^\\d+(s|m|h)$"
+          "format": "uint32",
+          "maximum": 4096.0,
+          "minimum": 32.0
         },
         "retention": {
-          "title": "Duration for which historical data of a journal should be kept.",
-          "description": "If zero, then fragments are retained indefinitely.",
-          "default": "0s",
+          "title": "Duration for which historical fragments of a collection should be kept.",
+          "description": "If not set, then fragments are retained indefinitely.",
           "type": [
             "string",
             "null"
           ],
           "pattern": "^\\d+(s|m|h)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Import": {
+      "description": "Import a referenced Resource into the catalog.",
+      "examples": [
+        "./a/flow.yaml",
+        {
+          "contentType": "JSON_SCHEMA",
+          "url": "https://example/schema.json"
+        }
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RelativeUrl"
         },
-        "stores": {
-          "title": "Storage backend base path for this Journal's Fragments.",
-          "description": "Must be in URL form, with the choice of backend defined by the scheme. The persisted path of a journal fragment is determined by joining the current store path with the journal name, and finally a content-address fragment file name.\n\nEg, given a store of \"s3://My-AWS-bucket/a/prefix\" and a journal of name \"my/journal\", a complete persisted path might be: \"s3://My-AWS-bucket/a/prefix/my/journal/000123-000456-789abcdef.gzip\n\nMultiple stores may be specified, and all stores are reguarly scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.\n\nAt least one store must be specified.",
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
+        {
+          "type": "object",
+          "required": [
+            "contentType",
+            "url"
+          ],
+          "properties": {
+            "contentType": {
+              "title": "The content-type of the imported resource.",
+              "$ref": "#/definitions/ContentType"
+            },
+            "url": {
+              "title": "The resource to import.",
+              "$ref": "#/definitions/RelativeUrl"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "JournalTemplate": {
+      "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
+      "examples": [
+        {
+          "fragments": {
+            "compressionCodec": "ZSTANDARD",
+            "flushInterval": "1h"
           }
+        }
+      ],
+      "type": "object",
+      "required": [
+        "fragments"
+      ],
+      "properties": {
+        "fragments": {
+          "title": "Fragment configuration of collection journals.",
+          "$ref": "#/definitions/FragmentTemplate"
         }
       },
       "additionalProperties": false
@@ -640,106 +642,7 @@
         "/json/ptr"
       ],
       "type": "string",
-      "pattern": "^(/[^/]+)*$"
-    },
-    "Label": {
-      "examples": [
-        {
-          "name": "a/label",
-          "value": "value"
-        }
-      ],
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "title": "Name of the Label.",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value of the Label.",
-          "description": "When used within a selector, if value is empty or omitted than the label selection matches any value.",
-          "default": "",
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
-    "LabelSelector": {
-      "examples": [
-        {
-          "exclude": {
-            "labels": [
-              {
-                "name": "a/label",
-                "value": "value"
-              }
-            ]
-          },
-          "include": {
-            "labels": [
-              {
-                "name": "a/label",
-                "value": "value"
-              }
-            ]
-          }
-        }
-      ],
-      "type": "object",
-      "properties": {
-        "exclude": {
-          "title": "Excluded labels of the selector.",
-          "default": {
-            "labels": []
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/LabelSet"
-            }
-          ]
-        },
-        "include": {
-          "title": "Included labels of the selector.",
-          "default": {
-            "labels": []
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/LabelSet"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "LabelSet": {
-      "examples": [
-        {
-          "labels": [
-            {
-              "name": "a/label",
-              "value": "value"
-            }
-          ]
-        }
-      ],
-      "type": "object",
-      "required": [
-        "labels"
-      ],
-      "properties": {
-        "labels": {
-          "description": "Labels of the set.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Label"
-          }
-        }
-      },
-      "additionalProperties": false
+      "pattern": "^(/([^/~]|(~[01]))+)*$"
     },
     "Lambda": {
       "description": "Lambdas are user functions which are invoked by the Flow runtime to process and transform source collection documents into derived collections. Flow supports multiple lambda run-times, with a current focus on TypeScript and remote HTTP APIs.\n\nTypeScript lambdas are invoked within on-demand run-times, which are automatically started and scaled by Flow's task distribution in order to best co-locate data and processing, as well as to manage fail-over.\n\nRemote lambdas may be called from many Flow tasks, and are up to the API provider to provision and scale.",
@@ -749,7 +652,7 @@
           "remote": "http://example/api"
         }
       ],
-      "anyOf": [
+      "oneOf": [
         {
           "type": "string",
           "enum": [
@@ -765,9 +668,18 @@
             "remote": {
               "type": "string"
             }
-          }
+          },
+          "additionalProperties": false
         }
       ]
+    },
+    "Materialization": {
+      "description": "Materialization names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "examples": [
+        "acmeCo/materialization"
+      ],
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "MaterializationBinding": {
       "examples": [
@@ -797,11 +709,7 @@
             "include": {},
             "recommended": true
           },
-          "allOf": [
-            {
-              "$ref": "#/definitions/MaterializationFields"
-            }
-          ]
+          "$ref": "#/definitions/MaterializationFields"
         },
         "partitions": {
           "title": "Selector over partitions of the source collection to read.",
@@ -835,11 +743,7 @@
         },
         "source": {
           "title": "Name of the collection to be materialized.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
+          "$ref": "#/definitions/Collection"
         }
       },
       "additionalProperties": false
@@ -861,41 +765,31 @@
         },
         "endpoint": {
           "title": "Endpoint to materialize into.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/MaterializationEndpoint"
-            }
-          ]
+          "$ref": "#/definitions/MaterializationEndpoint"
+        },
+        "shards": {
+          "title": "Template for shards of this materialization task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
         }
       },
       "additionalProperties": false
     },
     "MaterializationEndpoint": {
       "description": "An Endpoint connector used for Flow materializations.",
-      "anyOf": [
+      "oneOf": [
         {
-          "title": "A PostgreSQL database.",
+          "title": "A Flow sink.",
           "type": "object",
           "required": [
-            "postgres"
+            "flowSink"
           ],
           "properties": {
-            "postgres": {
-              "$ref": "#/definitions/PostgresConfig"
+            "flowSink": {
+              "$ref": "#/definitions/FlowSinkConfig"
             }
-          }
-        },
-        {
-          "title": "A remote implementation of an endpoint gRPC driver.",
-          "type": "object",
-          "required": [
-            "remote"
-          ],
-          "properties": {
-            "remote": {
-              "$ref": "#/definitions/RemoteDriverConfig"
-            }
-          }
+          },
+          "additionalProperties": false
         },
         {
           "title": "A SQLite database.",
@@ -907,10 +801,12 @@
             "sqlite": {
               "$ref": "#/definitions/SqliteConfig"
             }
-          }
+          },
+          "additionalProperties": false
         },
         {
           "title": "A Snowflake database.",
+          "description": "Deprecated. Use the connector docker image instead.",
           "type": "object",
           "required": [
             "snowflake"
@@ -919,31 +815,8 @@
             "snowflake": {
               "$ref": "#/definitions/SnowflakeConfig"
             }
-          }
-        },
-        {
-          "title": "A Webhook.",
-          "type": "object",
-          "required": [
-            "webhook"
-          ],
-          "properties": {
-            "webhook": {
-              "$ref": "#/definitions/WebhookConfig"
-            }
-          }
-        },
-        {
-          "title": "A Flow sink.",
-          "type": "object",
-          "required": [
-            "flowSink"
-          ],
-          "properties": {
-            "flowSink": {
-              "$ref": "#/definitions/FlowSinkConfig"
-            }
-          }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -971,7 +844,7 @@
           "default": [],
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/Field"
           }
         },
         "include": {
@@ -1032,48 +905,16 @@
       },
       "additionalProperties": false
     },
-    "PostgresConfig": {
-      "description": "PostgreSQL endpoint configuration. Compare to https://pkg.go.dev/github.com/lib/pq#hdr-Connection_String_Parameters",
-      "type": "object",
-      "required": [
-        "host",
-        "password",
-        "user"
+    "Prefix": {
+      "description": "Prefixes are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/'. Prefixes may not begin in a '/', but must end in one.",
+      "examples": [
+        "acmeCo/widgets/"
       ],
-      "properties": {
-        "dbname": {
-          "title": "Logical database (default: $user).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "host": {
-          "title": "Host address of the database.",
-          "type": "string"
-        },
-        "password": {
-          "title": "Connection password.",
-          "type": "string"
-        },
-        "port": {
-          "title": "Port of the database (default: 5432).",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint16",
-          "minimum": 0.0
-        },
-        "user": {
-          "title": "Connection user.",
-          "type": "string"
-        }
-      },
-      "additionalProperties": true
+      "type": "string",
+      "pattern": "^([a-zA-Z0-9\\-_\\.]+/)*$"
     },
     "Projection": {
-      "description": "A projection representation that allows projections to be specified either as a simple JSON Pointer, or as an object with separate properties for the location and partition indicator.",
+      "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.",
       "anyOf": [
         {
           "$ref": "#/definitions/JsonPointer"
@@ -1086,36 +927,17 @@
           "properties": {
             "location": {
               "title": "Location of this projection.",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/JsonPointer"
-                }
-              ]
+              "$ref": "#/definitions/JsonPointer"
             },
             "partition": {
               "title": "Is this projection a logical partition?",
               "default": false,
               "type": "boolean"
             }
-          }
+          },
+          "additionalProperties": false
         }
       ]
-    },
-    "Projections": {
-      "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.",
-      "examples": [
-        {
-          "a_field": "/json/ptr",
-          "a_partition": {
-            "location": "/json/ptr",
-            "partition": true
-          }
-        }
-      ],
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/Projection"
-      }
     },
     "Publish": {
       "description": "Publish lambdas take a source document, a current register and (if there is also an \"update\" lambda) a previous register, and transform them into one or more documents to be published into a derived collection.",
@@ -1131,11 +953,7 @@
       "properties": {
         "lambda": {
           "title": "Lambda invoked by the publish.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Lambda"
-            }
-          ]
+          "$ref": "#/definitions/Lambda"
         }
       },
       "additionalProperties": false
@@ -1154,11 +972,7 @@
         },
         "schema": {
           "title": "Schema which validates and reduces register documents.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Schema"
-            }
-          ]
+          "$ref": "#/definitions/Schema"
         }
       },
       "additionalProperties": false
@@ -1166,26 +980,33 @@
     "RelativeUrl": {
       "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
       "examples": [
-        "../path/to/local.yaml",
         "https://example/resource"
       ],
-      "type": "string"
+      "type": "string",
+      "pattern": "^[^ ]+$"
     },
-    "RemoteDriverConfig": {
+    "ResourceDef": {
+      "description": "A Resource is binary content with an associated ContentType.",
       "type": "object",
       "required": [
-        "address"
+        "content",
+        "contentType"
       ],
       "properties": {
-        "address": {
-          "title": "gRPC address of the driver.",
-          "type": "string"
+        "content": {
+          "title": "Byte content of the Resource.",
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "contentType": {
+          "title": "Content type of the Resource.",
+          "$ref": "#/definitions/ContentType"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "Schema": {
-      "description": "A schema is a draft 2019-09 JSON Schema which validates Flow documents. Schemas also provide annotations at document locations, such as reduction strategies for combining one document into another.\n\nSchemas may be defined inline to the catalog, or given as a relative or absolute URI. URIs may optionally include a JSON fragment pointer that locates a specific sub-schema therein.\n\nI.e, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
+      "description": "A schema is a draft 2020-12 JSON Schema which validates Flow documents. Schemas also provide annotations at document locations, such as reduction strategies for combining one document into another.\n\nSchemas may be defined inline to the catalog, or given as a relative or absolute URI. URIs may optionally include a JSON fragment pointer that locates a specific sub-schema therein.\n\nFor example, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
       "examples": [
         "http://example/schema#/$defs/subPath",
         "../path/to/schema#/$defs/subPath",
@@ -1228,25 +1049,89 @@
         }
       ]
     },
+    "ShardTemplate": {
+      "description": "A ShardTemplate configures how shards process a catalog task.",
+      "examples": [
+        {
+          "hotStandbys": 1,
+          "maxTxnDuration": "30s"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "disable": {
+          "title": "Disable processing of the task's shards.",
+          "type": "boolean"
+        },
+        "hotStandbys": {
+          "title": "Number of hot standbys to keep for each task shard.",
+          "description": "Hot standbys of a shard actively replicate the shard's state to another machine, and are able to be quickly promoted to take over processing for the shard should its current primary fail. If not set, then no hot standbys are maintained. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "logLevel": {
+          "title": "Log level of this tasks's shards.",
+          "description": "Log levels may currently be \"error\", \"warn\", \"info\", \"debug\", or \"trace\". If not set, the effective log level is \"info\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxTxnDuration": {
+          "title": "Maximum duration of task transactions.",
+          "description": "This duration upper-bounds the amount of time during which a transaction may process documents before it must flush and commit. It may run for less time if there aren't additional ready documents for it to process. If not set, the maximum duration defaults to one second. Some tasks, particularly materializations to large analytic warehouses like Snowflake, may benefit from a longer duration such as thirty seconds. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "minTxnDuration": {
+          "title": "Minimum duration of task transactions.",
+          "description": "This duration lower-bounds the amount of time during which a transaction must process documents before it must flush and commit. It may run for more time if additional documents are available. The default value is zero seconds. Larger values may result in more data reduction, at the cost of more latency. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "readChannelSize": {
+          "title": "Size of the reader channel used for decoded documents.",
+          "description": "Larger values are recommended for tasks having more than one shard split and long, bursty transaction durations. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "ringBufferSize": {
+          "title": "Size of the ring buffer used to sequence documents for exactly-once semantics.",
+          "description": "The ring buffer is a performance optimization only: catalog tasks will replay portions of journals as needed when messages aren't available in the buffer. It can remain small if upstream task transactions are small, but larger transactions will achieve better performance with a larger ring. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
     "Shuffle": {
       "description": "A Shuffle specifies how a shuffling key is to be extracted from collection documents.",
       "examples": [
         {
-          "priority": 0,
-          "publish": {
-            "lambda": "typescript"
-          },
-          "readDelay": null,
-          "shuffle": null,
-          "source": {
-            "name": "source/collection",
-            "partitions": null,
-            "schema": null
-          },
-          "update": null
+          "key": [
+            "/json/ptr"
+          ]
         }
       ],
-      "anyOf": [
+      "oneOf": [
         {
           "description": "Shuffle by extracting the given fields.",
           "type": "object",
@@ -1257,7 +1142,8 @@
             "key": {
               "$ref": "#/definitions/CompositeKey"
             }
-          }
+          },
+          "additionalProperties": false
         },
         {
           "description": "Invoke the lambda for each source document, and shuffle on its returned key.",
@@ -1269,7 +1155,8 @@
             "lambda": {
               "$ref": "#/definitions/Lambda"
             }
-          }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -1319,20 +1206,81 @@
       "properties": {
         "path": {
           "title": "Path of the database, relative to this catalog source.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/RelativeUrl"
-            }
-          ]
+          "$ref": "#/definitions/RelativeUrl"
         }
       },
       "additionalProperties": true
     },
+    "StorageDef": {
+      "description": "Storage defines the backing cloud storage for journals.",
+      "type": "object",
+      "required": [
+        "stores"
+      ],
+      "properties": {
+        "stores": {
+          "title": "Stores for journal fragments under this prefix.",
+          "description": "Multiple stores may be specified, and all stores are periodically scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.\n\nWhen running `flowctl test`, stores are ignored and a local temporary directory is used instead.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Store"
+          }
+        }
+      }
+    },
+    "Store": {
+      "description": "A Store into which Flow journal fragments may be written.\n\nThe persisted path of a journal fragment is determined by composing the Store's bucket and prefix with the journal name and a content-addressed fragment file name.\n\nEg, given a Store to S3 with bucket \"my-bucket\" and prefix \"a/prefix\", along with a collection \"example/events\" having a logical partition \"region\", then a complete persisted path might be:\n\ns3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip",
+      "examples": [
+        {
+          "bucket": "my-bucket",
+          "prefix": null,
+          "provider": "S3"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "bucket",
+        "provider"
+      ],
+      "properties": {
+        "bucket": {
+          "description": "Bucket into which Flow will store data.",
+          "type": "string",
+          "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+        },
+        "prefix": {
+          "description": "Optional prefix of keys written to the bucket.",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Prefix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider": {
+          "description": "Cloud storage provider.",
+          "$ref": "#/definitions/BucketType"
+        }
+      }
+    },
+    "Test": {
+      "description": "Test names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "examples": [
+        "acmeCo/conversions/test"
+      ],
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
+    },
     "TestStep": {
+      "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",
       "examples": [
         {
           "ingest": {
             "collection": "acmeCo/collection",
+            "description": "Description of the ingestion.",
             "documents": [
               {
                 "example": "document"
@@ -1346,6 +1294,7 @@
         {
           "verify": {
             "collection": "acmeCo/collection",
+            "description": "Description of the verification.",
             "documents": [
               {
                 "expected": "document"
@@ -1355,7 +1304,7 @@
           }
         }
       ],
-      "anyOf": [
+      "oneOf": [
         {
           "description": "Ingest document fixtures into a collection.",
           "type": "object",
@@ -1366,7 +1315,8 @@
             "ingest": {
               "$ref": "#/definitions/TestStepIngest"
             }
-          }
+          },
+          "additionalProperties": false
         },
         {
           "description": "Verify the contents of a collection match a set of document fixtures.",
@@ -1378,7 +1328,8 @@
             "verify": {
               "$ref": "#/definitions/TestStepVerify"
             }
-          }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -1387,6 +1338,7 @@
       "examples": [
         {
           "collection": "acmeCo/collection",
+          "description": "Description of the ingestion.",
           "documents": [
             {
               "example": "document"
@@ -1405,11 +1357,12 @@
       "properties": {
         "collection": {
           "title": "Name of the collection into which the test will ingest.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
+          "$ref": "#/definitions/Collection"
+        },
+        "description": {
+          "title": "Description of this test ingestion.",
+          "default": "",
+          "type": "string"
         },
         "documents": {
           "title": "Documents to ingest.",
@@ -1425,6 +1378,7 @@
       "examples": [
         {
           "collection": "acmeCo/collection",
+          "description": "Description of the verification.",
           "documents": [
             {
               "expected": "document"
@@ -1441,11 +1395,12 @@
       "properties": {
         "collection": {
           "title": "Collection into which the test will ingest.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
+          "$ref": "#/definitions/Collection"
+        },
+        "description": {
+          "title": "Description of this test verification.",
+          "default": "",
+          "type": "string"
         },
         "documents": {
           "title": "Documents to verify.",
@@ -1482,6 +1437,14 @@
       "additionalProperties": false
     },
     "Transform": {
+      "description": "Transform names are Unicode letters, numbers, '-', '_', or '.'.",
+      "examples": [
+        "myTransform"
+      ],
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+$"
+    },
+    "TransformDef": {
       "description": "A Transform reads and shuffles documents of a source collection, and processes each document through either one or both of a register \"update\" lambda and a derived document \"publish\" lambda.",
       "examples": [
         {
@@ -1514,9 +1477,12 @@
         },
         "publish": {
           "title": "Publish that maps a source document and registers into derived documents of the collection.",
-          "default": {
-            "lambda": "typescript"
-          },
+          "default": null,
+          "examples": [
+            {
+              "lambda": "typescript"
+            }
+          ],
           "anyOf": [
             {
               "$ref": "#/definitions/Publish"
@@ -1539,8 +1505,13 @@
         "shuffle": {
           "title": "Shuffle by which source documents are mapped to registers.",
           "description": "If empty, the key of the source collection is used.",
-          "default": [
-            "/json/ptr"
+          "default": null,
+          "examples": [
+            {
+              "key": [
+                "/json/ptr"
+              ]
+            }
           ],
           "anyOf": [
             {
@@ -1553,17 +1524,16 @@
         },
         "source": {
           "title": "Source collection read by this transform.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/TransformSource"
-            }
-          ]
+          "$ref": "#/definitions/TransformSource"
         },
         "update": {
           "title": "Update that maps a source document into register updates.",
-          "default": {
-            "lambda": "typescript"
-          },
+          "default": null,
+          "examples": [
+            {
+              "lambda": "typescript"
+            }
+          ],
           "anyOf": [
             {
               "$ref": "#/definitions/Update"
@@ -1577,7 +1547,7 @@
       "additionalProperties": false
     },
     "TransformSource": {
-      "description": "SourcePartitions is optional partitions of a read source collection.",
+      "description": "TransformSource defines a transformation source collection and how it's read.",
       "examples": [
         {
           "name": "source/collection",
@@ -1591,29 +1561,28 @@
       ],
       "properties": {
         "name": {
-          "title": "Name of the collection to be materialized.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            }
-          ]
+          "title": "Name of the collection to be read.",
+          "$ref": "#/definitions/Collection"
         },
         "partitions": {
           "title": "Selector over partition of the source collection to read.",
-          "default": {
-            "exclude": {
-              "other_partition": [
-                32,
-                64
-              ]
-            },
-            "include": {
-              "a_partition": [
-                "A",
-                "B"
-              ]
+          "default": null,
+          "examples": [
+            {
+              "exclude": {
+                "other_partition": [
+                  32,
+                  64
+                ]
+              },
+              "include": {
+                "a_partition": [
+                  "A",
+                  "B"
+                ]
+              }
             }
-          },
+          ],
           "anyOf": [
             {
               "$ref": "#/definitions/PartitionSelector"
@@ -1626,7 +1595,10 @@
         "schema": {
           "title": "Optional JSON-Schema to validate against the source collection.",
           "description": "All data in the source collection is already validated against the schema of that collection, so providing a source schema is only used for _additional_ validation beyond that.\n\nThis is useful in building \"Extract Load Transform\" patterns, where a collection is captured with minimal schema applied (perhaps because it comes from an uncontrolled third party), and is then progressively verified as collections are derived. If None, the principal schema of the collection is used instead.",
-          "default": "../path/to/schema#/$defs/subPath",
+          "default": null,
+          "examples": [
+            "../path/to/schema#/$defs/subPath"
+          ],
           "anyOf": [
             {
               "$ref": "#/definitions/Schema"
@@ -1653,28 +1625,10 @@
       "properties": {
         "lambda": {
           "title": "Lambda invoked by the update.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/Lambda"
-            }
-          ]
+          "$ref": "#/definitions/Lambda"
         }
       },
       "additionalProperties": false
-    },
-    "WebhookConfig": {
-      "description": "Webhook configuration.",
-      "type": "object",
-      "required": [
-        "address"
-      ],
-      "properties": {
-        "address": {
-          "title": "URL address of the Webhook.",
-          "type": "string"
-        }
-      },
-      "additionalProperties": true
     }
   }
 }
