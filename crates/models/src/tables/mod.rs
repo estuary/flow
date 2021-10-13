@@ -48,7 +48,7 @@ tables!(
     table StorageMappings (row StorageMapping, order_by [prefix], sql "storage_mappings") {
         scope: url::Url,
         // Catalog prefix to which this storage mapping applies.
-        prefix: String,
+        prefix: names::Prefix,
         // Stores for journal fragments under this prefix.
         stores: Vec<names::Store>,
     }
@@ -68,7 +68,7 @@ tables!(
     table Projections (row Projection, order_by [collection field], sql "projections") {
         scope: url::Url,
         collection: names::Collection,
-        field: String,
+        field: names::Field,
         location: names::JsonPointer,
         // Is this projection a logically partitioned field?
         partition: bool,
@@ -168,10 +168,10 @@ tables!(
         // Collection from which documents are materialized.
         collection: names::Collection,
         // Fields which must not be included in the materialization.
-        fields_exclude: Vec<String>,
+        fields_exclude: Vec<names::Field>,
         // Fields which must be included in the materialization,
         // and driver-specific field configuration.
-        fields_include: BTreeMap<String, names::Object>,
+        fields_include: BTreeMap<names::Field, names::Object>,
         // Should recommended fields be selected ?
         fields_recommended: bool,
         // Selector over logical partitions of the source collection.
@@ -431,16 +431,19 @@ primitive_sql_types!(
 string_wrapper_types!(
     names::Capture,
     names::Collection,
+    names::Field,
     names::JsonPointer,
     names::Materialization,
+    names::Prefix,
     names::Rule,
     names::Test,
     names::Transform,
 );
 
 json_sql_types!(
-    BTreeMap<String, names::Object>,
+    BTreeMap<names::Field, names::Object>,
     Vec<String>,
+    Vec<names::Field>,
     Vec<names::Store>,
     Vec<serde_json::Value>,
     names::CompositeKey,
