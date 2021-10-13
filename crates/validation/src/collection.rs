@@ -119,12 +119,13 @@ fn walk_collection_projections(
     );
 
     let mut specs = Vec::new();
-    for eob in projections
-        .iter()
-        .merge_join_by(schema_shape.fields.iter(), |projection, (field, _)| {
-            projection.field.cmp(field)
-        })
-    {
+    for eob in projections.iter().merge_join_by(
+        schema_shape
+            .fields
+            .iter()
+            .map(|(f, p)| (names::Field::new(f), p)),
+        |projection, (field, _)| projection.field.cmp(field),
+    ) {
         let (spec, implicit) =
             walk_projection_with_inference(collection, eob, schema_shape, errors);
 
@@ -141,15 +142,15 @@ fn walk_collection_projections(
 
 fn walk_projection_with_inference(
     collection: &tables::Collection,
-    eob: EitherOrBoth<&tables::Projection, &(String, names::JsonPointer)>,
+    eob: EitherOrBoth<&tables::Projection, (names::Field, &names::JsonPointer)>,
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
 ) -> (Option<flow::Projection>, Option<tables::Projection>) {
-    let (scope, field, location, projection) = match eob {
+    let (scope, field, location, projection) = match &eob {
         EitherOrBoth::Both(projection, (field, location)) => {
-            if &projection.location != location {
+            if &projection.location != *location {
                 Error::ProjectionRemapsCanonicalField {
-                    field: field.clone(),
+                    field: field.to_string(),
                     canonical_ptr: location.to_string(),
                     wrong_ptr: projection.location.to_string(),
                 }
@@ -168,7 +169,7 @@ fn walk_projection_with_inference(
             &projection.location,
             Some(projection),
         ),
-        EitherOrBoth::Right((field, location)) => (&collection.scope, field, location, None),
+        EitherOrBoth::Right((field, location)) => (&collection.scope, field, *location, None),
     };
 
     let (shape, exists) = match schema_shape.shape.locate(&doc::Pointer::from_str(location)) {
@@ -185,7 +186,7 @@ fn walk_projection_with_inference(
 
     let mut spec = flow::Projection {
         ptr: location.to_string(),
-        field: field.clone(),
+        field: field.to_string(),
         user_provided: false,
         is_primary_key: collection.key.iter().any(|k| k == location),
         is_partition_key: false,
@@ -247,7 +248,7 @@ pub fn walk_selector(
 
     for (category, labels) in &[("include", include), ("exclude", exclude)] {
         for (field, values) in labels.iter() {
-            let partition = match projections.iter().find(|p| p.field == *field) {
+            let partition = match projections.iter().find(|p| p.field.as_str() == *field) {
                 Some(projection) => {
                     if !projection.partition {
                         Error::ProjectionNotPartitioned {
