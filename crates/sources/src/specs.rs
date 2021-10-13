@@ -92,10 +92,10 @@ pub struct CollectionDef {
 /// into which collections are materialized.
 #[derive(Serialize, Deserialize, Debug, Default, JsonSchema)]
 #[schemars(example = "Projections::example")]
-pub struct Projections(BTreeMap<String, Projection>);
+pub struct Projections(BTreeMap<names::Field, Projection>);
 
 impl Projections {
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Projection)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&names::Field, &Projection)> {
         self.0.iter()
     }
 }
@@ -490,11 +490,11 @@ pub struct MaterializationFields {
     /// of the driver's schema generation or runtime behavior with respect
     /// to the field.
     #[serde(default)]
-    pub include: BTreeMap<String, names::Object>,
+    pub include: BTreeMap<names::Field, names::Object>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
     #[serde(default)]
-    pub exclude: Vec<String>,
+    pub exclude: Vec<names::Field>,
     /// # Should recommended projections for the endpoint be used?
     pub recommended: bool,
 }
