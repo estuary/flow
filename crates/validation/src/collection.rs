@@ -1,7 +1,7 @@
 use super::{indexed, schema, storage_mapping, Error};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
-use models::{build, names, tables};
+use models::{self, build, tables};
 use protocol::flow;
 use superslice::Ext;
 use url::Url;
@@ -123,7 +123,7 @@ fn walk_collection_projections(
         schema_shape
             .fields
             .iter()
-            .map(|(f, p)| (names::Field::new(f), p)),
+            .map(|(f, p)| (models::Field::new(f), p)),
         |projection, (field, _)| projection.field.cmp(field),
     ) {
         let (spec, implicit) =
@@ -142,7 +142,7 @@ fn walk_collection_projections(
 
 fn walk_projection_with_inference(
     collection: &tables::Collection,
-    eob: EitherOrBoth<&tables::Projection, (names::Field, &names::JsonPointer)>,
+    eob: EitherOrBoth<&tables::Projection, (models::Field, &models::JsonPointer)>,
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
 ) -> (Option<flow::Projection>, Option<tables::Projection>) {
@@ -229,7 +229,7 @@ pub fn walk_selector(
     collection: &tables::Collection,
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
-    selector: &names::PartitionSelector,
+    selector: &models::PartitionSelector,
     errors: &mut tables::Errors,
 ) {
     // Shape of this |collection|.
@@ -244,7 +244,7 @@ pub fn walk_selector(
         .filter(|p| p.collection == collection.collection)
         .collect::<Vec<_>>();
 
-    let names::PartitionSelector { include, exclude } = selector;
+    let models::PartitionSelector { include, exclude } = selector;
 
     for (category, labels) in &[("include", include), ("exclude", exclude)] {
         for (field, values) in labels.iter() {

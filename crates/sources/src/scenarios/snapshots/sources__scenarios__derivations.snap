@@ -93,7 +93,6 @@ Tables {
             to_resource: test://example/reg-schema.json,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

@@ -105,7 +105,6 @@ Tables {
             to_resource: test://example/catalog.ts,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

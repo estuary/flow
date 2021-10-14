@@ -899,19 +899,6 @@ test://example/int-string:
 }
 
 #[test]
-fn test_duplicate_journal_rule() {
-    run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string:
-  journalRules:
-    123 A Rule:
-      template: {}
-"#,
-    );
-}
-
-#[test]
 fn test_invalid_and_duplicate_storage_mappings() {
     run_test_errors(
         &GOLDEN,
@@ -1164,7 +1151,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         mut errors,
         fetches,
         imports,
-        journal_rules,
         materialization_bindings,
         materializations,
         named_schemas,
@@ -1194,7 +1180,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         &derivations,
         &fetches,
         &imports,
-        &journal_rules,
         &materialization_bindings,
         &materializations,
         &named_schemas,
@@ -1224,7 +1209,6 @@ fn run_test(mut fixture: Value) -> tables::All {
         fetches,
         imports,
         inferences,
-        journal_rules,
         materialization_bindings,
         materializations,
         meta: tables::Meta::new(),
