@@ -37,7 +37,6 @@ type BuiltCatalog struct {
 	Captures         []pf.CaptureSpec
 	Collections      []pf.CollectionSpec
 	Derivations      []pf.DerivationSpec
-	JournalRules     pf.JournalRules
 	Locations        []SchemaLocation
 	Materializations []pf.MaterializationSpec
 	NPMPackage       []byte
@@ -111,16 +110,6 @@ func LoadFromSQLite(path string) (*BuiltCatalog, error) {
 		func(l loadableSpec) { out.Derivations = append(out.Derivations, *l.(*pf.DerivationSpec)) },
 	); err != nil {
 		return nil, fmt.Errorf("loading derivations: %w", err)
-	}
-
-	if err := loadSpecs(db,
-		`SELECT spec FROM journal_rules ORDER BY rule ASC;`,
-		func() loadableSpec { return new(pf.JournalRules_Rule) },
-		func(l loadableSpec) {
-			out.JournalRules.Rules = append(out.JournalRules.Rules, *l.(*pf.JournalRules_Rule))
-		},
-	); err != nil {
-		return nil, fmt.Errorf("loading journal rules: %w", err)
 	}
 
 	if err := loadRows(db,
