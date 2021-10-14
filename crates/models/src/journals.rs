@@ -125,21 +125,23 @@ pub enum CompressionCodec {
 }
 
 impl CompressionCodec {
-    pub fn into_proto(self) -> i32 {
-        let out = match self {
+    pub fn example() -> Self {
+        CompressionCodec::GzipOffloadDecompression
+    }
+}
+
+impl Into<ProtoCodec> for CompressionCodec {
+    fn into(self) -> ProtoCodec {
+        match self {
             Self::None => ProtoCodec::None,
             Self::Gzip => ProtoCodec::Gzip,
             Self::Zstandard => ProtoCodec::Zstandard,
             Self::Snappy => ProtoCodec::Snappy,
             Self::GzipOffloadDecompression => ProtoCodec::GzipOffloadDecompression,
-        };
-        out as i32
-    }
-
-    pub fn example() -> Self {
-        CompressionCodec::GzipOffloadDecompression
+        }
     }
 }
+// From<ProtoCodec> is not provided as CompressionCoded doesn't imlement all variants.
 
 /// A FragmentTemplate configures how journal fragment files are
 /// produced as part of a collection.

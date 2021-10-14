@@ -101,32 +101,32 @@ Tables {
     resources: [
         Resource {
             resource: test://example/a-schema.json,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/alt-schema.json,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.ts,
-            content_type: "TypescriptModule",
+            content_type: "TYPESCRIPT_MODULE",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/reg-schema.json,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
     ],
