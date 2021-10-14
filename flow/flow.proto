@@ -441,21 +441,6 @@ message RangeSpec {
   fixed32 r_clock_end = 5;
 }
 
-// JournalRules are an ordered sequence of Rules which specify a
-// condition -- as a label selector -- and, if matched, a template
-// to apply to the base JournalSpec.
-message JournalRules {
-  message Rule {
-    // Name of the rule.
-    string rule = 1;
-    // Label selector which must pass for the template to be applied.
-    protocol.LabelSelector selector = 2 [ (gogoproto.nullable) = false ];
-    // Template to union into the base JournalSpec.
-    protocol.JournalSpec template = 3 [ (gogoproto.nullable) = false ];
-  }
-  repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
-}
-
 // SchemaBundle is a bundle of JSON schemas and their base URI.
 message SchemaBundle {
   // Schemas of the bundle. Keys are the absolute URIs of the schema,
@@ -584,16 +569,13 @@ message CatalogTask {
 // TODO(johnny): Deprecated. CatalogCommons is expected to go away
 // as we move task specifications out of Etcd.
 message CatalogCommons {
-  reserved 11;
+  reserved 10,11;
 
   // ID of this commons.
   string commons_id = 1;
 
   // Tags 2-9 are available for future use.
 
-  // Journal rules applied to create and update JournalSpecs.
-  // Deprecated.
-  JournalRules journal_rules = 10 [ (gogoproto.nullable) = false ];
   // Schema definitions, against which registers and sourced or derived
   // documents are validated.
   SchemaBundle schemas = 12 [ (gogoproto.nullable) = false ];
