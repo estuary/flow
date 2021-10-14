@@ -13,6 +13,7 @@ import (
 
 type cmdCheck struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
@@ -36,10 +37,11 @@ func (cmd cmdCheck) Execute(_ []string) error {
 	var ctx = context.Background()
 
 	_, err = buildCatalog(ctx, pf.BuildAPI_Config{
-		CatalogPath: filepath.Join(cmd.Directory, "catalog.db"),
-		Directory:   cmd.Directory,
-		Source:      cmd.Source,
-		SourceType:  pf.ContentType_CATALOG_SPEC,
+		CatalogPath:      filepath.Join(cmd.Directory, "catalog.db"),
+		ConnectorNetwork: cmd.Network,
+		Directory:        cmd.Directory,
+		Source:           cmd.Source,
+		SourceType:       pf.ContentType_CATALOG_SPEC,
 
 		// Check doesn't compile or package TypeScript modules.
 		TypescriptGenerate: true,
