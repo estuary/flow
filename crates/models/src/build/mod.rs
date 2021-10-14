@@ -1,4 +1,4 @@
-use crate::{names, tables};
+use crate::tables;
 use doc::inference::{Exists, Shape};
 use json::schema::types;
 use protocol::{consumer, flow, labels, protocol as broker};
@@ -31,13 +31,13 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 // partition_template returns a template JournalSpec for creating
 // or updating data partitions of the collection.
 pub fn partition_template(
-    collection: &names::Collection,
-    journals: &names::JournalTemplate,
-    stores: &[names::Store],
+    collection: &crate::Collection,
+    journals: &crate::JournalTemplate,
+    stores: &[crate::Store],
 ) -> broker::JournalSpec {
-    let names::JournalTemplate {
+    let crate::JournalTemplate {
         fragments:
-            names::FragmentTemplate {
+            crate::FragmentTemplate {
                 compression_codec,
                 flush_interval,
                 length,
@@ -45,7 +45,7 @@ pub fn partition_template(
             },
     } = journals.clone();
 
-    use names::CompressionCodec;
+    use crate::CompressionCodec;
 
     // Until there's a good reason otherwise, we hard-code that partition journals are replicated 3x.
     let replication = 3;
@@ -127,9 +127,9 @@ pub fn partition_template(
 pub fn recovery_log_template(
     task_name: &str,
     task_type: &str,
-    stores: &[names::Store],
+    stores: &[crate::Store],
 ) -> broker::JournalSpec {
-    use names::CompressionCodec;
+    use crate::CompressionCodec;
 
     // Until there's a good reason otherwise, we hard-code that recovery logs are replicated 3x.
     let replication = 3;
@@ -229,10 +229,10 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
 pub fn shard_template(
     task_name: &str,
     task_type: &str,
-    shard: &names::ShardTemplate,
+    shard: &crate::ShardTemplate,
     disable_wait_for_ack: bool,
 ) -> consumer::ShardSpec {
-    let names::ShardTemplate {
+    let crate::ShardTemplate {
         disable,
         hot_standbys,
         max_txn_duration,
@@ -303,7 +303,7 @@ pub fn collection_spec(
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     schema_bundle: &Value,
-    stores: &[names::Store],
+    stores: &[crate::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
         collection: name,
@@ -343,8 +343,8 @@ pub fn collection_spec(
 }
 
 pub fn journal_selector(
-    collection: &names::Collection,
-    selector: &Option<names::PartitionSelector>,
+    collection: &crate::Collection,
+    selector: &Option<crate::PartitionSelector>,
 ) -> broker::LabelSelector {
     let mut include = vec![broker::Label {
         name: labels::COLLECTION.to_string(),
@@ -405,16 +405,16 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
 }
 
 fn lambda_spec(
-    lambda: &names::Lambda,
+    lambda: &crate::Lambda,
     transform: &tables::Transform,
     suffix: &str,
 ) -> flow::LambdaSpec {
     match lambda {
-        names::Lambda::Typescript => flow::LambdaSpec {
+        crate::Lambda::Typescript => flow::LambdaSpec {
             typescript: format!("/{}/{}", transform.group_name(), suffix),
             ..Default::default()
         },
-        names::Lambda::Remote(addr) => flow::LambdaSpec {
+        crate::Lambda::Remote(addr) => flow::LambdaSpec {
             remote: addr.clone(),
             ..Default::default()
         },
@@ -483,7 +483,7 @@ pub fn derivation_spec(
     derivation: &tables::Derivation,
     collection: &tables::BuiltCollection,
     mut transforms: Vec<flow::TransformSpec>,
-    recovery_stores: &[names::Store],
+    recovery_stores: &[crate::Store],
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
@@ -651,8 +651,8 @@ mod test {
         );
         exclude.insert(String::from("foo"), vec!["no&no@no$yes();".into()]);
 
-        let selector = names::PartitionSelector { include, exclude };
-        let collection = names::Collection::new("the/collection");
+        let selector = crate::PartitionSelector { include, exclude };
+        let collection = crate::Collection::new("the/collection");
         let labels = journal_selector(&collection, &Some(selector));
         insta::assert_debug_snapshot!(labels);
     }

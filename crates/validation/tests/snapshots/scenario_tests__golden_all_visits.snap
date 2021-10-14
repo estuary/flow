@@ -3039,8 +3039,8 @@ All {
             materialization: testing/webhook/deliveries,
             spec: MaterializationSpec {
                 materialization: "testing/webhook/deliveries",
-                endpoint_type: Webhook,
-                endpoint_spec_json: "{\"address\":\"http://example/webhook\"}",
+                endpoint_type: FlowSink,
+                endpoint_spec_json: "{\"config\":{\"address\":\"http://example/webhook\"},\"image\":\"webhook/connector\"}",
                 bindings: [
                     Binding {
                         resource_spec_json: "{\"fixture\":\"one\"}",
@@ -4671,75 +4671,6 @@ All {
             },
         },
     ],
-    journal_rules: [
-        JournalRule {
-            scope: test://example/catalog.yaml#/journal_rules/123%20A%20Rule,
-            rule: 123 A Rule,
-            spec: Rule {
-                rule: "123 A Rule",
-                selector: Some(
-                    LabelSelector {
-                        include: Some(
-                            LabelSet {
-                                labels: [
-                                    Label {
-                                        name: "estuary.dev/label",
-                                        value: "a value",
-                                    },
-                                ],
-                            },
-                        ),
-                        exclude: Some(
-                            LabelSet {
-                                labels: [],
-                            },
-                        ),
-                    },
-                ),
-                template: Some(
-                    JournalSpec {
-                        name: "",
-                        replication: 0,
-                        labels: Some(
-                            LabelSet {
-                                labels: [],
-                            },
-                        ),
-                        fragment: Some(
-                            Fragment {
-                                length: 0,
-                                compression_codec: Invalid,
-                                stores: [
-                                    "s3://my-bucket",
-                                ],
-                                refresh_interval: Some(
-                                    Duration {
-                                        seconds: 0,
-                                        nanos: 0,
-                                    },
-                                ),
-                                retention: Some(
-                                    Duration {
-                                        seconds: 0,
-                                        nanos: 0,
-                                    },
-                                ),
-                                flush_interval: Some(
-                                    Duration {
-                                        seconds: 0,
-                                        nanos: 0,
-                                    },
-                                ),
-                                path_postfix_template: "",
-                            },
-                        ),
-                        flags: 0,
-                        max_append_rate: 0,
-                    },
-                ),
-            },
-        },
-    ],
     materialization_bindings: [
         MaterializationBinding {
             scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
@@ -4786,8 +4717,8 @@ All {
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
-            endpoint_type: "Webhook",
-            endpoint_spec: {"address":"http://example/webhook"},
+            endpoint_type: "FlowSink",
+            endpoint_spec: {"config":{"address":"http://example/webhook"},"image":"webhook/connector"},
             shards: {},
         },
     ],
