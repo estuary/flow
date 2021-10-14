@@ -78,7 +78,6 @@ Tables {
             to_resource: test://example/sibling.ts,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

@@ -16,8 +16,10 @@ test://example/catalog.yaml:
 
     capture/second:
       endpoint:
-        remote:
-          address: http://example/driver
+        airbyteSource:
+          image: another/image
+          config:
+            more: config
       interval: 3m
       bindings:
         - target: third/collection
@@ -29,10 +31,10 @@ test://example/catalog.yaml:
   materializations:
     a/materialization:
       endpoint:
-        postgres:
-          host: localhost
-          user: somebody
-          password: whoops
+        flowSink:
+          image: materialization/image
+          config:
+            its: config
       bindings:
         # No partition selector and default fields behavior.
         - source: source/collection

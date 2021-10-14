@@ -12,22 +12,11 @@ test://example/catalog.yaml:
 
   storageMappings:
     - prefix: testing/
-      stores: [{provider: S3, bucket: data-bucket}]
+      stores: [{ provider: S3, bucket: data-bucket }]
     - prefix: recovery/testing/
-      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
     - prefix: not-matched/
-      stores: [{provider: AZURE, bucket: not-matched-bucket}]
-
-  journalRules:
-    123 A Rule:
-      selector:
-        include:
-          labels:
-            - name: "estuary.dev/label"
-              value: "a value"
-      template:
-        fragment:
-          stores: ["s3://my-bucket"]
+      stores: [{ provider: AZURE, bucket: not-matched-bucket }]
 
 test://example/int-string:
   import:
@@ -90,8 +79,10 @@ test://example/webhook-deliveries:
   materializations:
     testing/webhook/deliveries:
       endpoint:
-        webhook:
-          address: http://example/webhook
+        flowSink:
+          image: webhook/connector
+          config:
+            address: http://example/webhook
       bindings:
         - source: testing/int-string
           partitions:
@@ -255,9 +246,11 @@ test://example/int-string-len.schema:
 driver:
   materializations:
     testing/webhook/deliveries:
-      endpoint: Webhook
+      endpoint: FlowSink
       spec:
-        address: http://example/webhook
+        image: webhook/connector
+        config:
+          address: http://example/webhook
       deltaUpdates: true
       bindings:
         - constraints:

@@ -8,7 +8,6 @@ mod collection;
 mod derivation;
 mod errors;
 mod indexed;
-mod journal_rule;
 mod materialization;
 mod npm_dependency;
 mod reference;
@@ -52,7 +51,6 @@ pub async fn validate<D: Drivers>(
     derivations: &[tables::Derivation],
     fetches: &[tables::Fetch],
     imports: &[tables::Import],
-    journal_rules: &[tables::JournalRule],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     named_schemas: &[tables::NamedSchema],
@@ -106,7 +104,6 @@ pub async fn validate<D: Drivers>(
 
     schema::walk_all_named_schemas(named_schemas, &mut errors);
     npm_dependency::walk_all_npm_dependencies(npm_dependencies, &mut errors);
-    journal_rule::walk_all_journal_rules(journal_rules, &mut errors);
     storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
 
     // At least one storage mapping is required iff this isn't a

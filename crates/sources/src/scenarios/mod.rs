@@ -27,7 +27,6 @@ file_tests! {
     test_collections,
     test_derivations,
     test_endpoints_captures_materializations,
-    test_journal_rules,
     test_schema_with_anchors,
     test_schema_with_inline,
     test_schema_with_nested_ids,

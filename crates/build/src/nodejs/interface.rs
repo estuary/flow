@@ -1,6 +1,6 @@
 use super::camel_case;
 use itertools::Itertools;
-use models::{names, tables};
+use models::{self, tables};
 use std::fmt::Write;
 use std::path;
 use url::Url;
@@ -13,7 +13,7 @@ pub enum MethodType {
 }
 
 impl MethodType {
-    pub fn method_name(&self, transform: &names::Transform) -> String {
+    pub fn method_name(&self, transform: &models::Transform) -> String {
         let mut w = camel_case(transform, false);
         write!(w, "{:?}", self).unwrap();
         w
@@ -99,21 +99,21 @@ impl<'a> Interface<'a> {
             };
 
             // Pattern-match against the shuffle, update, and publish lambda locations.
-            if matches!(transform.shuffle_lambda, Some(names::Lambda::Typescript)) {
+            if matches!(transform.shuffle_lambda, Some(models::Lambda::Typescript)) {
                 methods.push(Method {
                     derivation,
                     transform,
                     type_: MethodType::Shuffle,
                 });
             }
-            if matches!(transform.update_lambda, Some(names::Lambda::Typescript)) {
+            if matches!(transform.update_lambda, Some(models::Lambda::Typescript)) {
                 methods.push(Method {
                     derivation,
                     transform,
                     type_: MethodType::Update,
                 });
             }
-            if matches!(transform.publish_lambda, Some(names::Lambda::Typescript)) {
+            if matches!(transform.publish_lambda, Some(models::Lambda::Typescript)) {
                 methods.push(Method {
                     derivation,
                     transform,

@@ -61,7 +61,6 @@ Tables {
             to_resource: test://external/c,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

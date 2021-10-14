@@ -2,7 +2,7 @@ use super::Error;
 use doc::{inference, Schema as CompiledSchema};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
-use models::{build, names, tables};
+use models::{self, build, tables};
 use superslice::Ext;
 use url::Url;
 
@@ -13,7 +13,7 @@ pub struct Shape {
     pub shape: inference::Shape,
     // Canonical field names and corresponding locations, sorted on field.
     // This combines implicit, discovered locations with explicit projected locations.
-    pub fields: Vec<(String, names::JsonPointer)>,
+    pub fields: Vec<(String, models::JsonPointer)>,
     // Schema document with bundled dependencies.
     pub bundle: serde_json::Value,
 }
@@ -62,8 +62,8 @@ impl<'a> Ref<'a> {
         }
     }
 
-    pub fn explicit_locations(&'a self) -> impl Iterator<Item = &'a names::JsonPointer> {
-        let b: Box<dyn Iterator<Item = &'a names::JsonPointer>> = match self {
+    pub fn explicit_locations(&'a self) -> impl Iterator<Item = &'a models::JsonPointer> {
+        let b: Box<dyn Iterator<Item = &'a models::JsonPointer>> = match self {
             Ref::Root(_) => Box::new(std::iter::empty()),
             Ref::Named(_) => Box::new(std::iter::empty()),
             Ref::Collection {
@@ -269,7 +269,7 @@ pub fn walk_all_schema_refs(
                     ptr.chars().skip(1).collect::<String>()
                 };
 
-                (field, names::JsonPointer::new(ptr), shape, exists)
+                (field, models::JsonPointer::new(ptr), shape, exists)
             })
             // Re-order to walk in ascending field name order.
             .sorted_by(|a, b| a.0.cmp(&b.0));
@@ -299,7 +299,7 @@ pub fn walk_all_schema_refs(
 
 pub fn walk_composite_key(
     scope: &Url,
-    key: &names::CompositeKey,
+    key: &models::CompositeKey,
     schema: &Shape,
     errors: &mut tables::Errors,
 ) -> Option<Vec<types::Set>> {
@@ -332,7 +332,7 @@ pub fn walk_composite_key(
 pub fn walk_keyed_location(
     scope: &Url,
     schema: &Url,
-    ptr: &names::JsonPointer,
+    ptr: &models::JsonPointer,
     shape: &inference::Shape,
     exists: inference::Exists,
     errors: &mut tables::Errors,

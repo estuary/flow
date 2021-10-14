@@ -55,7 +55,6 @@ Tables {
             to_resource: test://example/schema.json,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

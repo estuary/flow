@@ -5,7 +5,6 @@
   Captures: ([]flow.CaptureSpec) <nil>,
   Collections: ([]flow.CollectionSpec) <nil>,
   Derivations: ([]flow.DerivationSpec) <nil>,
-  JournalRules: (flow.JournalRules) ,
   Locations: ([]catalog.SchemaLocation) (len=1) {
     (catalog.SchemaLocation) {
       Schema: (string) (len=21) "file:///b.schema.yaml",

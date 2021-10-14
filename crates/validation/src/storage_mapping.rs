@@ -1,7 +1,7 @@
 use crate::errors::Error;
 
 use super::{indexed, reference};
-use models::{names, tables};
+use models::{self, tables};
 use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
@@ -50,7 +50,7 @@ pub fn mapped_stores<'a>(
     name: &str,
     storage_mappings: &'a [tables::StorageMapping],
     errors: &mut tables::Errors,
-) -> &'a [names::Store] {
+) -> &'a [models::Store] {
     match lookup_mapping(storage_mappings, name) {
         Some(m) => {
             // Ensure that there is an import path.
@@ -108,12 +108,12 @@ fn lookup_mapping<'a>(
         .filter(|m| name.starts_with(m.prefix.as_str()))
 }
 
-static EMPTY_STORES: Vec<names::Store> = Vec::new();
+static EMPTY_STORES: Vec<models::Store> = Vec::new();
 
 #[cfg(test)]
 mod test {
     use super::{lookup_mapping, tables::StorageMappings};
-    use models::names::Prefix;
+    use models::Prefix;
 
     #[test]
     fn test_matched_mapping() {

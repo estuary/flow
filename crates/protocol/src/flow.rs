@@ -494,29 +494,6 @@ pub struct RangeSpec {
     #[prost(fixed32, tag="5")]
     pub r_clock_end: u32,
 }
-/// JournalRules are an ordered sequence of Rules which specify a
-/// condition -- as a label selector -- and, if matched, a template
-/// to apply to the base JournalSpec.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct JournalRules {
-    #[prost(message, repeated, tag="1")]
-    pub rules: ::prost::alloc::vec::Vec<journal_rules::Rule>,
-}
-/// Nested message and enum types in `JournalRules`.
-pub mod journal_rules {
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Rule {
-        /// Name of the rule.
-        #[prost(string, tag="1")]
-        pub rule: ::prost::alloc::string::String,
-        /// Label selector which must pass for the template to be applied.
-        #[prost(message, optional, tag="2")]
-        pub selector: ::core::option::Option<super::super::protocol::LabelSelector>,
-        /// Template to union into the base JournalSpec.
-        #[prost(message, optional, tag="3")]
-        pub template: ::core::option::Option<super::super::protocol::JournalSpec>,
-    }
-}
 /// SchemaBundle is a bundle of JSON schemas and their base URI.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaBundle {
@@ -668,10 +645,6 @@ pub struct CatalogCommons {
     pub commons_id: ::prost::alloc::string::String,
     // Tags 2-9 are available for future use.
 
-    /// Journal rules applied to create and update JournalSpecs.
-    /// Deprecated.
-    #[prost(message, optional, tag="10")]
-    pub journal_rules: ::core::option::Option<JournalRules>,
     /// Schema definitions, against which registers and sourced or derived
     /// documents are validated.
     #[prost(message, optional, tag="12")]
