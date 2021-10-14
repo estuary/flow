@@ -11,6 +11,7 @@ mod journals;
 mod labels;
 mod materializations;
 mod references;
+mod resources;
 mod schemas;
 mod shards;
 mod shuffles;
@@ -31,6 +32,7 @@ pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, Prefix, RelativeUrl,
     Test, Transform,
 };
+pub use resources::{ContentType, Import};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use shuffles::{Lambda, PartitionSelector, Shuffle};
