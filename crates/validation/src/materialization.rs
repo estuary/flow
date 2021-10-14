@@ -1,7 +1,7 @@
 use super::{collection, indexed, reference, schema, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
-use models::{build, names, tables};
+use models::{self, build, tables};
 use protocol::{flow, labels, materialize};
 use std::collections::{BTreeMap, HashMap};
 use superslice::Ext;
@@ -334,8 +334,8 @@ fn walk_materialization_fields<'a>(
     scope: &Url,
     materialization: &str,
     built_collection: &tables::BuiltCollection,
-    include: &BTreeMap<names::Field, names::Object>,
-    exclude: &[names::Field],
+    include: &BTreeMap<models::Field, models::Object>,
+    exclude: &[models::Field],
     errors: &mut tables::Errors,
 ) -> Vec<(String, String)> {
     let flow::CollectionSpec {
@@ -425,7 +425,7 @@ fn walk_materialization_response(
     let projections = projections
         .iter()
         .sorted_by_key(|p| {
-            let must_include = include.get(&names::Field::new(&p.field)).is_some()
+            let must_include = include.get(&models::Field::new(&p.field)).is_some()
                 || constraints
                     .get(&p.field)
                     .map(|c| c.r#type == Type::FieldRequired as i32)
@@ -469,7 +469,7 @@ fn walk_materialization_response(
         let key_index = key_ptrs.iter().enumerate().find(|(_, k)| *k == ptr);
 
         let resolution = match (
-            include.get(&names::Field::new(field)).is_some(),
+            include.get(&models::Field::new(field)).is_some(),
             exclude.iter().any(|f| f.as_str() == field),
             type_,
         ) {
@@ -536,7 +536,7 @@ fn walk_materialization_response(
                 }
 
                 // Pass-through JSON-encoded field configuration.
-                if let Some(cfg) = include.get(&names::Field::new(field)) {
+                if let Some(cfg) = include.get(&models::Field::new(field)) {
                     field_config.insert(field.clone(), serde_json::to_string(cfg).unwrap());
                 }
                 // Mark location as having been selected.

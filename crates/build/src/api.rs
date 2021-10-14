@@ -1,6 +1,6 @@
 use futures::future::LocalBoxFuture;
 use futures::{channel::oneshot, FutureExt};
-use models::tables;
+use models::{self, tables};
 use prost::Message;
 use protocol::{
     capture, cgo, flow,
@@ -204,9 +204,7 @@ impl cgo::Service for API {
             }
             // Return source catalog JSON schema.
             (Code::CatalogSchema, State::Init) => {
-                let settings = schemars::gen::SchemaSettings::draft07();
-                let generator = schemars::gen::SchemaGenerator::new(settings);
-                let schema = generator.into_root_schema_for::<sources::Catalog>();
+                let schema = models::Catalog::root_json_schema();
 
                 let begin = arena.len();
                 let w: &mut Vec<u8> = &mut *arena;

@@ -1,7 +1,7 @@
 //! The Flow runtime automatically publishes statistics and logs related to each task. It publishes
 //! this data to Flow collections, so that users can create derivations and materializations of
 //! that data. This module generates the Flow specs and schemas for these collections.
-use models::names;
+use models;
 use protocol::flow::ContentType;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -66,7 +66,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
         add_ops_collection(
             logs_collection_name,
             log_schema.url.clone(),
-            Some(names::JsonPointer::new("/ts")),
+            Some(models::JsonPointer::new("/ts")),
             tables,
         );
         add_ops_collection(
@@ -85,16 +85,16 @@ fn ops_collection_resource_url() -> Url {
 fn add_ops_collection(
     name: String,
     schema_url: Url,
-    add_key: Option<names::JsonPointer>,
+    add_key: Option<models::JsonPointer>,
     tables: &mut sources::Tables,
 ) {
     let scope = ops_collection_resource_url();
 
-    let name = names::Collection::new(name);
+    let name = models::Collection::new(name);
     let mut key = vec![
-        names::JsonPointer::new("/shard/name"),
-        names::JsonPointer::new("/shard/keyBegin"),
-        names::JsonPointer::new("/shard/rClockBegin"),
+        models::JsonPointer::new("/shard/name"),
+        models::JsonPointer::new("/shard/keyBegin"),
+        models::JsonPointer::new("/shard/rClockBegin"),
     ];
     if let Some(add) = add_key {
         key.push(add);
@@ -104,8 +104,8 @@ fn add_ops_collection(
         scope.clone(),
         name.clone(),
         schema_url,
-        names::CompositeKey::new(key),
-        names::JournalTemplate::default(),
+        models::CompositeKey::new(key),
+        models::JournalTemplate::default(),
     );
 
     // Ops collections are partitioned by shard, so that each shard has dedicated journals for
@@ -123,8 +123,8 @@ fn add_ops_collection(
         tables.projections.insert_row(
             scope.clone(),
             name.clone(),
-            names::Field::new(*field),
-            names::JsonPointer::new(*ptr),
+            models::Field::new(*field),
+            models::JsonPointer::new(*ptr),
             true,
             true,
         );
@@ -166,49 +166,47 @@ mod test {
 
     #[test]
     fn ops_collections_are_generated() {
-        use models::names;
-
         let mut tables = sources::Tables::default();
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
-            names::Capture::new("acmeCo/foo"),
+            models::Capture::new("acmeCo/foo"),
             protocol::flow::EndpointType::AirbyteSource,
             serde_json::json!({}),
             7u32,
-            names::ShardTemplate::default(),
+            models::ShardTemplate::default(),
         );
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/shamazon~1bar"),
-            names::Capture::new("shamazon/bar"),
+            models::Capture::new("shamazon/bar"),
             protocol::flow::EndpointType::AirbyteSource,
             serde_json::json!({}),
             8u32,
-            names::ShardTemplate::default(),
+            models::ShardTemplate::default(),
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/gooble~1ads"),
-            names::Collection::new("gooble/ads"),
+            models::Collection::new("gooble/ads"),
             builtin_url(
                 "test-der.flow.yaml?ptr=/collections/shamazon~1bar/derivation/register/schema",
             ),
             Value::Null,
-            names::ShardTemplate::default(),
+            models::ShardTemplate::default(),
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/acmeCo~1tnt"),
-            names::Collection::new("acmeCo/tnt"),
+            models::Collection::new("acmeCo/tnt"),
             builtin_url(
                 "test-der.flow.yaml?ptr=/collections/acmeCo~1tnt/derivation/register/schema",
             ),
             Value::Null,
-            names::ShardTemplate::default(),
+            models::ShardTemplate::default(),
         );
         tables.materializations.insert_row(
             builtin_url("test-mat.flow.yaml#/collections/justme"),
-            names::Materialization::new("justme"),
+            models::Materialization::new("justme"),
             protocol::flow::EndpointType::Postgresql,
             Value::Null,
-            names::ShardTemplate::default(),
+            models::ShardTemplate::default(),
         );
 
         generate_ops_collections(&mut tables);
