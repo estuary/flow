@@ -104,7 +104,7 @@ impl<'a> Ref<'a> {
         let root = &resources[resources.equal_range_by_key(&root_scope, |r| &r.resource)];
         match root.first() {
             Some(tables::Resource {
-                content_type: protocol::flow::ContentType::JsonSchema,
+                content_type: models::ContentType::JsonSchema,
                 resource,
                 ..
             }) => {

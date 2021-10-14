@@ -122,7 +122,7 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
     ],

@@ -52,15 +52,9 @@ expression: "&schema"
       "title": "Import other Flow catalog sources.",
       "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
       "default": [],
-      "examples": [
-        [
-          "../path/to/local.yaml",
-          "https://example/resource"
-        ]
-      ],
       "type": "array",
       "items": {
-        "$ref": "#/definitions/RelativeUrl"
+        "$ref": "#/definitions/Import"
       }
     },
     "materializations": {
@@ -366,6 +360,18 @@ expression: "&schema"
         "GZIP_OFFLOAD_DECOMPRESSION"
       ]
     },
+    "ContentType": {
+      "description": "ContentType is the type of an imported resource's content.",
+      "examples": [
+        "CATALOG"
+      ],
+      "type": "string",
+      "enum": [
+        "CATALOG",
+        "JSON_SCHEMA",
+        "TYPESCRIPT_MODULE"
+      ]
+    },
     "Derivation": {
       "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
       "type": "object",
@@ -476,6 +482,39 @@ expression: "&schema"
         }
       },
       "additionalProperties": false
+    },
+    "Import": {
+      "description": "An Import includes a referenced resource in the catalog.",
+      "examples": [
+        "./a/flow.yaml",
+        {
+          "content_type": "JSON_SCHEMA",
+          "url": "https://example/schema.json"
+        }
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RelativeUrl"
+        },
+        {
+          "type": "object",
+          "required": [
+            "content_type",
+            "url"
+          ],
+          "properties": {
+            "content_type": {
+              "title": "The content-type of the imported resource.",
+              "$ref": "#/definitions/ContentType"
+            },
+            "url": {
+              "title": "The resource to import.",
+              "$ref": "#/definitions/RelativeUrl"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "JournalTemplate": {
       "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
