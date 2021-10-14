@@ -43,11 +43,11 @@ impl sources::Fetcher for Fetcher {
     fn fetch<'a>(
         &self,
         resource: &'a Url,
-        content_type: &'a flow::ContentType,
+        content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
         let request = build_api::Fetch {
             resource_url: resource.to_string(),
-            content_type: *content_type as i32,
+            content_type: flow::ContentType::from(content_type.into()) as i32,
         };
         let (tx, rx) = oneshot::channel();
 

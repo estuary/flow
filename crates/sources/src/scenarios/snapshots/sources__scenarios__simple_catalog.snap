@@ -114,17 +114,17 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/schema,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/sibling,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
     ],

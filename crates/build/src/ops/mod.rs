@@ -2,7 +2,6 @@
 //! this data to Flow collections, so that users can create derivations and materializations of
 //! that data. This module generates the Flow specs and schemas for these collections.
 use models;
-use protocol::flow::ContentType;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use url::Url;
@@ -32,7 +31,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
             schema.url.clone(),
-            ContentType::JsonSchema,
+            models::ContentType::JsonSchema,
             bytes::Bytes::from_static(schema.content),
         );
         let dom = serde_json::from_slice::<Value>(schema.content)
@@ -49,7 +48,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     let importers = tables
         .resources
         .iter()
-        .filter(|r| r.content_type == ContentType::CatalogSpec)
+        .filter(|r| r.content_type == models::ContentType::Catalog)
         .map(|r| r.resource.clone())
         .collect::<Vec<_>>();
     for importer in importers {
