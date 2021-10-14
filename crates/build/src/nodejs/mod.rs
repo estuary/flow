@@ -1,7 +1,6 @@
 use anyhow::Context;
 use doc;
 use models::tables;
-use protocol::flow;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -141,7 +140,7 @@ pub fn generate_package<'a>(
         content,
     } in resources.iter()
     {
-        if !matches!(content_type, flow::ContentType::TypescriptModule) {
+        if !matches!(content_type, models::ContentType::TypescriptModule) {
             continue;
         }
         let module = Module::new(&resource, package_dir);
@@ -228,7 +227,7 @@ pub fn pack_package(package_dir: &path::Path) -> Result<tables::Resources, anyho
     let mut resources = tables::Resources::new();
     resources.insert_row(
         Url::from_file_path(&pack).unwrap(),
-        flow::ContentType::NpmPackage,
+        models::ContentType::NpmPackage,
         bytes::Bytes::from(std::fs::read(&pack)?),
     );
     std::fs::remove_file(&pack)?;

@@ -16,7 +16,7 @@ tables!(
 
     table Resources (row Resource, order_by [resource], sql "resources") {
         resource: url::Url,
-        content_type: protocol::flow::ContentType,
+        content_type: models::ContentType,
         content: bytes::Bytes,
     }
 
@@ -432,11 +432,11 @@ json_sql_types!(
     Vec<models::Store>,
     Vec<serde_json::Value>,
     models::CompositeKey,
+    models::ContentType,
     models::JournalTemplate,
     models::Lambda,
     models::PartitionSelector,
     models::ShardTemplate,
-    protocol::flow::ContentType,
     protocol::flow::EndpointType,
     protocol::flow::test_spec::step::Type,
     serde_json::Value,

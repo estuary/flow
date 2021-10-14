@@ -69,22 +69,22 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
         Resource {
             resource: test://external/a,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://external/b,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
         Resource {
             resource: test://external/c,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
     ],

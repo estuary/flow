@@ -47,12 +47,12 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CatalogSpec",
+            content_type: "CATALOG",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/collections/test/schema,
-            content_type: "JsonSchema",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
         },
     ],

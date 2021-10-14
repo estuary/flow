@@ -51,9 +51,8 @@ pub fn partition_template(
     let replication = 3;
 
     // Use a supplied compression codec. Or, if none, then default to gzip.
-    let compression_codec = compression_codec
-        .unwrap_or(CompressionCodec::Gzip)
-        .into_proto();
+    let compression_codec: broker::CompressionCodec =
+        compression_codec.unwrap_or(CompressionCodec::Gzip).into();
 
     // If an explicit flush interval isn't provided, then don't set one.
     let flush_interval = flush_interval.map(Into::into);
@@ -108,7 +107,7 @@ pub fn partition_template(
         name: collection.to_string(),
         replication,
         fragment: Some(broker::journal_spec::Fragment {
-            compression_codec,
+            compression_codec: compression_codec as i32,
             flush_interval,
             length,
             path_postfix_template,
@@ -139,7 +138,7 @@ pub fn recovery_log_template(
     // uncompressed. Snappy has good support for passing-through content
     // that's already compressed.
     // TODO(johnny): Switch gazette to https://github.com/klauspost/compress/tree/master/s2
-    let compression_codec = CompressionCodec::Snappy.into_proto();
+    let compression_codec: broker::CompressionCodec = CompressionCodec::Snappy.into();
 
     // Never set a flush interval for recovery logs.
     let flush_interval = None;
@@ -194,7 +193,7 @@ pub fn recovery_log_template(
         name: format!("recovery/{}", shard_id_base(task_name, task_type)),
         replication,
         fragment: Some(broker::journal_spec::Fragment {
-            compression_codec,
+            compression_codec: compression_codec as i32,
             flush_interval,
             length,
             path_postfix_template,

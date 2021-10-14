@@ -1,7 +1,6 @@
 use crate::{Fetcher, Loader, Scope, Tables};
 use futures::channel::oneshot;
 use futures::future::{FutureExt, LocalBoxFuture};
-use protocol::flow;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -45,7 +44,7 @@ impl<'f> Fetcher for MockFetcher<'f> {
     fn fetch<'a>(
         &self,
         resource: &'a Url,
-        _content_type: &'a flow::ContentType,
+        _content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
         let (tx, rx) = oneshot::channel();
 
@@ -99,7 +98,7 @@ pub fn evaluate_fixtures(catalog: Tables, fixture: &Value) -> Tables {
     // whole mess fully deterministic.
 
     let mut fut = loader
-        .load_resource(Scope::new(&root), &root, flow::ContentType::CatalogSpec)
+        .load_resource(Scope::new(&root), &root, models::ContentType::Catalog)
         .boxed_local();
 
     let waker = futures::task::noop_waker();

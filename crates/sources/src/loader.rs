@@ -3,7 +3,7 @@ use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
 use models::{self, tables};
-use protocol::flow::{test_spec::step::Type as TestStepType, ContentType};
+use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
 use std::cell::RefCell;
 use url::Url;
@@ -56,7 +56,7 @@ pub trait Fetcher {
     fn fetch<'a>(
         &'a self,
         resource: &'a Url,
-        content_type: &'a ContentType,
+        content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>>;
 }
 
@@ -88,7 +88,7 @@ impl<F: Fetcher> Loader<F> {
         &'a self,
         scope: Scope<'a>,
         resource: &'a Url,
-        content_type: ContentType,
+        content_type: models::ContentType,
     ) {
         if resource.fragment().is_some() {
             self.tables.borrow_mut().errors.insert_row(
@@ -107,14 +107,14 @@ impl<F: Fetcher> Loader<F> {
             .fetches
             .insert_row(scope.resource_depth() as u32, resource);
 
-        let content = self.fetcher.fetch(&resource, &content_type).await;
+        let content = self.fetcher.fetch(&resource, content_type.into()).await;
 
         match content {
             Ok(content) => {
                 self.load_resource_content(scope, resource, content, content_type)
                     .await
             }
-            Err(err) if matches!(content_type, ContentType::TypescriptModule) => {
+            Err(err) if matches!(content_type, models::ContentType::TypescriptModule) => {
                 // Not every catalog spec need have an accompanying TypescriptModule.
                 // We optimistically load them, but do not consider it an error if
                 // it doesn't exist. We'll do more handling of this condition within
@@ -142,19 +142,20 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'a>,
         resource: &'a Url,
         content: bytes::Bytes,
-        content_type: ContentType,
+        content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
         async move {
-            self.tables.borrow_mut().resources.insert_row(
-                resource.clone(),
-                &content_type,
-                &content,
-            );
+            self.tables
+                .borrow_mut()
+                .resources
+                .insert_row(resource.clone(), content_type, &content);
             let scope = scope.push_resource(&resource);
 
             match content_type {
-                ContentType::CatalogSpec => self.load_catalog(scope, content.as_ref()).await,
-                ContentType::JsonSchema => self.load_schema_document(scope, content.as_ref()).await,
+                models::ContentType::Catalog => self.load_catalog(scope, content.as_ref()).await,
+                models::ContentType::JsonSchema => {
+                    self.load_schema_document(scope, content.as_ref()).await
+                }
                 _ => None,
             };
             ()
@@ -240,7 +241,7 @@ impl<F: Fetcher> Loader<F> {
                             // Concurrently fetch |uri| while continuing to walk the schema.
                             let ((), ()) = futures::join!(
                                 recurse,
-                                self.load_import(scope, &uri, ContentType::JsonSchema)
+                                self.load_import(scope, &uri, models::ContentType::JsonSchema)
                             );
                         } else {
                             let () = recurse.await;
@@ -270,7 +271,7 @@ impl<F: Fetcher> Loader<F> {
             let fragment = import.fragment().map(str::to_string);
             import.set_fragment(None);
 
-            self.load_import(scope, &import, ContentType::JsonSchema)
+            self.load_import(scope, &import, models::ContentType::JsonSchema)
                 .await;
 
             import.set_fragment(fragment.as_deref());
@@ -285,7 +286,7 @@ impl<F: Fetcher> Loader<F> {
                 scope,
                 &import,
                 serde_json::to_vec(&schema).unwrap().into(),
-                ContentType::JsonSchema,
+                models::ContentType::JsonSchema,
             )
             .await;
 
@@ -302,7 +303,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         import: &'s Url,
-        content_type: ContentType,
+        content_type: models::ContentType,
     ) {
         // Recursively process the import if it's not already visited.
         if !self
@@ -372,9 +373,10 @@ impl<F: Fetcher> Loader<F> {
                 let scope = scope.push_item(index);
 
                 // Map from relative to absolute URL.
-                if let Some(import) = self.fallible(scope, scope.resource().join(import.as_ref())) {
-                    self.load_import(scope, &import, ContentType::CatalogSpec)
-                        .await;
+                if let Some(url) =
+                    self.fallible(scope, scope.resource().join(import.relative_url()))
+                {
+                    self.load_import(scope, &url, import.content_type()).await;
                 }
             }
         });
@@ -388,7 +390,7 @@ impl<F: Fetcher> Loader<F> {
             path.set_extension("ts");
 
             module.set_path(path.to_str().expect("should still be valid utf8"));
-            self.load_import(scope, &module, ContentType::TypescriptModule)
+            self.load_import(scope, &module, models::ContentType::TypescriptModule)
                 .await;
         };
 

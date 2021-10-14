@@ -4,8 +4,8 @@ use serde_json::{from_value, json, Value};
 use std::collections::BTreeMap;
 
 use super::{
-    Capture, CaptureDef, Collection, CollectionDef, Materialization, MaterializationDef,
-    RelativeUrl, StorageMapping, Test, TestStep,
+    Capture, CaptureDef, Collection, CollectionDef, Import, Materialization, MaterializationDef,
+    StorageMapping, Test, TestStep,
 };
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
@@ -23,8 +23,7 @@ pub struct Catalog {
     /// it defines become usable within this Catalog source. Each import is an absolute URI,
     /// or a URI which is relative to this source location.
     #[serde(default)]
-    #[schemars(example = "Catalog::example_import")]
-    pub import: Vec<RelativeUrl>,
+    pub import: Vec<Import>,
     /// # NPM package dependencies of the Catalog.
     /// Dependencies are included when building the catalog's build NodeJS
     /// package, as {"package-name": "version"}. I.e. {"moment": "^2.24"}.
@@ -68,12 +67,6 @@ impl Catalog {
     }
     fn default_test() -> Value {
         json!({"Test that fob quips ipsum": []})
-    }
-    fn example_import() -> Vec<RelativeUrl> {
-        vec![
-            RelativeUrl::example_relative(),
-            RelativeUrl::example_absolute(),
-        ]
     }
     fn example_collections() -> BTreeMap<Collection, CollectionDef> {
         vec![(Collection::example(), CollectionDef::example())]
