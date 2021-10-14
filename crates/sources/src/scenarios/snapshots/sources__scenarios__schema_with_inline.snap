@@ -39,7 +39,6 @@ Tables {
             to_resource: test://example/catalog.yaml?ptr=/collections/test/schema,
         },
     ],
-    journal_rules: [],
     materialization_bindings: [],
     materializations: [],
     named_schemas: [],

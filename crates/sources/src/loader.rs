@@ -1,8 +1,8 @@
-use super::{specs, Scope};
+use super::Scope;
 use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
-use models::{names, tables};
+use models::{self, tables};
 use protocol::flow::{test_spec::step::Type as TestStepType, ContentType};
 use regex::Regex;
 use std::cell::RefCell;
@@ -39,7 +39,6 @@ pub struct Tables {
     pub errors: tables::Errors,
     pub fetches: tables::Fetches,
     pub imports: tables::Imports,
-    pub journal_rules: tables::JournalRules,
     pub materialization_bindings: tables::MaterializationBindings,
     pub materializations: tables::Materializations,
     pub named_schemas: tables::NamedSchemas,
@@ -261,10 +260,10 @@ impl<F: Fetcher> Loader<F> {
     async fn load_schema_reference<'s>(
         &'s self,
         scope: Scope<'s>,
-        schema: specs::Schema,
+        schema: models::Schema,
     ) -> Option<Url> {
         // If schema is a relative URL, then import it.
-        if let specs::Schema::Url(import) = schema {
+        if let models::Schema::Url(import) = schema {
             let mut import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
 
             // Temporarily strip schema fragment to import base document.
@@ -328,11 +327,10 @@ impl<F: Fetcher> Loader<F> {
         let dom: serde_yaml::Value =
             self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
 
-        let specs::Catalog {
+        let models::Catalog {
             _schema,
             import,
             npm_dependencies,
-            journal_rules,
             collections,
             materializations,
             captures,
@@ -353,24 +351,13 @@ impl<F: Fetcher> Loader<F> {
                 .insert_row(scope, package, version);
         }
 
-        // Collect journal rules.
-        for (name, mut rule) in journal_rules {
-            let scope = scope.push_prop("journal_rules").push_prop(&name).flatten();
-
-            rule.rule = name.to_string();
-            self.tables
-                .borrow_mut()
-                .journal_rules
-                .insert_row(scope, name, rule.into_proto());
-        }
-
         // Collect storage mappings.
         for (index, mapping) in storage_mappings.into_iter().enumerate() {
             let scope = scope
                 .push_prop("storageMappings")
                 .push_item(index)
                 .flatten();
-            let names::StorageMapping { prefix, stores } = mapping;
+            let models::StorageMapping { prefix, stores } = mapping;
 
             self.tables
                 .borrow_mut()
@@ -422,7 +409,7 @@ impl<F: Fetcher> Loader<F> {
         for (name, capture) in captures {
             let scope = scope.push_prop("captures");
             let scope = scope.push_prop(&name);
-            let specs::CaptureDef {
+            let models::CaptureDef {
                 endpoint,
                 bindings,
                 interval,
@@ -444,7 +431,7 @@ impl<F: Fetcher> Loader<F> {
             for (index, binding) in bindings.into_iter().enumerate() {
                 let scope = scope.push_prop("bindings");
                 let scope = scope.push_item(index);
-                let specs::CaptureBinding { resource, target } = binding;
+                let models::CaptureBinding { resource, target } = binding;
 
                 self.tables.borrow_mut().capture_bindings.insert_row(
                     scope.flatten(),
@@ -460,7 +447,7 @@ impl<F: Fetcher> Loader<F> {
         for (name, materialization) in materializations {
             let scope = scope.push_prop("materializations");
             let scope = scope.push_prop(&name);
-            let specs::MaterializationDef {
+            let models::MaterializationDef {
                 endpoint,
                 bindings,
                 shards,
@@ -481,12 +468,12 @@ impl<F: Fetcher> Loader<F> {
                 let scope = scope.push_prop("bindings");
                 let scope = scope.push_item(index);
 
-                let specs::MaterializationBinding {
+                let models::MaterializationBinding {
                     resource,
                     source,
                     partitions,
                     fields:
-                        specs::MaterializationFields {
+                        models::MaterializationFields {
                             include: fields_include,
                             exclude: fields_exclude,
                             recommended: fields_recommended,
@@ -521,12 +508,12 @@ impl<F: Fetcher> Loader<F> {
                 let test = test.clone();
 
                 let (collection, documents, partitions, step_type) = match spec {
-                    specs::TestStep::Ingest(specs::TestStepIngest {
+                    models::TestStep::Ingest(models::TestStepIngest {
                         collection,
                         documents,
                     }) => (collection, documents, None, TestStepType::Ingest),
 
-                    specs::TestStep::Verify(specs::TestStepVerify {
+                    models::TestStep::Verify(models::TestStepVerify {
                         collection,
                         documents,
                         partitions,
@@ -553,10 +540,10 @@ impl<F: Fetcher> Loader<F> {
     async fn load_collection<'s>(
         &'s self,
         scope: Scope<'s>,
-        collection_name: &'s names::Collection,
-        collection: specs::CollectionDef,
+        collection_name: &'s models::Collection,
+        collection: models::CollectionDef,
     ) {
-        let specs::CollectionDef {
+        let models::CollectionDef {
             schema,
             key,
             projections,
@@ -567,8 +554,8 @@ impl<F: Fetcher> Loader<F> {
         // Visit all collection projections.
         for (field, projection) in projections.iter() {
             let (location, partition) = match projection {
-                specs::Projection::Pointer(location) => (location, false),
-                specs::Projection::Object {
+                models::Projection::Pointer(location) => (location, false),
+                models::Projection::Extended {
                     location,
                     partition,
                 } => (location, *partition),
@@ -618,12 +605,12 @@ impl<F: Fetcher> Loader<F> {
     async fn load_derivation<'s>(
         &'s self,
         scope: Scope<'s>,
-        derivation_name: &'s names::Collection,
-        derivation: specs::Derivation,
+        derivation_name: &'s models::Collection,
+        derivation: models::Derivation,
     ) {
-        let specs::Derivation {
+        let models::Derivation {
             register:
-                specs::Register {
+                models::Register {
                     schema: register_schema,
                     initial: register_initial,
                 },
@@ -668,13 +655,13 @@ impl<F: Fetcher> Loader<F> {
     async fn load_transform<'s>(
         &'s self,
         scope: Scope<'s>,
-        transform_name: &'s names::Transform,
-        derivation: &'s names::Collection,
-        transform: specs::Transform,
+        transform_name: &'s models::Transform,
+        derivation: &'s models::Collection,
+        transform: models::TransformDef,
     ) {
-        let specs::Transform {
+        let models::TransformDef {
             source:
-                specs::TransformSource {
+                models::TransformSource {
                     name: source,
                     schema: source_schema,
                     partitions: source_partitions,
@@ -687,16 +674,16 @@ impl<F: Fetcher> Loader<F> {
         } = transform;
 
         let (shuffle_key, shuffle_lambda) = match shuffle {
-            Some(specs::Shuffle::Key(key)) => (Some(key), None),
-            Some(specs::Shuffle::Lambda(lambda)) => (None, Some(lambda)),
+            Some(models::Shuffle::Key(key)) => (Some(key), None),
+            Some(models::Shuffle::Lambda(lambda)) => (None, Some(lambda)),
             None => (None, None),
         };
         let update_lambda = match update {
-            Some(specs::Update { lambda }) => Some(lambda),
+            Some(models::Update { lambda }) => Some(lambda),
             None => None,
         };
         let publish_lambda = match publish {
-            Some(specs::Publish { lambda }) => Some(lambda),
+            Some(models::Publish { lambda }) => Some(lambda),
             None => None,
         };
 
@@ -728,27 +715,23 @@ impl<F: Fetcher> Loader<F> {
     fn load_capture_endpoint<'s>(
         &'s self,
         _scope: Scope<'s>,
-        endpoint: specs::CaptureEndpoint,
+        endpoint: models::CaptureEndpoint,
     ) -> Option<serde_json::Value> {
-        use specs::CaptureEndpoint::*;
+        use models::CaptureEndpoint::*;
         match endpoint {
             AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
         }
     }
 
     fn load_materialization_endpoint<'s>(
         &'s self,
         scope: Scope<'s>,
-        endpoint: specs::MaterializationEndpoint,
+        endpoint: models::MaterializationEndpoint,
     ) -> Option<serde_json::Value> {
-        use specs::MaterializationEndpoint::*;
+        use models::MaterializationEndpoint::*;
         match endpoint {
             FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Postgres(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Remote(spec) => Some(serde_json::to_value(spec).unwrap()),
             Snowflake(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Webhook(spec) => Some(serde_json::to_value(spec).unwrap()),
             Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
                     Some(serde_json::to_value(spec).unwrap()) // Already absolute.
@@ -756,7 +739,7 @@ impl<F: Fetcher> Loader<F> {
                     self.fallible(scope, scope.resource().join(spec.path.as_ref()))
                 {
                     // Resolve relative database path relative to current scope.
-                    spec.path = specs::RelativeUrl(path.to_string());
+                    spec.path = models::RelativeUrl::new(path.to_string());
                     Some(serde_json::to_value(spec).unwrap())
                 } else {
                     None // We reported a join() error.
