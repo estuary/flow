@@ -1,12 +1,12 @@
 use lazy_static::lazy_static;
-use protocol::protocol as broker;
+use protocol::protocol::CompressionCodec as ProtoCodec;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use validator::Validate;
 
-use super::reference::*;
+use super::references::*;
 
 /// BucketType is a provider of object storage buckets,
 /// which are used to durably storage journal fragments.
@@ -126,13 +126,12 @@ pub enum CompressionCodec {
 
 impl CompressionCodec {
     pub fn into_proto(self) -> i32 {
-        use broker::CompressionCodec as Out;
         let out = match self {
-            CompressionCodec::None => Out::None,
-            CompressionCodec::Gzip => Out::Gzip,
-            CompressionCodec::Zstandard => Out::Zstandard,
-            CompressionCodec::Snappy => Out::Snappy,
-            CompressionCodec::GzipOffloadDecompression => Out::GzipOffloadDecompression,
+            Self::None => ProtoCodec::None,
+            Self::Gzip => ProtoCodec::Gzip,
+            Self::Zstandard => ProtoCodec::Zstandard,
+            Self::Snappy => ProtoCodec::Snappy,
+            Self::GzipOffloadDecompression => ProtoCodec::GzipOffloadDecompression,
         };
         out as i32
     }

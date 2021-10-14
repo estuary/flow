@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json, Value};
+use serde_json::{from_value, json};
 use validator::{Validate, ValidationError, ValidationErrors};
 
 // This module contains types which are references to other entities
@@ -28,6 +28,8 @@ lazy_static! {
     // FREETEXT_RE allows anything except for Zl: Separator:line,
     // Zp: Separator:paragraph, or Other. Note Zs: Separator:space is allowed.
     static ref FREETEXT_RE: Regex = Regex::new(r"[^\p{Other}\p{Zl}\p{Zp}]+").unwrap();
+    // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive.
+    static ref RELATIVE_URL_RE: Regex = Regex::new(r"[^\p{Z}]+").unwrap();
 }
 
 macro_rules! string_reference_types {
@@ -53,11 +55,14 @@ macro_rules! string_reference_types {
             pub fn example() -> Self {
                 Self($Example.into())
             }
+            pub fn schema_pattern() -> String {
+                ["^", $Regex.as_str(), "$"].concat()
+            }
 
             fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
                 from_value(json!({
                     "type": "string",
-                    "pattern": &["^", $Regex.as_str(), "$"].concat(),
+                    "pattern": Self::schema_pattern(),
                 }))
                 .unwrap()
             }
@@ -154,14 +159,25 @@ string_reference_types! {
     /// Test names are meaningful descriptions of the test's behavior.
     pub struct Test("Test::schema", pattern = FREETEXT_RE, example = "My Test");
 
-    /// Rules are deprecated and will be removed.
-    pub struct Rule("Rule::schema", pattern = FREETEXT_RE, example = "00: Rule");
-
     /// JSON Pointer which identifies a location in a document.
     pub struct JsonPointer("JsonPointer::schema", pattern = JSON_POINTER_RE, example = "/json/ptr");
 
     /// Field names a projection of a document location.
     pub struct Field("Field::schema", pattern = TOKEN_RE, example = "my_field");
+
+    /// A URL identifying a resource, which may be a relative local path
+    /// with respect to the current resource (i.e, ../path/to/flow.yaml),
+    /// or may be an external absolute URL (i.e., http://example/flow.yaml).
+    pub struct RelativeUrl("RelativeUrl::schema", pattern = RELATIVE_URL_RE, example = "https://example/resource");
+}
+
+impl RelativeUrl {
+    pub fn example_relative() -> Self {
+        Self("../path/to/local.yaml".to_owned())
+    }
+    pub fn example_absolute() -> Self {
+        Self::example()
+    }
 }
 
 /// Ordered JSON-Pointers which define how a composite key may be extracted from
@@ -197,12 +213,9 @@ impl Validate for CompositeKey {
     }
 }
 
-/// Object is an alias for a JSON object.
-pub type Object = serde_json::Map<String, Value>;
-
 #[cfg(test)]
 mod test {
-    use super::{Collection, JsonPointer, Prefix, Transform, Validate};
+    use super::{Collection, JsonPointer, Prefix, RelativeUrl, Test, Transform, Validate};
 
     #[test]
     fn test_catalog_name_re() {
@@ -283,6 +296,41 @@ mod test {
             ("/", false),
         ] {
             let out = JsonPointer::new(case).validate();
+            if expect {
+                out.unwrap();
+            } else {
+                out.unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn test_free_test_re() {
+        for (case, expect) in [
+            (
+                "Just about anything is allowed. Multiple sentences.   <- And tabs.",
+                true,
+            ),
+            ("But not\nA line break.", false),
+        ] {
+            let out = Test::new(case).validate();
+            if expect {
+                out.unwrap();
+            } else {
+                out.unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn test_relative_url_re() {
+        for (case, expect) in [
+            ("https://github.com/a/path?query#/and/stuff", true),
+            ("../../a/path?query#/and/stuff", true),
+            ("", false), // Cannot be empty
+            ("cannot have a space", false),
+        ] {
+            let out = RelativeUrl::new(case).validate();
             if expect {
                 out.unwrap();
             } else {

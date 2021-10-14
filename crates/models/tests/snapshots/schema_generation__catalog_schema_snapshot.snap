@@ -1,0 +1,1144 @@
+---
+source: crates/models/tests/schema_generation.rs
+expression: "&schema"
+
+---
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "title": "Catalog",
+  "description": "Each catalog source defines a portion of a Flow Catalog, by defining collections, derivations, tests, and materializations of the Catalog. Catalog sources may reference and import other sources, in order to collections and other entities that source defines.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "title": "JSON-Schema against which the Catalog is validated.",
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "captures": {
+      "title": "Captures of this Catalog.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/CaptureDef"
+      }
+    },
+    "collections": {
+      "title": "Collections defined by this Catalog.",
+      "default": {},
+      "examples": [
+        {
+          "acmeCo/collection": {
+            "derivation": null,
+            "journals": {
+              "fragments": {}
+            },
+            "key": [
+              "/json/ptr"
+            ],
+            "projections": {},
+            "schema": "../path/to/local.yaml"
+          }
+        }
+      ],
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/CollectionDef"
+      }
+    },
+    "import": {
+      "title": "Import other Flow catalog sources.",
+      "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
+      "default": [],
+      "examples": [
+        [
+          "../path/to/local.yaml",
+          "https://example/resource"
+        ]
+      ],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RelativeUrl"
+      }
+    },
+    "materializations": {
+      "title": "Materializations of this Catalog.",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/MaterializationDef"
+      }
+    },
+    "npmDependencies": {
+      "title": "NPM package dependencies of the Catalog.",
+      "description": "Dependencies are included when building the catalog's build NodeJS package, as {\"package-name\": \"version\"}. I.e. {\"moment\": \"^2.24\"}.\n\nVersion strings can take any form understood by NPM. See https://docs.npmjs.com/files/package.json#dependencies",
+      "default": {
+        "a-npm-package": "^1.2.3"
+      },
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "storageMappings": {
+      "default": [],
+      "examples": [
+        {
+          "prefix": "acmeCo/widgets/",
+          "stores": [
+            {
+              "bucket": "my-bucket",
+              "prefix": null,
+              "provider": "S3"
+            }
+          ]
+        }
+      ],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/StorageMapping"
+      }
+    },
+    "tests": {
+      "default": {
+        "Test that fob quips ipsum": []
+      },
+      "examples": [
+        {
+          "Test that fob quips ipsum": [
+            {
+              "ingest": {
+                "collection": "acmeCo/collection",
+                "documents": [
+                  {
+                    "example": "document"
+                  },
+                  {
+                    "another": "document"
+                  }
+                ]
+              }
+            },
+            {
+              "verify": {
+                "collection": "acmeCo/collection",
+                "documents": [
+                  {
+                    "expected": "document"
+                  }
+                ],
+                "partitions": null
+              }
+            }
+          ]
+        }
+      ],
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/TestStep"
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AirbyteSourceConfig": {
+      "description": "Airbyte source connector specification.",
+      "type": "object",
+      "required": [
+        "config",
+        "image"
+      ],
+      "properties": {
+        "config": {
+          "title": "Configuration of the connector.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "image": {
+          "title": "Image of the connector.",
+          "type": "string"
+        }
+      }
+    },
+    "BucketType": {
+      "description": "BucketType is a provider of object storage buckets, which are used to durably storage journal fragments.",
+      "examples": [
+        "S3"
+      ],
+      "type": "string",
+      "enum": [
+        "GCS",
+        "S3",
+        "AZURE"
+      ]
+    },
+    "CaptureBinding": {
+      "examples": [
+        {
+          "resource": {
+            "stream": "a_stream"
+          },
+          "target": "target/collection"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "resource",
+        "target"
+      ],
+      "properties": {
+        "resource": {
+          "title": "Endpoint resource to capture from.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "target": {
+          "title": "Name of the collection to capture into.",
+          "$ref": "#/definitions/Collection"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CaptureDef": {
+      "description": "A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket) from which data should be continuously captured, with a Flow collection into that captured data is ingested. Multiple Captures may be bound to a single collection, but only one capture may exist for a given endpoint and target.",
+      "type": "object",
+      "required": [
+        "bindings",
+        "endpoint"
+      ],
+      "properties": {
+        "bindings": {
+          "title": "Bound collections to capture from the endpoint.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CaptureBinding"
+          }
+        },
+        "endpoint": {
+          "title": "Endpoint to capture from.",
+          "$ref": "#/definitions/CaptureEndpoint"
+        },
+        "interval": {
+          "title": "Interval of time between invocations of the capture.",
+          "description": "Configured intervals are applicable only to connectors which are unable to continuously tail their source, and which instead produce a current quantity of output and then exit. Flow will start the connector again after the given interval of time has passed.\n\nIntervals are relative to the start of an invocation and not its completion. For example, if the interval is five minutes, and an invocation of the capture finishes after two minutes, then the next invocation will be started after three additional minutes.",
+          "default": "5m",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "shards": {
+          "title": "Template for shards of this capture task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CaptureEndpoint": {
+      "description": "An Endpoint connector used for Flow captures.",
+      "oneOf": [
+        {
+          "title": "An Airbyte source connector.",
+          "type": "object",
+          "required": [
+            "airbyteSource"
+          ],
+          "properties": {
+            "airbyteSource": {
+              "$ref": "#/definitions/AirbyteSourceConfig"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Collection": {
+      "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "examples": [
+        "acmeCo/collection"
+      ],
+      "type": "string",
+      "pattern": "^[\\p{Letter}\\p{Digit}\\-_\\.]+(/[\\p{Letter}\\p{Digit}\\-_\\.]+)*$"
+    },
+    "CollectionDef": {
+      "description": "Collection describes a set of related documents, where each adheres to a common schema and grouping key. Collections are append-only: once a document is added to a collection, it is never removed. However, it may be replaced or updated (either in whole, or in part) by a future document sharing its key. Each new document of a given key is \"reduced\" into existing documents of the key. By default, this reduction is achieved by completely replacing the previous document, but much richer reduction behaviors can be specified through the use of annotated reduction strategies of the collection schema.",
+      "examples": [
+        {
+          "derivation": null,
+          "journals": {
+            "fragments": {}
+          },
+          "key": [
+            "/json/ptr"
+          ],
+          "projections": {},
+          "schema": "../path/to/local.yaml"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "key",
+        "schema"
+      ],
+      "properties": {
+        "derivation": {
+          "title": "Derivation which builds this collection from others.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Derivation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "journals": {
+          "title": "Template for journals of this collection.",
+          "default": {
+            "fragments": {}
+          },
+          "$ref": "#/definitions/JournalTemplate"
+        },
+        "key": {
+          "title": "Composite key of this collection.",
+          "$ref": "#/definitions/CompositeKey"
+        },
+        "projections": {
+          "title": "Projections and logical partitions of this collection.",
+          "default": {},
+          "examples": [
+            {
+              "a_field": "/json/ptr",
+              "a_partition": {
+                "location": "/json/ptr",
+                "partition": true
+              }
+            }
+          ],
+          "type": "object",
+          "patternProperties": {
+            "^[\\p{Letter}\\p{Digit}\\-_\\.]+$": {
+              "$ref": "#/definitions/Projection"
+            }
+          },
+          "additionalProperties": false
+        },
+        "schema": {
+          "title": "Schema against which collection documents are validated and reduced.",
+          "examples": [
+            "../path/to/schema#/$defs/subPath"
+          ],
+          "$ref": "#/definitions/Schema"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CompositeKey": {
+      "description": "Ordered JSON-Pointers which define how a composite key may be extracted from a collection document.",
+      "examples": [
+        [
+          "/json/ptr"
+        ]
+      ],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/JsonPointer"
+      }
+    },
+    "CompressionCodec": {
+      "description": "A CompressionCodec may be applied to compress journal fragments before they're persisted to cloud stoage. The compression applied to a journal fragment is included in its filename, such as \".gz\" for GZIP. A collection's compression may be changed at any time, and will affect newly-written journal fragments.",
+      "examples": [
+        "GZIP_OFFLOAD_DECOMPRESSION"
+      ],
+      "type": "string",
+      "enum": [
+        "NONE",
+        "GZIP",
+        "ZSTANDARD",
+        "SNAPPY",
+        "GZIP_OFFLOAD_DECOMPRESSION"
+      ]
+    },
+    "Derivation": {
+      "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
+      "type": "object",
+      "properties": {
+        "register": {
+          "title": "Register configuration of this derivation.",
+          "default": {
+            "initial": null,
+            "schema": true
+          },
+          "$ref": "#/definitions/Register"
+        },
+        "shards": {
+          "title": "Template for shards of this derivation task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
+        },
+        "transform": {
+          "title": "Transforms which make up this derivation.",
+          "default": {},
+          "type": "object",
+          "patternProperties": {
+            "^[\\p{Letter}\\p{Digit}\\-_\\.]+$": {
+              "$ref": "#/definitions/Transform"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "Field": {
+      "description": "Field names a projection of a document location.",
+      "examples": [
+        "my_field"
+      ],
+      "type": "string",
+      "pattern": "^[\\p{Letter}\\p{Digit}\\-_\\.]+$"
+    },
+    "FlowSinkConfig": {
+      "description": "Flow sink connector specification.",
+      "type": "object",
+      "required": [
+        "config",
+        "image"
+      ],
+      "properties": {
+        "config": {
+          "title": "Configuration of the connector.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "image": {
+          "title": "Image of the connector.",
+          "type": "string"
+        }
+      }
+    },
+    "FragmentTemplate": {
+      "description": "A FragmentTemplate configures how journal fragment files are produced as part of a collection.",
+      "examples": [
+        {
+          "compressionCodec": "ZSTANDARD",
+          "flushInterval": "1h"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "compressionCodec": {
+          "title": "Codec used to compress Journal Fragments.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CompressionCodec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flushInterval": {
+          "title": "Maximum flush delay before in-progress fragments are closed and persisted",
+          "description": "into cloud storage. Intervals are converted into uniform time segments: 24h will \"roll\" all fragments at midnight UTC every day, 1h at the top of every hour, 15m a :00, :15, :30, :45 past the hour, and so on. If not set, then fragments are not flushed on time-based intervals.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "length": {
+          "title": "Desired content length of each fragment, in megabytes before compression.",
+          "description": "When a collection journal fragment reaches this threshold, it will be closed off and pushed to cloud storage. If not set, a default of 512MB is used.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "maximum": 4096.0,
+          "minimum": 32.0
+        },
+        "retention": {
+          "title": "Duration for which historical fragments of a collection should be kept.",
+          "description": "If not set, then fragments are retained indefinitely.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "JournalTemplate": {
+      "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
+      "examples": [
+        {
+          "fragments": {
+            "compressionCodec": "ZSTANDARD",
+            "flushInterval": "1h"
+          }
+        }
+      ],
+      "type": "object",
+      "required": [
+        "fragments"
+      ],
+      "properties": {
+        "fragments": {
+          "title": "Fragment configuration of collection journals.",
+          "$ref": "#/definitions/FragmentTemplate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "JsonPointer": {
+      "description": "JSON Pointer which identifies a location in a document.",
+      "examples": [
+        "/json/ptr"
+      ],
+      "type": "string",
+      "pattern": "^(/([^/~]|(~[01]))+)*$"
+    },
+    "MaterializationBinding": {
+      "examples": [
+        {
+          "fields": {
+            "exclude": [],
+            "include": {},
+            "recommended": true
+          },
+          "partitions": null,
+          "resource": {
+            "table": "a_table"
+          },
+          "source": "source/collection"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "resource",
+        "source"
+      ],
+      "properties": {
+        "fields": {
+          "title": "Selected projections for this materialization.",
+          "default": {
+            "exclude": [],
+            "include": {},
+            "recommended": true
+          },
+          "$ref": "#/definitions/MaterializationFields"
+        },
+        "partitions": {
+          "title": "Selector over partitions of the source collection to read.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resource": {
+          "title": "Endpoint resource to materialize into.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "source": {
+          "title": "Name of the collection to be materialized.",
+          "$ref": "#/definitions/Collection"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MaterializationDef": {
+      "description": "A Materialization binds a Flow collection with an external system & target (e.x, a SQL table) into which the collection is to be continuously materialized.",
+      "type": "object",
+      "required": [
+        "bindings",
+        "endpoint"
+      ],
+      "properties": {
+        "bindings": {
+          "title": "Bound collections to materialize into the endpoint.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MaterializationBinding"
+          }
+        },
+        "endpoint": {
+          "title": "Endpoint to materialize into.",
+          "$ref": "#/definitions/MaterializationEndpoint"
+        },
+        "shards": {
+          "title": "Template for shards of this materialization task.",
+          "default": {},
+          "$ref": "#/definitions/ShardTemplate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MaterializationEndpoint": {
+      "description": "An Endpoint connector used for Flow materializations.",
+      "oneOf": [
+        {
+          "title": "A Flow sink.",
+          "type": "object",
+          "required": [
+            "flowSink"
+          ],
+          "properties": {
+            "flowSink": {
+              "$ref": "#/definitions/FlowSinkConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A SQLite database.",
+          "type": "object",
+          "required": [
+            "sqlite"
+          ],
+          "properties": {
+            "sqlite": {
+              "$ref": "#/definitions/SqliteConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A Snowflake database.",
+          "description": "Deprecated. Use the connector docker image instead.",
+          "type": "object",
+          "required": [
+            "snowflake"
+          ],
+          "properties": {
+            "snowflake": {
+              "$ref": "#/definitions/SnowflakeConfig"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "MaterializationFields": {
+      "description": "MaterializationFields defines a selection of projections to materialize, as well as optional per-projection, driver-specific configuration.",
+      "examples": [
+        {
+          "exclude": [
+            "removed"
+          ],
+          "include": {
+            "added": {}
+          },
+          "recommended": true
+        }
+      ],
+      "type": "object",
+      "required": [
+        "recommended"
+      ],
+      "properties": {
+        "exclude": {
+          "title": "Fields to exclude.",
+          "description": "This removes from recommended projections, where enabled.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Field"
+          }
+        },
+        "include": {
+          "title": "Fields to include.",
+          "description": "This supplements any recommended fields, where enabled. Values are passed through to the driver, e.x. for customization of the driver's schema generation or runtime behavior with respect to the field.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "recommended": {
+          "title": "Should recommended projections for the endpoint be used?",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PartitionSelector": {
+      "description": "Partition selectors identify a desired subset of the available logical partitions of a collection.",
+      "examples": [
+        {
+          "exclude": {
+            "other_partition": [
+              32,
+              64
+            ]
+          },
+          "include": {
+            "a_partition": [
+              "A",
+              "B"
+            ]
+          }
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "description": "Partition field names and values which are excluded from the source collection. Any documents matching *any one* of the partition values will be excluded.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": true
+          }
+        },
+        "include": {
+          "description": "Partition field names and corresponding values which must be matched from the Source collection. Only documents having one of the specified values across all specified partition names will be matched. For example, source: [App, Web] region: [APAC] would mean only documents of 'App' or 'Web' source and also occurring in the 'APAC' region will be processed.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Prefix": {
+      "description": "Prefixes are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/'. Prefixes may not begin in a '/', but must end in one.",
+      "examples": [
+        "acmeCo/"
+      ],
+      "type": "string",
+      "pattern": "^([\\p{Letter}\\p{Digit}\\-_\\.]+/)*$"
+    },
+    "Register": {
+      "description": "Registers are the internal states of a derivation, which can be read and updated by all of its transformations. They're an important building block for joins, aggregations, and other complex stateful workflows.\n\nRegisters are implemented using JSON-Schemas, often ones with reduction annotations. When reading source documents, every distinct shuffle key by which the source collection is read is mapped to a corresponding register value (or, if no shuffle key is defined, the source collection's key is used instead).\n\nThen, an \"update\" lambda of the transformation produces updates which are reduced into the register, and a \"publish\" lambda reads the current (and previous, if updated) register value.",
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "properties": {
+        "initial": {
+          "title": "Initial value of a keyed register which has never been updated.",
+          "description": "If not specified, the default is \"null\".",
+          "default": null
+        },
+        "schema": {
+          "title": "Schema which validates and reduces register documents.",
+          "$ref": "#/definitions/Schema"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RelativeUrl": {
+      "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
+      "examples": [
+        "https://example/resource"
+      ],
+      "type": "string",
+      "pattern": "^[^\\p{Z}]+$"
+    },
+    "Schema": {
+      "description": "A schema is a draft 2020-12 JSON Schema which validates Flow documents. Schemas also provide annotations at document locations, such as reduction strategies for combining one document into another.\n\nSchemas may be defined inline to the catalog, or given as a relative or absolute URI. URIs may optionally include a JSON fragment pointer that locates a specific sub-schema therein.\n\nFor example, \"schemas/marketing.yaml#/$defs/campaign\" would reference the schema at location {\"$defs\": {\"campaign\": ...}} within ./schemas/marketing.yaml.",
+      "examples": [
+        "http://example/schema#/$defs/subPath",
+        "../path/to/schema#/$defs/subPath",
+        {
+          "properties": {
+            "bar": {
+              "const": 42
+            },
+            "foo": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "foo_count": {
+              "reduce": {
+                "strategy": "sum"
+              },
+              "type": "integer"
+            }
+          },
+          "reduce": {
+            "strategy": "merge"
+          },
+          "type": "object"
+        }
+      ],
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RelativeUrl"
+        },
+        {
+          "type": "object",
+          "additionalProperties": true
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "ShardTemplate": {
+      "description": "A ShardTemplate configures how shards process a catalog task.",
+      "examples": [
+        {
+          "hotStandbys": 1,
+          "maxTxnDuration": "30s"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "disable": {
+          "title": "Disable processing of the task's shards.",
+          "type": "boolean"
+        },
+        "hotStandbys": {
+          "title": "Number of hot standbys to keep for each task shard.",
+          "description": "Hot standbys of a shard actively replicate the shard's state to another machine, and are able to be quickly promoted to take over processing for the shard should its current primary fail. If not set, then no hot standbys are maintained. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "logLevel": {
+          "title": "Log level of this tasks's shards.",
+          "description": "Log levels may currently be \"error\", \"warn\", \"info\", \"debug\", or \"trace\". If not set, the effective log level is \"info\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxTxnDuration": {
+          "title": "Maximum duration of task transactions.",
+          "description": "This duration upper-bounds the amount of time during which a transaction may process documents before it must flush and commit. It may run for less time if there aren't additional ready documents for it to process. If not set, the maximum duration defaults to one second. Some tasks, particularly materializations to large analytic warehouses like Snowflake, may benefit from a longer duration such as thirty seconds. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "minTxnDuration": {
+          "title": "Minimum duration of task transactions.",
+          "description": "This duration lower-bounds the amount of time during which a transaction must process documents before it must flush and commit. It may run for more time if additional documents are available. The default value is zero seconds. Larger values may result in more data reduction, at the cost of more latency. EXPERIMENTAL: this field MAY be removed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h)$"
+        },
+        "readChannelSize": {
+          "title": "Size of the reader channel used for decoded documents.",
+          "description": "Larger values are recommended for tasks having more than one shard split and long, bursty transaction durations. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "ringBufferSize": {
+          "title": "Size of the ring buffer used to sequence documents for exactly-once semantics.",
+          "description": "The ring buffer is a performance optimization only: catalog tasks will replay portions of journals as needed when messages aren't available in the buffer. It can remain small if upstream task transactions are small, but larger transactions will achieve better performance with a larger ring. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "SnowflakeConfig": {
+      "description": "Snowflake endpoint configuration. Compare to https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config",
+      "type": "object",
+      "required": [
+        "account",
+        "database",
+        "password",
+        "role",
+        "schema",
+        "user",
+        "warehouse"
+      ],
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "database": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "warehouse": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SqliteConfig": {
+      "description": "Sqlite endpoint configuration. Compare to https://github.com/mattn/go-sqlite3#connection-string",
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "title": "Path of the database, relative to this catalog source.",
+          "$ref": "#/definitions/RelativeUrl"
+        }
+      },
+      "additionalProperties": true
+    },
+    "StorageMapping": {
+      "description": "A StorageMapping relates a prefix of the catalog namespace, such as acmeCo/sales/widgets/, to a backing cloud storage location.",
+      "type": "object",
+      "required": [
+        "stores"
+      ],
+      "properties": {
+        "prefix": {
+          "default": "",
+          "$ref": "#/definitions/Prefix"
+        },
+        "stores": {
+          "title": "Stores for journal fragments under this prefix.",
+          "description": "Multiple stores may be specified, and all stores are periodically scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.\n\nWhen running `flowctl test`, stores are ignored and a local temporary directory is used instead.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Store"
+          }
+        }
+      }
+    },
+    "Store": {
+      "description": "A Store into which Flow journal fragments may be written.\n\nThe persisted path of a journal fragment is determined by composing the Store's bucket and prefix with the journal name and a content-addressed fragment file name.\n\nEg, given a Store to S3 with bucket \"my-bucket\" and prefix \"a/prefix\", along with a collection \"example/events\" having a logical partition \"region\", then a complete persisted path might be:\n\ns3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip",
+      "examples": [
+        {
+          "bucket": "my-bucket",
+          "prefix": null,
+          "provider": "S3"
+        }
+      ],
+      "type": "object",
+      "required": [
+        "bucket",
+        "provider"
+      ],
+      "properties": {
+        "bucket": {
+          "description": "Bucket into which Flow will store data.",
+          "type": "string",
+          "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+        },
+        "prefix": {
+          "description": "Optional prefix of keys written to the bucket.",
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Prefix"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider": {
+          "description": "Cloud storage provider.",
+          "$ref": "#/definitions/BucketType"
+        }
+      }
+    },
+    "TestStep": {
+      "examples": [
+        {
+          "ingest": {
+            "collection": "acmeCo/collection",
+            "documents": [
+              {
+                "example": "document"
+              },
+              {
+                "another": "document"
+              }
+            ]
+          }
+        },
+        {
+          "verify": {
+            "collection": "acmeCo/collection",
+            "documents": [
+              {
+                "expected": "document"
+              }
+            ],
+            "partitions": null
+          }
+        }
+      ],
+      "oneOf": [
+        {
+          "description": "Ingest document fixtures into a collection.",
+          "type": "object",
+          "required": [
+            "ingest"
+          ],
+          "properties": {
+            "ingest": {
+              "$ref": "#/definitions/TestStepIngest"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Verify the contents of a collection match a set of document fixtures.",
+          "type": "object",
+          "required": [
+            "verify"
+          ],
+          "properties": {
+            "verify": {
+              "$ref": "#/definitions/TestStepVerify"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TestStepIngest": {
+      "description": "An ingestion test step ingests document fixtures into the named collection.",
+      "examples": [
+        {
+          "collection": "acmeCo/collection",
+          "documents": [
+            {
+              "example": "document"
+            },
+            {
+              "another": "document"
+            }
+          ]
+        }
+      ],
+      "type": "object",
+      "required": [
+        "collection",
+        "documents"
+      ],
+      "properties": {
+        "collection": {
+          "title": "Name of the collection into which the test will ingest.",
+          "$ref": "#/definitions/Collection"
+        },
+        "documents": {
+          "title": "Documents to ingest.",
+          "description": "Each document must conform to the collection's schema.",
+          "type": "array",
+          "items": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "TestStepVerify": {
+      "description": "A verification test step verifies that the contents of the named collection match the expected fixtures, after fully processing all preceding ingestion test steps.",
+      "examples": [
+        {
+          "collection": "acmeCo/collection",
+          "documents": [
+            {
+              "expected": "document"
+            }
+          ],
+          "partitions": null
+        }
+      ],
+      "type": "object",
+      "required": [
+        "collection",
+        "documents"
+      ],
+      "properties": {
+        "collection": {
+          "title": "Collection into which the test will ingest.",
+          "$ref": "#/definitions/Collection"
+        },
+        "documents": {
+          "title": "Documents to verify.",
+          "description": "Each document may contain only a portion of the matched document's properties, and any properties present in the actual document but not in this document fixture are ignored. All other values must match or the test will fail.",
+          "type": "array",
+          "items": true
+        },
+        "partitions": {
+          "title": "Selector over partitions to verify.",
+          "default": {
+            "exclude": {
+              "other_partition": [
+                32,
+                64
+              ]
+            },
+            "include": {
+              "a_partition": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PartitionSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
