@@ -3,14 +3,90 @@ package bindings
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/flow/ops/testutil"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
+
+// Validation failures are expected to be quite common, so we should pay special attention to how
+// they're shown to the user.
+func TestValidationFailuresAreLogged(t *testing.T) {
+	built, err := BuildCatalog(BuildArgs{
+		Context:  context.Background(),
+		FileRoot: "./testdata",
+		BuildAPI_Config: pf.BuildAPI_Config{
+			Directory:   "testdata",
+			Source:      "file:///int-strings.flow.yaml",
+			SourceType:  pf.ContentType_CATALOG_SPEC,
+			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+		}})
+	require.NoError(t, err)
+	require.Empty(t, built.Errors)
+
+	var collection = built.Collections[1]
+	schemaIndex, err := NewSchemaIndex(&built.Schemas)
+	require.NoError(t, err)
+
+	var logPublisher = testutil.NewTestLogPublisher(log.WarnLevel)
+	combiner, err := NewCombine(logPublisher)
+	require.NoError(t, err)
+	defer combiner.Destroy()
+
+	err = combiner.Configure(
+		"test/combineBindings",
+		schemaIndex,
+		collection.Collection,
+		collection.SchemaUri,
+		collection.UuidPtr,
+		collection.KeyPtrs,
+		nil,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": "not an int"}`)))
+
+	err = combiner.Drain(func(_ bool, raw json.RawMessage, packedKey, packedFields []byte) error {
+		require.Fail(t, "expected combine callback not to be called")
+		return fmt.Errorf("not a real error")
+	})
+	require.Error(t, err)
+
+	logPublisher.WaitForLogs(t, time.Millisecond*5000, 1)
+	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
+		{
+			Level: log.ErrorLevel,
+			Message: `document is invalid: {
+  "basic_output": {
+    "errors": [
+      {
+        "absoluteKeywordLocation": "file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i",
+        "error": "Invalid(Type(\"integer\"))",
+        "instanceLocation": "/i",
+        "keywordLocation": "#/properties/i"
+      }
+    ],
+    "valid": false
+  },
+  "document": {
+    "i": "not an int"
+  }
+}`,
+			Fields: map[string]interface{}{
+				"error":     `{"CombineError":{"PreReduceValidation":{"document":{"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid(Type(\"integer\"))","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
+				"logSource": "combine",
+			},
+		},
+	})
+}
 
 func TestCombineBindings(t *testing.T) {
 	built, err := BuildCatalog(BuildArgs{
@@ -29,7 +105,8 @@ func TestCombineBindings(t *testing.T) {
 	schemaIndex, err := NewSchemaIndex(&built.Schemas)
 	require.NoError(t, err)
 
-	var combiner = NewCombine()
+	combiner, err := NewCombine(ops.StdLogPublisher())
+	require.NoError(t, err)
 
 	// Loop to exercise re-use of a Combiner.
 	for i := 0; i != 5; i++ {

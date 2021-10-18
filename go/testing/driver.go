@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow/ops"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/nsf/jsondiff"
@@ -184,7 +185,10 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 	}
 
 	// Feed documents into an extractor, to extract UUIDs.
-	var extractor = bindings.NewExtractor()
+	extractor, err := bindings.NewExtractor()
+	if err != nil {
+		return fmt.Errorf("creating extractor: %w", err)
+	}
 	if err = extractor.Configure(step.CollectionUuidPtr, nil, "", nil); err != nil {
 		return fmt.Errorf("failed to build extractor: %w", err)
 	}
@@ -209,7 +213,10 @@ func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
 		return err
 	}
 
-	var combiner = bindings.NewCombine()
+	combiner, err := bindings.NewCombine(ops.StdLogPublisher())
+	if err != nil {
+		return fmt.Errorf("creating combiner: %w", err)
+	}
 	if err = combiner.Configure(
 		task.Name(),
 		schemaIndex,

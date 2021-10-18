@@ -8,12 +8,15 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"unsafe"
 
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 )
 
 // service is a Go handle to an instantiated service binding.
@@ -23,10 +26,11 @@ type service struct {
 	in       []C.In1
 	buf      []byte
 
-	invoke1  func(*C.Channel, C.In1)
-	invoke4  func(*C.Channel, C.In4)
-	invoke16 func(*C.Channel, C.In16)
-	drop     func(*C.Channel)
+	invoke1      func(*C.Channel, C.In1)
+	invoke4      func(*C.Channel, C.In4)
+	invoke16     func(*C.Channel, C.In16)
+	drop         func(*C.Channel)
+	logWritePipe *os.File
 }
 
 // newService builds a new service instance. This is to be wrapped by concrete,
@@ -35,27 +39,39 @@ type service struct {
 // memory-safe interfaces for interacting with the service.
 func newService(
 	typeName string,
-	create func() *C.Channel,
+	create func(C.int32_t, C.int32_t) *C.Channel,
 	invoke1 func(*C.Channel, C.In1),
 	invoke4 func(*C.Channel, C.In4),
 	invoke16 func(*C.Channel, C.In16),
 	drop func(*C.Channel),
-) *service {
-	serviceCreatedCounter.WithLabelValues(typeName).Inc()
-	var ch = create()
-
-	var svc = &service{
-		typeName: typeName,
-		ch:       ch,
-		in:       make([]C.In1, 0, 16),
-		buf:      make([]byte, 0, 256),
-		invoke1:  invoke1,
-		invoke4:  invoke4,
-		invoke16: invoke16,
-		drop:     drop,
+	logPublisher ops.LogPublisher,
+) (*service, error) {
+	var logReader, logWriter, err = os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("creating loging pipe: %w", err)
 	}
 
-	return svc
+	// We don't expect our rust services to ever log in a format other than JSON. If they do, then
+	// we'll forward the text logs at the warning level so that someone notices, since it's likely
+	// that there's some problem.
+	var textLogLevel = logrus.WarnLevel
+	go ops.ForwardLogs(typeName, textLogLevel, logReader, logPublisher)
+	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(logWriter.Fd()))
+
+	serviceCreatedCounter.WithLabelValues(typeName).Inc()
+	var svc = &service{
+		typeName:     typeName,
+		ch:           ch,
+		in:           make([]C.In1, 0, 16),
+		buf:          make([]byte, 0, 256),
+		invoke1:      invoke1,
+		invoke4:      invoke4,
+		invoke16:     invoke16,
+		drop:         drop,
+		logWritePipe: logWriter,
+	}
+
+	return svc, nil
 }
 
 // marshaler is a message that knows how to frame itself (e.x. protobuf messages).
@@ -255,6 +271,12 @@ func (s *service) destroy() {
 		s.drop(s.ch)
 	}
 	s.ch = nil
+	if s.logWritePipe != nil {
+		if err := s.logWritePipe.Close(); err != nil {
+			logrus.WithField("error", err).Warn("error closing log write pipe")
+		}
+		s.logWritePipe = nil
+	}
 	serviceDestroyedCounter.WithLabelValues(s.typeName).Inc()
 }
 

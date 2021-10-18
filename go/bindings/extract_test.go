@@ -15,7 +15,8 @@ import (
 )
 
 func TestExtractorBasic(t *testing.T) {
-	var ex = NewExtractor()
+	var ex, err = NewExtractor()
+	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, "", nil))
 	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string", [true, null]]`))
 	ex.Document([]byte(`["9f2952f3-c6a3-12fb-8801-080607050309", 52, "other-string", {"k": "v"}]`))
@@ -63,7 +64,8 @@ func TestExtractorValidation(t *testing.T) {
 	schemaIndex, err := NewSchemaIndex(&built.Schemas)
 	require.NoError(t, err)
 
-	var ex = NewExtractor()
+	ex, err := NewExtractor()
+	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, built.Collections[0].SchemaUri, schemaIndex))
 
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": 32, "s": "valid"}`))         // Valid.
@@ -75,7 +77,8 @@ func TestExtractorValidation(t *testing.T) {
 }
 
 func TestExtractorIntegerBoundaryCases(t *testing.T) {
-	var ex = NewExtractor()
+	var ex, err = NewExtractor()
+	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1"}, "", nil))
 
 	var minInt64 = strconv.FormatInt(math.MinInt64, 10)
@@ -106,7 +109,8 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 }
 
 func TestExtractorEmpty(t *testing.T) {
-	var ex = NewExtractor()
+	var ex, err = NewExtractor()
+	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1"}, "", nil))
 
 	uuids, packed, err := ex.Extract()
