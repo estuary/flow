@@ -38,13 +38,7 @@ var _ Application = (*Derive)(nil)
 func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
 	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
 
-	var binding, err = bindings.NewDerive(recorder, recorder.Dir())
-	if err != nil {
-		return nil, err
-	}
-
 	var derive = &Derive{
-		binding:         binding,
 		coordinator:     coordinator,
 		host:            host,
 		recorder:        recorder,
@@ -61,6 +55,13 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err 
 		return cp, err
 	} else if d.task.Derivation == nil {
 		return cp, fmt.Errorf("catalog task %q is not a derivation", d.task.Name())
+	}
+
+	if d.binding == nil {
+		d.binding, err = bindings.NewDerive(d.recorder, d.recorder.Dir(), d.LogPublisher)
+		if err != nil {
+			return pc.Checkpoint{}, fmt.Errorf("creating derive: %w", err)
+		}
 	}
 
 	typeScriptClient, err := d.commons.TypeScriptClient(d.host.Service.Etcd)

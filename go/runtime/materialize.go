@@ -159,7 +159,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	m.flighted = m.flighted[:0]
 
 	for i, b := range m.task.Materialization.Bindings {
-		m.combiners = append(m.combiners, bindings.NewCombine())
+		combiner, err := bindings.NewCombine(m.LogPublisher)
+		if err != nil {
+			return pc.Checkpoint{}, fmt.Errorf("creating combiner: %w", err)
+		}
+		m.combiners = append(m.combiners, combiner)
 		m.flighted = append(m.flighted, make(map[string]json.RawMessage))
 
 		if err = m.combiners[i].Configure(

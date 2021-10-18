@@ -32,8 +32,8 @@ type ShardRef struct {
 type LogEvent struct {
 	Shard     *ShardRef       `json:"shard"`
 	Timestamp interface{}     `json:"ts"`
-	Level     logrus.Level    `json:"level"`
-	Message   interface{}     `json:"message"`
+	Level     string          `json:"level"`
+	Message   string          `json:"message"`
 	Fields    json.RawMessage `json:"fields,omitempty"`
 }
 
@@ -42,7 +42,7 @@ type LogEvent struct {
 type LogPublisher struct {
 	level         logrus.Level
 	opsCollection *pf.CollectionSpec
-	task          ShardRef
+	shard         ShardRef
 	root          *LogService
 	mapper        flow.Mapper
 	// We currently use a combiner to extract the key and partition fields, perform validation, and
@@ -113,7 +113,7 @@ func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskR
 
 	return &LogPublisher{
 		opsCollection: catalogTask.Ingestion,
-		task:          task,
+		shard:         task,
 		root:          r,
 		mapper:        mapper,
 		combiner:      combiner,
@@ -152,7 +152,22 @@ func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map
 	return err
 }
 
-func (p *LogPublisher) doLog(level logrus.Level, ts interface{}, fields interface{}, message interface{}) error {
+func levelString(level log.Level) string {
+	switch level {
+	case log.TraceLevel:
+		return "trace"
+	case log.DebugLevel:
+		return "debug"
+	case log.InfoLevel:
+		return "info"
+	case log.WarnLevel:
+		return "warn"
+	default:
+		return "error"
+	}
+}
+
+func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
 	var err = p.tryLog(level, ts, fields, message)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -164,7 +179,7 @@ func (p *LogPublisher) doLog(level logrus.Level, ts interface{}, fields interfac
 	return err
 }
 
-func (p *LogPublisher) tryLog(level logrus.Level, ts interface{}, fields interface{}, message interface{}) error {
+func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
 
 	var fieldsJson json.RawMessage
 	var err error
@@ -178,9 +193,9 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts interface{}, fields interfa
 	}
 
 	var event = LogEvent{
-		Shard:     &p.task,
+		Shard:     &p.shard,
 		Timestamp: ts,
-		Level:     level,
+		Level:     levelString(level),
 		Fields:    fieldsJson,
 		Message:   message,
 	}

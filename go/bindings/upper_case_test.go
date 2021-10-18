@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/flow/ops/testutil"
 	pf "github.com/estuary/protocols/flow"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // frameableString implements the Frameable interface.
@@ -18,8 +23,91 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 	return 0, nil
 }
 
+func TestLogsForwardedFromService(t *testing.T) {
+	var logPublisher = testutil.NewTestLogPublisher(log.TraceLevel)
+	var svc = newUpperCase(logPublisher)
+
+	svc.sendBytes(1, []byte("hello"))
+	svc.sendMessage(2, frameableString("world"))
+	var _, _, err = svc.poll()
+	require.NoError(t, err)
+
+	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
+	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
+		{
+			Level:   log.DebugLevel,
+			Message: "making stuff uppercase",
+			Fields: map[string]interface{}{
+				"data_len": 5,
+				"sum_len":  5,
+			},
+		},
+		{
+			Level:   log.DebugLevel,
+			Message: "making stuff uppercase",
+			Fields: map[string]interface{}{
+				"data_len": 5,
+				"sum_len":  10,
+			},
+		},
+	})
+
+	svc.sendMessage(2, frameableString("whoops"))
+	_, _, err = svc.poll()
+	svc.destroy()
+
+	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
+	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
+		{
+			Level:   log.ErrorLevel,
+			Message: "whoops",
+			Fields: map[string]interface{}{
+				"error":     `{"code":2,"message":"whoops"}`,
+				"logSource": "uppercase",
+			},
+		},
+		{
+			Level:   log.TraceLevel,
+			Message: "finished forwarding logs",
+			Fields: map[string]interface{}{
+				"jsonLines": 3,
+				"textLines": 0,
+			},
+		},
+	})
+
+}
+
+func TestLotsOfLogs(t *testing.T) {
+	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
+	var svc = newUpperCase(logPublisher)
+	defer svc.destroy()
+
+	var expectedSum = 0
+	for _, n := range []int{1, 3, 24, 256, 2048} {
+		var expectedLogs []testutil.TestLogEvent
+		for i := 0; i < n; i++ {
+			expectedSum++
+			svc.sendMessage(1, frameableString("f"))
+			expectedLogs = append(expectedLogs, testutil.TestLogEvent{
+				Level:   log.DebugLevel,
+				Message: "making stuff uppercase",
+				Fields: map[string]interface{}{
+					"data_len": 1,
+					"sum_len":  expectedSum,
+				},
+			})
+		}
+		var _, _, err = svc.poll()
+		require.NoError(t, err)
+		logPublisher.WaitForLogs(t, time.Millisecond*500, n)
+		logPublisher.RequireEventsMatching(t, expectedLogs)
+	}
+}
+
 func TestUpperServiceFunctional(t *testing.T) {
-	var svc = newUpperCase()
+	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
+	var svc = newUpperCase(logPublisher)
 	defer svc.destroy()
 
 	// Test growing |buf|.
@@ -73,7 +161,7 @@ func TestNoOpServiceFunctional(t *testing.T) {
 }
 
 func TestUpperServiceWithStrides(t *testing.T) {
-	var svc = newUpperCase()
+	var svc = newUpperCase(ops.StdLogPublisher())
 	defer svc.destroy()
 
 	for i := 0; i != 4; i++ {
@@ -161,7 +249,7 @@ func BenchmarkUpperService(b *testing.B) {
 
 	for _, stride := range strides {
 		b.Run("cgo-"+strconv.Itoa(stride), func(b *testing.B) {
-			var svc = newUpperCase()
+			var svc = newUpperCase(ops.StdLogPublisher())
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {

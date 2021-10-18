@@ -21,12 +21,15 @@ import (
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
 func CatalogJSONSchema() string {
-	var svc = newBuildSvc()
+	var svc, err = newBuildSvc(ops.StdLogPublisher())
+	if err != nil {
+		panic(err)
+	}
 	defer svc.destroy()
 
 	svc.sendBytes(uint32(pf.BuildAPI_CATALOG_SCHEMA), nil)
 
-	var _, out, err = svc.poll()
+	_, out, err := svc.poll()
 	if err != nil {
 		panic(err)
 	} else if len(out) != 1 {
@@ -75,7 +78,10 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	var client = &http.Client{Transport: transport}
 
-	var svc = newBuildSvc()
+	var svc, err = newBuildSvc(ops.StdLogPublisher())
+	if err != nil {
+		return nil, fmt.Errorf("creating build service: %w", err)
+	}
 	defer svc.destroy()
 
 	if err := svc.sendMessage(uint32(pf.BuildAPI_BEGIN), &args.BuildAPI_Config); err != nil {
@@ -230,13 +236,14 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 
 }
 
-func newBuildSvc() *service {
+func newBuildSvc(logger ops.LogPublisher) (*service, error) {
 	return newService(
 		"build",
-		func() *C.Channel { return C.build_create() },
+		func(logFilter, logDest C.int32_t) *C.Channel { return C.build_create(logFilter, logDest) },
 		func(ch *C.Channel, in C.In1) { C.build_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.build_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.build_invoke16(ch, in) },
 		func(ch *C.Channel) { C.build_drop(ch) },
+		logger,
 	)
 }

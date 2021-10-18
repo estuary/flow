@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -35,9 +36,13 @@ type Combine struct {
 }
 
 // NewCombiner builds and returns a new Combine.
-func NewCombine() *Combine {
+func NewCombine(logPublisher ops.LogPublisher) (*Combine, error) {
+	var svc, err = newCombineSvc(logPublisher)
+	if err != nil {
+		return nil, err
+	}
 	var combine = &Combine{
-		svc:     newCombineSvc(),
+		svc:     svc,
 		drained: nil,
 		stats:   combineStats{},
 		metrics: combineMetrics{},
@@ -47,7 +52,7 @@ func NewCombine() *Combine {
 	runtime.SetFinalizer(combine, func(c *Combine) {
 		c.Destroy()
 	})
-	return combine
+	return combine, nil
 }
 
 // Configure or re-configure the Combine.
@@ -174,14 +179,15 @@ func drainCombineToCallback(
 	return
 }
 
-func newCombineSvc() *service {
+func newCombineSvc(logPublisher ops.LogPublisher) (*service, error) {
 	return newService(
 		"combine",
-		func() *C.Channel { return C.combine_create() },
+		func(logFilter, logDest C.int32_t) *C.Channel { return C.combine_create(logFilter, logDest) },
 		func(ch *C.Channel, in C.In1) { C.combine_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.combine_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.combine_invoke16(ch, in) },
 		func(ch *C.Channel) { C.combine_drop(ch) },
+		logPublisher,
 	)
 }
 

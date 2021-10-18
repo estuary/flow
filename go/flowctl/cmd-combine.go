@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -66,7 +67,10 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		return fmt.Errorf("building schema bundle: %w", err)
 	}
 
-	var combine = bindings.NewCombine()
+	combine, err := bindings.NewCombine(ops.StdLogPublisher())
+	if err != nil {
+		return fmt.Errorf("creating combiner: %w", err)
+	}
 	combine.Configure(
 		"flowctl/combine",
 		schemaIndex,
