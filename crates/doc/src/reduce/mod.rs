@@ -10,7 +10,7 @@ pub use strategy::Strategy;
 
 type Index<'a> = &'a [(&'a Strategy, u64)];
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("'append' strategy expects arrays")]
     AppendWrongType,

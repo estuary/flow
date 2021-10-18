@@ -8,15 +8,40 @@ mod pipeline;
 mod registers;
 
 pub use extract_api::extract_uuid_parts;
+use serde::Serialize;
 
 /// DebugJson is a new-type wrapper around any Serialize implementation
 /// that wishes to support the Debug trait via JSON encoding itself.
-pub struct DebugJson<S: serde::Serialize>(pub S);
+pub struct DebugJson<S: Serialize>(pub S);
 
-impl<S: serde::Serialize> std::fmt::Debug for DebugJson<S> {
+impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&serde_json::to_string(&self.0).unwrap())
     }
+}
+
+#[derive(Debug, Serialize, thiserror::Error)]
+#[error("JSON error in document: {doc}")]
+pub struct JsonError {
+    pub doc: String,
+    #[serde(serialize_with = "crate::serialize_as_display")]
+    pub err: serde_json::Error,
+}
+
+impl JsonError {
+    pub fn new(data: impl AsRef<[u8]>, err: serde_json::Error) -> JsonError {
+        let doc = String::from_utf8_lossy(data.as_ref()).into_owned();
+        JsonError { doc, err }
+    }
+}
+
+fn serialize_as_display<T, S>(thing: T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: std::fmt::Display,
+    S: serde::ser::Serializer,
+{
+    let s = thing.to_string();
+    serializer.serialize_str(&s)
 }
 
 /// Common test utilities used by sub-modules.

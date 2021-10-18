@@ -7,15 +7,17 @@ use protocol::{
     flow::derive_api::{self, Code},
 };
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("RocksDB error: {0}")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
     #[error("register database error")]
     RegisterErr(#[from] registers::Error),
     #[error(transparent)]
     PipelineErr(#[from] pipeline::Error),
     #[error("Protobuf decoding error")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
@@ -36,6 +38,7 @@ enum State {
     Flushing(Pipeline),
     Prepare(Pipeline),
 }
+
 impl cgo::Service for API {
     type Error = Error;
 

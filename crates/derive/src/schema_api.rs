@@ -1,3 +1,4 @@
+use crate::JsonError;
 use models::tables;
 use prost::Message;
 use protocol::{
@@ -6,19 +7,22 @@ use protocol::{
 };
 use url::Url;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("parsing URL: {0:?}")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Url(#[from] url::ParseError),
     #[error("schema index: {0}")]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Json(#[from] JsonError),
     #[error("Protobuf decoding error")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
 }
 
@@ -51,7 +55,8 @@ impl cgo::Service for API {
 
                 let mut table = tables::SchemaDocs::new();
                 for (uri, dom) in bundle {
-                    let dom: serde_json::Value = serde_json::from_str(&dom)?;
+                    let dom: serde_json::Value =
+                        serde_json::from_str(&dom).map_err(|e| JsonError::new(dom, e))?;
                     table.insert_row(Url::parse(&uri)?, dom);
                 }
                 let index = tables::SchemaDoc::leak_index(&table)?;

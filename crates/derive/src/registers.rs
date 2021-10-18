@@ -8,19 +8,23 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use url::Url;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("RocksDB error: {0}")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
-    #[error("JSON error: {0}")]
+    #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Json(#[from] serde_json::Error),
     #[error("protobuf error: {0}")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Proto(#[from] prost::DecodeError),
     #[error("failed to reduce register documents")]
     Reduce(#[from] reduce::Error),
     #[error("document is invalid: {0:#}")]
     FailedValidation(#[from] FailedValidation),
     #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     SchemaIndex(#[from] json::schema::index::Error),
 }
 

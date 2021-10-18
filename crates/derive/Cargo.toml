@@ -27,7 +27,7 @@ stats_alloc = "*"
 thiserror = "*"
 tracing = "*"
 tracing-futures = "*"
-url = "*"
+url = {version = "*", features = ["serde"]}
 uuid = "*"
 
 [dev-dependencies]
