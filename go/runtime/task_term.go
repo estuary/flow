@@ -74,7 +74,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	if err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
 	}
-	t.LogPublisher.Log(log.InfoLevel, log.Fields{
+	t.Log(log.InfoLevel, log.Fields{
 		"revision":     t.revision,
 		"lastRevision": lastRevision,
 	}, "initialized catalog task term")

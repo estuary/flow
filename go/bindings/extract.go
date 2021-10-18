@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 )
 
@@ -19,9 +20,13 @@ type Extractor struct {
 }
 
 // NewExtractor returns an instance of the Extractor service.
-func NewExtractor() *Extractor {
+func NewExtractor() (*Extractor, error) {
+	var svc, err = newExtractSvc(ops.StdLogPublisher())
+	if err != nil {
+		return nil, err
+	}
 	var extractor = &Extractor{
-		svc:         newExtractSvc(),
+		svc:         svc,
 		uuids:       make([]pf.UUIDParts, 32),
 		tuples:      make([][]byte, 32),
 		docs:        0,
@@ -32,7 +37,7 @@ func NewExtractor() *Extractor {
 	runtime.SetFinalizer(extractor, func(e *Extractor) {
 		e.svc.destroy()
 	})
-	return extractor
+	return extractor, nil
 }
 
 // Configure or re-configure the Extractor. If schemaURI is non-empty, it's
@@ -99,13 +104,14 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 	return e.uuids, e.tuples, nil
 }
 
-func newExtractSvc() *service {
+func newExtractSvc(logger ops.LogPublisher) (*service, error) {
 	return newService(
 		"extract",
-		func() *C.Channel { return C.extract_create() },
+		func(logFilter, logDest C.int32_t) *C.Channel { return C.extract_create(logFilter, logDest) },
 		func(ch *C.Channel, in C.In1) { C.extract_invoke1(ch, in) },
 		func(ch *C.Channel, in C.In4) { C.extract_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.extract_invoke16(ch, in) },
 		func(ch *C.Channel) { C.extract_drop(ch) },
+		logger,
 	)
 }

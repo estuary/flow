@@ -273,7 +273,10 @@ func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
 	}()
 
 	for i, b := range c.task.Capture.Bindings {
-		combiners[i] = bindings.NewCombine()
+		combiners[i], err = bindings.NewCombine(c.LogPublisher)
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating combiner: %w", err)
+		}
 
 		if err := combiners[i].Configure(
 			fqn,

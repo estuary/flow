@@ -98,7 +98,10 @@ func (c *Coordinator) subscribe(sub subscriber) error {
 		maybeValidateSchemaURI = sub.Shuffle.SourceSchemaUri
 	}
 
-	var ex = bindings.NewExtractor()
+	ex, err := bindings.NewExtractor()
+	if err != nil {
+		return fmt.Errorf("creating extractor: %w", err)
+	}
 	if ex.Configure(
 		sub.Shuffle.SourceUuidPtr,
 		sub.Shuffle.ShuffleKeyPtr,

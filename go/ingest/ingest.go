@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"go.gazette.dev/core/broker/client"
@@ -199,7 +200,7 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 		return err
 	}
 
-	var combine = bindings.NewCombine()
+	combine, err := bindings.NewCombine(ops.StdLogPublisher())
 	if err = combine.Configure(
 		"ingester",
 		schemaIndex,
