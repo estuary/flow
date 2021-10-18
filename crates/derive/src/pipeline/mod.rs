@@ -16,7 +16,7 @@ use protocol::{
 use serde_json::Value;
 use std::task::{Context, Poll};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
@@ -29,26 +29,35 @@ pub enum Error {
     #[error("derived document reduction error")]
     Combiner(#[from] combiner::Error),
     #[error("failed to open registers RocksDB")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
     #[error("invalid collection schema {:?}", .schema)]
     CollectionSchema {
         schema: String,
         #[source]
+        #[serde(serialize_with = "crate::serialize_as_display")]
         source: url::ParseError,
     },
     #[error("invalid register schema {:?}", .schema)]
     RegisterSchema {
         schema: String,
         #[source]
+        #[serde(serialize_with = "crate::serialize_as_display")]
         source: url::ParseError,
     },
+    // TODO: Change these errors to use the JsonError so that they will include the original
+    // document json.
     #[error("invalid register initial JSON")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     RegisterJson(#[source] serde_json::Error),
     #[error("failed to invoke update lambda")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     UpdateInvocationError(#[source] anyhow::Error),
     #[error("failed to invoke publish lambda")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     PublishInvocationError(#[source] anyhow::Error),
     #[error("failed to parse lambda invocation response")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     LambdaParseError(#[source] serde_json::Error),
 }
 
@@ -94,6 +103,7 @@ impl Pipeline {
         let derive_api::Config {
             derivation,
             schema_index_memptr,
+            ..
         } = cfg;
 
         // Re-hydrate a &'static SchemaIndex from a provided memory address.

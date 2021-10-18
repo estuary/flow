@@ -2,7 +2,7 @@ use crate::schema::{Annotation, Application, Keyword, Schema};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("duplicate canonical URI: '{0}'")]
     DuplicateCanonicalURI(url::Url),
