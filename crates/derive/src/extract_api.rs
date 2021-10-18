@@ -1,27 +1,27 @@
+use crate::JsonError;
 use doc::{Pointer, Validator};
 use prost::Message;
 use protocol::{
     cgo, flow,
     flow::extract_api::{self, Code},
 };
+use serde::Serialize;
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize)]
 pub enum Error {
     #[error("parsing URL: {0:?}")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Url(#[from] url::ParseError),
     #[error("schema index: {0}")]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error("JSON error in document: {}", String::from_utf8_lossy(&.doc))]
-    Json {
-        doc: Vec<u8>,
-        #[source]
-        source: serde_json::Error,
-    },
+    #[error(transparent)]
+    Json(JsonError),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
     #[error("Protobuf decoding error")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("source document validation error: {0:#}")]
     FailedValidation(doc::FailedValidation),
@@ -123,10 +123,8 @@ impl cgo::Service for API {
             }
             // Extract from JSON document.
             (Code::Extract, Some(mut state)) => {
-                let doc: Value = serde_json::from_slice(data).map_err(|e| Error::Json {
-                    doc: data.to_vec(),
-                    source: e,
-                })?;
+                let doc: Value = serde_json::from_slice(data)
+                    .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
                     Error::InvalidUuid {
                         value: state.uuid_ptr.query(&doc).cloned(),

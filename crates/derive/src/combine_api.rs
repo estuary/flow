@@ -1,5 +1,5 @@
 use super::combiner::{self, Combiner};
-
+use crate::JsonError;
 use doc::{Pointer, Validator};
 use prost::Message;
 use protocol::{
@@ -9,31 +9,33 @@ use protocol::{
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("parsing URL")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Url(#[from] url::ParseError),
     #[error("schema index")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error("JSON error in document: {}", String::from_utf8_lossy(&.doc))]
-    Json {
-        doc: Vec<u8>,
-        #[source]
-        source: serde_json::Error,
-    },
+    #[error(transparent)]
+    Json(JsonError),
     #[error(transparent)]
     CombineError(#[from] combiner::Error),
     #[error("Protobuf decoding error")]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     UTF8Error(#[from] std::str::Utf8Error),
     #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Rusqlite(#[from] rusqlite::Error),
     #[error("combined key cannot be empty")]
     EmptyKey,
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
 }
 
@@ -109,20 +111,16 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::ReduceLeft, Some(mut state)) => {
-                let doc: Value = serde_json::from_slice(data).map_err(|e| Error::Json {
-                    doc: data.to_vec(),
-                    source: e,
-                })?;
+                let doc: Value = serde_json::from_slice(data)
+                    .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.reduce_left(doc, &mut state.validator)?;
 
                 self.state = Some(state);
                 Ok(())
             }
             (Code::CombineRight, Some(mut state)) => {
-                let doc: Value = serde_json::from_slice(data).map_err(|e| Error::Json {
-                    doc: data.to_vec(),
-                    source: e,
-                })?;
+                let doc: Value = serde_json::from_slice(data)
+                    .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.combine_right(doc, &mut state.validator)?;
 
                 self.state = Some(state);

@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use url::Url;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
     #[error("failed to combine documents having shared key")]
     Reduction(#[from] reduce::Error),
