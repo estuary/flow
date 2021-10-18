@@ -43,6 +43,7 @@ typedef struct Channel {
   uint8_t *err_ptr;
   uintptr_t err_len;
   uintptr_t err_cap;
+  uint8_t *log_subscriber;
 } Channel;
 
 /**
@@ -100,7 +101,7 @@ typedef struct GlobalMemoryStats {
   uint64_t realloc_ops_total;
 } GlobalMemoryStats;
 
-struct Channel *build_create(void);
+struct Channel *build_create(int32_t log_level, int32_t log_dest_fd);
 
 void build_invoke1(struct Channel *ch, struct In1 i);
 
@@ -110,7 +111,7 @@ void build_invoke16(struct Channel *ch, struct In16 i);
 
 void build_drop(struct Channel *ch);
 
-struct Channel *combine_create(void);
+struct Channel *combine_create(int32_t log_level, int32_t log_dest_fd);
 
 void combine_invoke1(struct Channel *ch, struct In1 i);
 
@@ -120,7 +121,7 @@ void combine_invoke16(struct Channel *ch, struct In16 i);
 
 void combine_drop(struct Channel *ch);
 
-struct Channel *derive_create(void);
+struct Channel *derive_create(int32_t log_level, int32_t log_dest_fd);
 
 void derive_invoke1(struct Channel *ch, struct In1 i);
 
@@ -130,7 +131,7 @@ void derive_invoke16(struct Channel *ch, struct In16 i);
 
 void derive_drop(struct Channel *ch);
 
-struct Channel *extract_create(void);
+struct Channel *extract_create(int32_t log_level, int32_t log_dest_fd);
 
 void extract_invoke1(struct Channel *ch, struct In1 i);
 
@@ -145,7 +146,7 @@ void extract_drop(struct Channel *ch);
  */
 struct GlobalMemoryStats get_memory_stats(void);
 
-struct Channel *schema_create(void);
+struct Channel *schema_create(int32_t log_level, int32_t log_dest_fd);
 
 void schema_invoke1(struct Channel *ch, struct In1 i);
 
@@ -155,7 +156,7 @@ void schema_invoke16(struct Channel *ch, struct In16 i);
 
 void schema_drop(struct Channel *ch);
 
-struct Channel *upper_case_create(void);
+struct Channel *upper_case_create(int32_t log_level, int32_t log_dest_fd);
 
 void upper_case_invoke1(struct Channel *ch, struct In1 i);
 
