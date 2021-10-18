@@ -1,6 +1,10 @@
 package ops
 
 import (
+	"encoding/json"
+	"time"
+
+	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -8,18 +12,94 @@ import (
 // This is used so that logs can be published to Flow ops collections at runtime, but can be
 // written to stderr at build/apply time.
 type LogPublisher interface {
+	// Log writes a log event with the given parameters. The event may be filtered by a
+	// publisher (typically based on the |level|).
 	Log(level log.Level, fields log.Fields, message string) error
+	// LogForwarded writes a log event that is being forwarded from some other source. The |fields|
+	// passed to this function are different from the fields passed to Log. This is to allow log
+	// forwarding to avoid deserializing and re-serializing all the fields of a JSON log event.
+	LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error
+	// Level returns the current configured level filter of the LogPublisher.
+	Level() log.Level
 }
 
-type stdLogPublisher struct{}
+func FlowToLogrusLevel(flowLevel pf.LogLevelFilter) log.Level {
+	switch flowLevel {
+	case pf.LogLevelFilter_TRACE:
+		return log.TraceLevel
+	case pf.LogLevelFilter_DEBUG:
+		return log.DebugLevel
+	case pf.LogLevelFilter_INFO:
+		return log.InfoLevel
+	case pf.LogLevelFilter_WARN:
+		return log.WarnLevel
+	default:
+		return log.ErrorLevel
+	}
+}
 
-func (stdLogPublisher) Log(level log.Level, fields log.Fields, message string) error {
+func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
+	switch logrusLevel {
+	case log.TraceLevel:
+		return pf.LogLevelFilter_TRACE
+	case log.DebugLevel:
+		return pf.LogLevelFilter_DEBUG
+	case log.InfoLevel:
+		return pf.LogLevelFilter_INFO
+	case log.WarnLevel:
+		return pf.LogLevelFilter_WARN
+	default:
+		return pf.LogLevelFilter_ERROR
+	}
+}
+
+type stdLogAppender struct {
+	level log.Level
+}
+
+// Level implements ops.LogPublisher for stdLogAppender
+func (l *stdLogAppender) Level() log.Level {
+	return l.level
+}
+
+// Log implements ops.LogPublisher for stdLogAppender
+func (l *stdLogAppender) Log(level log.Level, fields log.Fields, message string) error {
+	if level > l.level {
+		return nil
+	}
 	log.WithFields(fields).Log(level, message)
+	return nil
+}
+
+// LogForwarded implements ops.LogPublisher for stdLogAppender
+func (l *stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+	if level > l.level {
+		return nil
+	}
+	var entry = log.NewEntry(log.StandardLogger())
+	entry.Time = ts
+	for key, val := range fields {
+		var deser interface{}
+		if err := json.Unmarshal(val, &deser); err != nil {
+			entry.Data[key] = deser
+		}
+	}
+	entry.Log(level, message)
 	return nil
 }
 
 // StdLogPublisher returns a LogPublisher that just forwards to the logrus package. This is used
 // during operations that happen outside of the Flow runtime (such as flowctl build or apply).
 func StdLogPublisher() LogPublisher {
-	return stdLogPublisher{}
+	return FilteredStdLogPublisher(log.GetLevel())
+}
+
+// FilteredStdLogPublisher returns a LogPublisher that just forwards to the logrus package, but with
+// a potentially more restrictive filter than the one that's attached to the global logger. Events
+// that pass this filter will be forwarded to the global logrus logger (which will then apply its
+// own level filter).
+func FilteredStdLogPublisher(level log.Level) LogPublisher {
+	return &stdLogAppender{
+		level: level,
+	}
 }
