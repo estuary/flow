@@ -1029,6 +1029,19 @@ pub enum EndpointType {
     AirbyteSource = 7,
     FlowSink = 8,
 }
+/// LogLevelFilter is a common representation of a simple logging filter, which is shared between
+/// Rust and Go code. This enum is not used directly within other messages here because logging is
+/// configured at the time that Rust Service instances are created, not when they're configured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LogLevelFilter {
+    Off = 0,
+    Error = 1,
+    Warn = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
+}
 /// ContentType enumerates the content types understood by Flow.
 #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

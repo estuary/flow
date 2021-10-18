@@ -9,11 +9,17 @@ crate_type = ["staticlib"]
 
 [dependencies]
 build = { path = "../build", version = "0.0.0" }
+bytes = "*"
+chrono = "*"
 derive = { path = "../derive", version = "0.0.0" }
 allocator = { path = "../allocator", version = "0.0.0" }
+prost = "*"
 protocol = { path = "../protocol", version = "0.0.0" }
+serde = "*"
+serde_json = {version = "*", features = ["raw_value"]}
+thiserror = "*"
 tracing = "*"
-tracing-subscriber = "*"
+tracing-subscriber = {version = "*", features = ["chrono"]}
 anyhow = "*"
 
 [build-dependencies]

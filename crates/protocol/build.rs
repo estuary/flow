@@ -79,6 +79,14 @@ fn main() {
         proto_include[1].join("flow/flow.proto"),
         proto_include[1].join("materialize/materialize.proto"),
     ];
+    // Tell cargo to re-run this build script if any of the protobuf files are modified.
+    for path in proto_build.iter() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    // According to (https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed)
+    // setting rerun-if-changed will override the default, so we explicitly tell it to re-run if
+    // any files in the crate root are modified.
+    println!("cargo:rerun-if-changed=.");
 
     let mut builder = prost_build::Config::new();
     builder.out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"));

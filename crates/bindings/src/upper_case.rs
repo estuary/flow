@@ -8,8 +8,15 @@ pub struct UpperCase {
     sum_length: u32,
 }
 
+#[derive(Debug, thiserror::Error, serde::Serialize)]
+#[error("{message}")]
+pub struct UpperCaseError {
+    code: u32,
+    message: String,
+}
+
 impl Service for UpperCase {
-    type Error = std::io::Error;
+    type Error = UpperCaseError;
 
     fn create() -> Self {
         Self { sum_length: 0 }
@@ -17,18 +24,27 @@ impl Service for UpperCase {
 
     fn invoke(
         &mut self,
-        _code: u32,
+        code: u32,
         data: &[u8],
         arena: &mut Vec<u8>,
         out: &mut Vec<service::Out>,
     ) -> Result<(), Self::Error> {
         if data == b"whoops" {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "whoops"));
+            return Err(UpperCaseError {
+                code,
+                message: String::from("whoops"),
+            });
         }
 
         let begin = arena.len() as u32;
         arena.extend(data.iter().map(u8::to_ascii_uppercase));
         self.sum_length += data.len() as u32;
+
+        tracing::debug!(
+            data_len = data.len(),
+            sum_len = self.sum_length,
+            "making stuff uppercase"
+        );
 
         out.push(service::Out {
             code: self.sum_length,
@@ -43,8 +59,8 @@ impl Service for UpperCase {
 // Define cbindgen <=> CGO hooks for driving the UpperCase service.
 
 #[no_mangle]
-pub extern "C" fn upper_case_create() -> *mut Channel {
-    service::create::<UpperCase>()
+pub extern "C" fn upper_case_create(log_level: i32, log_dest_fd: i32) -> *mut Channel {
+    service::create::<UpperCase>(log_level, log_dest_fd)
 }
 #[no_mangle]
 pub extern "C" fn upper_case_invoke1(ch: *mut Channel, i: service::In1) {
