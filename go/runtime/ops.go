@@ -8,9 +8,11 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/message"
 )
@@ -28,11 +30,11 @@ type ShardRef struct {
 // LogEvent is a Go struct definition that matches the log event documents defined by:
 // crates/build/src/ops/ops-log-schema.json
 type LogEvent struct {
-	Shard     *ShardRef     `json:"shard"`
-	Timestamp time.Time     `json:"ts"`
-	Level     logrus.Level  `json:"level"`
-	Message   string        `json:"message"`
-	Fields    logrus.Fields `json:"fields,omitempty"`
+	Shard     *ShardRef       `json:"shard"`
+	Timestamp interface{}     `json:"ts"`
+	Level     logrus.Level    `json:"level"`
+	Message   interface{}     `json:"message"`
+	Fields    json.RawMessage `json:"fields,omitempty"`
 }
 
 // LogPublisher is an ops.LogPublisher that is scoped to a particular task, and publishes log events
@@ -91,7 +93,12 @@ func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskR
 	if err != nil {
 		return nil, fmt.Errorf("building schema index: %w", err)
 	}
-	var combiner = bindings.NewCombine()
+	// Create the combiner with logs forwarded to the logrus logger, so that we don't create a
+	// recursive logging loop.
+	combiner, err := bindings.NewCombine(ops.FilteredStdLogPublisher(log.WarnLevel))
+	if err != nil {
+		return nil, fmt.Errorf("creating combiner: %w", err)
+	}
 	if err = combiner.Configure(
 		opsCollectionName,
 		schemaIndex,
@@ -114,34 +121,71 @@ func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskR
 	}, nil
 }
 
+// Level implements the ops.LogPublisher interface.
+func (p *LogPublisher) Level() log.Level {
+	return p.level
+}
+
 // Log implements the ops.LogPublisher interface. It publishes log messages to the configured ops
 // collection, and also forwards them to the normal logger.
 func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message string) error {
 	if p.level < level {
 		return nil
 	}
-	var err = p.tryLog(level, fields, message)
-	if err != nil {
-		logrus.WithFields(fields).WithFields(logrus.Fields{
-			"origMessage":   message,
-			"logPublishErr": err,
-		}).Error("failed to publish log message")
-	} else if logrus.IsLevelEnabled(level) {
-		logrus.WithFields(fields).Log(level, message)
+	var err = p.doLog(level, time.Now().UTC(), fields, message)
+	if err == nil && logrus.IsLevelEnabled(level) {
+		ops.StdLogPublisher().Log(level, fields, message)
 	}
 	return err
 }
 
-func (p *LogPublisher) tryLog(level logrus.Level, fields logrus.Fields, message string) error {
+// LogWithTime implements the ops.LogPublisher interface. It publishes log messages to the
+// configured ops collection, and also forwards them to the normal logger.
+func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map[string]json.RawMessage, message string) error {
+	if p.level < level {
+		return nil
+	}
+	var err = p.doLog(level, time.Now().UTC(), fields, message)
+	if err == nil && logrus.IsLevelEnabled(level) {
+		ops.StdLogPublisher().LogForwarded(ts, level, fields, message)
+	}
+	return err
+}
+
+func (p *LogPublisher) doLog(level logrus.Level, ts interface{}, fields interface{}, message interface{}) error {
+	var err = p.tryLog(level, ts, fields, message)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"origMessage":   message,
+			"logPublishErr": err,
+			"origFields":    fields,
+		}).Error("failed to publish log message")
+	}
+	return err
+}
+
+func (p *LogPublisher) tryLog(level logrus.Level, ts interface{}, fields interface{}, message interface{}) error {
+
+	var fieldsJson json.RawMessage
+	var err error
+	// The goal here is to leave fieldsJson empty if there are no fields, instead of serializing an
+	// empty object.
+	if fields != nil {
+		fieldsJson, err = json.Marshal(fields)
+		if err != nil {
+			return fmt.Errorf("marshalling fields json: %w", err)
+		}
+	}
+
 	var event = LogEvent{
 		Shard:     &p.task,
-		Timestamp: time.Now().UTC(),
+		Timestamp: ts,
 		Level:     level,
-		Fields:    fields,
+		Fields:    fieldsJson,
 		Message:   message,
 	}
 
-	var docJson, err = json.Marshal(event)
+	docJson, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshalling log document: %w", err)
 	}
