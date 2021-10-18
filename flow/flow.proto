@@ -412,6 +412,8 @@ message TestSpec {
     string docs_json_lines = 8;
     // When verifying, selector over logical partitions of the collection.
     protocol.LabelSelector partitions = 9 [ (gogoproto.nullable) = false ];
+    // Description of this step.
+    string description = 10;
   }
   repeated Step steps = 2 [ (gogoproto.nullable) = false ];
 }
