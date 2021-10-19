@@ -4,7 +4,7 @@ import:
   - products.flow.yaml
 
 tests:
-  "shopping cart is populated from cartUpdates":
+  examples/shopping/test/cart-from-updates:
     - ingest:
         collection: examples/shopping/products
         documents:
@@ -51,5 +51,3 @@ tests:
                   name: Gushers
                   price: 2.95
                 action: { quantity: 1 }
-
-

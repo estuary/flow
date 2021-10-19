@@ -15,7 +15,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can merge sorted arrays":
+  example/reductions/test/merge-by-extracted-key:
     - ingest:
         collection: example/reductions/merge-key
         documents:

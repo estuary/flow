@@ -26,7 +26,7 @@ collections:
           update: { lambda: typescript }
 
 tests:
-  "Expect a left join of the current LHS with the accumulated RHS":
+  patterns/test/one-sided-join:
     - ingest:
         collection: patterns/ints
         documents: [{ Key: key, Int: 5 }]
@@ -37,8 +37,7 @@ tests:
         collection: patterns/strings
         documents: [{ Key: key, String: hello }]
     - verify:
-        # The prior document isn't updated, as the join
-        # reacts only to events of the LHS.
+        description: The prior document isn't updated, as the join reacts only to events of the LHS.
         collection: patterns/one-sided-join
         documents: [{ Key: key, LHS: 5, RHS: [] }]
     - ingest:
@@ -48,5 +47,6 @@ tests:
         collection: patterns/ints
         documents: [{ Key: key, Int: 7 }]
     - verify:
+        description: Expect a left join of the current LHS with the accumulated RHS
         collection: patterns/one-sided-join
         documents: [{ Key: key, LHS: 7, RHS: [hello, goodbye] }]

@@ -11,7 +11,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can min/max values":
+  example/reductions/test/min-max:
     - ingest:
         collection: example/reductions/min-max
         documents:

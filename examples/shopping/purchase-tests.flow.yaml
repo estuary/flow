@@ -5,9 +5,9 @@ import:
   - purchases.flow.yaml
 
 tests:
-  "shopping cart is purchased":
-      # The "&products" here is a yaml feature that lets us re-use this object in later steps with
-      # "- ingest: *products".
+  examples/shopping/test/cart-is-purchased:
+    # The "&products" here is a yaml feature that lets us re-use this object in later steps with
+    # "- ingest: *products".
     - ingest: &products
         collection: examples/shopping/products
         documents:
@@ -37,13 +37,13 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: '2020-01-04 15:22:01'
+            timestamp: "2020-01-04 15:22:01"
 
     - verify:
         collection: examples/shopping/purchases
         documents:
           - userId: 1
-            timestamp: '2020-01-04 15:22:01'
+            timestamp: "2020-01-04 15:22:01"
             items:
               - { product: { id: 333 }, action: { quantity: 0 } }
               - { product: { id: 2222 }, action: { quantity: 3 } }
@@ -54,7 +54,7 @@ tests:
           - userId: 1
             items: []
 
-  "cart is cleared after purchase":
+  examples/shopping/test/cart-cleared-after-purchase:
     # Here *products and *cartItems refers to the same items defined above.
     - ingest: *products
     - ingest: *cartItems
@@ -62,18 +62,18 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: '2020-01-04 15:22:01'
+            timestamp: "2020-01-04 15:22:01"
 
-    # Add and purchase one more product to assert we get a separate purchase
     - ingest:
+        description: Add and purchase one more product to assert we get a separate purchase
         collection: examples/shopping/cartUpdates
         documents:
           - userId: 1
             productId: 2222
             quantity: 50
 
-    # Verify that the cart doesn't contain any items that were already purchased
     - verify:
+        description: Verify that the cart doesn't contain any items that were already purchased
         collection: examples/shopping/carts
         documents:
           - userId: 1
@@ -90,20 +90,19 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: '2020-01-04 15:30:44'
+            timestamp: "2020-01-04 15:30:44"
 
-    # Verify that we have two distinct purchases
     - verify:
+        description: Verify that we have two distinct purchases
         collection: examples/shopping/purchases
         documents:
           - userId: 1
-            timestamp: '2020-01-04 15:22:01'
+            timestamp: "2020-01-04 15:22:01"
             items:
               - { product: { id: 333 }, action: { quantity: 0 } }
               - { product: { id: 2222 }, action: { quantity: 3 } }
               - { product: { id: 4004 }, action: { quantity: 1 } }
           - userId: 1
-            timestamp: '2020-01-04 15:30:44'
+            timestamp: "2020-01-04 15:30:44"
             items:
               - { product: { id: 2222 }, action: { quantity: 50 } }
-

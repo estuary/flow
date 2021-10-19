@@ -2,11 +2,11 @@ import:
   - rides-and-relocations.flow.yaml
 
 tests:
-  "Expect a sequence of connected rides don't produce a relocation event":
+  examples/citi-bike/test/connected-rides:
     - ingest:
+        description: Bike goes from station 1 => 2 => 3 => 4.
         collection: examples/citi-bike/rides
         documents:
-          # Bike goes from station 1 => 2 => 3 => 4.
           - &ride1
             bike_id: &bike 17558
             begin: &station1
@@ -28,16 +28,19 @@ tests:
               station: { id: 3267, name: "Morris Canal" }
               timestamp: "2020-09-01 16:49:30.1610"
     - verify:
+        description: Expect the connected sequence didn't produce a relocation event.
         collection: examples/citi-bike/rides-and-relocations
         documents: [*ride1, *ride2, *ride3]
 
-  "Expect a disconnected ride sequence produces an interleaved relocation":
+  examples/citi-bike/test/disconnected-rides:
     - ingest:
+        description: Bike goes from station 1 => 2, then 3 => 4.
         collection: examples/citi-bike/rides
         documents:
           - &ride1 { bike_id: *bike, begin: *station1, end: *station2 }
           - &ride2 { bike_id: *bike, begin: *station3, end: *station4 }
     - verify:
+        description: Expect the disconnected sequence produced a relocation.
         collection: examples/citi-bike/rides-and-relocations
         documents:
           - *ride1

@@ -2,7 +2,7 @@ import:
   - pages.flow.yaml
 
 tests:
-  "Expect wiki pages roll up from edits":
+  examples/wiki/test/pages-from-edits:
     - ingest:
         collection: examples/wiki/edits
         documents:

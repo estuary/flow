@@ -28,12 +28,12 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Expect a fully reactive inner-join":
+  patterns/test/inner-join:
     - ingest:
         collection: patterns/ints
         documents: [{ Key: key, Int: 5 }]
     - verify:
-        # Both sides must be matched before a document is published.
+        description: Both sides must be matched before a document is published.
         collection: patterns/inner-join
         documents: []
     - ingest:
@@ -49,6 +49,6 @@ tests:
         collection: patterns/strings
         documents: [{ Key: key, String: goodbye }]
     - verify:
-        # Reacts to accumulated updates of both sides.
+        description: Reacts to accumulated updates of both sides.
         collection: patterns/inner-join
         documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]

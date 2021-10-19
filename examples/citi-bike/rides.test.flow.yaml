@@ -2,9 +2,10 @@ import:
   - rides.flow.yaml
 
 tests:
-  "Expect we can ingest individual ride events":
+  examples/citi-bike/test/rides-ingest:
     # Ingestion steps ingest documents into a named collection.
     - ingest:
+        description: Expect we can ingest individual ride events
         collection: examples/citi-bike/rides
         documents:
           # Use YAML references and anchors to give test documents
@@ -49,17 +50,20 @@ tests:
     # and transformations have been fully processed. Documents are in their
     # natural order, as per the collection's key.
     - verify:
-        # Expect that we ingested both rides.
+        description: Expect that we ingested both rides.
         collection: examples/citi-bike/rides
         documents: [*ride1, *ride2]
 
-  "Expect that rides are indexed to remove duplicates":
+  examples/citi-bike/test/rides-duplicates:
     - ingest:
+        description: Ingest a ride.
         collection: examples/citi-bike/rides
         documents: [*ride1]
     - ingest:
+        description: Ingest the same ride again.
         collection: examples/citi-bike/rides
         documents: [*ride1]
     - verify:
+        description: Expect the duplicate key was removed.
         collection: examples/citi-bike/rides
         documents: [*ride1]

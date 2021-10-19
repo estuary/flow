@@ -33,7 +33,7 @@ materializations:
         resource: { table: temperatures }
 
 tests:
-  "test average temperature, then by location":
+  temperature/test/average-update:
     - ingest: &readings
         collection: temperature/readings
         documents:
@@ -60,7 +60,7 @@ tests:
             maxTempC: 23.2
             lastReading: "2020-08-26T19:26:53Z"
 
-  "test ingestion of sensors then readings":
+  temperature/test/location-update:
     - ingest: &sensors
         collection: temperature/sensors
         documents:

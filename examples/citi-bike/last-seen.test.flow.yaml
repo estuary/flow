@@ -2,9 +2,9 @@ import:
   - last-seen.flow.yaml
 
 tests:
-  "Expect last-seen derives from rides":
-    # Begin with rides for both of bikes A & B.
+  examples/citi-bike/test/last-seen:
     - ingest:
+        description: Begin with rides for both of bikes A & B.
         collection: examples/citi-bike/rides
         documents:
           - bike_id: &bikeA 17558
@@ -27,14 +27,14 @@ tests:
                 id: 3203
                 name: Hamilton Park
               timestamp: "2020-09-01 17:34:14.6080"
-    # Check we derived locations for bikes A & B.
     - verify:
+        description: Check we derived locations for bikes A & B.
         collection: examples/citi-bike/last-seen
         documents:
           - { bike_id: *bikeA, last: *end1 }
           - { bike_id: *bikeB, last: *end2 }
-    # Bike A takes another ride.
     - ingest:
+        description: Bike A takes another ride.
         collection: examples/citi-bike/rides
         documents:
           - bike_id: *bikeA
@@ -44,8 +44,8 @@ tests:
                 id: 3483
                 name: "Montgomery St"
               timestamp: "2020-09-01 22:09:29.0380"
-    # Bike A's new location is reflected.
     - verify:
+        description: Bike A's new location is reflected.
         collection: examples/citi-bike/last-seen
         documents:
           - { bike_id: *bikeA, last: *end3 }

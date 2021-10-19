@@ -2,7 +2,7 @@ import:
   - idle-bikes.flow.yaml
 
 tests:
-  "Expect an idle bike is generated after the last ride in a sequence":
+  examples/citi-bike/test/idle-bikes:
     - ingest:
         collection: examples/citi-bike/rides
         documents:
@@ -24,6 +24,7 @@ tests:
               station: { id: 3267, name: "Morris Canal" }
               timestamp: "2020-09-01 16:49:30.1610"
     - verify:
+        description: "Expect an idle bike was generated after the last ride in a sequence"
         collection: examples/citi-bike/idle-bikes
         # When running tests, time is advanced as needed until all delayed reads
         # can complete. Expect an idle bike for the station last arrived at.

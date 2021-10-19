@@ -14,7 +14,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can append arrays":
+  example/reductions/test/append:
     - ingest:
         collection: example/reductions/append
         documents:
