@@ -35,4 +35,4 @@ collections:
         hotStandbys: 3
 
 storageMappings:
-  - stores: [{provider: S3, bucket: a-bucket}]
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }

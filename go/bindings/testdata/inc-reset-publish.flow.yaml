@@ -33,4 +33,4 @@ collections:
           publish: { lambda: typescript }
 
 storageMappings:
-  - stores: [{provider: S3, bucket: a-bucket}]
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
