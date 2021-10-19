@@ -4,4 +4,4 @@ import:
   - all-collections.flow.yaml
 
 storageMappings:
-  - stores: [{provider: S3, bucket: a-bucket}]
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }

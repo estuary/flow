@@ -87,15 +87,20 @@ collections:
 materializations:
   acmeBank/database:
     endpoint:
-      postgres:
-        # Try this by standing up a local PostgreSQL database.
-        # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
-        # (Use host: host.docker.internal when running Docker for Windows/Mac).
-        host: localhost
-        password: password
-        database: postgres
-        user: postgres
-        port: 5432
+      flowSink:
+        # Use a Docker connector to materialize into a PostgreSQL database.
+        # Connectors encapsulate the details of how to update a remote system,
+        # whether it's a database, a key/value store, pub/sub, or a SaaS API.
+        image: ghcr.io/estuary/materialize-postgres:f6f197d
+        config:
+          # Try this by standing up a local PostgreSQL database.
+          # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+          # (Use host: host.docker.internal when running Docker for Windows/Mac).
+          host: localhost
+          password: password
+          database: postgres
+          user: postgres
+          port: 5432
     bindings:
       # Create and materialize into table `account_balances`.
       - resource:

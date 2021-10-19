@@ -33,7 +33,7 @@ tests:
   # TODO this is a pretty silly test, and is the result of my messing around
   # to exercise various code paths. This should be removed and covered by novel tests
   # each focused on reductions, partitioning, partition selectors during verification, etc.
-  "stock/daily-stats rolls up from stock/ticks":
+  stock/test/daily-stats-from-ticks:
     - ingest:
         collection: stock/ticks
         documents: &ingest1

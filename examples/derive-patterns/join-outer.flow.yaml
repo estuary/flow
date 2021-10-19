@@ -21,7 +21,7 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Expect a fully reactive outer join":
+  patterns/test/outer-join:
     - ingest:
         collection: patterns/ints
         documents: [{ Key: key, Int: 5 }]
@@ -32,6 +32,7 @@ tests:
         collection: patterns/strings
         documents: [{ Key: key, String: hello }]
     - verify:
+        description: Expect outer join reflects documents so far.
         collection: patterns/outer-join
         documents: [{ Key: key, LHS: 5, RHS: [hello] }]
     - ingest:
@@ -41,5 +42,6 @@ tests:
         collection: patterns/strings
         documents: [{ Key: key, String: goodbye }]
     - verify:
+        description: Expect outer join reflects all accumulated documents.
         collection: patterns/outer-join
         documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]

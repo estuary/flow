@@ -21,7 +21,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can merge arrays by index":
+  example/reductions/test/deep-merge-array:
     - ingest:
         collection: example/reductions/merge
         documents:
@@ -32,7 +32,7 @@ tests:
         documents:
           - { key: "key", value: [3, 3, 2] }
 
-  "Expect we can merge objects by property":
+  example/reductions/test/deep-merge-objects:
     - ingest:
         collection: example/reductions/merge
         documents:

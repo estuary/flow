@@ -11,7 +11,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can track first- and list-written values":
+  example/reductions/test/fww-lww:
     - ingest:
         collection: example/reductions/fww-lww
         documents:

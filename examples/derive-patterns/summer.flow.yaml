@@ -43,7 +43,7 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Expect we can do sums during materialization or within registers":
+  patterns/test/sums:
     - ingest:
         collection: patterns/ints
         documents:
@@ -55,9 +55,11 @@ tests:
     - verify:
         # "verify" steps fully reduce documents of the collection.
         # Under the hood, these are multiple delta updates.
+        description: Expect we can do sums during materialization
         collection: patterns/sums-db
         documents: [{ Key: key, Sum: 12 }]
     - verify:
         # These are multiple snapshots, of which "verify" takes the last.
+        description: Expect we can do sums within registers
         collection: patterns/sums-register
         documents: [{ Key: key, Sum: 12 }]
