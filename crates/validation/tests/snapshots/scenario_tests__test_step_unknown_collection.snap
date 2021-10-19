@@ -1,14 +1,15 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
+
 ---
 [
     Error {
-        scope: test://example/int-string-tests#/tests/A%20Test/0,
-        error: collection testinG/Int-strin, referenced by test step A Test, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string?,
+        scope: test://example/int-string-tests#/tests/testing~1test/0,
+        error: collection testinG/Int-strin, referenced by test testing/test step 0, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string?,
     },
     Error {
-        scope: test://example/int-string-tests#/tests/A%20Test/1,
-        error: collection wildly/Off/Name, referenced by test step A Test, is not defined,
+        scope: test://example/int-string-tests#/tests/testing~1test/1,
+        error: collection wildly/Off/Name, referenced by test testing/test step 1, is not defined,
     },
 ]

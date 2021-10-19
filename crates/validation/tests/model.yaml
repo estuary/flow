@@ -11,11 +11,11 @@ test://example/catalog.yaml:
     - test://example/from-array-key
 
   storageMappings:
-    - prefix: testing/
+    testing/:
       stores: [{ provider: S3, bucket: data-bucket }]
-    - prefix: recovery/testing/
+    recovery/testing/:
       stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-    - prefix: not-matched/
+    not-matched/:
       stores: [{ provider: AZURE, bucket: not-matched-bucket }]
 
 test://example/int-string:
@@ -123,13 +123,14 @@ test://example/int-string-tests:
   import:
     - test://example/int-string
   tests:
-    "A Test":
+    testing/test:
       - ingest:
           collection: testing/int-string
           documents:
             - { int: 42, str: "string A", bit: true }
             - { int: 52, str: "string B", bit: true }
       - verify:
+          description: expect stuff happens
           collection: testing/int-string
           documents:
             - { str: "string A" }

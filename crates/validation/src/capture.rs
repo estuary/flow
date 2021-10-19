@@ -37,7 +37,7 @@ pub async fn walk_all_captures<D: Drivers>(
             &capture.scope,
             "capture",
             &capture.capture,
-            &indexed::CAPTURE_RE,
+            models::Capture::regex(),
             &mut capture_errors,
         );
 

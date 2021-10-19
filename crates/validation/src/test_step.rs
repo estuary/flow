@@ -65,9 +65,10 @@ pub fn walk_test_step(
         collection,
         documents,
         partitions,
-        step_index: _,
+        step_index,
         step_type,
         test,
+        description: _,
     } = test_step;
 
     // Map to slices of documents which are ingested or verified by this step.
@@ -79,7 +80,7 @@ pub fn walk_test_step(
     // Dereference test collection, returning early if not found.
     let collection = match reference::walk_reference(
         scope,
-        &format!("test step {}", test.as_str()),
+        &format!("test {} step {}", test.as_str(), step_index),
         "collection",
         collection,
         collections,

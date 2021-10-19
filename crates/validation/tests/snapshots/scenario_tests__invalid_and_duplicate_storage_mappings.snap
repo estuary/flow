@@ -5,39 +5,39 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string#/storageMappings/8,
+        scope: test://example/int-string#/storageMappings/~1leading~1Slash~1,
         error: /leading/Slash/ cannot be used as name for storageMappings ("/leading/Slash/" is invalid),
     },
     Error {
-        scope: test://example/int-string#/storageMappings/4,
+        scope: test://example/int-string#/storageMappings/bad%20space,
         error: bad space cannot be used as name for storageMappings ("bad space" is invalid),
     },
     Error {
-        scope: test://example/int-string#/storageMappings/5,
+        scope: test://example/int-string#/storageMappings/bad!punctuation~1,
         error: bad!punctuation/ cannot be used as name for storageMappings ("bad!punctuation/" is invalid),
     },
     Error {
-        scope: test://example/int-string#/storageMappings/7,
+        scope: test://example/int-string#/storageMappings/double~1~1slash~1,
         error: double//slash/ cannot be used as name for storageMappings ("/slash/" is invalid),
     },
     Error {
-        scope: test://example/int-string#/storageMappings/6,
+        scope: test://example/int-string#/storageMappings/missingSlash,
         error: missingSlash cannot be used as name for storageMappings ("missingSlash" is invalid),
     },
     Error {
-        scope: test://example/int-string#/storageMappings/3,
-        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at test://example/int-string#/storageMappings/8,
+        scope: test://example/int-string#/storageMappings/,
+        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at test://example/int-string#/storageMappings/~1leading~1Slash~1,
     },
     Error {
-        scope: test://example/catalog.yaml#/storageMappings/2,
-        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at test://example/int-string#/storageMappings/2,
+        scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
+        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at test://example/int-string#/storageMappings/Not-Matched~1foobar~1,
     },
     Error {
-        scope: test://example/int-string#/storageMappings/1,
-        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at test://example/catalog.yaml#/storageMappings/1,
+        scope: test://example/int-string#/storageMappings/recoverY~1,
+        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
     },
     Error {
-        scope: test://example/catalog.yaml#/storageMappings/0,
-        error: storageMapping testing collides with storageMapping testing, defined at test://example/int-string#/storageMappings/0,
+        scope: test://example/catalog.yaml#/storageMappings/testing~1,
+        error: storageMapping testing collides with storageMapping testing, defined at test://example/int-string#/storageMappings/testing~1,
     },
 ]

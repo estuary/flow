@@ -181,7 +181,7 @@ pub fn walk_transform(
         scope,
         "transform",
         name.as_ref(),
-        &indexed::TRANSFORM_RE,
+        models::Transform::regex(),
         errors,
     );
 
