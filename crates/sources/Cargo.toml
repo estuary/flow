@@ -27,3 +27,4 @@ yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
 
 [dev-dependencies]
 insta = "*"
+base64 = "*"

@@ -6,6 +6,7 @@ use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -51,19 +52,30 @@ pub struct Tables {
     pub transforms: tables::Transforms,
 }
 
-/// Fetcher provides a capability for resolving resources URLs to contents.
+// FetchResult is the result type of a fetch operation,
+// and returns the resolved content of the resource.
+pub type FetchResult = Result<bytes::Bytes, anyhow::Error>;
+// FetchFuture is a Future of FetchResult.
+pub type FetchFuture<'a> = LocalBoxFuture<'a, FetchResult>;
+
+/// Fetcher resolves a resource URL to its content and, optionally, a re-written
+/// URL to use for the resource rather than the |resource| URL.
 pub trait Fetcher {
     fn fetch<'a>(
         &'a self,
+        // Resource to fetch.
         resource: &'a Url,
+        // Expected content type of the resource.
         content_type: models::ContentType,
-    ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>>;
+    ) -> FetchFuture<'a>;
 }
 
 /// Loader provides a stack-based driver for traversing catalog source
 /// models, with dispatch to a Visitor trait and having fine-grained
 /// tracking of location context.
 pub struct Loader<F: Fetcher> {
+    // Inlined resource definitions which have been observed, but not loaded.
+    inlined: RefCell<BTreeMap<Url, models::ResourceDef>>,
     // Tables loaded by the build process.
     tables: RefCell<Tables>,
     // Fetcher for retrieving discovered, unvisited resources.
@@ -74,6 +86,7 @@ impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: Tables, fetcher: F) -> Loader<F> {
         Loader {
+            inlined: RefCell::new(BTreeMap::new()),
             tables: RefCell::new(tables),
             fetcher,
         }
@@ -107,7 +120,15 @@ impl<F: Fetcher> Loader<F> {
             .fetches
             .insert_row(scope.resource_depth() as u32, resource);
 
-        let content = self.fetcher.fetch(&resource, content_type.into()).await;
+        // If an inline definition of a resource is already available, then use it.
+        // Otherwise delegate to the Fetcher.
+        // TODO(johnny): Sanity check expected vs actual content-types.
+        let inlined = self.inlined.borrow_mut().remove(&resource); // Don't hold guard.
+        let content = if let Some(resource) = inlined {
+            Ok(resource.content.clone())
+        } else {
+            self.fetcher.fetch(&resource, content_type.into()).await
+        };
 
         match content {
             Ok(content) => {
@@ -165,6 +186,8 @@ impl<F: Fetcher> Loader<F> {
 
     async fn load_schema_document<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
         let dom: serde_json::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
+        // We don't allow YAML aliases in schema documents as they're redundant
+        // with JSON Schema's $ref mechanism.
         let doc: CompiledSchema =
             self.fallible(scope, build_schema(scope.resource().clone(), &dom))?;
 
@@ -195,11 +218,10 @@ impl<F: Fetcher> Loader<F> {
             match kw {
                 Keyword::Anchor(anchor_uri) => {
                     // Does this anchor meet our definition of a named schema?
-                    if let Some(anchor) = anchor_uri
+                    if let Some((_, anchor)) = anchor_uri
                         .as_str()
-                        .split('#')
-                        .next_back()
-                        .filter(|s| NAMED_SCHEMA_RE.is_match(s))
+                        .split_once('#')
+                        .filter(|(_, s)| NAMED_SCHEMA_RE.is_match(s))
                     {
                         self.tables.borrow_mut().named_schemas.insert_row(
                             scope.flatten(),
@@ -325,11 +347,13 @@ impl<F: Fetcher> Loader<F> {
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
         let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
+        // We allow and support YAML aliases in catalog documents.
         let dom: serde_yaml::Value =
             self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
 
         let models::Catalog {
             _schema,
+            resources,
             import,
             npm_dependencies,
             collections,
@@ -338,6 +362,17 @@ impl<F: Fetcher> Loader<F> {
             tests,
             storage_mappings,
         } = self.fallible(scope, serde_yaml::from_value(dom))?;
+
+        // Collect inlined resources. These don't participate in loading until
+        // we encounter an import of the resource.
+        for (url, resource) in resources {
+            if let Some(url) = self.fallible(
+                scope.push_prop("resources").push_prop(&url),
+                Url::parse(&url),
+            ) {
+                self.inlined.borrow_mut().insert(url, resource);
+            }
+        }
 
         // Collect NPM dependencies.
         for (package, version) in npm_dependencies {
@@ -353,12 +388,12 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Collect storage mappings.
-        for (index, mapping) in storage_mappings.into_iter().enumerate() {
+        for (prefix, storage) in storage_mappings.into_iter() {
             let scope = scope
                 .push_prop("storageMappings")
-                .push_item(index)
+                .push_prop(prefix.as_str())
                 .flatten();
-            let models::StorageMapping { prefix, stores } = mapping;
+            let models::StorageDef { stores } = storage;
 
             self.tables
                 .borrow_mut()
@@ -509,27 +544,42 @@ impl<F: Fetcher> Loader<F> {
                     .flatten();
                 let test = test.clone();
 
-                let (collection, documents, partitions, step_type) = match spec {
+                let (collection, documents, partitions, description, step_type) = match spec {
                     models::TestStep::Ingest(models::TestStepIngest {
                         collection,
                         documents,
-                    }) => (collection, documents, None, TestStepType::Ingest),
+                        description,
+                    }) => (
+                        collection,
+                        documents,
+                        None,
+                        description,
+                        TestStepType::Ingest,
+                    ),
 
                     models::TestStep::Verify(models::TestStepVerify {
                         collection,
                         documents,
                         partitions,
-                    }) => (collection, documents, partitions, TestStepType::Verify),
+                        description,
+                    }) => (
+                        collection,
+                        documents,
+                        partitions,
+                        description,
+                        TestStepType::Verify,
+                    ),
                 };
 
                 self.tables.borrow_mut().test_steps.insert_row(
                     scope,
+                    test,
+                    description,
                     collection,
                     documents,
                     partitions,
                     step_index as u32,
                     step_type,
-                    test,
                 );
             }
         }

@@ -1,0 +1,107 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+
+---
+Tables {
+    capture_bindings: [],
+    captures: [],
+    collections: [],
+    derivations: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/B.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: https://absolute/path/to/c.yaml,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/B.ts,
+        },
+        Fetch {
+            depth: 4,
+            resource: https://absolute/path/to/c.ts,
+        },
+    ],
+    imports: [
+        Import {
+            scope: https://absolute/path/to/c.yaml,
+            from_resource: https://absolute/path/to/c.yaml,
+            to_resource: https://absolute/path/to/c.ts,
+        },
+        Import {
+            scope: test://example/B.yaml#/import/0,
+            from_resource: test://example/B.yaml,
+            to_resource: https://absolute/path/to/c.yaml,
+        },
+        Import {
+            scope: test://example/B.yaml,
+            from_resource: test://example/B.yaml,
+            to_resource: test://example/B.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/B.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+    ],
+    materialization_bindings: [],
+    materializations: [],
+    named_schemas: [],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: https://absolute/path/to/c.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/B.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    storage_mappings: [
+        StorageMapping {
+            scope: test://example/catalog.yaml#/storageMappings/A~1,
+            prefix: A/,
+            stores: [{"provider":"GCS","bucket":"gcs-bucket","prefix":null}],
+        },
+        StorageMapping {
+            scope: test://example/B.yaml#/storageMappings/B~1,
+            prefix: B/,
+            stores: [{"provider":"S3","bucket":"s3-bucket","prefix":null}],
+        },
+        StorageMapping {
+            scope: https://absolute/path/to/c.yaml#/storageMappings/C~1,
+            prefix: C/,
+            stores: [{"provider":"AZURE","bucket":"az-bucket","prefix":null}],
+        },
+    ],
+    test_steps: [],
+    transforms: [],
+}

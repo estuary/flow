@@ -41,17 +41,17 @@ Tables {
     schema_docs: [],
     storage_mappings: [
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/2,
+            scope: test://example/catalog.yaml#/storageMappings/,
             prefix: ,
             stores: [{"provider":"S3","bucket":"root-bucket","prefix":null}],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/0,
+            scope: test://example/catalog.yaml#/storageMappings/foo~1bar~1baz~1,
             prefix: foo/bar/baz/,
             stores: [{"provider":"GCS","bucket":"a-bucket","prefix":"and-prefix/"},{"provider":"S3","bucket":"s3-bucket","prefix":null}],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/1,
+            scope: test://example/catalog.yaml#/storageMappings/other~1thing~1,
             prefix: other/thing/,
             stores: [{"provider":"AZURE","bucket":"s3-bucket","prefix":null}],
         },

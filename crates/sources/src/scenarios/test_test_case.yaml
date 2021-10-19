@@ -1,11 +1,13 @@
 test://example/catalog.yaml:
   tests:
-    "A test case":
+    acmeCo/widgest/test:
       - ingest:
+          description: Import some foos
           collection: test/collection
           documents: [{ "ingest": 1 }, true]
       # No selector.
       - verify:
+          description: Verify without a selector.
           collection: test/collection
           documents: [{ "verify": 2 }, false]
       # With selector.

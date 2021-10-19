@@ -1,40 +1,134 @@
 use crate::{Fetcher, Loader, Scope, Tables};
 use futures::channel::oneshot;
 use futures::future::{FutureExt, LocalBoxFuture};
-use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::task::Poll;
 use url::Url;
 
-macro_rules! file_tests {
+#[cfg(test)]
+mod test {
+    use super::evaluate_fixtures;
+    use serde_json::json;
+
+    macro_rules! file_tests {
     ($($name:ident,)*) => {
     $(
         #[test]
         fn $name() {
 			let fixture = include_bytes!(concat!(stringify!($name), ".yaml"));
-            let fixture: Value = serde_yaml::from_slice(fixture).unwrap();
+            let fixture: serde_json::Value = serde_yaml::from_slice(fixture).unwrap();
 			let tables = evaluate_fixtures(Default::default(), &fixture);
 			insta::assert_debug_snapshot!(tables);
         }
     )*
     }
 }
+    file_tests! {
+        test_catalog_import_cycles,
+        test_collections,
+        test_derivations,
+        test_endpoints_captures_materializations,
+        test_schema_with_anchors,
+        test_schema_with_inline,
+        test_schema_with_nested_ids,
+        test_schema_with_references,
+        test_simple_catalog,
+        test_storage_mappings,
+        test_test_case,
+    }
 
-file_tests! {
-    test_catalog_import_cycles,
-    test_collections,
-    test_derivations,
-    test_endpoints_captures_materializations,
-    test_schema_with_anchors,
-    test_schema_with_inline,
-    test_schema_with_nested_ids,
-    test_schema_with_references,
-    test_simple_catalog,
-    test_test_case,
-    test_storage_mappings,
+    #[test]
+    fn test_inline_nested_catalogs() {
+        let c = json!({
+            "storageMappings": {
+                "C/": {
+                    "stores": [{ "provider": "AZURE", "bucket": "az-bucket" }]
+                }
+            }
+        });
+        let c = base64::encode(serde_json::to_vec(&c).unwrap());
+
+        let b = json!({
+            "resources": {
+                "https://absolute/path/to/c.yaml": {
+                    "content": c,
+                    "contentType": "CATALOG",
+                }
+            },
+            "import": [
+                "https://absolute/path/to/c.yaml"
+            ],
+            "storageMappings": {
+                "B/": {
+                    "stores": [{ "provider": "S3", "bucket": "s3-bucket" }]
+                }
+            }
+        });
+        let b = base64::encode(serde_json::to_vec(&b).unwrap());
+
+        let fixture = json!({
+            "test://example/catalog.yaml": {
+                "resources": {
+                    "test://example/B.yaml": {
+                        "content": b,
+                        "contentType": "CATALOG",
+                    }
+                },
+                "import": [
+                    "B.yaml"
+                ],
+                "storageMappings": {
+                    "A/": {
+                        "stores": [{ "provider": "GCS", "bucket": "gcs-bucket" }]
+                    }
+                }
+            }
+        });
+
+        let tables = evaluate_fixtures(Default::default(), &fixture);
+        insta::assert_debug_snapshot!(tables);
+    }
+
+    #[test]
+    fn test_inline_schema() {
+        let schema1 = json!({
+            "$anchor": "Email",
+            "type": "string",
+        });
+        let schema1 = base64::encode(serde_json::to_vec(&schema1).unwrap());
+
+        let schema2 = json!({
+            "$ref": "path/to/email.schema.json",
+            "format": "email",
+        });
+        let schema2 = base64::encode(serde_json::to_vec(&schema2).unwrap());
+
+        let fixture = json!({
+            "test://example/catalog.yaml": {
+                "resources": {
+                    "test://example/path/to/email.schema.json": {
+                        "content": schema1,
+                        "contentType": "JSON_SCHEMA",
+                    },
+                    "test://example/schema.json": {
+                        "content": schema2,
+                        "contentType": "JSON_SCHEMA",
+                    },
+                },
+                "import": [
+                    {
+                        "url": "schema.json",
+                        "contentType": "JSON_SCHEMA",
+                    },
+                ],
+            }
+        });
+
+        let tables = evaluate_fixtures(Default::default(), &fixture);
+        insta::assert_debug_snapshot!(tables);
+    }
 }
-
 // MockFetcher queues and returns oneshot futures for started fetches.
 struct MockFetcher<'f> {
     fetches: &'f RefCell<BTreeMap<String, oneshot::Sender<Result<bytes::Bytes, anyhow::Error>>>>,
@@ -55,9 +149,9 @@ impl<'f> Fetcher for MockFetcher<'f> {
     }
 }
 
-pub fn evaluate_fixtures(catalog: Tables, fixture: &Value) -> Tables {
+pub fn evaluate_fixtures(catalog: Tables, fixture: &serde_json::Value) -> Tables {
     let fixtures = match fixture {
-        Value::Object(m) => m,
+        serde_json::Value::Object(m) => m,
         _ => panic!("fixtures must be an object having resource properties"),
     };
 
