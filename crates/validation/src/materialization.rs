@@ -47,7 +47,7 @@ pub async fn walk_all_materializations<D: Drivers>(
             &materialization.scope,
             "materialization",
             &materialization.materialization,
-            &indexed::MATERIALIZATION_RE,
+            models::Materialization::regex(),
             &mut materialization_errors,
         );
 

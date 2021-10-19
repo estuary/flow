@@ -18,7 +18,7 @@ pub fn walk_all_storage_mappings(
             &m.scope,
             "storageMappings",
             m.prefix.as_ref(),
-            &indexed::CATALOG_PREFIX_RE,
+            models::Prefix::regex(),
             errors,
         );
     }

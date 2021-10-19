@@ -772,7 +772,7 @@ fn test_test_step_unknown_collection() {
         r#"
 test://example/int-string-tests:
   tests:
-    "A Test":
+    testing/test:
       - ingest:
           collection: testinG/Int-strin
           documents: []
@@ -790,7 +790,7 @@ fn test_test_step_ingest_schema_error() {
         r#"
 test://example/int-string-tests:
   tests:
-    "A Test":
+    testing/test:
       - ingest:
           collection: testing/int-string
           documents:
@@ -807,7 +807,7 @@ fn test_test_step_verify_key_order() {
         r#"
 test://example/int-string-tests:
   tests:
-    "A Test":
+    testing/test:
       - verify:
           collection: testing/int-string
           documents: [{int: 52}, {int: 62}, {int: 42}]
@@ -822,7 +822,7 @@ fn test_test_step_verify_selector() {
         r#"
 test://example/int-string-tests:
   tests:
-    "A Test":
+    testing/test:
       - verify:
           collection: testing/int-string
           documents: []
@@ -905,19 +905,22 @@ fn test_invalid_and_duplicate_storage_mappings() {
         r#"
 test://example/int-string:
   storageMappings:
-    - prefix: testing/ # Exact match of a mapping.
+    testing/:
+      # Exact match of a mapping.
       stores: &stores [{provider: S3, bucket: alternate-data-bucket}]
-    - prefix: recoverY/ # Prefix of another mapping.
+    recoverY/:
+      # Prefix of another mapping.
       stores: *stores
-    - prefix: Not-Matched/foobar/ # Another mapping is a prefix of this.
+    Not-Matched/foobar/:
+      # Another mapping is a prefix of this.
       stores: *stores
 
-    - {prefix: "", stores: *stores}
-    - {prefix: bad space, stores: *stores}
-    - {prefix: bad!punctuation/, stores: *stores}
-    - {prefix: missingSlash, stores: *stores}
-    - {prefix: double//slash/, stores: *stores}
-    - {prefix: /leading/Slash/, stores: *stores}
+    "": {stores: *stores}
+    "bad space": {stores: *stores}
+    "bad!punctuation/": {stores: *stores}
+    missingSlash: {stores: *stores}
+    double//slash/: {stores: *stores}
+    "/leading/Slash/": {stores: *stores}
 "#,
     );
 }
@@ -928,13 +931,13 @@ fn test_storage_mappings_not_imported() {
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
-  storageMappings: []
+  storageMappings: null
 
 test://example/array-key:
   storageMappings:
-    - prefix: testing/
+    testing/:
       stores: [{provider: S3, bucket: data-bucket}]
-    - prefix: recovery/testing/
+    recovery/testing/:
       stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
@@ -946,10 +949,15 @@ fn test_storage_mappings_not_found() {
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
+  # Clear existing mappings.
+  storageMappings: null
+
+test://example/int-string:
+  # Define new mappings in a different catalog source.
   storageMappings:
-    - prefix: TestinG/
+    TestinG/:
       stores: [{provider: S3, bucket: data-bucket}]
-    - prefix: RecoverY/TestinG/
+    RecoverY/TestinG/:
       stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
@@ -961,7 +969,7 @@ fn test_no_storage_mappings_defined() {
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
-  storageMappings: []
+  storageMappings: null
 "#,
     );
 }
@@ -973,8 +981,9 @@ fn test_storage_mappings_without_prefix() {
         r#"
 test://example/catalog.yaml:
   storageMappings:
-    # This is allowed, and matches for all journals and tasks.
-    - stores: [{provider: S3, bucket: a-bucket}]
+    "":
+      # This is allowed, and matches for all journals and tasks.
+      stores: [{provider: S3, bucket: a-bucket}]
 "#,
     );
 }

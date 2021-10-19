@@ -3678,14 +3678,14 @@ All {
     ],
     built_tests: [
         BuiltTest {
-            test: A Test,
+            test: testing/test,
             spec: TestSpec {
-                test: "A Test",
+                test: "testing/test",
                 steps: [
                     Step {
                         step_type: Ingest,
                         step_index: 0,
-                        step_scope: "test://example/int-string-tests#/tests/A%20Test/0",
+                        step_scope: "test://example/int-string-tests#/tests/testing~1test/0",
                         collection: "testing/int-string",
                         collection_schema_uri: "test://example/int-string.schema",
                         collection_key_ptr: [
@@ -3712,11 +3712,12 @@ All {
                                 ),
                             },
                         ),
+                        description: "",
                     },
                     Step {
                         step_type: Verify,
                         step_index: 1,
-                        step_scope: "test://example/int-string-tests#/tests/A%20Test/1",
+                        step_scope: "test://example/int-string-tests#/tests/testing~1test/1",
                         collection: "testing/int-string",
                         collection_schema_uri: "test://example/int-string.schema",
                         collection_key_ptr: [
@@ -3747,6 +3748,7 @@ All {
                                 ),
                             },
                         ),
+                        description: "expect stuff happens",
                     },
                 ],
             },
@@ -5124,39 +5126,41 @@ All {
     ],
     storage_mappings: [
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/2,
+            scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
             prefix: not-matched/,
             stores: [{"provider":"AZURE","bucket":"not-matched-bucket","prefix":null}],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/1,
+            scope: test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
             prefix: recovery/testing/,
             stores: [{"provider":"GCS","bucket":"recovery-bucket","prefix":"some/"}],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/0,
+            scope: test://example/catalog.yaml#/storageMappings/testing~1,
             prefix: testing/,
             stores: [{"provider":"S3","bucket":"data-bucket","prefix":null}],
         },
     ],
     test_steps: [
         TestStep {
-            scope: test://example/int-string-tests#/tests/A%20Test/0,
+            scope: test://example/int-string-tests#/tests/testing~1test/0,
+            test: testing/test,
+            description: ,
             collection: testing/int-string,
             documents: [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}],
             partitions: NULL,
             step_index: 0,
             step_type: "Ingest",
-            test: A Test,
         },
         TestStep {
-            scope: test://example/int-string-tests#/tests/A%20Test/1,
+            scope: test://example/int-string-tests#/tests/testing~1test/1,
+            test: testing/test,
+            description: expect stuff happens,
             collection: testing/int-string,
             documents: [{"str":"string A"},{"str":"string B"}],
             partitions: {"include":{"bit":[true]},"exclude":{}},
             step_index: 1,
             step_type: "Verify",
-            test: A Test,
         },
     ],
     transforms: [
