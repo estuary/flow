@@ -455,6 +455,9 @@ pub mod test_spec {
         /// When verifying, selector over logical partitions of the collection.
         #[prost(message, optional, tag="9")]
         pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
+        /// Description of this step.
+        #[prost(string, tag="10")]
+        pub description: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Step`.
     pub mod step {

@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
-use tuple_vec_map;
+use std::collections::BTreeMap;
 
 use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, RelativeUrl, Schema};
 
@@ -23,9 +23,9 @@ pub struct CollectionDef {
     /// # Composite key of this collection.
     pub key: CompositeKey,
     /// # Projections and logical partitions of this collection.
-    #[serde(default, with = "tuple_vec_map")]
+    #[serde(default)]
     #[schemars(schema_with = "projections_schema")]
-    pub projections: Vec<(Field, Projection)>,
+    pub projections: BTreeMap<Field, Projection>,
     /// # Derivation which builds this collection from others.
     pub derivation: Option<Derivation>,
     /// # Template for journals of this collection.
@@ -35,11 +35,13 @@ pub struct CollectionDef {
 
 impl CollectionDef {
     pub fn example() -> Self {
-        from_value(json!({
-            "schema": RelativeUrl::example_relative(),
-            "key": CompositeKey::example(),
-        }))
-        .unwrap()
+        Self {
+            schema: Schema::Url(RelativeUrl::example_relative()),
+            key: CompositeKey::example(),
+            derivation: None,
+            journals: JournalTemplate::default(),
+            projections: BTreeMap::new(),
+        }
     }
 }
 
@@ -60,11 +62,11 @@ pub enum Projection {
 }
 
 impl Projection {
-    pub fn example_pointer() -> Self {
+    fn example_pointer() -> Self {
         Self::Pointer(JsonPointer::example())
     }
 
-    pub fn example_extended() -> Self {
+    fn example_extended() -> Self {
         Projection::Extended {
             location: JsonPointer::example(),
             partition: true,
@@ -72,12 +74,19 @@ impl Projection {
     }
 }
 
-fn projections_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn projections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    let schema = Field::json_schema(gen);
+    gen.definitions_mut().insert(Field::schema_name(), schema);
+
+    let schema = Projection::json_schema(gen);
+    gen.definitions_mut()
+        .insert(Projection::schema_name(), schema);
+
     from_value(json!({
         "type": "object",
         "patternProperties": {
             Field::schema_pattern(): {
-                "$ref": "#/definitions/Projection",
+                "$ref": format!("#/definitions/{}", Projection::schema_name()),
             },
         },
         "additionalProperties": false,
