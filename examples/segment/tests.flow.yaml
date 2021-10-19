@@ -1,5 +1,5 @@
 tests:
-  "Segment membership updates with segmentation events":
+  examples/segment/test/memberships-update-with-segmentations:
     - ingest:
         collection: examples/segment/events
         documents:
@@ -31,9 +31,9 @@ tests:
             value: "associated value"
 
     - ingest:
+        description: Update alice twice more, and remove bob and carly.
         collection: examples/segment/events
         documents:
-          # Update alice twice more, and remove bob and carly.
           - event: 11111111-2222-3333-4444-000000000002
             timestamp: &ts2 "2021-01-17T12:34:56Z"
             user: alice
@@ -78,7 +78,7 @@ tests:
             last: *ts3
             member: false
 
-  "User profiles update with segmentation events":
+  examples/segment/test/profiles-update-with-segmentations:
     - ingest:
         collection: examples/segment/events
         documents:
@@ -144,8 +144,8 @@ tests:
               - segment: *trains
                 last: *ts2
 
-  ? "Segment toggles reflect events that are novel updates of a user / segment status"
-  : - ingest:
+  examples/segment/test/toggles-reflect-novel-updates:
+    - ingest:
         collection: examples/segment/events
         documents:
           - event: 11111111-2222-3333-4444-000000000000 # Initial add.
@@ -170,8 +170,9 @@ tests:
             segment: *trains
 
     - verify:
+        description: No toggles produced yet.
         collection: examples/segment/toggles
-        documents: [] # No toggles produced yet.
+        documents: []
 
     - ingest:
         collection: examples/segment/events
