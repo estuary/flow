@@ -39,6 +39,18 @@ impl CaptureDef {
     pub fn default_interval() -> Duration {
         Duration::from_secs(300) // 5 minutes.
     }
+
+    pub fn example() -> Self {
+        Self {
+            endpoint: CaptureEndpoint::AirbyteSource(AirbyteSourceConfig {
+                image: "connector/image:tag".to_string(),
+                config: Object::new(),
+            }),
+            bindings: vec![CaptureBinding::example()],
+            interval: Self::default_interval(),
+            shards: ShardTemplate::default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
