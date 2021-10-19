@@ -4,7 +4,7 @@ collections:
       type: object
       description: "Allows any JSON object, as long as it has a string id field"
       properties:
-        id: {type: string}
+        id: { type: string }
       required: [id]
     key: [/id]
 
@@ -12,10 +12,10 @@ collections:
     schema:
       type: object
       properties:
-        id: {type: string}
-        a: {type: integer}
-        b: {type: boolean}
-        c: {type: number}
+        id: { type: string }
+        a: { type: integer }
+        b: { type: boolean }
+        c: { type: number }
       required: [id, a, b, c]
     key: [/id]
     derivation:
@@ -27,21 +27,20 @@ collections:
               type: object
               description: "Require that the documents from permissive all have these fields"
               properties:
-                id: {type: string}
-                a: {type: integer}
-                b: {type: boolean}
-                c: {type: number}
+                id: { type: string }
+                a: { type: integer }
+                b: { type: boolean }
+                c: { type: number }
               required: [id, a, b, c]
-          publish: {lambda: typescript}
+          publish: { lambda: typescript }
 
 tests:
-  'document matching the source schema is passed through':
+  examples/source-schema/test/passed-through:
     - ingest:
         collection: examples/source-schema/permissive
         documents:
-          - {id: 'one', a: 5, b: true, c: 7.65}
+          - { id: "one", a: 5, b: true, c: 7.65 }
     - verify:
         collection: examples/source-schema/restrictive
         documents:
-          - {id: 'one', a: 5, b: true, c: 7.65}
-
+          - { id: "one", a: 5, b: true, c: 7.65 }

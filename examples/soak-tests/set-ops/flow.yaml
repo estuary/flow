@@ -63,7 +63,7 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Set soak-test update and verify":
+  soak/set-ops/test/update-and-verify:
     - ingest:
         collection: soak/set-ops/operations
         documents:

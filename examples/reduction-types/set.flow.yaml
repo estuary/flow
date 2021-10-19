@@ -25,7 +25,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can apply set operations to incrementally build associative maps":
+  example/reductions/test/set-operations:
     - ingest:
         collection: example/reductions/set
         documents:

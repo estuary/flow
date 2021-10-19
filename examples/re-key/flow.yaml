@@ -45,42 +45,43 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Expect we join anonymous events through stable ID mappings":
-    # Events which are recorded before a mapping is available.
+  examples/re-key/test/anon-to-stable-joining:
     - ingest:
+        description: Events which are recorded before a mapping is available.
         collection: examples/re-key/anonymous_events
         documents:
           - { anonymous_id: "anon-one", event_id: "ev-1" }
           - { anonymous_id: "anon-two", event_id: "ev-2" }
           - { anonymous_id: "anon-one", event_id: "ev-3" }
-    # Learn an "anon-one" => "stable-one" mapping.
     - ingest:
+        description: Learn an "anon-one" => "stable-one" mapping.
         collection: examples/re-key/mappings
         documents:
           - { anonymous_id: "anon-one", stable_id: "stable-one" }
-    # More events are recorded.
     - ingest:
+        description: More events are recorded.
         collection: examples/re-key/anonymous_events
         documents:
           - { anonymous_id: "anon-two", event_id: "ev-4" }
           - { anonymous_id: "anon-one", event_id: "ev-5" }
-    # Verify we derive all "stable-one" events (and only these events),
-    # from before and after its ID mapping was learned.
     - verify:
+        description:
+          Verify we derive all "stable-one" events (and only these events),
+          from before and after its ID mapping was learned.
         collection: examples/re-key/stable_events
         documents:
           - { stable_id: "stable-one", event_id: "ev-1" }
           - { stable_id: "stable-one", event_id: "ev-3" }
           - { stable_id: "stable-one", event_id: "ev-5" }
-    # We duplicate the stable-one mapping (this is a no-op),
-    # and learn a new mapping for anon-two.
     - ingest:
+        description: We duplicate the stable-one mapping (this is a no-op),
+          and learn a new mapping for anon-two.
         collection: examples/re-key/mappings
         documents:
           - { anonymous_id: "anon-one", stable_id: "stable-one" }
           - { anonymous_id: "anon-two", stable_id: "stable-two" }
-    # Now the derivation contains all events, with stable IDs.
     - verify:
+        description: Now the derivation contains all events, with stable IDs.
         collection: examples/re-key/stable_events
         documents:
           - { stable_id: "stable-one", event_id: "ev-1" }

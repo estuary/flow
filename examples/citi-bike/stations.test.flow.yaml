@@ -2,11 +2,11 @@ import:
   - stations.flow.yaml
 
 tests:
-  "Expect stations update as bikes come and go":
+  examples/citi-bike/test/station-updates:
     - ingest:
+        description: Two bikes leave (from Marin & Newport) and arrive at Harborside.
         collection: examples/citi-bike/rides
         documents:
-          # Two bikes leave (from Marin & Newport) and arrive at Harborside.
           - bike_id: &bikeA 8675
             begin:
               station: &Marin { id: 3276, name: "Marin Light Rail" }
@@ -24,6 +24,7 @@ tests:
               timestamp: *ts2
 
     - verify:
+        description: Expect stations reflect the trips.
         collection: examples/citi-bike/stations
         documents:
           - <<: *Newport
@@ -35,9 +36,9 @@ tests:
             stable: { add: [*bikeA, *bikeB] }
 
     - ingest:
+        description: Bike A rides to Marin. Bike B is relocated, and rides from Marin to Newport.
         collection: examples/citi-bike/rides
         documents:
-          # Bike A rides to Marin.
           - bike_id: *bikeA
             begin:
               station: *Harborside
@@ -45,7 +46,6 @@ tests:
             end:
               station: *Marin
               timestamp: &ts4 "2020-09-01 16:49:30.1610"
-          # Bike B is relocated, and rides from Marin to Newport.
           - bike_id: *bikeB
             begin:
               station: *Marin
@@ -55,6 +55,7 @@ tests:
               timestamp: *ts4
 
     - verify:
+        description: Expect stations reflect the additional ride and relocation.
         collection: examples/citi-bike/stations
         documents:
           - <<: *Newport

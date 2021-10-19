@@ -21,7 +21,7 @@ collections:
           publish: { lambda: typescript }
 
 tests:
-  "Expect we can filter to zero-crossing documents":
+  patterns/test/zero-crossing:
     - ingest:
         collection: patterns/ints
         documents:
@@ -31,6 +31,7 @@ tests:
         collection: patterns/ints
         documents: [{ Key: key, Int: 13 }] # => -2
     - verify:
+        description: Non-zero crossing is filtered.
         collection: patterns/zero-crossing
         documents: []
     - ingest:
@@ -39,6 +40,7 @@ tests:
           - { Key: key, Int: 4 } # => 2 (zero crossing)
           - { Key: key, Int: 10 } # => 12
     - verify:
+        description: Zero crossing is published.
         collection: patterns/zero-crossing
         documents: [{ Key: key, Int: 4 }]
     - ingest:
@@ -47,5 +49,6 @@ tests:
           - { Key: key, Int: -13 } # => -1 (zero crossing)
           - { Key: key, Int: -5 } # => -6
     - verify:
+        description: Zero crossing is updated.
         collection: patterns/zero-crossing
         documents: [{ Key: key, Int: -13 }]

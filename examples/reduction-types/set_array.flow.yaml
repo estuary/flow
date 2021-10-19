@@ -32,7 +32,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can apply operations of sorted-array sets to incrementally build associative maps":
+  example/reductions/test/set-operations-as-array:
     - ingest:
         collection: example/reductions/set-array
         documents:
