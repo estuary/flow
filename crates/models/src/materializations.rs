@@ -20,6 +20,19 @@ pub struct MaterializationDef {
     pub shards: ShardTemplate,
 }
 
+impl MaterializationDef {
+    pub fn example() -> Self {
+        Self {
+            endpoint: MaterializationEndpoint::FlowSink(FlowSinkConfig {
+                image: "connector/image:tag".to_string(),
+                config: Object::new(),
+            }),
+            bindings: vec![MaterializationBinding::example()],
+            shards: ShardTemplate::default(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(example = "MaterializationBinding::example")]
@@ -38,7 +51,7 @@ pub struct MaterializationBinding {
 }
 
 impl MaterializationBinding {
-    pub fn example() -> Self {
+    fn example() -> Self {
         Self {
             resource: json!({"table": "a_table"}).as_object().unwrap().clone(),
             source: Collection::new("source/collection"),

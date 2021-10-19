@@ -73,6 +73,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
+name = "base64"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+
+[[package]]
 name = "bindgen"
 version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -984,6 +990,7 @@ name = "models"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bytes",
  "doc",
  "humantime-serde",
@@ -1002,7 +1009,6 @@ dependencies = [
  "serde-tuple-vec-map",
  "serde_json",
  "serde_yaml",
- "sources",
  "superslice",
  "url",
  "uuid",
@@ -1661,6 +1667,7 @@ name = "sources"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bytes",
  "doc",
  "futures",

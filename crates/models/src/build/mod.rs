@@ -597,12 +597,13 @@ pub fn test_step_spec(
 ) -> flow::test_spec::Step {
     let tables::TestStep {
         scope,
+        test: _,
+        description,
         collection: _,
         documents,
         partitions,
         step_index,
         step_type,
-        test: _,
     } = test_step;
 
     flow::test_spec::Step {
@@ -619,6 +620,7 @@ pub fn test_step_spec(
             .collect::<Vec<_>>()
             .join("\n"),
         partitions: Some(journal_selector(&collection.collection, partitions)),
+        description: description.clone(),
     }
 }
 
