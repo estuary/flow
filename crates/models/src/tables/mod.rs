@@ -10,13 +10,18 @@ pub use macros::{load_tables, persist_tables, Table, TableObj, TableRow};
 
 tables!(
     table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
+        // Import depth of this fetch.
         depth: u32,
+        // Fetched resource Url.
         resource: url::Url,
     }
 
     table Resources (row Resource, order_by [resource], sql "resources") {
+        // Url of this resource.
         resource: url::Url,
+        // Content-type of this resource.
         content_type: models::ContentType,
+        // Byte content of this resource.
         content: bytes::Bytes,
     }
 
@@ -46,6 +51,7 @@ tables!(
 
     table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
+        // Name of this collection.
         collection: models::Collection,
         // JSON Schema against which all collection documents are validated,
         // and which provides document annotations.
@@ -58,8 +64,11 @@ tables!(
 
     table Projections (row Projection, order_by [collection field], sql "projections") {
         scope: url::Url,
+        // Collection to which this projection belongs.
         collection: models::Collection,
+        // Field of this projection.
         field: models::Field,
+        // Projected collection document location.
         location: models::JsonPointer,
         // Is this projection a logically partitioned field?
         partition: bool,
@@ -70,6 +79,7 @@ tables!(
 
     table Derivations (row Derivation, order_by [derivation], sql "derivations") {
         scope: url::Url,
+        // Collection which this derivation derives.
         derivation: models::Collection,
         // JSON Schema against which register values are validated,
         // and which provides document annotations.
@@ -82,6 +92,7 @@ tables!(
 
     table Transforms (row Transform, order_by [derivation transform], sql "transforms") {
         scope: url::Url,
+        // Derivation to which this transform belongs.
         derivation: models::Collection,
         // Read priority applied to documents processed by this transform.
         // Ready documents of higher priority are processed before those
@@ -171,6 +182,10 @@ tables!(
 
     table TestSteps (row TestStep, order_by [test step_index], sql "test_steps") {
         scope: url::Url,
+        // Name of the owning test case.
+        test: models::Test,
+        // Description of this test step.
+        description: String,
         // Collection ingested or verified by this step.
         collection: models::Collection,
         // Documents ingested or verified by this step.
@@ -181,8 +196,6 @@ tables!(
         step_index: u32,
         // Step type (e.x., ingest or verify).
         step_type: protocol::flow::test_spec::step::Type,
-        // Name of the owning test case.
-        test: models::Test,
     }
 
     table SchemaDocs (row SchemaDoc, order_by [schema], sql "schema_docs") {

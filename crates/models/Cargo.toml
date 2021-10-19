@@ -10,6 +10,7 @@ doc = { path = "../doc", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
+base64 = "*"
 bytes = "*"
 humantime-serde = "*"
 lazy_static = "*"
@@ -28,8 +29,6 @@ uuid = { version = "*", features = ["serde"] }
 validator = { version = "*", features = ["derive"] }
 
 [dev-dependencies]
-sources = { path = "../sources", version = "0.0.0" }
-
 insta = "*"
 itertools = "*"
 serde_yaml = "*"

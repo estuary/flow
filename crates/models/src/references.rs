@@ -8,28 +8,43 @@ use validator::{Validate, ValidationError, ValidationErrors};
 // This module contains types which are references to other entities
 // within the catalog. They use the newtype pattern for strong type safety.
 
-// TOKEN is a string production which allows Unicode letters and digits,
+// TOKEN_CHAR is a string production which allows Unicode letters and digits,
 // and a *very* restricted set of other allowed punctuation symbols.
 // Compare to Gazette's ValidateToken and TokenSymbols:
 // https://github.com/gazette/core/blob/master/broker/protocol/validator.go#L52
-const TOKEN: &'static str = r"[\p{Letter}\p{Digit}\-_\.]+";
+
+// TODO(johnny): This is what we would *actually* like TOKEN_CHAR to be:
+// const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Digit}\-_\.";
+//
+// At the moment this is held up by:
+// https://github.com/redhat-developer/yaml-language-server/issues/554
+// Without reasonable IDE support the user experience is very broken.
+// So, we're using a broken ASCII-centric version for the moment. Bleh.
+const TOKEN_CHAR: &'static str = r"a-zA-Z0-9\-_\.";
+// SPACE_CHAR is a space character.
+// TODO(johnny): this ought to be \p{Z} rather than ' '.
+const SPACE_CHAR: &'static str = r" ";
+// JSON_POINTER_CHAR are characters allowed to participate in
+// JSON pointers, subject to its escaping rules.
+const JSON_POINTER_CHAR: &'static str = r"([^/~]|(~[01]))";
 
 lazy_static! {
+    // TOKEN is one or more TOKEN_CHARs.
+    static ref TOKEN: String = ["[", TOKEN_CHAR, "]+"].concat();
     // TOKEN_RE is a single TOKEN component.
-    static ref TOKEN_RE: Regex = Regex::new(TOKEN).unwrap();
+    static ref TOKEN_RE: Regex = Regex::new(&TOKEN).unwrap();
     // CATALOG_NAME_RE is one or more TOKEN components joined by '/'.
     // It may not begin or end in a '/'.
-    static ref CATALOG_NAME_RE: Regex = Regex::new(&[TOKEN, "(/", TOKEN, ")*"].concat()).unwrap();
+    static ref CATALOG_NAME_RE: Regex = Regex::new(&[&TOKEN, "(/", &TOKEN, ")*"].concat()).unwrap();
     // CATALOG_PREFIX_RE is TOKEN components joined by '/'.
     // It may not begin with '/', but unlike CATALOG_NAME_RE it _must_ end in '/'.
-    static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["(", TOKEN, "/)*"].concat()).unwrap();
+    static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["(", &TOKEN, "/)*"].concat()).unwrap();
     // JSON_POINTER_RE matches a JSON pointer.
-    static ref JSON_POINTER_RE: Regex = Regex::new("(/([^/~]|(~[01]))+)*").unwrap();
-    // FREETEXT_RE allows anything except for Zl: Separator:line,
-    // Zp: Separator:paragraph, or Other. Note Zs: Separator:space is allowed.
-    static ref FREETEXT_RE: Regex = Regex::new(r"[^\p{Other}\p{Zl}\p{Zp}]+").unwrap();
-    // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive.
-    static ref RELATIVE_URL_RE: Regex = Regex::new(r"[^\p{Z}]+").unwrap();
+    static ref JSON_POINTER_RE: Regex = Regex::new(&["(/", &JSON_POINTER_CHAR, "+)*"].concat()).unwrap();
+    // FIELD_RE is like a JSON_POINTER_RE, but doesn't require a leading '/'.
+    static ref FIELD_RE: Regex = Regex::new(&[&JSON_POINTER_CHAR, "+(/", &JSON_POINTER_CHAR, "+)*"].concat()).unwrap();
+    // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive, prohibiting only a space.
+    static ref RELATIVE_URL_RE: Regex = Regex::new(&["[^", &SPACE_CHAR, "]+"].concat()).unwrap();
 }
 
 macro_rules! string_reference_types {
@@ -57,6 +72,9 @@ macro_rules! string_reference_types {
             }
             pub fn schema_pattern() -> String {
                 ["^", $Regex.as_str(), "$"].concat()
+            }
+            pub fn regex() -> &'static Regex {
+                &$Regex
             }
 
             fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
@@ -151,19 +169,30 @@ string_reference_types! {
     /// Prefixes are paths of Unicode letters, numbers, '-', '_', or '.'.
     /// Each path component is separated by a slash '/'.
     /// Prefixes may not begin in a '/', but must end in one.
-    pub struct Prefix("Prefix::schema", pattern = CATALOG_PREFIX_RE, example = "acmeCo/");
+    pub struct Prefix("Prefix::schema", pattern = CATALOG_PREFIX_RE, example = "acmeCo/widgets/");
 
-    /// Transform names are paths of Unicode letters, numbers, '-', '_', or '.'.
+    /// Transform names are Unicode letters, numbers, '-', '_', or '.'.
     pub struct Transform("Transform::schema", pattern = TOKEN_RE, example = "myTransform");
 
-    /// Test names are meaningful descriptions of the test's behavior.
-    pub struct Test("Test::schema", pattern = FREETEXT_RE, example = "My Test");
+    /// Test names are paths of Unicode letters, numbers, '-', '_', or '.'.
+    /// Each path component is separated by a slash '/',
+    /// and a name may not begin or end in a '/'.
+    pub struct Test("Test::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/conversions/test");
 
     /// JSON Pointer which identifies a location in a document.
     pub struct JsonPointer("JsonPointer::schema", pattern = JSON_POINTER_RE, example = "/json/ptr");
 
-    /// Field names a projection of a document location.
-    pub struct Field("Field::schema", pattern = TOKEN_RE, example = "my_field");
+    /// Field names a projection of a document location. They may include '/',
+    /// but cannot begin or end with one.
+    /// Many Fields are automatically inferred by Flow from a collection JSON Schema,
+    /// and are the JSON Pointer of the document location with the leading '/' removed.
+    /// User-provided Fields which act as a logical partitions are restricted to
+    /// Unicode letters, numbers, '-', '_', or '.'
+    pub struct Field("Field::schema", pattern = FIELD_RE, example = "my_field");
+
+    /// PartitionField is a Field which names a logically partitioned projection of a document location,
+    /// and is restricted to Unicode letters, numbers, '-', '_', or '.'
+    pub struct PartitionField("PartitionField::schema", pattern = TOKEN_RE, example = "my_field");
 
     /// A URL identifying a resource, which may be a relative local path
     /// with respect to the current resource (i.e, ../path/to/flow.yaml),
@@ -215,7 +244,26 @@ impl Validate for CompositeKey {
 
 #[cfg(test)]
 mod test {
-    use super::{Collection, JsonPointer, Prefix, RelativeUrl, Test, Transform, Validate};
+    use super::{Collection, Field, JsonPointer, Prefix, RelativeUrl, Transform, Validate};
+
+    #[test]
+    fn test_token_re() {
+        for (case, expect) in [
+            ("valid", true),
+            ("no/slashes", false),
+            //("Прик.0_люче-ния", true),
+            ("no spaces", false),
+            ("", false),
+            ("/", false),
+        ] {
+            let out = Transform::new(case).validate();
+            if expect {
+                out.unwrap();
+            } else {
+                out.unwrap_err();
+            }
+        }
+    }
 
     #[test]
     fn test_catalog_name_re() {
@@ -224,7 +272,7 @@ mod test {
             ("valid/1", true),
             ("valid/one/va_lid", true),
             ("valid-1/valid/2/th.ree", true),
-            ("Приключения/Foo", true),
+            //("Приключения/Foo", true),
             ("/bad/leading/slash", false),
             ("bad/trailing/slash/", false),
             ("bad-middle//slash", false),
@@ -248,7 +296,7 @@ mod test {
             ("valid/1/", true),
             ("valid/one/va_lid/", true),
             ("valid-1/valid/2/th.ree/", true),
-            ("Приключения/Foo/", true),
+            //("Приключения/Foo/", true),
             ("/bad/leading/slash", false),
             ("bad-middle//slash", false),
             ("", true),
@@ -265,32 +313,13 @@ mod test {
     }
 
     #[test]
-    fn test_catalog_token_re() {
-        for (case, expect) in [
-            ("valid", true),
-            ("no/slashes", false),
-            ("Прик.0_люче-ния", true),
-            ("no spaces", false),
-            ("", false),
-            ("/", false),
-        ] {
-            let out = Transform::new(case).validate();
-            if expect {
-                out.unwrap();
-            } else {
-                out.unwrap_err();
-            }
-        }
-    }
-
-    #[test]
     fn test_json_pointer_re() {
         for (case, expect) in [
             ("/a/json/pointer", true),
             ("", true), // Document root.
             ("missing/leading/slash", false),
             ("/double//slash", false),
-            ("/Прик/0/люче-ния", true),
+            //("/Прик/0/люче-ния", true),
             ("/with/esc~0ape", true),
             ("/bad/esc~ape", false),
             ("/", false),
@@ -305,15 +334,18 @@ mod test {
     }
 
     #[test]
-    fn test_free_test_re() {
+    fn test_field_re() {
         for (case, expect) in [
-            (
-                "Just about anything is allowed. Multiple sentences.   <- And tabs.",
-                true,
-            ),
-            ("But not\nA line break.", false),
+            ("valid", true),
+            ("/a/json/pointer/with/leading/slash", false),
+            ("a/json/pointer/without/leading/slash", true),
+            ("may have space", true),
+            ("", false),
+            ("/", false),
+            ("with/esc~0ape", true),
+            ("bad/esc~ape", false),
         ] {
-            let out = Test::new(case).validate();
+            let out = Field::new(case).validate();
             if expect {
                 out.unwrap();
             } else {

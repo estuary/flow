@@ -1,8 +1,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json, Value};
+use std::collections::BTreeMap;
 use std::time::Duration;
-use tuple_vec_map;
 
 use super::{Collection, Lambda, PartitionSelector, Schema, ShardTemplate, Shuffle, Transform};
 
@@ -16,9 +16,8 @@ pub struct Derivation {
     #[serde(default)]
     pub register: Register,
     /// # Transforms which make up this derivation.
-    #[serde(default, with = "tuple_vec_map")]
     #[schemars(schema_with = "transforms_schema")]
-    pub transform: Vec<(Transform, TransformDef)>,
+    pub transform: BTreeMap<Transform, TransformDef>,
     /// # Template for shards of this derivation task.
     #[serde(default)]
     pub shards: ShardTemplate,
@@ -93,20 +92,20 @@ pub struct TransformDef {
     /// # Shuffle by which source documents are mapped to registers.
     /// If empty, the key of the source collection is used.
     #[serde(default)]
-    #[schemars(default = "Shuffle::example")]
+    #[schemars(example = "Shuffle::example")]
     pub shuffle: Option<Shuffle>,
     /// # Update that maps a source document into register updates.
     #[serde(default)]
-    #[schemars(default = "Update::example")]
+    #[schemars(example = "Update::example")]
     pub update: Option<Update>,
     /// # Publish that maps a source document and registers into derived documents of the collection.
     #[serde(default)]
-    #[schemars(default = "Publish::example")]
+    #[schemars(example = "Publish::example")]
     pub publish: Option<Publish>,
 }
 
 impl TransformDef {
-    pub fn example() -> Self {
+    fn example() -> Self {
         from_value(json!({
             "source": TransformSource::example(),
             "publish": Publish::example(),
@@ -129,7 +128,7 @@ pub struct Update {
 }
 
 impl Update {
-    pub fn example() -> Self {
+    fn example() -> Self {
         from_value(json!({
             "lambda": Lambda::example_typescript(),
         }))
@@ -149,7 +148,7 @@ pub struct Publish {
 }
 
 impl Publish {
-    pub fn example() -> Self {
+    fn example() -> Self {
         from_value(json!({
             "lambda": Lambda::example_typescript(),
         }))
@@ -175,16 +174,16 @@ pub struct TransformSource {
     /// progressively verified as collections are derived.
     /// If None, the principal schema of the collection is used instead.
     #[serde(default)]
-    #[schemars(default = "Schema::example_relative")]
+    #[schemars(example = "Schema::example_relative")]
     pub schema: Option<Schema>,
     /// # Selector over partition of the source collection to read.
     #[serde(default)]
-    #[schemars(default = "PartitionSelector::example")]
+    #[schemars(example = "PartitionSelector::example")]
     pub partitions: Option<PartitionSelector>,
 }
 
 impl TransformSource {
-    pub fn example() -> Self {
+    fn example() -> Self {
         Self {
             name: Collection::new("source/collection"),
             schema: None,
@@ -193,16 +192,24 @@ impl TransformSource {
     }
 }
 
-fn transforms_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn transforms_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    let schema = Transform::json_schema(gen);
+    gen.definitions_mut()
+        .insert(Transform::schema_name(), schema);
+
+    let schema = TransformDef::json_schema(gen);
+    gen.definitions_mut()
+        .insert(TransformDef::schema_name(), schema);
+
     from_value(json!({
         "type": "object",
         "patternProperties": {
             Transform::schema_pattern(): {
-                "$ref": "#/definitions/Transform",
+                "$ref": format!("#/definitions/{}", TransformDef::schema_name()),
             },
         },
         "additionalProperties": false,
-        "default": [{"nameOfTransform": {"source": {"name": "a/source/collection"}}}],
+        "example": [{"nameOfTransform": TransformDef::example()}],
     }))
     .unwrap()
 }

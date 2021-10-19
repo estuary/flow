@@ -74,15 +74,9 @@ impl Store {
     }
 }
 
-/// A StorageMapping relates a prefix of the catalog namespace,
-/// such as acmeCo/sales/widgets/, to a backing cloud storage location.
+/// Storage defines the backing cloud storage for journals.
 #[derive(Serialize, Deserialize, Debug, JsonSchema, Validate)]
-// #[schemars(example = "StorageMapping::example_absolute")]
-pub struct StorageMapping {
-    // Catalog prefix to which this storage mapping applies.
-    #[validate]
-    #[serde(default)]
-    pub prefix: Prefix,
+pub struct StorageDef {
     /// # Stores for journal fragments under this prefix.
     ///
     /// Multiple stores may be specified, and all stores are periodically scanned
@@ -99,10 +93,9 @@ pub struct StorageMapping {
     pub stores: Vec<Store>,
 }
 
-impl StorageMapping {
+impl StorageDef {
     pub fn example() -> Self {
         Self {
-            prefix: Prefix::new("acmeCo/widgets/"),
             stores: vec![Store::example()],
         }
     }

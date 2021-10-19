@@ -22,17 +22,17 @@ pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
 pub use derivations::{Derivation, Publish, Register, TransformDef, TransformSource, Update};
 pub use journals::{
-    BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageMapping, Store,
+    BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageDef, Store,
 };
 pub use materializations::{
     FlowSinkConfig, MaterializationBinding, MaterializationDef, MaterializationEndpoint,
     MaterializationFields, SnowflakeConfig, SqliteConfig,
 };
 pub use references::{
-    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, Prefix, RelativeUrl,
-    Test, Transform,
+    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
+    RelativeUrl, Test, Transform,
 };
-pub use resources::{ContentType, Import};
+pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use shuffles::{Lambda, PartitionSelector, Shuffle};
