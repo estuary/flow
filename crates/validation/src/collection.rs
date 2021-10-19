@@ -60,7 +60,7 @@ fn walk_collection(
         scope,
         "collection",
         name.as_ref(),
-        &indexed::COLLECTION_RE,
+        models::Collection::regex(),
         errors,
     );
 
@@ -195,7 +195,13 @@ fn walk_projection_with_inference(
 
     if let Some(projection) = projection {
         if projection.partition {
-            indexed::walk_name(scope, "partition", field, &indexed::PARTITION_RE, errors);
+            indexed::walk_name(
+                scope,
+                "partition",
+                field,
+                models::PartitionField::regex(),
+                errors,
+            );
             schema::walk_keyed_location(
                 &projection.scope,
                 &schema_shape.schema,
