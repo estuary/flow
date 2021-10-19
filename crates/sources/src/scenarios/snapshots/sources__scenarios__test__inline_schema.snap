@@ -1,0 +1,88 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+
+---
+Tables {
+    capture_bindings: [],
+    captures: [],
+    collections: [],
+    derivations: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/schema.json,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/path/to/email.schema.json,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/schema.json#/$ref,
+            from_resource: test://example/schema.json,
+            to_resource: test://example/path/to/email.schema.json,
+        },
+    ],
+    materialization_bindings: [],
+    materializations: [],
+    named_schemas: [
+        NamedSchema {
+            scope: test://example/path/to/email.schema.json,
+            anchor: test://example/path/to/email.schema.json#Email,
+            anchor_name: Email,
+        },
+    ],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/path/to/email.schema.json,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/schema.json,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://example/path/to/email.schema.json,
+            dom: {"$anchor":"Email","type":"string"},
+        },
+        SchemaDoc {
+            schema: test://example/schema.json,
+            dom: {"$ref":"path/to/email.schema.json","format":"email"},
+        },
+    ],
+    storage_mappings: [],
+    test_steps: [],
+    transforms: [],
+}
