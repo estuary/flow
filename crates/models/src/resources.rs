@@ -1,16 +1,32 @@
+use bytes::Bytes;
 use protocol::flow::ContentType as ProtoContentType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{from_value, json};
 
 use super::RelativeUrl;
 
-/// An Import includes a referenced resource in the catalog.
+/// A Resource is binary content with an associated ContentType.
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ResourceDef {
+    /// # Content type of the Resource.
+    pub content_type: ContentType,
+    /// # Byte content of the Resource.
+    #[serde(serialize_with = "as_base64", deserialize_with = "from_base64")]
+    #[schemars(schema_with = "base64_schema")]
+    pub content: Bytes,
+}
+
+/// Import a referenced Resource into the catalog.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Import::example_url")]
 #[schemars(example = "Import::example_extended")]
 pub enum Import {
     Url(RelativeUrl),
+
+    #[serde(rename_all = "camelCase")]
     Extended {
         /// # The resource to import.
         url: RelativeUrl,
@@ -87,4 +103,33 @@ impl Into<ProtoContentType> for ContentType {
             Self::NpmPackage => ProtoContentType::NpmPackage,
         }
     }
+}
+
+fn as_base64<T, S>(bytes: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: AsRef<[u8]>,
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&base64::encode(bytes.as_ref()))
+}
+
+fn from_base64<'de, D>(deserializer: D) -> Result<bytes::Bytes, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    String::deserialize(deserializer)
+        .and_then(|string| {
+            base64::decode(&string)
+                .map_err(|err| Error::custom(format!("decoding base64 resource content: {}", err)))
+        })
+        .map(Into::into)
+}
+
+fn base64_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    from_value(json!({
+        "type": "string",
+        "contentEncoding": "base64",
+    }))
+    .unwrap()
 }

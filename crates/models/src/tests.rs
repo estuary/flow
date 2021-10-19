@@ -1,9 +1,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json, Value};
+use serde_json::{json, Value};
 
 use super::{Collection, PartitionSelector};
 
+/// A test step describes either an "ingest" of document fixtures into a
+/// collection, or a "verify" of expected document fixtures from a collection.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStep::example_ingest")]
@@ -30,6 +32,9 @@ impl TestStep {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStepIngest::example")]
 pub struct TestStepIngest {
+    /// # Description of this test ingestion.
+    #[serde(default)]
+    pub description: String,
     /// # Name of the collection into which the test will ingest.
     pub collection: Collection,
     /// # Documents to ingest.
@@ -39,14 +44,14 @@ pub struct TestStepIngest {
 
 impl TestStepIngest {
     pub fn example() -> Self {
-        from_value(json!({
-            "collection": Collection::example(),
-            "documents": [
-                {"example": "document"},
-                {"another": "document"},
-            ]
-        }))
-        .unwrap()
+        Self {
+            description: "Description of the ingestion.".to_string(),
+            collection: Collection::example(),
+            documents: vec![
+                json!({"example": "document"}),
+                json!({"another": "document"}),
+            ],
+        }
     }
 }
 
@@ -57,6 +62,9 @@ impl TestStepIngest {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStepVerify::example")]
 pub struct TestStepVerify {
+    /// # Description of this test verification.
+    #[serde(default)]
+    pub description: String,
     /// # Collection into which the test will ingest.
     pub collection: Collection,
     /// # Documents to verify.
@@ -73,12 +81,11 @@ pub struct TestStepVerify {
 
 impl TestStepVerify {
     pub fn example() -> Self {
-        from_value(json!({
-            "collection": Collection::example(),
-            "documents": [
-                {"expected": "document"},
-            ],
-        }))
-        .unwrap()
+        Self {
+            description: "Description of the verification.".to_string(),
+            collection: Collection::example(),
+            documents: vec![json!({"expected": "document"})],
+            partitions: None,
+        }
     }
 }
