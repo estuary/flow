@@ -60,4 +60,4 @@ tests:
           - { a_key: three }
 
 storageMappings:
-  - stores: [{provider: S3, bucket: a-bucket}]
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
