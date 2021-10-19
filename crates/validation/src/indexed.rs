@@ -4,21 +4,6 @@ use models::tables;
 use regex::Regex;
 use url::Url;
 
-const TOKEN: &'static str = r"[\pL\pN\-_.]+";
-
-lazy_static::lazy_static! {
-    // TODO(johnny): These regex's will be moved from here into a models definition crate,
-    // where they can be leveraged with the validate and schemars crates to perform
-    // automatic validation of models as well as generation of corresponding
-    // JSON schema patterns.
-    pub static ref CAPTURE_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref COLLECTION_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref MATERIALIZATION_RE: Regex = Regex::new(&[TOKEN, "(:?/", TOKEN, ")*"].concat()).unwrap();
-    pub static ref PARTITION_RE: Regex = Regex::new(TOKEN).unwrap();
-    pub static ref TRANSFORM_RE: Regex = Regex::new(TOKEN).unwrap();
-    pub static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["(", TOKEN, "/)*"].concat()).unwrap();
-}
-
 pub fn walk_name(
     scope: &Url,
     entity: &'static str,
