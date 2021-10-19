@@ -22,7 +22,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can sum or reset numbers":
+  example/reductions/test/sum-reset:
     - ingest:
         collection: example/reductions/sum-reset
         documents:

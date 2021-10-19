@@ -24,7 +24,7 @@ collections:
     key: [/key]
 
 tests:
-  "Expect we can min/max values using a key extractor":
+  example/reductions/test/min-max-by-extracted-key:
     - ingest:
         collection: example/reductions/min-max-key
         documents:

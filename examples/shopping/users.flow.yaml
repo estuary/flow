@@ -4,7 +4,7 @@ collections:
     schema: user.schema.yaml
 
 tests:
-  "A users email is updated":
+  examples/shopping/test/user-email-update:
     - ingest:
         collection: examples/shopping/users
         documents:
@@ -25,4 +25,3 @@ tests:
           - id: 2
             name: Jill
             email: jill@upahill.test
-
