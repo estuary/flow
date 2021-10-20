@@ -44,7 +44,6 @@ type CaptureDriverFn func(
 	ctx context.Context,
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
-	tempdir string,
 	connectorNetwork string,
 	logger ops.LogPublisher,
 ) (pc.DriverClient, error)
@@ -55,7 +54,6 @@ type MaterializeDriverFn func(
 	ctx context.Context,
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
-	tempdir string,
 	connectorNetwork string,
 ) (pm.DriverClient, error)
 
@@ -133,7 +131,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 				log.WithField("request", request).Debug("capture validation requested")
 
 				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, "", args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
+					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}
@@ -166,7 +164,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 				log.WithField("request", request).Debug("materialize validation requested")
 
 				var driver, err = args.MaterializeDriverFn(ctx, request.EndpointType,
-					json.RawMessage(request.EndpointSpecJson), "", args.BuildAPI_Config.ConnectorNetwork)
+					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork)
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}

@@ -898,7 +898,8 @@ pub struct BuildApi {
 pub mod build_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
-        /// Path to the base build directory.
+        /// Path to the directory into which the `node_modules` and `flow_generated`
+        /// directories are generated, as well as the built NPM package.
         #[prost(string, tag="1")]
         pub directory: ::prost::alloc::string::String,
         /// Root catalog source specification. This may be either a local path
@@ -993,14 +994,9 @@ pub struct IngestResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum EndpointType {
-    /// Remote is an arbitrary gRPC materialization protocol server.
-    Remote = 0,
-    Postgresql = 1,
+    /// Reserved for REMOTE gRPC servers if there's ever a use case.
+    Invalid = 0,
     Sqlite = 2,
-    S3 = 3,
-    Gs = 4,
-    Snowflake = 5,
-    Webhook = 6,
     AirbyteSource = 7,
     FlowSink = 8,
 }
