@@ -112,9 +112,6 @@ pub enum MaterializationEndpoint {
     FlowSink(FlowSinkConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
-    /// # A Snowflake database.
-    /// Deprecated. Use the connector docker image instead.
-    Snowflake(SnowflakeConfig),
 }
 
 impl MaterializationEndpoint {
@@ -122,7 +119,6 @@ impl MaterializationEndpoint {
         match self {
             Self::FlowSink(_) => EndpointType::FlowSink,
             Self::Sqlite(_) => EndpointType::Sqlite,
-            Self::Snowflake(_) => EndpointType::Snowflake,
         }
     }
 }
@@ -137,31 +133,10 @@ pub struct FlowSinkConfig {
 }
 
 /// Sqlite endpoint configuration.
-/// Compare to https://github.com/mattn/go-sqlite3#connection-string
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct SqliteConfig {
-    /// Preserve and pass-through all configuration.
-    /// Some fields are explicit below, to benefit from JSON-Schema generation.
-    #[serde(flatten)]
-    pub extra: Object,
     /// # Path of the database, relative to this catalog source.
+    /// The path may include query arguements. See:
+    /// https://github.com/mattn/go-sqlite3#connection-string
     pub path: RelativeUrl,
-}
-
-/// Snowflake endpoint configuration.
-/// Compare to https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct SnowflakeConfig {
-    /// Preserve and pass-through all configuration.
-    /// Some fields are explicit below, to benefit from JSON-Schema generation.
-    #[serde(flatten)]
-    pub extra: Object,
-
-    pub account: String,   // Account name
-    pub user: String,      // Username
-    pub password: String,  // Password (requires User)
-    pub database: String,  // Database name
-    pub schema: String,    // Schema
-    pub warehouse: String, // Warehouse
-    pub role: String,      // Role
 }

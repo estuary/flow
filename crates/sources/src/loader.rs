@@ -783,7 +783,6 @@ impl<F: Fetcher> Loader<F> {
         use models::MaterializationEndpoint::*;
         match endpoint {
             FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Snowflake(spec) => Some(serde_json::to_value(spec).unwrap()),
             Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
                     Some(serde_json::to_value(spec).unwrap()) // Already absolute.
