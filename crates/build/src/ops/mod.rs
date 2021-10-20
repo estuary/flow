@@ -203,7 +203,7 @@ mod test {
         tables.materializations.insert_row(
             builtin_url("test-mat.flow.yaml#/collections/justme"),
             models::Materialization::new("justme"),
-            protocol::flow::EndpointType::Postgresql,
+            protocol::flow::EndpointType::Sqlite,
             Value::Null,
             models::ShardTemplate::default(),
         );

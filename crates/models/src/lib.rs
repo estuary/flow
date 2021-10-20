@@ -26,7 +26,7 @@ pub use journals::{
 };
 pub use materializations::{
     FlowSinkConfig, MaterializationBinding, MaterializationDef, MaterializationEndpoint,
-    MaterializationFields, SnowflakeConfig, SqliteConfig,
+    MaterializationFields, SqliteConfig,
 };
 pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
