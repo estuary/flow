@@ -290,7 +290,7 @@ func createTaskShards(
 func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dryRun bool, network string) error {
 	for _, spec := range built.Materializations {
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "", network)
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), network)
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}

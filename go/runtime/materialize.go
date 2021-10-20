@@ -30,8 +30,6 @@ type Materialize struct {
 	coordinator *shuffle.Coordinator
 	// FlowConsumer which owns this Materialize shard.
 	host *FlowConsumer
-	// Directory used for local processing files.
-	localDir string
 	// Driver responses, pumped through a concurrent read loop.
 	// Updated in RestoreCheckpoint.
 	driverRx <-chan materialize.TransactionResponse
@@ -71,7 +69,6 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 		committed:       committed,
 		coordinator:     coordinator,
 		host:            host,
-		localDir:        recorder.Dir(),
 		driverRx:        nil,
 		driverTx:        nil,
 		flighted:        nil,
@@ -118,7 +115,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	conn, err := materialize.NewDriver(shard.Context(),
 		m.task.Materialization.EndpointType,
 		m.task.Materialization.EndpointSpecJson,
-		m.localDir,
 		m.host.Config.ConnectorNetwork,
 	)
 	if err != nil {

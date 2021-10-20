@@ -210,7 +210,7 @@ func writeConfigStub(ctx context.Context, image string, connectorNetwork string,
 		return fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "", connectorNetwork, ops.StdLogPublisher())
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, connectorNetwork, ops.StdLogPublisher())
 	if err != nil {
 		return fmt.Errorf("building client: %w", err)
 	}
@@ -334,7 +334,7 @@ func discoverBindings(ctx context.Context, image string, connectorNetwork string
 		return nil, fmt.Errorf("encoding spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, "", connectorNetwork, ops.StdLogPublisher())
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, connectorNetwork, ops.StdLogPublisher())
 	if err != nil {
 		return nil, fmt.Errorf("building client: %w", err)
 	}

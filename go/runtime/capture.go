@@ -25,8 +25,6 @@ import (
 type Capture struct {
 	// FlowConsumer which owns this Capture shard.
 	host *FlowConsumer
-	// Directory used for local processing files.
-	localDir string
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
 	// Embedded task processing state scoped to a current task revision.
@@ -45,7 +43,6 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 
 	return &Capture{
 		host:     host,
-		localDir: recorder.Dir(),
 		store:    store,
 		taskTerm: taskTerm{},
 	}, nil
@@ -110,7 +107,6 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 	conn, err := capture.NewDriver(ctx,
 		c.task.Capture.EndpointType,
 		c.task.Capture.EndpointSpecJson,
-		c.localDir,
 		c.host.Config.ConnectorNetwork,
 		c.taskTerm.LogPublisher,
 	)

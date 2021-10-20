@@ -803,20 +803,6 @@
             }
           },
           "additionalProperties": false
-        },
-        {
-          "title": "A Snowflake database.",
-          "description": "Deprecated. Use the connector docker image instead.",
-          "type": "object",
-          "required": [
-            "snowflake"
-          ],
-          "properties": {
-            "snowflake": {
-              "$ref": "#/definitions/SnowflakeConfig"
-            }
-          },
-          "additionalProperties": false
         }
       ]
     },
@@ -1160,45 +1146,8 @@
         }
       ]
     },
-    "SnowflakeConfig": {
-      "description": "Snowflake endpoint configuration. Compare to https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config",
-      "type": "object",
-      "required": [
-        "account",
-        "database",
-        "password",
-        "role",
-        "schema",
-        "user",
-        "warehouse"
-      ],
-      "properties": {
-        "account": {
-          "type": "string"
-        },
-        "database": {
-          "type": "string"
-        },
-        "password": {
-          "type": "string"
-        },
-        "role": {
-          "type": "string"
-        },
-        "schema": {
-          "type": "string"
-        },
-        "user": {
-          "type": "string"
-        },
-        "warehouse": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": true
-    },
     "SqliteConfig": {
-      "description": "Sqlite endpoint configuration. Compare to https://github.com/mattn/go-sqlite3#connection-string",
+      "description": "Sqlite endpoint configuration.",
       "type": "object",
       "required": [
         "path"
@@ -1206,10 +1155,10 @@
       "properties": {
         "path": {
           "title": "Path of the database, relative to this catalog source.",
+          "description": "The path may include query arguements. See: https://github.com/mattn/go-sqlite3#connection-string",
           "$ref": "#/definitions/RelativeUrl"
         }
-      },
-      "additionalProperties": true
+      }
     },
     "StorageDef": {
       "description": "Storage defines the backing cloud storage for journals.",
