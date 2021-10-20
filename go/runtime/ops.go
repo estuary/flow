@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"time"
 
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/protocols/fdb/tuple"
@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
@@ -27,14 +28,34 @@ type ShardRef struct {
 	RClockBegin string `json:"rClockBegin"`
 }
 
+type Meta struct {
+	UUID string `json:"uuid"`
+}
+
 // LogEvent is a Go struct definition that matches the log event documents defined by:
 // crates/build/src/ops/ops-log-schema.json
 type LogEvent struct {
+	Meta      Meta            `json:"_meta"`
 	Shard     *ShardRef       `json:"shard"`
 	Timestamp interface{}     `json:"ts"`
 	Level     string          `json:"level"`
 	Message   string          `json:"message"`
 	Fields    json.RawMessage `json:"fields,omitempty"`
+}
+
+// SetUUID implements message.Message for LogEvent
+func (e *LogEvent) SetUUID(uuid message.UUID) {
+	e.Meta.UUID = uuid.String()
+}
+
+// GetUUID implements message.Message for LogEvent
+func (e *LogEvent) GetUUID() message.UUID {
+	panic("not implemented")
+}
+
+// NewAcknowledgement implements message.Message for LogEvent
+func (e *LogEvent) NewAcknowledgement(pb.Journal) message.Message {
+	panic("not implemented")
 }
 
 // LogPublisher is an ops.LogPublisher that is scoped to a particular task, and publishes log events
@@ -44,15 +65,8 @@ type LogPublisher struct {
 	opsCollection *pf.CollectionSpec
 	shard         ShardRef
 	root          *LogService
-	mapper        flow.Mapper
-	// We currently use a combiner to extract the key and partition fields, perform validation, and
-	// add the UUID placeholder. Another approach would be to validate that the target collection
-	// has the expected key and partition fields, and just set all those things manually, which
-	// would avoid the cost of going through the combiner. This is being left as a future exercise,
-	// since the combiner affords more flexibility in the configuration of the logs collection spec,
-	// and since it's only a performance optimization. So it seems best to wait until we have more
-	// confidence that the spec of the logs collection is stable.
-	combiner *bindings.Combine
+	mapper        *constMapper
+	governerCh    chan<- *client.AsyncAppend
 }
 
 // LogService is used to create LogPublishers at runtime. There only needs to be a single
@@ -67,58 +81,82 @@ type LogService struct {
 
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
-func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
+func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
 	var catalogTask, commons, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
 	if err != nil {
 		return nil, err
 	}
 
 	if catalogTask.Ingestion == nil {
-		return nil, fmt.Errorf("expected ops collection to be an ingestion, got: %+v", task)
+		return nil, fmt.Errorf("expected ops collection to be an ingestion, got: %+v", catalogTask)
 	}
 	var opsCollection = catalogTask.Ingestion
+	if err = validateLogCollection(opsCollection); err != nil {
+		return nil, fmt.Errorf("logs collection spec is invalid: %w", err)
+	}
+	// (ab)Use a Mapper to resolve the journal that will serve as the destination for all logs from
+	// this publisher. This will create the journal now, if it doesn't exist. We do this once, now,
+	// and then re-use a constMapper from then on, since a LogPublisher always writes to a single
+	// journal.
 	var mapper = flow.Mapper{
 		Ctx:           r.ctx,
 		JournalClient: r.ajc,
 		Journals:      r.journals,
 		JournalRules:  commons.JournalRules.Rules,
 	}
+	var dummyMessage = flow.Mappable{
+		Spec:       opsCollection,
+		Partitions: tuple.Tuple{shard.Kind, shard.Name, shard.KeyBegin, shard.RClockBegin},
+	}
+
+	journal, journalContentType, err := mapper.Map(dummyMessage)
+	if err != nil {
+		return nil, fmt.Errorf("resolving logs journal: %w", err)
+	}
+
+	// Create a buffered channel that will serve to bound the number of pending appends to a logs
+	// collection. We'll loop over all the append operations in the channel and wait for them to
+	// complete. When publishing logs, we'll push each AsyncAppend operation to this channel,
+	// blocking until the channel has space available. The specific size of the buffer was chosen
+	// somewhat arbitrarily, with the aim of providing _some_ resilience to temporary network errors
+	// without blocking the rest of the shard's processing, while also limiting the number of log
+	// messages that could potentially be lost forever if someone pulls the plug on the machine.
+	var governerCh = make(chan *client.AsyncAppend, 100)
+	go func(ch <-chan *client.AsyncAppend) {
+		for op := range ch {
+			if logErr := op.Err(); logErr != nil && logErr != context.Canceled {
+				ops.StdLogPublisher().Log(log.ErrorLevel, log.Fields{
+					"shard": shard,
+					"error": logErr,
+				}, "failed to append to log collection")
+			}
+		}
+	}(governerCh)
+
 	logrus.WithFields(logrus.Fields{
 		"logCollection": opsCollectionName,
 		"level":         level.String(),
+		"journal":       journal,
 	}).Info("starting new log publisher")
 
-	var partitionPtrs = flow.PartitionPointers(opsCollection)
-	schemaIndex, err := commons.SchemaIndex()
-	if err != nil {
-		return nil, fmt.Errorf("building schema index: %w", err)
-	}
-	// Create the combiner with logs forwarded to the logrus logger, so that we don't create a
-	// recursive logging loop.
-	combiner, err := bindings.NewCombine(ops.FilteredStdLogPublisher(log.WarnLevel))
-	if err != nil {
-		return nil, fmt.Errorf("creating combiner: %w", err)
-	}
-	if err = combiner.Configure(
-		opsCollectionName,
-		schemaIndex,
-		opsCollection.Collection,
-		opsCollection.SchemaUri,
-		opsCollection.UuidPtr,
-		opsCollection.KeyPtrs,
-		partitionPtrs,
-	); err != nil {
-		return nil, fmt.Errorf("configuring combiner: %w", err)
-	}
-
-	return &LogPublisher{
+	var publisher = &LogPublisher{
 		opsCollection: catalogTask.Ingestion,
-		shard:         task,
+		shard:         shard,
 		root:          r,
-		mapper:        mapper,
-		combiner:      combiner,
 		level:         level,
-	}, nil
+		governerCh:    governerCh,
+		mapper: &constMapper{
+			journal:            journal,
+			journalContentType: journalContentType,
+		},
+	}
+	// Use a finalizer to close the governer channel when the publisher is no longer used.
+	// LogPublishers don't currently have an explicit Close function, so we assume they may be used
+	// right up until they're garbage collected.
+	runtime.SetFinalizer(publisher, func(pub *LogPublisher) {
+		close(pub.governerCh)
+	})
+	return publisher, nil
 }
 
 // Level implements the ops.LogPublisher interface.
@@ -186,8 +224,7 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface
 	// The goal here is to leave fieldsJson empty if there are no fields, instead of serializing an
 	// empty object.
 	if fields != nil {
-		fieldsJson, err = json.Marshal(fields)
-		if err != nil {
+		if fieldsJson, err = json.Marshal(fields); err != nil {
 			return fmt.Errorf("marshalling fields json: %w", err)
 		}
 	}
@@ -200,31 +237,56 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface
 		Message:   message,
 	}
 
-	docJson, err := json.Marshal(event)
+	op, err := p.root.messagePublisher.PublishCommitted(p.mapper.Map, &event)
 	if err != nil {
-		return fmt.Errorf("marshalling log document: %w", err)
+		return err
 	}
-	if err = p.combiner.CombineRight(docJson); err != nil {
-		return fmt.Errorf("combine right: %w", err)
+	// Push the AsyncAppend onto the governer channel, which will block until the channel has
+	// capacity. This helps apply back pressure on shards that do a lot of verbose logging.
+	p.governerCh <- op
+	return nil
+}
+
+// constMapper provides a message.MappingFunc that always returns the same journal and content type.
+type constMapper struct {
+	journal            pb.Journal
+	journalContentType string
+}
+
+func (m *constMapper) Map(msg message.Mappable) (pb.Journal, string, error) {
+	return m.journal, m.journalContentType, nil
+}
+
+// validateLogCollection ensures that the collection spec has the expected key and partition fields.
+// We manually extract keys and partition fields for logs collections, instead of running them
+// through a combiner. This function ensures that the fields we extract here will match the logs
+// collection that we'll publish to. This validation should fail if someone were to change the
+// generated ops collections without updating this file to match.
+func validateLogCollection(c *pf.CollectionSpec) error {
+	var expectedPartitionFields = []string{"kind", "name", "rangeKeyBegin", "rangeRClockBegin"}
+	if err := validateStringSliceEq(expectedPartitionFields, c.PartitionFields); err != nil {
+		return fmt.Errorf("invalid partition fields: %w", err)
 	}
-	return p.combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
-		if full {
-			panic("publishing logs only produces partitally combined documents")
+	var expectedKeyPtrs = []string{
+		"/shard/name",
+		"/shard/keyBegin",
+		"/shard/rClockBegin",
+		"/ts",
+	}
+	if err := validateStringSliceEq(expectedKeyPtrs, c.KeyPtrs); err != nil {
+		return fmt.Errorf("invalid key pointers: %w", err)
+	}
+	return nil
+}
+
+func validateStringSliceEq(expected []string, actual []string) error {
+	if len(expected) != len(actual) {
+		return fmt.Errorf("expected %v, got %v", expected, actual)
+	}
+	for i, exp := range expected {
+		if exp != actual[i] {
+			return fmt.Errorf("expected element %d to be %q, but was %q", i, exp, actual[i])
 		}
-		var partitions, err = tuple.Unpack(packedPartitions)
-		if err != nil {
-			return fmt.Errorf("unpacking partition key")
-		}
-		var mappable = flow.Mappable{
-			Spec:       p.opsCollection,
-			Doc:        doc,
-			PackedKey:  packedKey,
-			Partitions: partitions,
-		}
-		_, err = p.root.messagePublisher.PublishCommitted(p.mapper.Map, mappable)
-		if err != nil {
-			return fmt.Errorf("publishing log: %w", err)
-		}
-		return nil
-	})
+	}
+	return nil
 }
