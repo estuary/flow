@@ -273,14 +273,9 @@ message DerivationSpec {
 
 // EndpointType enumerates the endpoint types understood by Flow.
 enum EndpointType {
-  // Remote is an arbitrary gRPC materialization protocol server.
-  REMOTE = 0;
-  POSTGRESQL = 1;
+  // Reserved for REMOTE gRPC servers if there's ever a use case.
+  INVALID = 0;
   SQLITE = 2;
-  S3 = 3;
-  GS = 4;
-  SNOWFLAKE = 5;
-  WEBHOOK = 6;
   AIRBYTE_SOURCE = 7;
   FLOW_SINK = 8;
 }
@@ -571,7 +566,7 @@ message CatalogTask {
 // TODO(johnny): Deprecated. CatalogCommons is expected to go away
 // as we move task specifications out of Etcd.
 message CatalogCommons {
-  reserved 10,11;
+  reserved 10, 11;
 
   // ID of this commons.
   string commons_id = 1;
@@ -822,7 +817,8 @@ message BuildAPI {
   };
 
   message Config {
-    // Path to the base build directory.
+    // Path to the directory into which the `node_modules` and `flow_generated`
+    // directories are generated, as well as the built NPM package.
     string directory = 1;
     // Root catalog source specification. This may be either a local path
     // relative to the current working directory, or an absolute URL.
