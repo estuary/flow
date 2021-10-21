@@ -1,0 +1,76 @@
+npmDependencies:
+  h3-js: "^3.7.2"
+  geolib: "^3.3.3"
+  moment: "^2.24"
+
+captures:
+  examples/ais/ais-data-capture:
+    endpoint:
+      airbyteSource:
+        image: ghcr.io/estuary/source-s3:574af6e
+        config: {"awsAccessKeyId":"xxxx","awsSecretAccessKey":"xxxx", "bucket": "xxx", "region": "xxx"}
+    bindings:
+      - resource:
+          stream: <YOUR-DATA-STREAM>
+          syncMode: incremental
+        target: examples/ais/vessels
+
+
+collections:
+  examples/ais/vessels:
+    key: [/timestamp, /mmsi]
+    schema: schema.yaml#/$defs/aisVessel
+    projections:
+      MMSI: /mmsi
+      BaseDateTime: /timestamp
+      LAT: /lat
+      LON: /lon
+      SOG: /velocity/sog
+      COG: /velocity/cog
+      Heading: /heading
+      VesselName: /basic/name
+      IMO: /basic/imo
+      VesselType: /basic/type
+      Status: /basic/status
+      Length: /basic/length
+      Width: /basic/width
+      Draft: /basic/draft
+
+  examples/ais/vessel_movements:
+    key: [/h3_index, /vessel/timestamp, /vessel/mmsi, /action]
+    schema: schema.yaml#/$defs/vesselMovement
+    derivation:
+      register:
+        schema: schema.yaml#/$defs/vesselMovementRegister
+        initial: { h3_index: "" }
+      transform:
+        vesselMovement:
+          source: { name: examples/ais/vessels }
+          shuffle: { key: [/mmsi] }
+          update: {lambda: typescript}
+          publish: {lambda: typescript}
+
+  examples/ais/close_vessel_pairs:
+    key: [/vessel_a/mmsi, /vessel_b/mmsi, /vessel_a/timestamp, /vessel_b/timestamp]
+    schema: schema.yaml#/$defs/closeVesselPair
+    derivation:
+      register:
+        schema: schema.yaml#/$defs/vesselsInRegionRegister
+        initial: {add: []}
+      transform:
+        closeVesselDetection:
+          source: { name: examples/ais/vessel_movements }
+          shuffle: { key: [/h3_index] }
+          update: {lambda: typescript}
+          publish: {lambda: typescript}
+
+materializations:
+  examples/ais/output:
+    endpoint:
+      sqlite:
+        # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
+        # don't fail with "database is locked" errors.
+        path: ../ais.db?_journal=WAL
+    bindings:
+      - source: examples/ais/close_vessel_pairs
+        resource: { table: close_vessel_pairs }

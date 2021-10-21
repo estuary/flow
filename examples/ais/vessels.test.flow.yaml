@@ -1,0 +1,50 @@
+import:
+  - vessels.flow.yaml
+tests:
+  "check vessel movement are generated correctly":
+   - ingest:
+      collection: examples/ais/vessels
+      documents:
+        - {mmsi: "1", timestamp: "2021-01-01T00:00:20", lat: 33.18979, lon: -79.27309}
+        - {mmsi: "1", timestamp: "2021-01-01T00:10:00", lat: 33.1818, lon: -79.2740}
+   - verify:
+      collection: examples/ais/vessel_movements
+      documents:
+        - { "action": "closeTo", "h3_index": "8844d220d1fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d220d3fffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "closeTo", "h3_index": "8844d220d3fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d220d9fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d220dbfffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "closeTo", "h3_index": "8844d220dbfffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "enter", "h3_index": "8844d220dbfffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d22721fffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "distantFrom", "h3_index": "8844d22721fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d22725fffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "distantFrom", "h3_index": "8844d22725fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d22729fffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "distantFrom", "h3_index": "8844d22729fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d2272dfffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "enter", "h3_index": "8844d2272dfffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "closeTo", "h3_index": "8844d2272dfffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "leave", "h3_index": "8844d2272dfffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d22765fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+        - { "action": "closeTo", "h3_index": "8844d22767fffff", "vessel": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:20" } }
+        - { "action": "closeTo", "h3_index": "8844d22767fffff", "vessel": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:10:00" } }
+
+
+  "check close pairs are detected":
+    - ingest:
+        collection: examples/ais/vessels
+        documents:
+          - {mmsi: "1", timestamp: "2021-01-01T00:00:00", lat: 33.18979, lon: -79.27309}
+          - {mmsi: "2", timestamp: "2021-01-01T00:10:10", lat: 33.1818, lon: -79.2740}
+          - {mmsi: "1", timestamp: "2021-01-01T00:20:20", lat: 33.1818, lon: -79.2740}
+          - {mmsi: "2", timestamp: "2021-01-01T00:30:30", lat: 33.18979, lon: -79.27309}
+          - {mmsi: "1", timestamp: "2021-01-01T00:40:40", lat: 34.18979, lon: -79.27309}
+          - {mmsi: "2", timestamp: "2021-01-01T00:50:50", lat: 33.18979, lon: -80.27309}
+    - verify:
+        collection: examples/ais/close_vessel_pairs
+        documents:
+          - { "spatial_distance_in_meters": 0, "time_difference_in_minutes": 10, "vessel_a": { "mmsi": "1", "timestamp": "2021-01-01T00:20:20", "lat": 33.1818, "lon": -79.274 }, "vessel_b": { "lat": 33.1818, "lon": -79.274, "mmsi": "2", "timestamp": "2021-01-01T00:10:10" } }
+          - { "spatial_distance_in_meters": 893, "time_difference_in_minutes": 10, "vessel_a": { "lat": 33.1818, "lon": -79.274, "mmsi": "2", "timestamp": "2021-01-01T00:10:10" }, "vessel_b": { "lat": 33.18979, "lon": -79.27309, "mmsi": "1", "timestamp": "2021-01-01T00:00:00" } }
+          - { "spatial_distance_in_meters": 893, "time_difference_in_minutes": 10, "vessel_a": { "lat": 33.18979, "lon": -79.27309, "mmsi": "2", "timestamp": "2021-01-01T00:30:30" }, "vessel_b": { "lat": 33.1818, "lon": -79.274, "mmsi": "1", "timestamp": "2021-01-01T00:20:20" } }
