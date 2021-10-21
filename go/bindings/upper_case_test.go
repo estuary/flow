@@ -100,7 +100,7 @@ func TestLotsOfLogs(t *testing.T) {
 		}
 		var _, _, err = svc.poll()
 		require.NoError(t, err)
-		logPublisher.WaitForLogs(t, time.Millisecond*500, n)
+		logPublisher.WaitForLogs(t, time.Second, n)
 		logPublisher.RequireEventsMatching(t, expectedLogs)
 	}
 }
