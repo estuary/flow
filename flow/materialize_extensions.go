@@ -25,7 +25,10 @@ func (fields *FieldSelection) AllFields() []string {
 	var all = make([]string, 0, len(fields.Keys)+len(fields.Values)+1)
 	all = append(all, fields.Keys...)
 	all = append(all, fields.Values...)
-	return append(all, fields.Document)
+	if fields.Document != "" {
+		all = append(all, fields.Document)
+	}
+	return all
 }
 
 // Validate returns an error if the FieldSelection is malformed.

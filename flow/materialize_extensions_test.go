@@ -23,6 +23,22 @@ func TestFieldSelectionAllFields(t *testing.T) {
 	require.Equal(t, expected, actual)
 }
 
+func TestFieldSelectionAllFieldsWithEmptyRootDoc(t *testing.T) {
+	var fields = FieldSelection{
+		Keys:     []string{"key1", "key2"},
+		Values:   []string{"val1", "val2"},
+		Document: "",
+	}
+	var actual = fields.AllFields()
+	var expected = []string{
+		"key1",
+		"key2",
+		"val1",
+		"val2",
+	}
+	require.Equal(t, expected, actual)
+}
+
 func TestFieldSelectionEqual(t *testing.T) {
 	var a = FieldSelection{
 		Keys:     []string{"key1", "key2"},
