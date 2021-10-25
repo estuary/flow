@@ -230,14 +230,14 @@ func (mapper NullableTypeMapping) GetColumnType(col *Column) (*ResolvedColumnTyp
 // and/or content type into account when deciding what sql column type to generate.
 type StringTypeMapping struct {
 	Default       TypeMapper
-	ByFormat      map[string]*TypeMapper
-	ByContentType map[string]*TypeMapper
+	ByFormat      map[string]TypeMapper
+	ByContentType map[string]TypeMapper
 }
 
 // GetColumnType implements the TypeMapper interface
 func (mapping StringTypeMapping) GetColumnType(col *Column) (*ResolvedColumnType, error) {
 	var stringType = col.StringType
-	var resolvedMapper *TypeMapper
+	var resolvedMapper TypeMapper
 
 	if stringType != nil {
 		if len(stringType.Format) > 0 {
@@ -250,9 +250,9 @@ func (mapping StringTypeMapping) GetColumnType(col *Column) (*ResolvedColumnType
 	}
 
 	if resolvedMapper == nil {
-		resolvedMapper = &mapping.Default
+		resolvedMapper = mapping.Default
 	}
-	return (*resolvedMapper).GetColumnType(col)
+	return resolvedMapper.GetColumnType(col)
 }
 
 // ColumnTypeMapper selects a specific TypeMapper based on the type of the data that will be passed
