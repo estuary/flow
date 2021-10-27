@@ -20,20 +20,20 @@ import (
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
 // and matches new ShuffleConfigs to a new or existing ring.
 type Coordinator struct {
-	catalog flow.Catalog
-	ctx     context.Context
-	mu      sync.Mutex
-	rings   map[*ring]struct{}
-	rjc     pb.RoutedJournalClient
+	builds *flow.BuildService
+	ctx    context.Context
+	mu     sync.Mutex
+	rings  map[*ring]struct{}
+	rjc    pb.RoutedJournalClient
 }
 
 // NewCoordinator returns a new *Coordinator using the given clients.
-func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, catalog flow.Catalog) *Coordinator {
+func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, builds *flow.BuildService) *Coordinator {
 	return &Coordinator{
-		catalog: catalog,
-		ctx:     ctx,
-		rings:   make(map[*ring]struct{}),
-		rjc:     rjc,
+		builds: builds,
+		ctx:    ctx,
+		rings:  make(map[*ring]struct{}),
+		rjc:    rjc,
 	}
 }
 
@@ -45,36 +45,10 @@ func (c *Coordinator) Subscribe(
 	request pf.ShuffleRequest,
 	callback func(*pf.ShuffleResponse, error) error,
 ) {
-	var err = c.subscribe(subscriber{
+	var sub = subscriber{
 		ctx:            ctx,
 		ShuffleRequest: request,
 		callback:       callback,
-	})
-
-	if err != nil {
-		_ = callback(nil, err)
-	}
-}
-
-func (c *Coordinator) subscribe(sub subscriber) error {
-	// Await a future commons revision before we attempt to resolve it.
-	c.catalog.KeySpace.Mu.RLock()
-	var err = c.catalog.KeySpace.WaitForRevision(sub.ctx, sub.Shuffle.CommonsRevision)
-	c.catalog.KeySpace.Mu.RUnlock()
-
-	if err != nil {
-		return err
-	}
-
-	// Load commons runtime instances *before* we obtain the Coordinator Mutex.
-	// This is fast if the commons has been used already.
-	commons, _, err := c.catalog.GetCommons(sub.Shuffle.CommonsId)
-	if err != nil {
-		return fmt.Errorf("resolving commons %q: %w", sub.Shuffle.CommonsId, err)
-	}
-	schemaIndex, err := commons.SchemaIndex()
-	if err != nil {
-		return fmt.Errorf("building schema index: %w", err)
 	}
 
 	c.mu.Lock()
@@ -84,48 +58,33 @@ func (c *Coordinator) subscribe(sub subscriber) error {
 		if ring.shuffle.Equal(sub.Shuffle) {
 			select {
 			case ring.subscriberCh <- sub:
-				return nil
+				return
 			case <-ring.ctx.Done():
-				// ring.serve() may not be reading ring.subscriberCh after cancellation.
-				// Loop again.
+				// ring.serve() may not be reading ring.subscriberCh because the last
+				// ring subscriber exited, and cancelled itself on doing so.
+				// Keep looping to find another replacement ring matching this shuffle
+				// that's already been started. If not found, we'll create one.
 			}
 		}
 	}
 
 	// We must create a new ring.
-	var maybeValidateSchemaURI string
-	if sub.Shuffle.ValidateSchemaAtRead {
-		maybeValidateSchemaURI = sub.Shuffle.SourceSchemaUri
-	}
-
-	ex, err := bindings.NewExtractor()
-	if err != nil {
-		return fmt.Errorf("creating extractor: %w", err)
-	}
-	if ex.Configure(
-		sub.Shuffle.SourceUuidPtr,
-		sub.Shuffle.ShuffleKeyPtr,
-		maybeValidateSchemaURI,
-		schemaIndex,
-	); err != nil {
-		return fmt.Errorf("building document extractor: %w", err)
-	}
-	var ctx, cancel = context.WithCancel(c.ctx)
+	// It's lifetime is tied to the Coordinator, *not* the subscriber,
+	// but it cancels itself when the final subscriber hangs up.
+	var ringCtx, cancel = context.WithCancel(c.ctx)
 
 	var ring = &ring{
 		coordinator:  c,
-		ctx:          ctx,
+		ctx:          ringCtx,
 		cancel:       cancel,
 		subscriberCh: make(chan subscriber, 1),
 		shuffle:      sub.Shuffle,
 	}
-	c.rings[ring] = struct{}{}
-
-	ring.log().Debug("starting shuffle ring service")
-	go ring.serve(ex)
-
 	ring.subscriberCh <- sub
-	return nil
+
+	c.rings[ring] = struct{}{}
+	go ring.serve()
+
 }
 
 // Ring coordinates a read over a single journal on behalf of a
@@ -214,6 +173,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 		}
 		r.log().WithFields(log.Fields{
 			"err":         err,
+			"offset":      staged.Offsets,
 			"readThrough": staged.ReadThrough,
 			"writeHead":   staged.WriteHead,
 		}).Error("failed to extract from documents")
@@ -228,7 +188,38 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 	staged.UuidParts = uuids
 }
 
-func (r *ring) serve(ex *bindings.Extractor) {
+func (r *ring) serve() {
+	r.log().Debug("started shuffle ring service")
+
+	var (
+		build                = r.coordinator.builds.Open(r.shuffle.BuildId)
+		extractor            *bindings.Extractor
+		initErr              error
+		maybeSourceSchemaURI string
+		schemaIndex          *bindings.SchemaIndex
+	)
+	defer build.Close()
+	// TODO(johnny): defer |extractor| cleanup (not yet implemented).
+
+	if r.shuffle.ValidateSchemaAtRead {
+		maybeSourceSchemaURI = r.shuffle.SourceSchemaUri
+	}
+
+	// Fetch the schema index of the referenced build.
+	// This is fast if this build has already been opened elsewhere.
+	if schemaIndex, initErr = build.SchemaIndex(); initErr != nil {
+		initErr = fmt.Errorf("build %s: %w", r.shuffle.BuildId, initErr)
+	} else if extractor, initErr = bindings.NewExtractor(); initErr != nil {
+		initErr = fmt.Errorf("building extractor: %w", initErr)
+	} else if initErr = extractor.Configure(
+		r.shuffle.SourceUuidPtr,
+		r.shuffle.ShuffleKeyPtr,
+		maybeSourceSchemaURI,
+		schemaIndex,
+	); initErr != nil {
+		initErr = fmt.Errorf("building document extractor: %w", initErr)
+	}
+
 loop:
 	for {
 		var readCh chan *pf.ShuffleResponse
@@ -238,9 +229,15 @@ loop:
 
 		select {
 		case sub := <-r.subscriberCh:
-			r.onSubscribe(sub)
+			if initErr != nil {
+				// Notify subscriber that initialization failed, as a terminal error.
+				_ = sub.callback(&pf.ShuffleResponse{TerminalError: initErr.Error()}, nil)
+				_ = sub.callback(nil, io.EOF)
+			} else {
+				r.onSubscribe(sub)
+			}
 		case resp, ok := <-readCh:
-			r.onRead(resp, ok, ex)
+			r.onRead(resp, ok, extractor)
 		case <-r.ctx.Done():
 			break loop
 		}
@@ -260,7 +257,7 @@ loop:
 		sub.callback(nil, r.ctx.Err())
 	}
 
-	r.log().Debug("shuffle ring service exiting")
+	r.log().Debug("stopped shuffle ring service")
 }
 
 func (r *ring) log() *log.Entry {

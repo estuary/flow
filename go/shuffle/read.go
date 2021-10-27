@@ -20,13 +20,12 @@ import (
 
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
-	service    *consumer.Service
-	journals   flow.Journals
-	shardID    pc.ShardID
-	shuffles   []*pf.Shuffle
-	commonsId  string
-	commonsRev int64
-	drainCh    chan struct{}
+	service  *consumer.Service
+	journals flow.Journals
+	shardID  pc.ShardID
+	shuffles []*pf.Shuffle
+	buildID  string
+	drainCh  chan struct{}
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -42,8 +41,7 @@ func NewReadBuilder(
 	journals flow.Journals,
 	shardID pc.ShardID,
 	shuffles []*pf.Shuffle,
-	commonsID string,
-	commonsRev int64,
+	buildID string,
 ) (*ReadBuilder, error) {
 	// Prefix is the "directory" portion of the ShardID,
 	// up-to and including a final '/'.
@@ -62,14 +60,13 @@ func NewReadBuilder(
 	}
 
 	return &ReadBuilder{
-		service:    service,
-		journals:   journals,
-		shardID:    shardID,
-		shuffles:   shuffles,
-		commonsId:  commonsID,
-		commonsRev: commonsRev,
-		drainCh:    make(chan struct{}),
-		members:    members,
+		service:  service,
+		journals: journals,
+		shardID:  shardID,
+		shuffles: shuffles,
+		buildID:  buildID,
+		drainCh:  make(chan struct{}),
+		members:  members,
 	}, nil
 }
 
@@ -94,8 +91,8 @@ func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 // Drain the ReadBuilder, causing it to converge to a drained state with no active reads.
 func (rb *ReadBuilder) Drain() {
 	log.WithFields(log.Fields{
-		"shard":    rb.shardID,
-		"revision": rb.commonsRev,
+		"shard": rb.shardID,
+		"build": rb.buildID,
 	}).Debug("draining shuffled reads")
 
 	close(rb.drainCh)
@@ -129,12 +126,11 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 			}
 
 			var journalShuffle = pf.JournalShuffle{
-				Journal:         spec.Name,
-				Coordinator:     coordinator,
-				Shuffle:         shuffle,
-				Replay:          true,
-				CommonsId:       rb.commonsId,
-				CommonsRevision: rb.commonsRev,
+				Journal:     spec.Name,
+				Coordinator: coordinator,
+				Shuffle:     shuffle,
+				Replay:      true,
+				BuildId:     rb.buildID,
 			}
 			out = &read{
 				spec: spec,
@@ -191,12 +187,11 @@ func (rb *ReadBuilder) buildReads(
 		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
 			var journalShuffle = pf.JournalShuffle{
-				Journal:         spec.Name,
-				Coordinator:     coordinator,
-				Shuffle:         shuffle,
-				Replay:          false,
-				CommonsId:       rb.commonsId,
-				CommonsRevision: rb.commonsRev,
+				Journal:     spec.Name,
+				Coordinator: coordinator,
+				Shuffle:     shuffle,
+				Replay:      false,
+				BuildId:     rb.buildID,
 			}
 
 			var r, ok = existing[spec.Name]
@@ -445,7 +440,7 @@ func (r *read) log() *log.Entry {
 		"offset":      r.req.Offset,
 		"endOffset":   r.req.EndOffset,
 		"range":       &r.req.Range,
-		"revision":    r.req.Shuffle.CommonsRevision,
+		"build":       r.req.Shuffle.BuildId,
 	})
 }
 
