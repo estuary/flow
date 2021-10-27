@@ -3,6 +3,7 @@
 // See that file for descriptions of each label.
 
 // JournalSpec & ShardSpec labels.
+pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
@@ -17,7 +18,6 @@ pub const TASK_TYPE: &str = "estuary.dev/task-type";
 pub const TASK_TYPE_CAPTURE: &str = "capture";
 pub const TASK_TYPE_DERIVATION: &str = "derivation";
 pub const TASK_TYPE_MATERIALIZATION: &str = "materialization";
-pub const TASK_CREATED: &str = "estuary.dev/task-created";
 pub const RCLOCK_BEGIN: &str = "estuary.dev/rclock-begin";
 pub const RCLOCK_BEGIN_MIN: &str = KEY_BEGIN;
 pub const RCLOCK_END: &str = "estuary.dev/rclock-end";

@@ -28,7 +28,6 @@ thiserror = "*"
 tracing = "*"
 tracing-futures = "*"
 url = "*"
-uuid = { version = "*", features = ["v4"] }
 
 [dev-dependencies]
 insta = "*"

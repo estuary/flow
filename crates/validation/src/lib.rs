@@ -44,6 +44,7 @@ pub struct Tables {
 }
 
 pub async fn validate<D: Drivers>(
+    build_config: &protocol::flow::build_api::Config,
     drivers: &D,
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
@@ -113,6 +114,7 @@ pub async fn validate<D: Drivers>(
     }
 
     let (built_collections, implicit_projections) = collection::walk_all_collections(
+        build_config,
         collections,
         imports,
         projections,
@@ -122,6 +124,7 @@ pub async fn validate<D: Drivers>(
     );
 
     let built_derivations = derivation::walk_all_derivations(
+        build_config,
         &built_collections,
         collections,
         derivations,
@@ -153,6 +156,7 @@ pub async fn validate<D: Drivers>(
     );
 
     let built_captures = capture::walk_all_captures(
+        build_config,
         drivers,
         &built_collections,
         capture_bindings,
@@ -166,6 +170,7 @@ pub async fn validate<D: Drivers>(
 
     let mut tmp_errors = tables::Errors::new();
     let built_materializations = materialization::walk_all_materializations(
+        build_config,
         drivers,
         &built_collections,
         collections,

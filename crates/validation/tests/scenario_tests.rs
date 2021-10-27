@@ -11,13 +11,25 @@ lazy_static! {
 
 #[test]
 fn test_golden_all_visits() {
-    let tables = run_test(GOLDEN.clone());
+    let tables = run_test(
+        GOLDEN.clone(),
+        &flow::build_api::Config {
+            build_id: "a-build-id".to_string(),
+            ..Default::default()
+        },
+    );
     insta::assert_debug_snapshot!(tables);
 }
 
 #[test]
 fn test_database_round_trip() {
-    let tables = run_test(GOLDEN.clone());
+    let tables = run_test(
+        GOLDEN.clone(),
+        &flow::build_api::Config {
+            build_id: "a-build-id".to_string(),
+            ..Default::default()
+        },
+    );
 
     // Round-trip source and built tables through the database, verifying equality.
     let db = rusqlite::Connection::open(":memory:").unwrap();
@@ -1144,7 +1156,7 @@ impl validation::Drivers for MockDriverCalls {
     }
 }
 
-fn run_test(mut fixture: Value) -> tables::All {
+fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All {
     // Extract out driver mock call fixtures.
     let mock_calls = fixture
         .get_mut("driver")
@@ -1182,6 +1194,7 @@ fn run_test(mut fixture: Value) -> tables::All {
         implicit_projections,
         inferences,
     } = futures::executor::block_on(validation::validate(
+        config,
         &mock_calls,
         &capture_bindings,
         &captures,
@@ -1237,6 +1250,12 @@ fn run_test_errors(fixture: &Value, patch: &str) {
     let patch: Value = serde_yaml::from_str(patch).unwrap();
     json_patch::merge(&mut fixture, &patch);
 
-    let tables::All { errors, .. } = run_test(fixture);
+    let tables::All { errors, .. } = run_test(
+        fixture,
+        &flow::build_api::Config {
+            build_id: "a-build-id".to_string(),
+            ..Default::default()
+        },
+    );
     insta::assert_debug_snapshot!(errors);
 }
