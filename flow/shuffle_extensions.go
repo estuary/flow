@@ -36,10 +36,8 @@ func (m *JournalShuffle) Validate() error {
 		return pb.ExtendContext(err, "Coordinator")
 	} else if err = m.Shuffle.Validate(); err != nil {
 		return pb.ExtendContext(err, "Shuffle")
-	} else if m.CommonsId == "" {
-		return pb.NewValidationError("missing CommonsId")
-	} else if m.CommonsRevision == 0 {
-		return pb.NewValidationError("missing CommonsRevision")
+	} else if m.BuildId == "" {
+		return pb.NewValidationError("missing BuildId")
 	}
 
 	return nil
