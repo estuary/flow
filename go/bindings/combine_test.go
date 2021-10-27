@@ -2,10 +2,12 @@ package bindings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"path/filepath"
+	"fmt"
 	"testing"
 
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
@@ -13,21 +15,30 @@ import (
 )
 
 func TestCombineBindings(t *testing.T) {
-	built, err := BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///int-strings.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///int-strings.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	var collection = built.Collections[1]
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var collection *pf.CollectionSpec
+	var schemaIndex *SchemaIndex
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
 
 	var combiner = NewCombine()
 

@@ -237,7 +237,7 @@ func (d *Derive) Drain(cb CombineCallback) error {
 		log.WithFields(log.Fields{
 			"out":   len(out),
 			"tasks": d.runningTasks,
-		}).Debug("derive.Drain completed poll")
+		}).Trace("derive.Drain completed poll")
 
 		// Termination condition: we had no unresolved tasks prior to polling, and the output
 		// is either empty or represents a drained combined document.
@@ -245,7 +245,7 @@ func (d *Derive) Drain(cb CombineCallback) error {
 			log.WithFields(log.Fields{
 				"out":   len(out),
 				"tasks": d.runningTasks,
-			}).Debug("derive.Drain draining combiner")
+			}).Trace("derive.Drain draining combiner")
 
 			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb)
 			if err == nil {
@@ -268,7 +268,7 @@ func (d *Derive) Drain(cb CombineCallback) error {
 		log.WithFields(log.Fields{
 			"out":   len(out),
 			"tasks": d.runningTasks,
-		}).Debug("derive.Drain resolved a blocking task")
+		}).Trace("derive.Drain resolved a blocking task")
 	}
 }
 
