@@ -2,12 +2,14 @@ package bindings
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"math"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -49,24 +51,34 @@ func TestExtractorBasic(t *testing.T) {
 }
 
 func TestExtractorValidation(t *testing.T) {
-	var built, err = BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///int-string.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///int-string.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var collection *pf.CollectionSpec
+	var schemaIndex *SchemaIndex
 
-	ex, err := NewExtractor()
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if collection, err = catalog.LoadCollection(db, "int-string"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
+
+	var ex, err = NewExtractor()
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, built.Collections[0].SchemaUri, schemaIndex))
+	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.SchemaUri, schemaIndex))
 
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": 32, "s": "valid"}`))         // Valid.
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-11ea-8802-080607050309", "i": "not a string but ACK"}`))   // Invalid but ACK.

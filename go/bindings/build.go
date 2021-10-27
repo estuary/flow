@@ -13,7 +13,6 @@ import (
 
 	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/protocols/capture"
-	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -63,6 +62,7 @@ type BuildArgs struct {
 	// Context of asynchronous tasks undertaken during the build.
 	Context context.Context
 	// Directory which roots fetched file:// resolutions.
+	// Or empty, if file:// resolutions are disallowed.
 	FileRoot string
 	// Builder of capture DriverClients
 	CaptureDriverFn CaptureDriverFn
@@ -70,15 +70,22 @@ type BuildArgs struct {
 	MaterializeDriverFn MaterializeDriverFn
 }
 
-// BuildCatalogNew runs the configured build.
-func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
+// BuildCatalog runs the configured build.
+func BuildCatalog(args BuildArgs) error {
+	if err := args.BuildAPI_Config.Validate(); err != nil {
+		return fmt.Errorf("validating configuration: %w", err)
+	}
+
 	var transport = http.DefaultTransport.(*http.Transport).Clone()
-	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	var client = &http.Client{Transport: transport}
+
+	if args.FileRoot != "" {
+		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
+	}
 
 	var svc, err = newBuildSvc(ops.StdLogPublisher())
 	if err != nil {
-		return nil, fmt.Errorf("creating build service: %w", err)
+		return fmt.Errorf("creating build service: %w", err)
 	}
 	defer svc.destroy()
 
@@ -212,7 +219,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 		svc.sendBytes(uint32(pf.BuildAPI_POLL), nil)
 		var _, out, err = svc.poll()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		// We must resolve pending work before polling again.
 		mayPoll = false
@@ -221,7 +228,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 			switch pf.BuildAPI_Code(o.code) {
 
 			case pf.BuildAPI_DONE, pf.BuildAPI_DONE_WITH_ERRORS:
-				return catalog.LoadFromSQLite(args.BuildAPI_Config.CatalogPath)
+				return nil
 
 			case pf.BuildAPI_TRAMPOLINE:
 				trampoline.startTask(svc.arenaSlice(o))

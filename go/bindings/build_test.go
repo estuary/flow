@@ -2,57 +2,133 @@ package bindings
 
 import (
 	"context"
-	"path/filepath"
+	"database/sql"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/materialize"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBuildCatalog(t *testing.T) {
-	var tempdir = t.TempDir()
-	built, err := BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:             context.Background(),
 		FileRoot:            "./testdata",
 		CaptureDriverFn:     capture.NewDriver,
 		MaterializeDriverFn: materialize.NewDriver,
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///build.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(tempdir, "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///build.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
-	built.UUID = uuid.NameSpaceURL            // Stable, arbitrary fixture.
-	cupaloy.SnapshotT(t, built)
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) error {
+		t.Run("config", func(t *testing.T) {
+			var out, err = catalog.LoadBuildConfig(db)
+			require.NoError(t, err)
+
+			out.Directory = "/stable/path"
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("all-collections", func(t *testing.T) {
+			var out, err = catalog.LoadAllCollections(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("one-collection", func(t *testing.T) {
+			var out, err = catalog.LoadCollection(db, "a/collection")
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("one-capture", func(t *testing.T) {
+			var out, err = catalog.LoadCapture(db, "example/capture")
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("one-derivation", func(t *testing.T) {
+			var out, err = catalog.LoadDerivation(db, "a/derivation")
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("one-materialization", func(t *testing.T) {
+			var out, err = catalog.LoadMaterialization(db, "example/materialization")
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("all-captures", func(t *testing.T) {
+			var out, err = catalog.LoadAllCaptures(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("all-derivations", func(t *testing.T) {
+			var out, err = catalog.LoadAllDerivations(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("all-materializations", func(t *testing.T) {
+			var out, err = catalog.LoadAllMaterializations(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("inferences", func(t *testing.T) {
+			var out, err = catalog.LoadAllInferences(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("bundle", func(t *testing.T) {
+			var out, err = catalog.LoadSchemaBundle(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("all-tests", func(t *testing.T) {
+			var out, err = catalog.LoadAllTests(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+
+		return nil
+	}))
 }
 
 func TestBuildSchema(t *testing.T) {
-	var tempdir = t.TempDir()
-	built, err := BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:             context.Background(),
 		FileRoot:            "./testdata",
 		CaptureDriverFn:     nil, // Not needed.
 		MaterializeDriverFn: nil, // Not needed.
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///b.schema.yaml",
-			SourceType:  pf.ContentType_JSON_SCHEMA,
-			CatalogPath: filepath.Join(tempdir, "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///b.schema.yaml",
+			SourceType: pf.ContentType_JSON_SCHEMA,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	built.Config.CatalogPath = "/stable/path" // Blank |tempdir|.
-	built.UUID = uuid.NameSpaceURL            // Stable, arbitrary fixture.
-	cupaloy.SnapshotT(t, built)
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) error {
+		t.Run("config", func(t *testing.T) {
+			var out, err = catalog.LoadBuildConfig(db)
+			require.NoError(t, err)
+
+			out.Directory = "/stable/path"
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("inferences", func(t *testing.T) {
+			var out, err = catalog.LoadAllInferences(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		t.Run("bundle", func(t *testing.T) {
+			var out, err = catalog.LoadSchemaBundle(db)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, out)
+		})
+		return nil
+	}))
 }
 
 func TestCatalogSchema(t *testing.T) {
