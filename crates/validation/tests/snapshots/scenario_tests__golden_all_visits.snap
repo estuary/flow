@@ -147,6 +147,10 @@ All {
                                                         value: "application/x-ndjson",
                                                     },
                                                     Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
                                                     },
@@ -209,6 +213,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -242,6 +250,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -420,6 +432,10 @@ All {
                                                         value: "application/x-ndjson",
                                                     },
                                                     Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
                                                     },
@@ -564,6 +580,10 @@ All {
                                                         value: "application/x-ndjson",
                                                     },
                                                     Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string.v2",
                                                     },
@@ -626,6 +646,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -659,6 +683,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -836,6 +864,10 @@ All {
                                         value: "application/x-ndjson",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/array-key",
                                     },
@@ -931,6 +963,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -1183,6 +1219,10 @@ All {
                                         value: "application/x-ndjson",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-halve",
                                     },
@@ -1326,6 +1366,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -1488,6 +1532,10 @@ All {
                                         value: "application/x-ndjson",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string",
                                     },
@@ -1628,6 +1676,10 @@ All {
                                         value: "application/x-ndjson",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string.v2",
                                     },
@@ -1727,6 +1779,10 @@ All {
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-ndjson",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/build",
+                                                value: "a-build-id",
                                             },
                                             Label {
                                                 name: "estuary.dev/collection",
@@ -1888,6 +1944,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -1921,6 +1981,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -2179,6 +2243,10 @@ All {
                                                 value: "application/x-ndjson",
                                             },
                                             Label {
+                                                name: "estuary.dev/build",
+                                                value: "a-build-id",
+                                            },
+                                            Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-halve",
                                             },
@@ -2354,6 +2422,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -2387,6 +2459,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -2535,6 +2611,10 @@ All {
                                                 value: "application/x-ndjson",
                                             },
                                             Label {
+                                                name: "estuary.dev/build",
+                                                value: "a-build-id",
+                                            },
+                                            Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-reverse",
                                             },
@@ -2646,6 +2726,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -2679,6 +2763,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -2858,6 +2946,10 @@ All {
                                                         value: "application/x-ndjson",
                                                     },
                                                     Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
                                                     },
@@ -2965,6 +3057,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "warn",
                                     },
@@ -2998,6 +3094,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -3174,6 +3274,10 @@ All {
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -3487,6 +3591,10 @@ All {
                                                         value: "application/x-ndjson",
                                                     },
                                                     Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-halve",
                                                     },
@@ -3606,6 +3714,10 @@ All {
                                         value: "estuary.dev/flow",
                                     },
                                     Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
                                     },
@@ -3639,6 +3751,10 @@ All {
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -3685,13 +3801,9 @@ All {
                     Step {
                         step_type: Ingest,
                         step_index: 0,
+                        description: "",
                         step_scope: "test://example/int-string-tests#/tests/testing~1test/0",
                         collection: "testing/int-string",
-                        collection_schema_uri: "test://example/int-string.schema",
-                        collection_key_ptr: [
-                            "/int",
-                        ],
-                        collection_uuid_ptr: "/_meta/uuid",
                         docs_json_lines: "{\"bit\":true,\"int\":42,\"str\":\"string A\"}\n{\"bit\":true,\"int\":52,\"str\":\"string B\"}",
                         partitions: Some(
                             LabelSelector {
@@ -3712,18 +3824,13 @@ All {
                                 ),
                             },
                         ),
-                        description: "",
                     },
                     Step {
                         step_type: Verify,
                         step_index: 1,
+                        description: "expect stuff happens",
                         step_scope: "test://example/int-string-tests#/tests/testing~1test/1",
                         collection: "testing/int-string",
-                        collection_schema_uri: "test://example/int-string.schema",
-                        collection_key_ptr: [
-                            "/int",
-                        ],
-                        collection_uuid_ptr: "/_meta/uuid",
                         docs_json_lines: "{\"str\":\"string A\"}\n{\"str\":\"string B\"}",
                         partitions: Some(
                             LabelSelector {
@@ -3748,7 +3855,6 @@ All {
                                 ),
                             },
                         ),
-                        description: "expect stuff happens",
                     },
                 ],
             },

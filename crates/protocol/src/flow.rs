@@ -143,13 +143,9 @@ pub struct JournalShuffle {
     /// reads of a journal's content into distinct rings.
     #[prost(bool, tag="4")]
     pub replay: bool,
-    /// Catalog commons for resolution of catalog resources like schema URIs.
+    /// Build ID for resolution of resources like schema URIs.
     #[prost(string, tag="5")]
-    pub commons_id: ::prost::alloc::string::String,
-    /// Etcd modfication revision of the |commons_id| CatalogCommons. As a
-    /// CatalogCommons is write-once, this is also its creation revision.
-    #[prost(int64, tag="6")]
-    pub commons_revision: i64,
+    pub build_id: ::prost::alloc::string::String,
 }
 /// Projection is a mapping between a document location, specified as a
 /// JSON-Pointer, and a corresponding field string in a flattened
@@ -434,30 +430,21 @@ pub mod test_spec {
         /// Index of this step within the test.
         #[prost(uint32, tag="2")]
         pub step_index: u32,
-        /// Scope of the test definition location.
+        /// Description of this step.
         #[prost(string, tag="3")]
+        pub description: ::prost::alloc::string::String,
+        /// Scope of the test definition location.
+        #[prost(string, tag="4")]
         pub step_scope: ::prost::alloc::string::String,
         /// Collection ingested or verified by this step.
-        #[prost(string, tag="4")]
-        pub collection: ::prost::alloc::string::String,
-        /// Schema of this collection.
         #[prost(string, tag="5")]
-        pub collection_schema_uri: ::prost::alloc::string::String,
-        /// Grouped key pointers of the collection.
-        #[prost(string, repeated, tag="6")]
-        pub collection_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        /// JSON pointer locating the UUID of each collection document.
-        #[prost(string, tag="7")]
-        pub collection_uuid_ptr: ::prost::alloc::string::String,
-        /// Newline-separated JSON documents to ingest.
-        #[prost(string, tag="8")]
+        pub collection: ::prost::alloc::string::String,
+        /// Newline-separated JSON documents to ingest or verify.
+        #[prost(string, tag="6")]
         pub docs_json_lines: ::prost::alloc::string::String,
         /// When verifying, selector over logical partitions of the collection.
-        #[prost(message, optional, tag="9")]
+        #[prost(message, optional, tag="7")]
         pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
-        /// Description of this step.
-        #[prost(string, tag="10")]
-        pub description: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Step`.
     pub mod step {
@@ -573,96 +560,6 @@ pub struct ShuffleResponse {
     /// If the Shuffle specified a Hash to use, it's applied as well.
     #[prost(message, repeated, tag="10")]
     pub packed_key: ::prost::alloc::vec::Vec<Slice>,
-}
-/// SplitRequest is the request message of a Split RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SplitRequest {
-    /// Shard to split.
-    #[prost(string, tag="1")]
-    pub shard: ::prost::alloc::string::String,
-    /// Split on key.
-    #[prost(bool, tag="2")]
-    pub split_on_key: bool,
-    /// Split on r-clock.
-    #[prost(bool, tag="3")]
-    pub split_on_rclock: bool,
-}
-/// SplitResponse is the response message of a Split RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SplitResponse {
-    /// Status of the Shuffle RPC.
-    #[prost(enumeration="super::consumer::Status", tag="1")]
-    pub status: i32,
-    /// Header of the response.
-    #[prost(message, optional, tag="2")]
-    pub header: ::core::option::Option<super::protocol::Header>,
-    /// Original (parent) shard RangeSpec.
-    #[prost(message, optional, tag="3")]
-    pub parent_range: ::core::option::Option<RangeSpec>,
-    /// Future left-hand child RangeSpec.
-    #[prost(message, optional, tag="4")]
-    pub lhs_range: ::core::option::Option<RangeSpec>,
-    /// Future Right-hand child RangeSpec.
-    #[prost(message, optional, tag="5")]
-    pub rhs_range: ::core::option::Option<RangeSpec>,
-}
-/// CatalogTask is a self-contained, long lived specification executed
-/// by the Flow runtime. Tasks have stable names which coexist in a shared
-/// global namespace, with a specification that evolves over time.
-///
-/// A CatalogTask is associated with a CatalogCommons, which provides all
-/// resources required by the current specification that may be shared
-/// with other CatalogTasks.
-/// TODO(johnny): Deprecated. CatalogTask is expected to go away
-/// as we move task specifications out of Etcd.
-///
-/// Tags 1-9 are available for future use.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CatalogTask {
-    /// Catalog commons used by this task.
-    #[prost(string, tag="10")]
-    pub commons_id: ::prost::alloc::string::String,
-    /// A capture of a data source into a collection.
-    #[prost(message, optional, tag="11")]
-    pub capture: ::core::option::Option<CaptureSpec>,
-    /// An ingested collection.
-    #[prost(message, optional, tag="12")]
-    pub ingestion: ::core::option::Option<CollectionSpec>,
-    /// A derived collection.
-    #[prost(message, optional, tag="13")]
-    pub derivation: ::core::option::Option<DerivationSpec>,
-    /// A materialization of a collection.
-    #[prost(message, optional, tag="14")]
-    pub materialization: ::core::option::Option<MaterializationSpec>,
-}
-/// CatalogCommons describes a "commons" of shared resources utilized by multiple
-/// CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
-/// opaque and unique identifier. A commons is garbage-collected when it's
-/// no longer referred to by any CatalogTasks.
-/// TODO(johnny): Deprecated. CatalogCommons is expected to go away
-/// as we move task specifications out of Etcd.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CatalogCommons {
-    /// ID of this commons.
-    #[prost(string, tag="1")]
-    pub commons_id: ::prost::alloc::string::String,
-    // Tags 2-9 are available for future use.
-
-    /// Schema definitions, against which registers and sourced or derived
-    /// documents are validated.
-    #[prost(message, optional, tag="12")]
-    pub schemas: ::core::option::Option<SchemaBundle>,
-    /// Unix domain socket on which a local TypeScript runtime is already
-    /// listening. This is set by `flowctl test` and `flowctl develop`, and is
-    /// empty otherwise.
-    #[prost(string, tag="13")]
-    pub typescript_local_socket: ::prost::alloc::string::String,
-    /// TypeScript NPM package, as a stand-alone gzipped tarball with bundled
-    /// dependencies. At present we expect only etcd:// schemes with no host, and
-    /// map paths to fetched Etcd values. This is a handy short term representation
-    /// that will evolve over time. Empty if |typescript_local_socket| is set.
-    #[prost(string, tag="14")]
-    pub typescript_package_url: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaApi {
@@ -898,33 +795,36 @@ pub struct BuildApi {
 pub mod build_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
-        /// Path to the directory into which the `node_modules` and `flow_generated`
-        /// directories are generated, as well as the built NPM package.
+        /// Identifier of this build.
+        /// The path of the output database is determined by joining the
+        /// configured directory and configured build ID.
         #[prost(string, tag="1")]
+        pub build_id: ::prost::alloc::string::String,
+        /// Path to the directory into which the `node_modules` and `flow_generated`
+        /// directories are generated, as well as the built NPM package and
+        /// the output database.
+        #[prost(string, tag="2")]
         pub directory: ::prost::alloc::string::String,
         /// Root catalog source specification. This may be either a local path
         /// relative to the current working directory, or an absolute URL.
-        #[prost(string, tag="2")]
+        #[prost(string, tag="3")]
         pub source: ::prost::alloc::string::String,
         /// Content type of the source.
-        #[prost(enumeration="super::ContentType", tag="3")]
+        #[prost(enumeration="super::ContentType", tag="4")]
         pub source_type: i32,
-        /// Path of the catalog database to write.
-        #[prost(string, tag="4")]
-        pub catalog_path: ::prost::alloc::string::String,
         /// Should the TypeScript package be generated?
-        #[prost(bool, tag="7")]
+        #[prost(bool, tag="5")]
         pub typescript_generate: bool,
         /// Should the TypeScript package be built? Implies generation.
-        #[prost(bool, tag="8")]
+        #[prost(bool, tag="6")]
         pub typescript_compile: bool,
         /// Should the TypeScript package be packaged into the catalog?
         /// Implies generation and compilation.
-        #[prost(bool, tag="9")]
+        #[prost(bool, tag="7")]
         pub typescript_package: bool,
         /// The Docker network the connectors are given access to during catalog
         /// builds.
-        #[prost(string, tag="10")]
+        #[prost(string, tag="8")]
         pub connector_network: ::prost::alloc::string::String,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -959,27 +859,38 @@ pub mod build_api {
         CatalogSchema = 100,
     }
 }
-/// IngestRequest describes documents to ingest into collections.
+/// ResetStateRequest is the request of the Testing.ResetState RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResetStateRequest {
+}
+/// ResetStateResponse is the response of the Testing.ResetState RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResetStateResponse {
+}
+/// AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AdvanceTimeRequest {
+    #[prost(uint64, tag="1")]
+    pub advance_seconds: u64,
+}
+/// AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AdvanceTimeResponse {
+}
+/// IngestRequest is the request of the Testing.Ingest RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
-    #[prost(message, repeated, tag="1")]
-    pub collections: ::prost::alloc::vec::Vec<ingest_request::Collection>,
+    /// Name of the collection into which to ingest.
+    #[prost(string, tag="1")]
+    pub collection: ::prost::alloc::string::String,
+    /// Build ID of the ingested collection.
+    #[prost(string, tag="2")]
+    pub build_id: ::prost::alloc::string::String,
+    /// Newline-separated JSON documents to ingest.
+    #[prost(string, tag="3")]
+    pub docs_json_lines: ::prost::alloc::string::String,
 }
-/// Nested message and enum types in `IngestRequest`.
-pub mod ingest_request {
-    /// Collection describes an ingest into a collection.
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Collection {
-        /// Name of the collection into which to ingest.
-        #[prost(string, tag="1")]
-        pub name: ::prost::alloc::string::String,
-        /// Newline-separated JSON documents to ingest.
-        /// TODO(johnny): this must be UTF-8, and can be "string" type.
-        #[prost(bytes="vec", tag="2")]
-        pub docs_json_lines: ::prost::alloc::vec::Vec<u8>,
-    }
-}
-/// IngestResponse is the result of an Ingest RPC.
+/// IngestResponse is the response of the Testing.Ingest RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestResponse {
     /// Journals appended to by this ingestion, and their maximum offset on commit.
