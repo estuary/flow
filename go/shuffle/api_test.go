@@ -2,14 +2,15 @@ package shuffle
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -28,35 +29,29 @@ import (
 )
 
 func TestAPIIntegrationWithFixtures(t *testing.T) {
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///ab.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "a-build-id",
+			Directory:  t.TempDir(),
+			Source:     "file:///ab.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, bindings.BuildCatalog(args))
+
+	var derivation *pf.DerivationSpec
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		derivation, err = catalog.LoadDerivation(db, "a/derivation")
+		return err
+	}))
 
 	var backgroundCtx = pb.WithDispatchDefault(context.Background())
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	commonsID, commonsRev, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:           backgroundCtx,
-		Etcd:          etcd,
-		Root:          "/flow/catalog",
-		Build:         built,
-		TypeScriptUDS: "/not/used",
-	})
+	var builds, err = flow.NewBuildService("file://" + args.Directory + "/")
 	require.NoError(t, err)
-	catalog, err := flow.NewCatalog(backgroundCtx, etcd, "/flow/catalog")
-	require.NoError(t, err)
-
-	//////
-
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 	var journalSpec = brokertest.Journal(pb.JournalSpec{
 		Name:     "a/journal",
@@ -82,11 +77,10 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Start a shuffled read of the fixtures.
 	var shuffle = pf.JournalShuffle{
-		Journal:         "a/journal",
-		Coordinator:     "the-coordinator",
-		Shuffle:         &built.Derivations[0].Transforms[0].Shuffle,
-		CommonsId:       commonsID,
-		CommonsRevision: commonsRev,
+		Journal:     "a/journal",
+		Coordinator: "the-coordinator",
+		Shuffle:     &derivation.Transforms[0].Shuffle,
+		BuildId:     "a-build-id",
 	}
 
 	// Observe only messages having {"a": 1, "aa": "1"}, and not 0 or 2.
@@ -103,7 +97,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, bk.Client(), catalog)
+	var coordinator = NewCoordinator(apiCtx, bk.Client(), builds)
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -214,8 +208,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Expect we read an error, and that TerminalError is set.
 	_, err = badRead.next()
-	require.Equal(t, io.EOF, err)
-	require.Regexp(t, "schema index: schema .*", badRead.resp.TerminalError)
+	require.Equal(t, io.EOF, err, err.Error())
+	require.Regexp(t, "building document extractor: schema index: .*", badRead.resp.TerminalError)
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

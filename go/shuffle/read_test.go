@@ -23,14 +23,13 @@ func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
 		ranges                       = labels.MustParseRangeSpec(allShards[0].LabelSet)
-		shuffles                     = task.Shuffles()
+		shuffles                     = task.TaskShuffles()
 		rb, rbErr                    = NewReadBuilder(
 			nil, // Service is not used.
 			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
 			allShards[0].Id,
 			shuffles,
-			"commons-id",
-			1234,
+			"build-id",
 		)
 		existing = map[pb.Journal]*read{}
 	)
@@ -68,12 +67,11 @@ func TestReadBuilding(t *testing.T) {
 			},
 			req: pf.ShuffleRequest{
 				Shuffle: pf.JournalShuffle{
-					Journal:         aJournal,
-					Coordinator:     "shard/2",
-					Shuffle:         shuffles[0],
-					Replay:          false,
-					CommonsId:       "commons-id",
-					CommonsRevision: 1234,
+					Journal:     aJournal,
+					Coordinator: "shard/2",
+					Shuffle:     shuffles[0],
+					Replay:      false,
+					BuildId:     "build-id",
 				},
 				Range:  ranges,
 				Offset: 1122,
@@ -100,12 +98,11 @@ func TestReadBuilding(t *testing.T) {
 		},
 		req: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{
-				Journal:         aJournal,
-				Coordinator:     "shard/2",
-				Shuffle:         shuffles[0],
-				Replay:          true,
-				CommonsId:       "commons-id",
-				CommonsRevision: 1234,
+				Journal:     aJournal,
+				Coordinator: "shard/2",
+				Shuffle:     shuffles[0],
+				Replay:      true,
+				BuildId:     "build-id",
 			},
 			Range:     ranges,
 			Offset:    1000,
@@ -362,7 +359,7 @@ func TestReadSendBackoffAndWake(t *testing.T) {
 
 func TestWalkingReads(t *testing.T) {
 	var journals, shards, task = buildReadTestJournalsAndTransforms()
-	var shuffles = task.Shuffles()
+	var shuffles = task.TaskShuffles()
 
 	// Expect coordinators align with physical partitions of logical groups.
 	var expect = []struct {
@@ -478,7 +475,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 		"shard shard/3: expected estuary.dev/key-begin to be a 4-byte, hex encoded integer; got whoops")
 }
 
-func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.CatalogTask) {
+func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.DerivationSpec) {
 	var journals = flow.Journals{
 		KeySpace: &keyspace.KeySpace{Root: "/the/journals"}}
 
@@ -532,45 +529,43 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 	}
 
 	// Derivation fixture reading partitions of "foo" into derivation "der".
-	var task = &pf.CatalogTask{
-		Derivation: &pf.DerivationSpec{
-			Transforms: []pf.TransformSpec{
-				{
-					Transform: "bar-one",
-					Shuffle: pf.Shuffle{
-						GroupName:        "transform/der/bar-one",
-						UsesSourceKey:    true,
-						ReadDelaySeconds: 60,
-						SourceCollection: "foo",
-						SourcePartitions: pb.LabelSelector{
-							Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
-						},
+	var task = &pf.DerivationSpec{
+		Transforms: []pf.TransformSpec{
+			{
+				Transform: "bar-one",
+				Shuffle: pf.Shuffle{
+					GroupName:        "transform/der/bar-one",
+					UsesSourceKey:    true,
+					ReadDelaySeconds: 60,
+					SourceCollection: "foo",
+					SourcePartitions: pb.LabelSelector{
+						Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
 					},
-					Derivation: "der",
 				},
-				{
-					Transform: "baz-def",
-					Shuffle: pf.Shuffle{
-						GroupName:        "transform/der/baz-def",
-						UsesSourceKey:    false,
-						SourceCollection: "foo",
-						SourcePartitions: pb.LabelSelector{
-							Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
-						},
+				Derivation: "der",
+			},
+			{
+				Transform: "baz-def",
+				Shuffle: pf.Shuffle{
+					GroupName:        "transform/der/baz-def",
+					UsesSourceKey:    false,
+					SourceCollection: "foo",
+					SourcePartitions: pb.LabelSelector{
+						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
 					},
-					Derivation: "der",
 				},
-				{
-					Transform: "unmatched",
-					Shuffle: pf.Shuffle{
-						GroupName:        "transform/der/unmatched",
-						SourceCollection: "foo",
-						SourcePartitions: pb.LabelSelector{
-							Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
-						},
+				Derivation: "der",
+			},
+			{
+				Transform: "unmatched",
+				Shuffle: pf.Shuffle{
+					GroupName:        "transform/der/unmatched",
+					SourceCollection: "foo",
+					SourcePartitions: pb.LabelSelector{
+						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
 					},
-					Derivation: "der",
 				},
+				Derivation: "der",
 			},
 		},
 	}
