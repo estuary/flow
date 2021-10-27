@@ -15,6 +15,9 @@ type JournalSpec = pb.JournalSpec
 type Label = pb.Label
 type LabelSelector = pb.LabelSelector
 type LabelSet = pb.LabelSet
+type Offset = pb.Offset
+type Offsets = pb.Offsets
 
-type ShardSpec = pc.ShardSpec
+type Checkpoint = pc.Checkpoint
 type ShardID = pc.ShardID
+type ShardSpec = pc.ShardSpec

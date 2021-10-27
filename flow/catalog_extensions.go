@@ -3,94 +3,121 @@ package flow
 import (
 	bytes "bytes"
 	"encoding/json"
+	"path/filepath"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// Validate returns an error if the CatalogTask is invalid.
-func (m *CatalogTask) Validate() error {
-	if m.CommonsId == "" {
-		return pb.NewValidationError("missing CommonsId")
+// Task is a common interface of specifications which are also Flow runtime
+// tasks. These include CaptureSpec, DerivationSpec, and MaterializationSpec.
+type Task interface {
+	// TaskName is the catalog name of this task.
+	TaskName() string
+	// Shuffles are the shuffles of this task.
+	TaskShuffles() []*Shuffle
+	// ShardTemplate is the template of this task's ShardSpecs.
+	TaskShardTemplate() *ShardSpec
+	// RecoveryLogTemplate is the template of this task's JournalSpecs.
+	TaskRecoveryLogTemplate() *JournalSpec
+}
+
+var _ Task = &CaptureSpec{}
+var _ Task = &DerivationSpec{}
+var _ Task = &MaterializationSpec{}
+
+// TaskName returns the catalog task name of this capture.
+func (m *CaptureSpec) TaskName() string {
+	return m.Capture.String()
+}
+
+// Shuffles returns a nil slice, as captures have no shuffles.
+func (m *CaptureSpec) TaskShuffles() []*Shuffle {
+	return nil
+}
+
+// ShardTemplate returns the tasks's shard template.
+func (m *CaptureSpec) TaskShardTemplate() *ShardSpec {
+	return m.ShardTemplate
+}
+
+// RecoveryLogTemplate returns the task's recovery log template.
+func (m *CaptureSpec) TaskRecoveryLogTemplate() *JournalSpec {
+	return m.RecoveryLogTemplate
+}
+
+// TaskName returns the catalog task name of this derivation.
+func (m *DerivationSpec) TaskName() string {
+	return m.Collection.Collection.String()
+}
+
+// Shuffles returns a *Shuffle for each transform of the derivation.
+func (m *DerivationSpec) TaskShuffles() []*Shuffle {
+	var shuffles = make([]*Shuffle, len(m.Transforms))
+	for i := range m.Transforms {
+		shuffles[i] = &m.Transforms[i].Shuffle
+	}
+	return shuffles
+}
+
+// ShardTemplate returns the tasks's shard template.
+func (m *DerivationSpec) TaskShardTemplate() *ShardSpec {
+	return m.ShardTemplate
+}
+
+// RecoveryLogTemplate returns the task's recovery log template.
+func (m *DerivationSpec) TaskRecoveryLogTemplate() *JournalSpec {
+	return m.RecoveryLogTemplate
+}
+
+// TaskName returns the catalog task name of this derivation.
+func (m *MaterializationSpec) TaskName() string {
+	return m.Materialization.String()
+}
+
+// Shuffles returns a *Shuffle for each binding of the materialization.
+func (m *MaterializationSpec) TaskShuffles() []*Shuffle {
+	var shuffles = make([]*Shuffle, len(m.Bindings))
+	for i := range m.Bindings {
+		shuffles[i] = &m.Bindings[i].Shuffle
+	}
+	return shuffles
+}
+
+// ShardTemplate returns the tasks's shard template.
+func (m *MaterializationSpec) TaskShardTemplate() *ShardSpec {
+	return m.ShardTemplate
+}
+
+// RecoveryLogTemplate returns the task's recovery log template.
+func (m *MaterializationSpec) TaskRecoveryLogTemplate() *JournalSpec {
+	return m.RecoveryLogTemplate
+}
+
+// Validate returns an error if the BuildAPI_Config is malformed.
+func (m *BuildAPI_Config) Validate() error {
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"BuildId", m.BuildId},
+		{"Directory", m.Directory},
+		{"Source", m.Source},
+	} {
+		if field.value == "" {
+			return pb.NewValidationError("missing %s", field.name)
+		}
 	}
 
-	var n = 0
-	if m.Capture != nil {
-		if err := m.Capture.Validate(); err != nil {
-			return pb.ExtendContext(err, "Capture")
-		}
-		n++
-	}
-	if m.Ingestion != nil {
-		if err := m.Ingestion.Validate(); err != nil {
-			return pb.ExtendContext(err, "Ingestion")
-		}
-		n++
-	}
-	if m.Derivation != nil {
-		if err := m.Derivation.Validate(); err != nil {
-			return pb.ExtendContext(err, "Derivation")
-		}
-		n++
-	}
-	if m.Materialization != nil {
-		if err := m.Materialization.Validate(); err != nil {
-			return pb.ExtendContext(err, "Materialization")
-		}
-		n++
-	}
-
-	if n != 1 {
-		return pb.NewValidationError(
-			"expected exactly one of Capture, Ingestion, Derivation, or Materializations")
+	if _, ok := ContentType_name[int32(m.SourceType)]; !ok {
+		return pb.NewValidationError("invalid ContentType %s", m.SourceType)
 	}
 
 	return nil
 }
 
-// Name returns the stable, long-lived name of this CatalogTask.
-func (m *CatalogTask) Name() string {
-	if m.Capture != nil {
-		return m.Capture.Capture.String()
-	} else if m.Ingestion != nil {
-		return m.Ingestion.Collection.String()
-	} else if m.Derivation != nil {
-		return m.Derivation.Collection.Collection.String()
-	} else if m.Materialization != nil {
-		return m.Materialization.Materialization.String()
-	} else {
-		panic("invalid CatalogTask")
-	}
-}
-
-// Shuffles returns the []*Shuffles of this CatalogTask.
-func (m *CatalogTask) Shuffles() []*Shuffle {
-	// Captures have no shuffles.
-
-	if m.Derivation != nil {
-		var shuffles = make([]*Shuffle, len(m.Derivation.Transforms))
-		for i := range m.Derivation.Transforms {
-			shuffles[i] = &m.Derivation.Transforms[i].Shuffle
-		}
-		return shuffles
-	}
-
-	if m.Materialization != nil {
-		var shuffles = make([]*Shuffle, len(m.Materialization.Bindings))
-		for i := range m.Materialization.Bindings {
-			shuffles[i] = &m.Materialization.Bindings[i].Shuffle
-		}
-		return shuffles
-	}
-
-	return nil
-}
-
-// Validate returns an error if the Commons is invalid.
-func (m *CatalogCommons) Validate() error {
-	if m.CommonsId == "" {
-		return pb.NewValidationError("missing CommonsId")
-	}
-	return nil
+// OutputPath returns the implied output database path of the build configuration.
+func (m *BuildAPI_Config) OutputPath() string {
+	return filepath.Join(m.Directory, m.BuildId)
 }
 
 // UnmarshalStrict unmarshals |doc| into |m|, using a strict decoding

@@ -33,10 +33,8 @@ func TestJournalShuffle(t *testing.T) {
 	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
 	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
 
-	require.EqualError(t, m.Validate(), "missing CommonsId")
-	m.CommonsId = "an-id"
-	require.EqualError(t, m.Validate(), "missing CommonsRevision")
-	m.CommonsRevision = 1234
+	require.EqualError(t, m.Validate(), "missing BuildId")
+	m.BuildId = "an-id"
 
 	require.Nil(t, m.Validate())
 }
@@ -54,8 +52,7 @@ func TestShuffleRequest(t *testing.T) {
 				SourceUuidPtr:    "/uuid",
 				SourceSchemaUri:  "test://schema",
 			},
-			CommonsId:       "an-id",
-			CommonsRevision: 1234,
+			BuildId: "an-id",
 		},
 		Range: RangeSpec{
 			KeyBegin:    42,

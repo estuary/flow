@@ -152,11 +152,8 @@ message JournalShuffle {
   // Is this a reply of the journal's content? We separate ongoing vs replayed
   // reads of a journal's content into distinct rings.
   bool replay = 4;
-  // Catalog commons for resolution of catalog resources like schema URIs.
-  string commons_id = 5;
-  // Etcd modfication revision of the |commons_id| CatalogCommons. As a
-  // CatalogCommons is write-once, this is also its creation revision.
-  int64 commons_revision = 6;
+  // Build ID for resolution of resources like schema URIs.
+  string build_id = 5;
 }
 
 // Projection is a mapping between a document location, specified as a
@@ -393,22 +390,16 @@ message TestSpec {
     Type step_type = 1;
     // Index of this step within the test.
     uint32 step_index = 2;
-    // Scope of the test definition location.
-    string step_scope = 3;
-    // Collection ingested or verified by this step.
-    string collection = 4 [ (gogoproto.casttype) = "Collection" ];
-    // Schema of this collection.
-    string collection_schema_uri = 5;
-    // Grouped key pointers of the collection.
-    repeated string collection_key_ptr = 6;
-    // JSON pointer locating the UUID of each collection document.
-    string collection_uuid_ptr = 7;
-    // Newline-separated JSON documents to ingest.
-    string docs_json_lines = 8;
-    // When verifying, selector over logical partitions of the collection.
-    protocol.LabelSelector partitions = 9 [ (gogoproto.nullable) = false ];
     // Description of this step.
-    string description = 10;
+    string description = 3;
+    // Scope of the test definition location.
+    string step_scope = 4;
+    // Collection ingested or verified by this step.
+    string collection = 5 [ (gogoproto.casttype) = "Collection" ];
+    // Newline-separated JSON documents to ingest or verify.
+    string docs_json_lines = 6;
+    // When verifying, selector over logical partitions of the collection.
+    protocol.LabelSelector partitions = 7 [ (gogoproto.nullable) = false ];
   }
   repeated Step steps = 2 [ (gogoproto.nullable) = false ];
 }
@@ -416,6 +407,10 @@ message TestSpec {
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
 // is responsible for.
 message RangeSpec {
+  option (gogoproto.goproto_unrecognized) = false;
+  option (gogoproto.goproto_unkeyed) = false;
+  option (gogoproto.goproto_sizecache) = false;
+
   // RangeSpec implements a custom Go String().
   option (gogoproto.goproto_stringer) = false;
 
@@ -506,85 +501,6 @@ message ShuffleResponse {
 
 service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
-}
-
-// SplitRequest is the request message of a Split RPC.
-message SplitRequest {
-  // Shard to split.
-  string shard = 1 [ (gogoproto.casttype) =
-                         "go.gazette.dev/core/consumer/protocol.ShardID" ];
-  // Split on key.
-  bool split_on_key = 2;
-  // Split on r-clock.
-  bool split_on_rclock = 3;
-}
-
-// SplitResponse is the response message of a Split RPC.
-message SplitResponse {
-  // Status of the Shuffle RPC.
-  consumer.Status status = 1;
-  // Header of the response.
-  protocol.Header header = 2 [ (gogoproto.nullable) = false ];
-  // Original (parent) shard RangeSpec.
-  RangeSpec parent_range = 3;
-  // Future left-hand child RangeSpec.
-  RangeSpec lhs_range = 4;
-  // Future Right-hand child RangeSpec.
-  RangeSpec rhs_range = 5;
-}
-
-service Splitter { rpc Split(SplitRequest) returns (SplitResponse); }
-
-// CatalogTask is a self-contained, long lived specification executed
-// by the Flow runtime. Tasks have stable names which coexist in a shared
-// global namespace, with a specification that evolves over time.
-//
-// A CatalogTask is associated with a CatalogCommons, which provides all
-// resources required by the current specification that may be shared
-// with other CatalogTasks.
-// TODO(johnny): Deprecated. CatalogTask is expected to go away
-// as we move task specifications out of Etcd.
-message CatalogTask {
-  // Tags 1-9 are available for future use.
-
-  // Catalog commons used by this task.
-  string commons_id = 10;
-  // A capture of a data source into a collection.
-  CaptureSpec capture = 11;
-  // An ingested collection.
-  CollectionSpec ingestion = 12;
-  // A derived collection.
-  DerivationSpec derivation = 13;
-  // A materialization of a collection.
-  MaterializationSpec materialization = 14;
-}
-
-// CatalogCommons describes a "commons" of shared resources utilized by multiple
-// CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
-// opaque and unique identifier. A commons is garbage-collected when it's
-// no longer referred to by any CatalogTasks.
-// TODO(johnny): Deprecated. CatalogCommons is expected to go away
-// as we move task specifications out of Etcd.
-message CatalogCommons {
-  reserved 10, 11;
-
-  // ID of this commons.
-  string commons_id = 1;
-
-  // Tags 2-9 are available for future use.
-
-  // Schema definitions, against which registers and sourced or derived
-  // documents are validated.
-  SchemaBundle schemas = 12 [ (gogoproto.nullable) = false ];
-  // Unix domain socket on which a local TypeScript runtime is already
-  // listening. This is set by `flowctl test` and `flowctl develop`, and is
-  // empty otherwise.
-  string typescript_local_socket = 13;
-  // TypeScript NPM package, as a stand-alone gzipped tarball with bundled
-  // dependencies. At present we expect only etcd:// schemes with no host, and
-  // map paths to fetched Etcd values. This is a handy short term representation
-  // that will evolve over time. Empty if |typescript_local_socket| is set.
-  string typescript_package_url = 14;
 }
 
 // LogLevelFilter is a common representation of a simple logging filter, which is shared between
@@ -817,26 +733,29 @@ message BuildAPI {
   };
 
   message Config {
+    // Identifier of this build.
+    // The path of the output database is determined by joining the
+    // configured directory and configured build ID.
+    string build_id = 1;
     // Path to the directory into which the `node_modules` and `flow_generated`
-    // directories are generated, as well as the built NPM package.
-    string directory = 1;
+    // directories are generated, as well as the built NPM package and
+    // the output database.
+    string directory = 2;
     // Root catalog source specification. This may be either a local path
     // relative to the current working directory, or an absolute URL.
-    string source = 2;
+    string source = 3;
     // Content type of the source.
-    ContentType source_type = 3;
-    // Path of the catalog database to write.
-    string catalog_path = 4;
+    ContentType source_type = 4;
     // Should the TypeScript package be generated?
-    bool typescript_generate = 7;
+    bool typescript_generate = 5;
     // Should the TypeScript package be built? Implies generation.
-    bool typescript_compile = 8;
+    bool typescript_compile = 6;
     // Should the TypeScript package be packaged into the catalog?
     // Implies generation and compilation.
-    bool typescript_package = 9;
+    bool typescript_package = 7;
     // The Docker network the connectors are given access to during catalog
     // builds.
-    string connector_network = 10;
+    string connector_network = 8;
   }
 
   message Fetch {
@@ -845,20 +764,31 @@ message BuildAPI {
   }
 }
 
-// IngestRequest describes documents to ingest into collections.
-message IngestRequest {
-  // Collection describes an ingest into a collection.
-  message Collection {
-    // Name of the collection into which to ingest.
-    string name = 1 [ (gogoproto.casttype) = "Collection" ];
-    // Newline-separated JSON documents to ingest.
-    // TODO(johnny): this must be UTF-8, and can be "string" type.
-    bytes docs_json_lines = 2;
-  };
-  repeated Collection collections = 1 [ (gogoproto.nullable) = false ];
+// ResetStateRequest is the request of the Testing.ResetState RPC.
+message ResetStateRequest {}
+
+// ResetStateResponse is the response of the Testing.ResetState RPC.
+message ResetStateResponse {}
+
+// AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
+message AdvanceTimeRequest {
+  uint64 advance_seconds = 1;
 }
 
-// IngestResponse is the result of an Ingest RPC.
+// AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
+message AdvanceTimeResponse {}
+
+// IngestRequest is the request of the Testing.Ingest RPC.
+message IngestRequest {
+  // Name of the collection into which to ingest.
+  string collection = 1 [ (gogoproto.casttype) = "Collection" ];
+  // Build ID of the ingested collection.
+  string build_id = 2;
+  // Newline-separated JSON documents to ingest.
+  string docs_json_lines = 3;
+}
+
+// IngestResponse is the response of the Testing.Ingest RPC.
 message IngestResponse {
   // Journals appended to by this ingestion, and their maximum offset on commit.
   map<string, int64> journal_write_heads = 1 [
@@ -869,9 +799,8 @@ message IngestResponse {
   protocol.Header.Etcd journal_etcd = 2 [ (gogoproto.nullable) = false ];
 }
 
-// Ingester offers transactional ingest of documents into collections.
-service Ingester {
+service Testing {
+  rpc ResetState(ResetStateRequest) returns (ResetStateResponse);
+  rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
   rpc Ingest(IngestRequest) returns (IngestResponse);
-  // rpc IngestMany(stream IngestRequest) returns (IngestResponse);
-  // rpc IngestStream(stream IngestRequest) returns (stream IngestResponse);
 }
