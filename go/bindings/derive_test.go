@@ -2,13 +2,14 @@ package bindings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
@@ -18,20 +19,30 @@ import (
 )
 
 func TestDeriveWithIntStrings(t *testing.T) {
-	var built, err = BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///int-strings.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///int-strings.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var derivation *pf.DerivationSpec
+	var schemaIndex *SchemaIndex
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if derivation, err = catalog.LoadDerivation(db, "int-strings"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
 
 	var lambdaClient, stop = NewTestLambdaServer(t, map[string]TestLambdaHandler{
 		"/derive/int-strings/appendStrings/Publish": func(source, _, _ json.RawMessage) ([]interface{}, error) {
@@ -54,7 +65,6 @@ func TestDeriveWithIntStrings(t *testing.T) {
 
 	// Tweak fixture so that the derive API produces partition fields.
 	// These aren't actually valid partitions, as they're not required to exist.
-	var derivation = &built.Derivations[0]
 	for _, field := range []string{"part_a", "part_b"} {
 		derivation.Collection.GetProjection(field).IsPartitionKey = true
 	}
@@ -118,20 +128,30 @@ func TestDeriveWithIntStrings(t *testing.T) {
 }
 
 func TestDeriveWithIncResetPublish(t *testing.T) {
-	var built, err = BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///inc-reset-publish.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///inc-reset-publish.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var derivation *pf.DerivationSpec
+	var schemaIndex *SchemaIndex
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if derivation, err = catalog.LoadDerivation(db, "derivation"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
 
 	type sourceDoc struct {
 		Key     string `json:"key"`
@@ -256,7 +276,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	var build = func(t *testing.T) *Derive {
 		d, err := NewDerive(nil, t.TempDir(), ops.StdLogPublisher())
 		require.NoError(t, err)
-		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, &built.Derivations[0], lambdaClient))
+		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, derivation, lambdaClient))
 		return d
 	}
 

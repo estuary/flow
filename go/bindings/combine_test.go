@@ -2,14 +2,15 @@ package bindings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/flow/ops/testutil"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
@@ -20,21 +21,30 @@ import (
 // Validation failures are expected to be quite common, so we should pay special attention to how
 // they're shown to the user.
 func TestValidationFailuresAreLogged(t *testing.T) {
-	built, err := BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///int-strings.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///int-strings.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	var collection = built.Collections[1]
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var collection *pf.CollectionSpec
+	var schemaIndex *SchemaIndex
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
 
 	var logPublisher = testutil.NewTestLogPublisher(log.WarnLevel)
 	combiner, err := NewCombine(logPublisher)
@@ -42,7 +52,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	defer combiner.Destroy()
 
 	err = combiner.Configure(
-		"test/combineBindings",
+		collection.Collection.String(),
 		schemaIndex,
 		collection.Collection,
 		collection.SchemaUri,
@@ -89,21 +99,30 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 }
 
 func TestCombineBindings(t *testing.T) {
-	built, err := BuildCatalog(BuildArgs{
+	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///int-strings.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///int-strings.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, BuildCatalog(args))
 
-	var collection = built.Collections[1]
-	schemaIndex, err := NewSchemaIndex(&built.Schemas)
-	require.NoError(t, err)
+	var collection *pf.CollectionSpec
+	var schemaIndex *SchemaIndex
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading bundle: %w", err)
+		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
+			return fmt.Errorf("building index: %w", err)
+		}
+		return nil
+	}))
 
 	combiner, err := NewCombine(ops.StdLogPublisher())
 	require.NoError(t, err)
@@ -114,7 +133,7 @@ func TestCombineBindings(t *testing.T) {
 		// Re-configure the Combiner every other iteration.
 		if i%2 == 0 {
 			err := combiner.Configure(
-				"test/combineBindings",
+				collection.Collection.String(),
 				schemaIndex,
 				collection.Collection,
 				collection.SchemaUri,
