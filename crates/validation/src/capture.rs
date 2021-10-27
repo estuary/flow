@@ -5,6 +5,7 @@ use models::{build, tables};
 use protocol::{capture, flow, labels};
 
 pub async fn walk_all_captures<D: Drivers>(
+    build_config: &flow::build_api::Config,
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
     capture_bindings: &[tables::CaptureBinding],
@@ -181,11 +182,13 @@ pub async fn walk_all_captures<D: Drivers>(
             bindings,
             interval_seconds: *interval_seconds,
             recovery_log_template: Some(build::recovery_log_template(
+                build_config,
                 &name,
                 labels::TASK_TYPE_CAPTURE,
                 recovery_stores,
             )),
             shard_template: Some(build::shard_template(
+                build_config,
                 &name,
                 labels::TASK_TYPE_CAPTURE,
                 &shards,

@@ -131,5 +131,5 @@ pub fn walk_test_step(
         );
     }
 
-    Some(models::build::test_step_spec(test_step, collection))
+    Some(models::build::test_step_spec(test_step))
 }

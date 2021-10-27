@@ -7,6 +7,7 @@ use superslice::Ext;
 use url::Url;
 
 pub fn walk_all_collections(
+    build_config: &flow::build_api::Config,
     collections: &[tables::Collection],
     imports: &[tables::Import],
     projections: &[tables::Projection],
@@ -25,6 +26,7 @@ pub fn walk_all_collections(
             &collection.scope,
             &collection.collection,
             walk_collection(
+                build_config,
                 collection,
                 imports,
                 projections,
@@ -40,6 +42,7 @@ pub fn walk_all_collections(
 }
 
 fn walk_collection(
+    build_config: &flow::build_api::Config,
     collection: &tables::Collection,
     imports: &[tables::Import],
     projections: &[tables::Projection],
@@ -98,7 +101,13 @@ fn walk_collection(
         errors,
     );
 
-    build::collection_spec(collection, projections, &schema.bundle, partition_stores)
+    build::collection_spec(
+        build_config,
+        collection,
+        projections,
+        &schema.bundle,
+        partition_stores,
+    )
 }
 
 fn walk_collection_projections(

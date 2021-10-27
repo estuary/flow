@@ -8,6 +8,7 @@ use superslice::Ext;
 use url::Url;
 
 pub async fn walk_all_materializations<D: Drivers>(
+    build_config: &flow::build_api::Config,
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
@@ -206,11 +207,13 @@ pub async fn walk_all_materializations<D: Drivers>(
             endpoint_type,
             materialization: name.to_string(),
             recovery_log_template: Some(build::recovery_log_template(
+                build_config,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,
                 recovery_stores,
             )),
             shard_template: Some(build::shard_template(
+                build_config,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,
                 shards,
