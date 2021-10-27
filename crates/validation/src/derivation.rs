@@ -6,6 +6,7 @@ use protocol::flow;
 use superslice::Ext;
 
 pub fn walk_all_derivations(
+    build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
@@ -31,6 +32,7 @@ pub fn walk_all_derivations(
             &derivation.scope,
             &derivation.derivation,
             walk_derivation(
+                build_config,
                 built_collection,
                 collections,
                 derivation,
@@ -49,6 +51,7 @@ pub fn walk_all_derivations(
 }
 
 fn walk_derivation(
+    build_config: &flow::build_api::Config,
     built_collection: &tables::BuiltCollection,
     collections: &[tables::Collection],
     derivation: &tables::Derivation,
@@ -146,6 +149,7 @@ fn walk_derivation(
     );
 
     build::derivation_spec(
+        build_config,
         derivation,
         built_collection,
         built_transforms,

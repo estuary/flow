@@ -268,7 +268,6 @@ tables!(
     }
 
     table Meta (row Build, order_by [], sql "meta") {
-        build_uuid: uuid::Uuid,
         build_config: protocol::flow::build_api::Config,
     }
 );

@@ -31,6 +31,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 // partition_template returns a template JournalSpec for creating
 // or updating data partitions of the collection.
 pub fn partition_template(
+    build_config: &flow::build_api::Config,
     collection: &crate::Collection,
     journals: &crate::JournalTemplate,
     stores: &[crate::Store],
@@ -75,17 +76,10 @@ pub fn partition_template(
     // We could get fancier here by disabling writes to a journal which has no captures.
     let flags = broker::journal_spec::Flag::ORdwr as u32;
 
-    // We hard-code max_append_rate to 4MB/s, which back-pressures derivations
-    // that produce lots of register updates. They'll hopefully perform more
-    // aggregation per-transaction, and eventually stall until there's quota.
-    // TODO(johnny): I sized this to be over the steady-state of our current
-    // use cases. We'll want to revisit this value when we have better tooling
-    // for splitting journals, and are able to study its cumulative effects
-    // with varietes of journals and use cases.
+    // We hard-code max_append_rate to 4MB/s, which back-pressures captures
+    // and derivations that produce lots of documents. They'll perform more
+    // aggregation per-transaction, and may stall until there's quota.
     let max_append_rate = 1 << 22; // 4MB.
-
-    // Map stores into their URL forms.
-    let stores = stores.iter().map(|s| s.to_url().into()).collect();
 
     // Labels must be in alphabetical order.
     let labels = vec![
@@ -96,6 +90,10 @@ pub fn partition_template(
         broker::Label {
             name: labels::CONTENT_TYPE.to_string(),
             value: labels::CONTENT_TYPE_JSON_LINES.to_string(),
+        },
+        broker::Label {
+            name: labels::BUILD.to_string(),
+            value: build_config.build_id.clone(),
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
@@ -113,7 +111,7 @@ pub fn partition_template(
             path_postfix_template,
             refresh_interval,
             retention,
-            stores,
+            stores: stores.iter().map(|s| s.to_url().into()).collect(),
         }),
         flags,
         labels: Some(broker::LabelSet { labels }),
@@ -124,6 +122,7 @@ pub fn partition_template(
 // recovery_log_template returns a template JournalSpec for creating
 // or updating recovery logs of task shards.
 pub fn recovery_log_template(
+    build_config: &flow::build_api::Config,
     task_name: &str,
     task_type: &str,
     stores: &[crate::Store],
@@ -160,14 +159,9 @@ pub fn recovery_log_template(
     let flags = broker::journal_spec::Flag::ORdwr as u32;
 
     // We hard-code max_append_rate to 4MB/s, which back-pressures derivations
-    // that produce lots of register updates. They'll hopefully perform more
-    // aggregation per-transaction, and eventually stall until there's quota.
-    // TODO(johnny): We'll want to revisit this value when we can better
-    // study its cumulative effects with a varietes of journals and use cases.
+    // that produce lots of register updates. They'll perform more
+    // aggregation per-transaction, and may stall until there's quota.
     let max_append_rate = 1 << 22; // 4MB.
-
-    // Map stores into their URL forms.
-    let stores = stores.iter().map(|s| s.to_url().into()).collect();
 
     // Labels must be in alphabetical order.
     let labels = vec![
@@ -178,6 +172,10 @@ pub fn recovery_log_template(
         broker::Label {
             name: labels::CONTENT_TYPE.to_string(),
             value: labels::CONTENT_TYPE_RECOVERY_LOG.to_string(),
+        },
+        broker::Label {
+            name: labels::BUILD.to_string(),
+            value: build_config.build_id.clone(),
         },
         broker::Label {
             name: labels::TASK_NAME.to_string(),
@@ -199,7 +197,7 @@ pub fn recovery_log_template(
             path_postfix_template,
             refresh_interval,
             retention,
-            stores,
+            stores: stores.iter().map(|s| s.to_url().into()).collect(),
         }),
         flags,
         labels: Some(broker::LabelSet { labels }),
@@ -226,6 +224,7 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
+    build_config: &flow::build_api::Config,
     task_name: &str,
     task_type: &str,
     shard: &crate::ShardTemplate,
@@ -268,6 +267,10 @@ pub fn shard_template(
             value: labels::MANAGED_BY_FLOW.to_string(),
         },
         broker::Label {
+            name: labels::BUILD.to_string(),
+            value: build_config.build_id.clone(),
+        },
+        broker::Label {
             name: labels::LOG_LEVEL.to_string(),
             value: log_level.clone().unwrap_or_else(|| "info".to_string()),
         },
@@ -299,6 +302,7 @@ pub fn shard_template(
 }
 
 pub fn collection_spec(
+    build_config: &flow::build_api::Config,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     schema_bundle: &Value,
@@ -337,7 +341,7 @@ pub fn collection_spec(
             } })
         .to_string()
         .into(),
-        partition_template: Some(partition_template(name, journals, stores)),
+        partition_template: Some(partition_template(build_config, name, journals, stores)),
     }
 }
 
@@ -479,6 +483,7 @@ pub fn transform_spec(
 }
 
 pub fn derivation_spec(
+    build_config: &flow::build_api::Config,
     derivation: &tables::Derivation,
     collection: &tables::BuiltCollection,
     mut transforms: Vec<flow::TransformSpec>,
@@ -507,11 +512,13 @@ pub fn derivation_spec(
         register_schema_uri: register_schema.to_string(),
         register_initial_json: register_initial.to_string(),
         recovery_log_template: Some(recovery_log_template(
+            build_config,
             name,
             labels::TASK_TYPE_DERIVATION,
             recovery_stores,
         )),
         shard_template: Some(shard_template(
+            build_config,
             name,
             labels::TASK_TYPE_DERIVATION,
             shards,
@@ -591,15 +598,12 @@ pub fn materialization_shuffle(
     }
 }
 
-pub fn test_step_spec(
-    test_step: &tables::TestStep,
-    collection: &tables::Collection,
-) -> flow::test_spec::Step {
+pub fn test_step_spec(test_step: &tables::TestStep) -> flow::test_spec::Step {
     let tables::TestStep {
         scope,
         test: _,
         description,
-        collection: _,
+        collection,
         documents,
         partitions,
         step_index,
@@ -610,16 +614,13 @@ pub fn test_step_spec(
         step_type: *step_type as i32,
         step_index: *step_index,
         step_scope: scope.to_string(),
-        collection: collection.collection.to_string(),
-        collection_schema_uri: collection.schema.to_string(),
-        collection_key_ptr: collection.key.iter().map(|p| p.to_string()).collect(),
-        collection_uuid_ptr: collection.uuid_ptr(),
+        collection: collection.to_string(),
         docs_json_lines: documents
             .iter()
             .map(|d| d.to_string())
             .collect::<Vec<_>>()
             .join("\n"),
-        partitions: Some(journal_selector(&collection.collection, partitions)),
+        partitions: Some(journal_selector(collection, partitions)),
         description: description.clone(),
     }
 }
