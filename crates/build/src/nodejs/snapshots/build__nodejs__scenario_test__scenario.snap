@@ -369,7 +369,8 @@ expression: intents
       },
       "enginesStrict": true,
       "files": [
-        "dist"
+        "dist",
+        "node_modules"
       ],
       "license": "UNLICENSED",
       "name": "catalog-js-transformer",
