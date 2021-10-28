@@ -12,6 +12,10 @@ labels: <
     value: "application/x-ndjson"
   >
   labels: <
+    name: "estuary.dev/build"
+    value: "fixture"
+  >
+  labels: <
     name: "estuary.dev/collection"
     value: "example/collection"
   >
@@ -64,6 +68,10 @@ labels: <
     value: "estuary.dev/flow"
   >
   labels: <
+    name: "estuary.dev/build"
+    value: "fixture"
+  >
+  labels: <
     name: "estuary.dev/key-begin"
     value: "00ab4130"
   >
@@ -109,6 +117,10 @@ labels: <
   labels: <
     name: "app.gazette.dev/managed-by"
     value: "estuary.dev/flow"
+  >
+  labels: <
+    name: "estuary.dev/build"
+    value: "fixture"
   >
   labels: <
     name: "estuary.dev/key-begin"
@@ -159,6 +171,10 @@ labels: <
   labels: <
     name: "content-type"
     value: "application/x-gazette-recoverylog"
+  >
+  labels: <
+    name: "estuary.dev/build"
+    value: "fixture"
   >
   labels: <
     name: "estuary.dev/task-name"

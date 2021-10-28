@@ -2,13 +2,14 @@ package flow
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	flowLabels "github.com/estuary/flow/go/labels"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -174,24 +175,25 @@ func TestPublisherMappingIntegration(t *testing.T) {
 }
 
 func buildCombineFixtures(t *testing.T) []Mappable {
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///mapping_test.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///mapping_test.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, bindings.BuildCatalog(args))
 
-	// Override replication and fragment stores for use within
-	// a local brokertest broker.
-	OverrideForLocalExecution(built)
-	OverrideForNoFragmentStores(built)
-
-	var spec = &built.Collections[0]
+	var spec *pf.CollectionSpec
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		spec, err = catalog.LoadCollection(db, "a/collection")
+		return err
+	}))
+	// Tweak spec for use with in-process broker.
+	spec.PartitionTemplate.Replication = 1
+	spec.PartitionTemplate.Fragment.Stores = nil
 
 	return []Mappable{
 		{
