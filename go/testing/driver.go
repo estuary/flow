@@ -2,16 +2,17 @@ package testing
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/protocols/flow"
@@ -24,12 +25,62 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Stat implements Driver for a Cluster.
-func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, err error) {
-	log.WithField("stat", stat).Debug("starting stat")
+// ClusterDriver implements a Driver which drives actions against a data plane.
+type ClusterDriver struct {
+	sc  pc.ShardClient
+	rjc pb.RoutedJournalClient
+	tc  pf.TestingClient
+	// ID of the build under test.
+	buildID string
+	// Index of collection specs which may be referenced by test steps.
+	collections map[pf.Collection]*pf.CollectionSpec
+	// Compiled schema index of tests.
+	schemas *bindings.SchemaIndex
+}
 
-	var ctx = c.Tasks.Context()
-	shards, err := consumer.ListShards(ctx, c.Shards, &pc.ListRequest{
+// NewClusterDriver builds a ClusterDriver from the provided cluster clients,
+// schemas, and collections.
+func NewClusterDriver(
+	ctx context.Context,
+	sc pc.ShardClient,
+	rjc pb.RoutedJournalClient,
+	tc pf.TestingClient,
+	buildID string,
+	bundle *pf.SchemaBundle,
+	collections []*pf.CollectionSpec,
+) (*ClusterDriver, error) {
+	var schemas, err = bindings.NewSchemaIndex(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("compiling schema index: %w", err)
+	}
+
+	var collectionIndex = make(map[pf.Collection]*pf.CollectionSpec, len(collections))
+	for _, spec := range collections {
+		collectionIndex[spec.Collection] = spec
+	}
+
+	var driver = &ClusterDriver{
+		sc:          sc,
+		rjc:         rjc,
+		tc:          tc,
+		buildID:     buildID,
+		schemas:     schemas,
+		collections: collectionIndex,
+	}
+
+	return driver, nil
+}
+
+// Stat implements Driver for a Cluster.
+func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough *Clock, writeAt *Clock, err error) {
+	log.WithFields(log.Fields{
+		"task":        stat.TaskName,
+		"readyAt":     stat.ReadyAt,
+		"readThrough": stat.ReadThrough.Offsets,
+		"revision":    stat.ReadThrough.Etcd.Revision,
+	}).Debug("starting stat")
+
+	shards, err := consumer.ListShards(ctx, c.sc, &pc.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(flowLabels.TaskName, string(stat.TaskName)),
 		},
@@ -50,7 +101,7 @@ func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, er
 	writeAt = new(Clock)
 
 	for _, shard := range shards.Shards {
-		resp, err := c.Shards.Stat(ctx, &pc.StatRequest{
+		resp, err := c.sc.Stat(ctx, &pc.StatRequest{
 			Shard:       shard.Spec.Id,
 			ReadThrough: stat.ReadThrough.Offsets,
 			Extension:   extension,
@@ -80,23 +131,18 @@ func (c *Cluster) Stat(stat PendingStat) (readThrough *Clock, writeAt *Clock, er
 }
 
 // Ingest implements Driver for a Cluster.
-func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
+func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
 	log.WithFields(log.Fields{
 		"test":     test.Test,
 		"testStep": testStep,
 	}).Debug("starting ingest")
 	var step = test.Steps[testStep]
 
-	var resp, err = pf.NewIngesterClient(c.Server.GRPCLoopback).
-		Ingest(c.Tasks.Context(),
-			&pf.IngestRequest{
-				Collections: []pf.IngestRequest_Collection{
-					{
-						Name:          step.Collection,
-						DocsJsonLines: []byte(step.DocsJsonLines),
-					},
-				},
-			})
+	resp, err := c.tc.Ingest(ctx, &pf.IngestRequest{
+		Collection:    step.Collection,
+		BuildId:       c.buildID,
+		DocsJsonLines: step.DocsJsonLines,
+	})
 
 	if err != nil {
 		return nil, err
@@ -115,142 +161,32 @@ func (c *Cluster) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ err
 }
 
 // Advance implements Driver for a Cluster.
-func (c *Cluster) Advance(delta TestTime) error {
-	if !c.Config.DisableClockTicks {
-		return ErrAdvanceDisabled
-	}
-
-	var t1 = atomic.AddInt64((*int64)(&c.Ingester.PublishClockDeltaForTest), int64(delta))
-	var t2 = atomic.AddInt64((*int64)(&c.Consumer.Service.PublishClockDelta), int64(delta))
-	var total = time.Duration(t1)
-
-	if t1 != t2 {
-		panic("ingester & consumer clock deltas should match")
-	}
-
-	log.WithFields(log.Fields{"delta": delta, "total": total}).Debug("advancing time")
-
-	// Tick timepoint to unblock any gated shuffled reads.
-	c.Consumer.Timepoint.Mu.Lock()
-	c.Consumer.Timepoint.Now.Next.Resolve(time.Now().Add(total))
-	c.Consumer.Timepoint.Now = c.Consumer.Timepoint.Now.Next
-	c.Consumer.Timepoint.Mu.Unlock()
-
-	return nil
+func (c *ClusterDriver) Advance(ctx context.Context, delta TestTime) error {
+	var _, err = c.tc.AdvanceTime(ctx, &pf.AdvanceTimeRequest{
+		AdvanceSeconds: uint64(delta / TestTime(time.Second)),
+	})
+	return err
 }
 
 // Verify implements Driver for a Cluster.
-func (c *Cluster) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error {
+func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to *Clock) error {
 	log.WithFields(log.Fields{
 		"test":     test.Test,
 		"testStep": testStep,
-		"from":     *from,
-		"to":       *to,
 	}).Debug("starting verify")
 	var step = test.Steps[testStep]
 
-	var ctx = c.Tasks.Context()
-	var listing, err = client.ListAllJournals(ctx, c.Journals,
-		pb.ListRequest{
-			Selector: step.Partitions,
-		})
-	if err != nil {
-		return fmt.Errorf("failed to list journals: %w", err)
-	}
-
-	// Collect all content written across all journals in |listing| between |from| and |to|.
-	var content bytes.Buffer
-
-	for _, journal := range listing.Journals {
-		var req = pb.ReadRequest{
-			Journal:   journal.Spec.Name,
-			Offset:    from.Offsets[journal.Spec.Name],
-			EndOffset: to.Offsets[journal.Spec.Name],
-			Block:     true,
-		}
-		log.WithField("req", req).Debug("reading journal content")
-
-		if req.Offset == req.EndOffset {
-			// A read at the journal head blocks until the offset is written,
-			// despite EndOffset, so don't issue the read.
-		} else if _, err = io.Copy(&content, client.NewReader(ctx, c.Journals, req)); err != nil {
-			return fmt.Errorf("failed to read journal: %w", err)
-		}
-	}
-
-	// Split |content| into newline-separated documents.
-	var documents = bytes.Split(bytes.TrimRight(content.Bytes(), "\n"), []byte{'\n'})
-	if len(documents) == 1 && len(documents[0]) == 0 {
-		documents = nil // Split([]byte{nil}) => [][]byte{{}} ; map to nil.
-	}
-
-	// Feed documents into an extractor, to extract UUIDs.
-	extractor, err := bindings.NewExtractor()
-	if err != nil {
-		return fmt.Errorf("creating extractor: %w", err)
-	}
-	if err = extractor.Configure(step.CollectionUuidPtr, nil, "", nil); err != nil {
-		return fmt.Errorf("failed to build extractor: %w", err)
-	}
-	for _, d := range documents {
-		extractor.Document(d)
-	}
-	uuids, _, err := extractor.Extract()
-	if err != nil {
-		return fmt.Errorf("failed to extract UUIDs: %w", err)
-	}
-
-	// Now feed documents into a combiner, filtering documents which are ACKs.
-	// The taskCreated parameter is empty here because we're assuming that the Catalog keyspace has
-	// already observed the task. This seems to always be true in practice, though I haven't
-	// actually _proven_ that it will always be so.
-	task, commons, _, err := c.Consumer.Catalog.GetTask(ctx, step.Collection.String(), "")
-	if err != nil {
-		return fmt.Errorf("mapping step collection to commons: %w", err)
-	}
-	schemaIndex, err := commons.SchemaIndex()
+	var fetched, err = FetchDocuments(ctx, c.rjc, step.Partitions, from.Offsets, to.Offsets)
 	if err != nil {
 		return err
 	}
-
-	combiner, err := bindings.NewCombine(ops.StdLogPublisher())
+	var collection, ok = c.collections[step.Collection]
+	if !ok {
+		return fmt.Errorf("unknown collection %s", step.Collection)
+	}
+	actual, err := CombineDocuments(collection, c.schemas, fetched)
 	if err != nil {
-		return fmt.Errorf("creating combiner: %w", err)
-	}
-	if err = combiner.Configure(
-		task.Name(),
-		schemaIndex,
-		step.Collection,
-		step.CollectionSchemaUri,
-		"", // Don't populate UUID placeholder.
-		step.CollectionKeyPtr,
-		nil,
-	); err != nil {
-		return fmt.Errorf("configuring combiner: %w", err)
-	}
-
-	for d := range documents {
-		if uuids[d].ProducerAndFlags&uint64(message.Flag_ACK_TXN) != 0 {
-			continue
-		}
-		log.WithFields(log.Fields{
-			"document": string(documents[d]),
-		}).Debug("combining non-ack document")
-
-		var err = combiner.CombineRight(json.RawMessage(documents[d]))
-		if err != nil {
-			return fmt.Errorf("combine-right failed: %w", err)
-		}
-	}
-
-	// Drain actual documents from the combiner.
-	var actual [][]byte
-	err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
-		actual = append(actual, doc)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("combiner.Finish failed: %w", err)
+		return err
 	}
 
 	var expected = strings.Split(step.DocsJsonLines, "\n")
@@ -372,4 +308,145 @@ func (r testFailures) Error() string {
 		b.WriteRune('\n')
 	}
 	return b.String()
+}
+
+// FetchDocuments fetches the documents contained in journals matching the given
+// selector, within the offset ranges bounded by |from| and |to|. If a journal
+// isn't contained in |from|, then it's read from byte offset zero. If a journal
+// isn't contained in |to|, then it's read through its current write head.
+func FetchDocuments(ctx context.Context, rjc pb.RoutedJournalClient, selector pb.LabelSelector, from, to pb.Offsets) ([][]byte, error) {
+	var listing, err = client.ListAllJournals(ctx, rjc, pb.ListRequest{Selector: selector})
+	if err != nil {
+		return nil, fmt.Errorf("listing journals: %w", err)
+	}
+
+	// Collect all content written across all journals in |listing| between |from| and |to|.
+	var content bytes.Buffer
+
+	for _, journal := range listing.Journals {
+		var req = pb.ReadRequest{
+			Journal:   journal.Spec.Name,
+			Offset:    from[journal.Spec.Name],
+			EndOffset: to[journal.Spec.Name],
+			Block:     false,
+		}
+		log.WithField("req", req.String()).Debug("reading journal content")
+
+		if req.Offset == req.EndOffset {
+			// Skip.
+		} else if _, err = io.Copy(&content, client.NewReader(ctx, rjc, req)); err != nil {
+			return nil, fmt.Errorf("reading journal %s: %w", journal.Spec.Name, err)
+		}
+	}
+
+	// Split |content| into newline-separated documents.
+	var documents = bytes.Split(bytes.TrimRight(content.Bytes(), "\n"), []byte{'\n'})
+	if len(documents) == 1 && len(documents[0]) == 0 {
+		documents = nil // Split([]byte{nil}) => [][]byte{{}} ; map to nil.
+	}
+
+	return documents, nil
+}
+
+// CombineDocuments input |documents| under the collection's key and schema,
+// and using the provided SchemaIndex. Non-content documents (ACKs) are filtered.
+// Combined documents, one per collection key, are returned.
+func CombineDocuments(
+	collection *pf.CollectionSpec,
+	schemas *bindings.SchemaIndex,
+	documents [][]byte,
+) ([][]byte, error) {
+	// Feed documents into an extractor, to extract UUIDs.
+	var extractor, err = bindings.NewExtractor()
+	if err != nil {
+		return nil, fmt.Errorf("creating extractor: %w", err)
+	} else if err = extractor.Configure(collection.UuidPtr, nil, "", nil); err != nil {
+		return nil, fmt.Errorf("configuring extractor: %w", err)
+	}
+	for _, d := range documents {
+		extractor.Document(d)
+	}
+	uuids, _, err := extractor.Extract()
+	if err != nil {
+		return nil, fmt.Errorf("extracting UUIDs: %w", err)
+	}
+
+	combiner, err := bindings.NewCombine(ops.StdLogPublisher())
+	if err != nil {
+		return nil, fmt.Errorf("creating combiner: %w", err)
+	} else if err = combiner.Configure(
+		collection.Collection.String(),
+		schemas,
+		collection.Collection,
+		collection.SchemaUri,
+		"", // Don't populate UUID placeholder.
+		collection.KeyPtrs,
+		nil, // Don't extract additional fields.
+	); err != nil {
+		return nil, fmt.Errorf("configuring combiner: %w", err)
+	}
+
+	for d := range documents {
+		if uuids[d].ProducerAndFlags&uint64(message.Flag_ACK_TXN) != 0 {
+			continue
+		}
+
+		var err = combiner.CombineRight(json.RawMessage(documents[d]))
+		if err != nil {
+			return nil, fmt.Errorf("combine-right failed: %w", err)
+		}
+	}
+
+	// Drain actual documents from the combiner.
+	var actual [][]byte
+	err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
+		actual = append(actual, doc)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("combiner.Finish failed: %w", err)
+	}
+
+	return actual, nil
+}
+
+// Initialize fetches existing collection offsets from the cluster,
+// models them as completed ingestions, and ensures all downstream dataflows have
+// completed. On its return, the internal write clock of the Graph reflects the
+// current cluster state.
+func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error {
+	for _, collection := range driver.collections {
+		// List journals of the collection.
+		list, err := client.ListAllJournals(ctx, driver.rjc,
+			flow.ListPartitionsRequest(collection))
+		if err != nil {
+			return fmt.Errorf("listing journals of %s: %w", collection.Collection, err)
+		}
+
+		// Fetch offsets of each journal.
+		var offsets = make(pb.Offsets)
+		for _, journal := range list.Journals {
+			var r = client.NewReader(ctx, driver.rjc, pb.ReadRequest{
+				Journal:      journal.Spec.Name,
+				Offset:       -1,
+				Block:        false,
+				MetadataOnly: true,
+			})
+			if _, err := r.Read(nil); err != client.ErrOffsetNotYetAvailable {
+				return fmt.Errorf("reading head of journal %v: %w", journal.Spec.Name, err)
+			}
+
+			offsets[journal.Spec.Name] = r.Response.Offset
+		}
+
+		// Track it as a completed ingestion.
+		graph.CompletedIngest(collection.Collection, &Clock{Etcd: pb.Header_Etcd{}, Offsets: offsets})
+	}
+
+	// Run an empty test to poll all Stats implied by the completed ingests.
+	// This ensures that all downstream effects of data already in the cluster
+	// have completed.
+	var _, err = RunTestCase(ctx, graph, driver, &pf.TestSpec{})
+
+	return err
 }
