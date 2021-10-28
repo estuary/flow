@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -11,20 +12,20 @@ import (
 // Driver executes test actions.
 type Driver interface {
 	// Apply one or more PendingStats of shards, which can now be expected to have completed.
-	Stat(PendingStat) (readThrough *Clock, writeAt *Clock, _ error)
+	Stat(context.Context, PendingStat) (readThrough *Clock, writeAt *Clock, _ error)
 	// Execute an "Ingest" TestSpec_Step.
-	Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ error)
+	Ingest(_ context.Context, _ *pf.TestSpec, testStep int) (writeAt *Clock, _ error)
 	// Execute a "Verify" TestStep.
-	Verify(test *pf.TestSpec, testStep int, from, to *Clock) error
+	Verify(_ context.Context, _ *pf.TestSpec, testStep int, from, to *Clock) error
 	// Advance TestTime by the given delta.
-	Advance(TestTime) error
+	Advance(context.Context, TestTime) error
 }
 
 // ErrAdvanceDisabled is a specific error returned when clock advance is called when advance is disabled.
 var ErrAdvanceDisabled = errors.New("advance disabled")
 
 // RunTestCase runs a test case using the given Graph and Driver.
-func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, err error) {
+func RunTestCase(ctx context.Context, graph *Graph, driver Driver, test *pf.TestSpec) (scope string, err error) {
 	var initial = graph.writeClock.Copy()
 	var testStep = 0
 
@@ -32,7 +33,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 		var ready, nextReady, nextName = graph.PopReadyStats()
 
 		for _, stat := range ready {
-			var read, write, err = driver.Stat(stat)
+			var read, write, err = driver.Stat(ctx, stat)
 			if err != nil {
 				return scope, fmt.Errorf("driver.Stat: %w", err)
 			}
@@ -52,7 +53,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 
 		// Ingest test steps always run immediately.
 		if step != nil && step.StepType == pf.TestSpec_Step_INGEST {
-			var write, err = driver.Ingest(test, testStep)
+			var write, err = driver.Ingest(ctx, test, testStep)
 			if err != nil {
 				return scope, fmt.Errorf("ingest: %w", err)
 			}
@@ -65,7 +66,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 		if step != nil && step.StepType == pf.TestSpec_Step_VERIFY &&
 			!graph.HasPendingWrite(step.Collection) {
 
-			if err := driver.Verify(test, testStep, initial, graph.writeClock); err != nil {
+			if err := driver.Verify(ctx, test, testStep, initial, graph.writeClock); err != nil {
 				return scope, fmt.Errorf("verify: %w", err)
 			}
 			testStep++
@@ -74,7 +75,7 @@ func RunTestCase(graph *Graph, driver Driver, test *pf.TestSpec) (scope string, 
 
 		// Advance time to unblock the next PendingStat.
 		if nextReady != -1 {
-			err := driver.Advance(nextReady)
+			err := driver.Advance(ctx, nextReady)
 			if err != nil {
 				if err == ErrAdvanceDisabled {
 					log.WithFields(log.Fields{

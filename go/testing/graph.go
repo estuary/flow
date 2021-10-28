@@ -56,53 +56,66 @@ type taskRead struct {
 }
 
 // NewGraph constructs a new *Graph.
-func NewGraph(tasks []*pf.CatalogTask) *Graph {
-	var outputs = make(map[TaskName][]pf.Collection)
-	var readers = make(map[pf.Collection][]taskRead)
-	var readThrough = make(map[TaskName]*Clock)
-
-	for _, t := range tasks {
-		var name = TaskName(t.Name())
-
-		// Index into |outputs|.
-		if t.Capture != nil {
-			for _, b := range t.Capture.Bindings {
-				outputs[name] = append(outputs[name], b.Collection.Collection)
-			}
-		} else if t.Derivation != nil {
-			outputs[name] = append(outputs[name], t.Derivation.Collection.Collection)
-		}
-
-		// Index into |readers|.
-		for _, shuffle := range t.Shuffles() {
-			readers[shuffle.SourceCollection] = append(
-				readers[shuffle.SourceCollection],
-				taskRead{
-					task:   name,
-					suffix: ";" + shuffle.GroupName,
-					delay:  TestTime(time.Second * time.Duration(shuffle.ReadDelaySeconds)),
-				})
-		}
-		// Synthesize a taskRead for pseudo-journals of a capture task.
-		if t.Capture != nil {
-			readers[pf.Collection(name)] = []taskRead{{
-				task:   name,
-				suffix: "",
-				delay:  0,
-			}}
-		}
-
-		readThrough[name] = new(Clock)
-	}
-
-	return &Graph{
+func NewGraph(
+	captures []*pf.CaptureSpec,
+	derivations []*pf.DerivationSpec,
+	materializations []*pf.MaterializationSpec,
+) *Graph {
+	var g = &Graph{
 		atTime:      0,
-		outputs:     outputs,
-		readers:     readers,
-		readThrough: readThrough,
+		outputs:     make(map[TaskName][]pf.Collection),
+		readers:     make(map[pf.Collection][]taskRead),
+		readThrough: make(map[TaskName]*Clock),
 		pending:     nil,
 		writeClock:  new(Clock),
 	}
+
+	for _, t := range captures {
+		g.addTask(t)
+	}
+	for _, t := range derivations {
+		g.addTask(t)
+	}
+	for _, t := range materializations {
+		g.addTask(t)
+	}
+
+	return g
+}
+
+// addTask to the Graph, tracking dataflow through the task.
+func (g *Graph) addTask(t pf.Task) {
+	var name = TaskName(t.TaskName())
+
+	// Index into |outputs|.
+	if capture, ok := t.(*pf.CaptureSpec); ok {
+		for _, b := range capture.Bindings {
+			g.outputs[name] = append(g.outputs[name], b.Collection.Collection)
+		}
+	} else if derivation, ok := t.(*pf.DerivationSpec); ok {
+		g.outputs[name] = append(g.outputs[name], derivation.Collection.Collection)
+	}
+
+	// Index into |readers|.
+	for _, shuffle := range t.TaskShuffles() {
+		g.readers[shuffle.SourceCollection] = append(
+			g.readers[shuffle.SourceCollection],
+			taskRead{
+				task:   name,
+				suffix: ";" + shuffle.GroupName,
+				delay:  TestTime(time.Second * time.Duration(shuffle.ReadDelaySeconds)),
+			})
+	}
+	// Synthesize a taskRead for pseudo-journals of a capture task.
+	if _, ok := t.(*pf.CaptureSpec); ok {
+		g.readers[pf.Collection(name)] = []taskRead{{
+			task:   name,
+			suffix: "",
+			delay:  0,
+		}}
+	}
+
+	g.readThrough[name] = new(Clock)
 }
 
 // HasPendingWrite is true if there is at least one pending task which may
