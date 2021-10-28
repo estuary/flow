@@ -25,14 +25,14 @@ type JSWorker struct {
 func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	tempdir, err := ioutil.TempDir("", "javascript-worker")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+		return nil, fmt.Errorf("creating temp directory: %w", err)
 	}
 	var socketPath = path.Join(tempdir, "socket")
 
 	var packagePath = path.Join(tempdir, "npm-package.tgz")
 	err = ioutil.WriteFile(packagePath, packageTgz, 0600)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write package file: %w", err)
+		return nil, fmt.Errorf("writing package file: %w", err)
 	}
 
 	// Bootstrap a Node package with the installed pack.
@@ -43,7 +43,7 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 
 	if err = cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to install NPM package: %w", err)
+		return nil, fmt.Errorf("install NPM package: %w", err)
 	}
 
 	// Spawn the worker.
@@ -51,7 +51,7 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 		true, // Place in own process group, to not propagate terminal signals.
 		"node_modules/.bin/catalog-js-transformer")
 	if err != nil {
-		return nil, fmt.Errorf("failed to start catalog-js-transformer: %w", err)
+		return nil, fmt.Errorf("starting catalog-js-transformer: %w", err)
 	}
 
 	return &JSWorker{
@@ -66,11 +66,13 @@ func (worker *JSWorker) Stop() error {
 	if worker.cmd == nil {
 		return nil
 	} else if err := worker.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to TERM worker: %w", err)
-	} else if err = worker.cmd.Wait(); err != nil {
-		return fmt.Errorf("failed to wait for TERM'd worker: %w", err)
-	} else if err = os.RemoveAll(worker.tempdir); err != nil {
-		return fmt.Errorf("failed to clean up temp directory: %w", err)
+		return fmt.Errorf("signaling worker: %w", err)
+	}
+	// Wait will return an error indicating the process was signalled.
+	_ = worker.cmd.Wait()
+
+	if err := os.RemoveAll(worker.tempdir); err != nil {
+		return fmt.Errorf("cleaning up temp directory: %w", err)
 	}
 
 	log.WithFields(log.Fields{
