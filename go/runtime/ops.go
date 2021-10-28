@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
@@ -76,32 +79,39 @@ type LogService struct {
 	ctx              context.Context
 	ajc              *client.AppendService
 	journals         flow.Journals
-	catalog          flow.Catalog
 	messagePublisher *message.Publisher
+}
+
+// logCollection returns the collection to which logs of the given task name are written.
+func logCollection(taskName string) pf.Collection {
+	return pf.Collection(fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0]))
 }
 
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
-func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
-	var catalogTask, _, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
+func (r *LogService) NewPublisher(
+	labeling labels.ShardLabeling,
+	collection *pf.CollectionSpec,
+	schemaIndex *bindings.SchemaIndex,
+) (*LogPublisher, error) {
+	var level, err = logrus.ParseLevel(labeling.LogLevel)
 	if err != nil {
 		return nil, err
 	}
 
-	if catalogTask.Ingestion == nil {
-		return nil, fmt.Errorf("expected ops collection to be an ingestion, got: %+v", catalogTask)
+	var shard = ShardRef{
+		Name:        labeling.TaskName,
+		Kind:        labeling.TaskType,
+		KeyBegin:    fmt.Sprintf("%08x", labeling.Range.KeyBegin),
+		RClockBegin: fmt.Sprintf("%08x", labeling.Range.RClockBegin),
 	}
-	var opsCollection = catalogTask.Ingestion
-	if err = validateLogCollection(opsCollection); err != nil {
-		return nil, fmt.Errorf("logs collection spec is invalid: %w", err)
-	}
-	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
 	var partitions = tuple.Tuple{
 		shard.Kind,
 		shard.Name,
 		shard.KeyBegin,
 		shard.RClockBegin,
 	}
+	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
 
 	// Create a buffered channel that will serve to bound the number of pending appends to a logs
 	// collection. We'll loop over all the append operations in the channel and wait for them to
@@ -123,12 +133,12 @@ func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, task
 	}(governerCh)
 
 	logrus.WithFields(logrus.Fields{
-		"logCollection": opsCollectionName,
+		"logCollection": collection.Collection,
 		"level":         level.String(),
 	}).Debug("starting new log publisher")
 
 	var publisher = &LogPublisher{
-		opsCollection: catalogTask.Ingestion,
+		opsCollection: collection,
 		shard:         shard,
 		root:          r,
 		level:         level,
