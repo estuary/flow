@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestTestCaseExecution(t *testing.T) {
 			{StepType: pf.TestSpec_Step_VERIFY, Collection: "B"},
 		},
 	}
-	var graph = NewGraph(derivations)
+	var graph = NewGraph(nil, derivations, nil)
 
 	var driver = new(mockDriver)
 
@@ -86,7 +87,7 @@ func TestTestCaseExecution(t *testing.T) {
 		nil,
 	).Once()
 
-	RunTestCase(graph, driver, test)
+	RunTestCase(context.Background(), graph, driver, test)
 	driver.AssertExpectations(t)
 }
 
@@ -96,22 +97,22 @@ type mockDriver struct {
 
 var _ Driver = &mockDriver{}
 
-func (d *mockDriver) Stat(in PendingStat) (readThrough *Clock, writeAt *Clock, _ error) {
+func (d *mockDriver) Stat(ctx context.Context, in PendingStat) (readThrough *Clock, writeAt *Clock, _ error) {
 	var args = d.Called(in)
 	return args.Get(0).(*Clock), args.Get(1).(*Clock), args.Error(2)
 }
 
-func (d *mockDriver) Ingest(test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
+func (d *mockDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
 	var args = d.Called(test, testStep)
 	return args.Get(0).(*Clock), args.Error(1)
 }
 
-func (d *mockDriver) Verify(test *pf.TestSpec, testStep int, from, to *Clock) error {
+func (d *mockDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to *Clock) error {
 	var args = d.Called(test, testStep, from, to)
 	return args.Error(0)
 }
 
-func (d *mockDriver) Advance(in TestTime) error {
+func (d *mockDriver) Advance(ctx context.Context, in TestTime) error {
 	var args = d.Called(in)
 	return args.Error(0)
 }
