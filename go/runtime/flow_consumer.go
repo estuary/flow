@@ -12,7 +12,6 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
-	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -23,8 +22,8 @@ import (
 )
 
 type FlowConfig struct {
-	CatalogRoot string `long:"catalog-root" env:"CATALOG_ROOT" default:"/flow/catalog" description:"Flow Catalog Etcd base prefix"`
-	BrokerRoot  string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster/flow" description:"Broker Etcd base prefix"`
+	BuildsRoot string `long:"builds-root" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
+	BrokerRoot string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster/flow" description:"Broker Etcd base prefix"`
 }
 
 // FlowConsumerConfig configures the flow-consumer application.
@@ -57,8 +56,8 @@ type FlowConsumer struct {
 	Service *consumer.Service
 	// Watched broker journals.
 	Journals flow.Journals
-	// Watched catalog entities.
-	Catalog flow.Catalog
+	// Shared catalog builds.
+	Builds *flow.BuildService
 	// Timepoint that regulates shuffled reads of started shards.
 	Timepoint struct {
 		Now *flow.Timepoint
@@ -189,22 +188,16 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	bindings.RegisterPrometheusCollector()
 	var config = *args.Config.(*FlowConsumerConfig)
 
-	// Load catalog & journal keyspaces, and queue tasks that watch each for updates.
-	catalog, err := flow.NewCatalog(args.Tasks.Context(), args.Service.Etcd, config.Flow.CatalogRoot)
+	var builds, err = flow.NewBuildService(config.Flow.BuildsRoot)
 	if err != nil {
-		return fmt.Errorf("loading catalog keyspace: %w", err)
+		return fmt.Errorf("catalog builds service: %w", err)
 	}
+
+	// Load journal keyspace, and queue task that watches for updates.
 	journals, err := flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
 	if err != nil {
 		return fmt.Errorf("loading journals keyspace: %w", err)
 	}
-
-	args.Tasks.Queue("catalog.Watch", func() error {
-		if err := f.Catalog.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
-			return err
-		}
-		return nil
-	})
 	args.Tasks.Queue("journals.Watch", func() error {
 		if err := f.Journals.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
 			return err
@@ -218,9 +211,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 		return shardGetHints(c, s, ghr)
 	}
-	args.Service.ShardAPI.Apply = func(c context.Context, s *consumer.Service, ar *pc.ApplyRequest) (*pc.ApplyResponse, error) {
-		return shardApply(c, s, ar, journals, catalog)
-	}
 	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
 	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
 		return flow.ShardStat(ctx, svc, req, journals)
@@ -228,7 +218,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	f.Config = &config
 	f.Service = args.Service
-	f.Catalog = catalog
+	f.Builds = builds
 	f.Journals = journals
 
 	// Setup a logger that shards can use to publish logs and metrics
@@ -256,7 +246,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		ctx:      args.Context,
 		ajc:      ajc,
 		journals: journals,
-		catalog:  catalog,
 		// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
 		// UUID of log documents will always reflect the current wall-clock time, even when those
 		// log documents were produced during test runs, where `readDelay`s might normally cause
@@ -266,112 +255,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	return nil
-}
-
-// shardApply delegates to consumer.ShardApply, but creates recovery logs as needed.
-// TODO(johnny): This should move to the control plane.
-func shardApply(ctx context.Context, svc *consumer.Service,
-	req *pc.ApplyRequest, journals flow.Journals,
-	catalog flow.Catalog) (*pc.ApplyResponse, error) {
-
-	var journalChanges []pb.ApplyRequest_Change
-
-	for _, change := range req.Changes {
-		var shardID = change.Delete
-		if change.Upsert != nil {
-			shardID = change.Upsert.Id
-		}
-		var nextSpec = change.Upsert
-
-		// Fetch out the current specification of this shard (if any).
-		var prevSpec *pc.ShardSpec
-		var prevRevision int64
-
-		svc.State.KS.Mu.RLock()
-		_ = svc.State.KS.WaitForRevision(ctx, change.ExpectModRevision)
-
-		var ind, ok = svc.State.Items.Search(allocator.ItemKey(svc.State.KS, shardID.String()))
-		if ok {
-			prevSpec = svc.State.Items[ind].Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-			prevRevision = svc.State.Items[ind].Raw.ModRevision
-		} else {
-			prevRevision = 0
-		}
-		svc.State.KS.Mu.RUnlock()
-
-		// Fetch out the current specification of the shard's recovery log (if any).
-		var shardLog pb.Journal
-		if prevSpec != nil {
-			shardLog = prevSpec.RecoveryLog()
-		} else {
-			shardLog = nextSpec.RecoveryLog()
-		}
-		var logSpec, logRevision = journals.GetJournal(shardLog)
-
-		// Revisions of the request must match our view of ShardSpecs.
-		if change.ExpectModRevision != -1 && change.ExpectModRevision != prevRevision {
-			return nil, fmt.Errorf("request expects shard %s revision @%d, but its @%d",
-				shardID, change.ExpectModRevision, prevRevision)
-		}
-		// Disallow changing the recovery log of an existing shard.
-		if prevSpec != nil && nextSpec != nil && prevSpec.RecoveryLog() != nextSpec.RecoveryLog() {
-			return nil, fmt.Errorf("cannot change recovery log of shard %s", shardID)
-		}
-
-		// Does a recovery log not exist, but should?
-		if nextSpec != nil && logSpec == nil {
-			// Fetch the catalog task specification encoded in shard labels.
-			var taskName = nextSpec.LabelSet.ValueOf(labels.TaskName)
-			var taskCreated = nextSpec.LabelSet.ValueOf(labels.TaskCreated)
-			task, _, _, err := catalog.GetTask(ctx, taskName, taskCreated)
-			if err != nil {
-				return nil, fmt.Errorf("looking up catalog task %q: %w", taskName, err)
-			}
-
-			// Construct the desired recovery log spec.
-			var template *pf.JournalSpec
-			switch {
-			case task.Capture != nil:
-				template = task.Capture.RecoveryLogTemplate
-			case task.Derivation != nil:
-				template = task.Derivation.RecoveryLogTemplate
-			case task.Materialization != nil:
-				template = task.Materialization.RecoveryLogTemplate
-			}
-			journalChanges = append(journalChanges, pb.ApplyRequest_Change{
-				Upsert: flow.BuildRecoverySpec(template, nextSpec)})
-
-			log.WithFields(log.Fields{
-				"shard": shardID,
-				"log":   shardLog,
-			}).Info("recovery log will be created")
-		}
-
-		// Does a recovery log exist, and shouldn't?
-		if nextSpec == nil && logSpec != nil {
-			journalChanges = append(journalChanges,
-				pb.ApplyRequest_Change{Delete: shardLog, ExpectModRevision: logRevision})
-
-			log.WithFields(log.Fields{
-				"shard": shardID,
-				"log":   shardLog,
-			}).Info("recovery log will be deleted")
-		}
-	}
-
-	if len(journalChanges) != 0 {
-		var _, err = client.ApplyJournals(ctx, svc.Journals,
-			&pb.ApplyRequest{Changes: journalChanges})
-		if err != nil {
-			return nil, fmt.Errorf("applying recovery logs (before applying shard specs): %w", err)
-		}
-
-		log.WithFields(log.Fields{
-			"changes": len(journalChanges),
-		}).Info("applied recovery log updates")
-	}
-
-	return consumer.ShardApply(ctx, svc, req)
 }
 
 func (f *FlowConsumer) Split(ctx context.Context, req *pf.SplitRequest) (*pf.SplitResponse, error) {

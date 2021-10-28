@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
@@ -59,54 +61,59 @@ type LogService struct {
 	ctx              context.Context
 	ajc              *client.AppendService
 	journals         flow.Journals
-	catalog          flow.Catalog
 	messagePublisher *message.Publisher
+}
+
+// logCollection returns the collection to which logs of the given task name are written.
+func logCollection(taskName string) pf.Collection {
+	return pf.Collection(fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0]))
 }
 
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
-func (r *LogService) NewPublisher(opsCollectionName string, task ShardRef, taskRevision string, level logrus.Level) (*LogPublisher, error) {
-	var catalogTask, commons, _, err = r.catalog.GetTask(r.ctx, opsCollectionName, taskRevision)
+func (r *LogService) NewPublisher(
+	labeling labels.ShardLabeling,
+	collection *pf.CollectionSpec,
+	schemaIndex *bindings.SchemaIndex,
+) (*LogPublisher, error) {
+	var level, err = logrus.ParseLevel(labeling.LogLevel)
 	if err != nil {
 		return nil, err
 	}
 
-	if catalogTask.Ingestion == nil {
-		return nil, fmt.Errorf("expected ops collection to be an ingestion, got: %+v", task)
-	}
-	var opsCollection = catalogTask.Ingestion
 	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
 
 	logrus.WithFields(logrus.Fields{
-		"logCollection": opsCollectionName,
+		"logCollection": collection.Collection,
 		"level":         level.String(),
 	}).Info("starting new log publisher")
 
-	var partitionPtrs = flow.PartitionPointers(opsCollection)
-	schemaIndex, err := commons.SchemaIndex()
-	if err != nil {
-		return nil, fmt.Errorf("building schema index: %w", err)
-	}
+	var partitionPtrs = flow.PartitionPointers(collection)
 	var combiner = bindings.NewCombine()
 	if err = combiner.Configure(
-		opsCollectionName,
+		collection.Collection.String(),
 		schemaIndex,
-		opsCollection.Collection,
-		opsCollection.SchemaUri,
-		opsCollection.UuidPtr,
-		opsCollection.KeyPtrs,
+		collection.Collection,
+		collection.SchemaUri,
+		collection.UuidPtr,
+		collection.KeyPtrs,
 		partitionPtrs,
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
 
 	return &LogPublisher{
-		opsCollection: catalogTask.Ingestion,
-		task:          task,
-		root:          r,
-		mapper:        mapper,
-		combiner:      combiner,
-		level:         level,
+		opsCollection: collection,
+		task: ShardRef{
+			Name:        labeling.TaskName,
+			Kind:        labeling.TaskType,
+			KeyBegin:    fmt.Sprintf("%08x", labeling.Range.KeyBegin),
+			RClockBegin: fmt.Sprintf("%08x", labeling.Range.RClockBegin),
+		},
+		root:     r,
+		mapper:   mapper,
+		combiner: combiner,
+		level:    level,
 	}, nil
 }
 
