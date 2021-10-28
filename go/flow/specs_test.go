@@ -2,12 +2,13 @@ package flow
 
 import (
 	"context"
-	"path/filepath"
+	"database/sql"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
 	flowLabels "github.com/estuary/flow/go/labels"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/gogo/protobuf/proto"
@@ -15,20 +16,27 @@ import (
 )
 
 func TestBuildingSpecs(t *testing.T) {
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///specs_test.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///specs_test.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, bindings.BuildCatalog(args))
 
-	var collection = built.Collections[0]
-	require.Equal(t, "example/collection", collection.Collection.String())
+	var collection *pf.CollectionSpec
+	var derivation *pf.DerivationSpec
+
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		if collection, err = catalog.LoadCollection(db, "example/collection"); err != nil {
+			return err
+		}
+		derivation, err = catalog.LoadDerivation(db, "example/derivation")
+		return err
+	}))
 
 	// Build a data partition.
 	var set pf.LabelSet
@@ -40,9 +48,6 @@ func TestBuildingSpecs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Build a derivation shard.
-	var derivation = built.Derivations[0]
-	require.Equal(t, "example/derivation", derivation.Collection.Collection.String())
-
 	set = pf.LabelSet{} // Clear.
 	set = flowLabels.EncodeRange(pf.RangeSpec{
 		KeyBegin:    11223344,
