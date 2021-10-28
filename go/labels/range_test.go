@@ -59,7 +59,7 @@ func TestRangeSpecParsingCases(t *testing.T) {
 
 	// Case: missing labels.
 	_, err = ParseRangeSpec(pb.LabelSet{})
-	require.EqualError(t, err, "missing required label: "+KeyBegin)
+	require.EqualError(t, err, "expected one label for \"estuary.dev/key-begin\" (got [])")
 
 	// Case: parses okay, but invalid range.
 	_, err = ParseRangeSpec(pb.MustLabelSet(

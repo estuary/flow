@@ -13,6 +13,7 @@ func TestRuntimeLabels(t *testing.T) {
 		expect bool
 	}{
 		{"other", false},
+		{Build, false},
 		{Collection, false},
 		{FieldPrefix + "One", true},
 		{FieldPrefix + "two", true},
@@ -23,7 +24,6 @@ func TestRuntimeLabels(t *testing.T) {
 		{RClockEnd, true},
 		{SplitSource, true},
 		{SplitTarget, true},
-		{TaskCreated, true},
 		{TaskName, false},
 		{TaskType, false},
 		{labels.ContentType, false},

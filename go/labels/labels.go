@@ -9,6 +9,8 @@ import (
 
 // JournalSpec & ShardSpec labels.
 const (
+	// Build identifies an associated catalog build of the journal or shard.
+	Build = "estuary.dev/build"
 	// Collection is the name of the Estuary collection for which this Journal
 	// holds documents.
 	Collection = "estuary.dev/collection"
@@ -42,8 +44,6 @@ const (
 	TaskTypeDerivation = "derivation"
 	// TaskTypeMaterialization is a "materialization" TaskType.
 	TaskTypeMaterialization = "materialization"
-	// TaskCreated is a base-10 integer of the Etcd creation revision of the task.
-	TaskCreated = "estuary.dev/task-created"
 	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"
@@ -77,8 +77,6 @@ func IsRuntimeLabel(label string) bool {
 	case
 		// Key splits are performed dynamically by the runtime.
 		KeyBegin, KeyEnd,
-		// Task creation encodes a runtime Etcd revision.
-		TaskCreated,
 		// R-Clock splits are performed dynamically by the runtime.
 		RClockBegin, RClockEnd,
 		// Shard splits are performed dynamically by the runtime.
