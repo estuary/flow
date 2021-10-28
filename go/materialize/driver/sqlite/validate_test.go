@@ -2,42 +2,49 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path"
-	"path/filepath"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
-	"github.com/estuary/protocols/materialize/sql"
+	sqlDriver "github.com/estuary/protocols/materialize/sql"
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidations(t *testing.T) {
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///validate.flow.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
-		}})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
-	for _, spec := range built.Collections {
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///validate.flow.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
+		}}
+	require.NoError(t, bindings.BuildCatalog(args))
+
+	var collections []*pf.CollectionSpec
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		collections, err = catalog.LoadAllCollections(db)
+		return err
+	}))
+
+	for _, spec := range collections {
 		t.Run(
 			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
 			func(t *testing.T) {
-				var constraints = sql.ValidateNewSQLProjections(&spec)
+				var constraints = sqlDriver.ValidateNewSQLProjections(spec)
 				cupaloy.SnapshotT(t, constraints)
 			})
 	}
 	t.Run("MatchesExisting", func(t *testing.T) {
 		// Test body wants "weird-types/optionals", which orders as 1 alphabetically.
-		testMatchesExisting(t, &built.Collections[1])
+		testMatchesExisting(t, collections[1])
 	})
 }
 
@@ -67,7 +74,7 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	var stringProjection = proposed.GetProjection("string")
 	stringProjection.Inference.MustExist = true
 
-	var constraints = sql.ValidateMatchesExisting(&existingSpec, &proposed)
+	var constraints = sqlDriver.ValidateMatchesExisting(&existingSpec, &proposed)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
 	for _, field := range req {
 		var constraint, ok = constraints[field]
@@ -86,6 +93,6 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 		Collection:     proposed,
 		FieldSelection: *existingFields,
 	}
-	var constraintsError = sql.ValidateSelectedFields(constraints, &proposedSpec)
+	var constraintsError = sqlDriver.ValidateSelectedFields(constraints, &proposedSpec)
 	require.Error(t, constraintsError)
 }
