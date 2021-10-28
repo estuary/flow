@@ -1006,7 +1006,6 @@ dependencies = [
  "rusqlite",
  "schemars",
  "serde",
- "serde-tuple-vec-map",
  "serde_json",
  "serde_yaml",
  "superslice",
@@ -1563,15 +1562,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7505abeacaec74ae4778d9d9328fe5a5d04253220a85c4ee022239fc996d03"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde-tuple-vec-map"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fb19e2d413f0c7c977fbb859eba82d3027e6da303749c6a5476d9f0ed3b9c76"
-dependencies = [
- "serde",
 ]
 
 [[package]]
