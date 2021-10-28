@@ -21,7 +21,6 @@ regex = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
-serde-tuple-vec-map = "*"
 serde_json = { version =  "*", features = ["raw_value"] }
 superslice = "*"
 url = "*"
