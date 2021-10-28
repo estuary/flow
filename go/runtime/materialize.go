@@ -1,19 +1,20 @@
 package runtime
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
-	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/message"
 )
@@ -45,16 +46,21 @@ type Materialize struct {
 	request *pm.TransactionRequest
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
-	// Embedded task processing state scoped to a current task revision.
+	// Active materialization specification, updated in RestoreCheckpoint.
+	materialization *pf.MaterializationSpec
+	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
-	shuffleTaskTerm
+	taskTerm
+	// Embedded task reader scoped to current task revision.
+	// Also updated in RestoreCheckpoint.
+	taskReader
 }
 
 var _ Application = (*Materialize)(nil)
 
 // NewMaterializeApp returns a new Materialize, which implements Application.
 func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Catalog)
+	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Builds)
 	var store, err = newConnectorStore(recorder)
 	if err != nil {
 		return nil, fmt.Errorf("newConnectorStore: %w", err)
@@ -65,22 +71,23 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	committed.Resolve(nil)
 
 	return &Materialize{
-		combiners:       nil,
-		committed:       committed,
-		coordinator:     coordinator,
-		host:            host,
-		driverRx:        nil,
-		driverTx:        nil,
-		flighted:        nil,
-		request:         nil,
-		store:           store,
-		shuffleTaskTerm: shuffleTaskTerm{},
+		combiners:   nil,
+		committed:   committed,
+		coordinator: coordinator,
+		host:        host,
+		driverRx:    nil,
+		driverTx:    nil,
+		flighted:    nil,
+		request:     nil,
+		store:       store,
+		taskTerm:    taskTerm{},
+		taskReader:  taskReader{},
 	}, nil
 }
 
 // RestoreCheckpoint establishes a driver connection and begins a Transactions RPC.
 // It queries the driver to select from the latest local or driver-persisted checkpoint.
-func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint, err error) {
+func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err error) {
 	select {
 	case <-m.committed.Done():
 	default:
@@ -93,36 +100,47 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		_ = m.driverTx.CloseSend()
 	}
 
-	if err = m.initShuffleTerm(shard, m.host); err != nil {
-		return pc.Checkpoint{}, err
-	} else if m.task.Materialization == nil {
-		return pc.Checkpoint{}, fmt.Errorf("catalog task %q is not a materialization", m.task.Name())
+	if err = m.initTerm(shard, m.host); err != nil {
+		return pf.Checkpoint{}, err
 	}
 
 	defer func() {
 		if err == nil {
 			m.Log(log.DebugLevel, log.Fields{
-				"checkpoint": cp,
-			}, "resolved materialization resumption checkpoint")
+				"materialization": m.labels.TaskName,
+				"shard":           m.shardSpec.Id,
+				"build":           m.labels.Build,
+				"checkpoint":      cp,
+			}, "initialized processing term")
 		} else {
 			m.Log(log.ErrorLevel, log.Fields{
 				"error": err.Error(),
-			}, "failed to read materialization resumption checkpoint")
+			}, "failed to initialize processing term")
 		}
 	}()
 
+	if err = m.build.Extract(func(db *sql.DB) error {
+		m.materialization, err = catalog.LoadMaterialization(db, m.labels.TaskName)
+		return err
+	}); err != nil {
+		return pf.Checkpoint{}, err
+	}
+	if err = m.initReader(&m.taskTerm, shard, m.materialization.TaskShuffles(), m.host); err != nil {
+		return pf.Checkpoint{}, err
+	}
+
 	// Establish driver connection and start Transactions RPC.
 	conn, err := materialize.NewDriver(shard.Context(),
-		m.task.Materialization.EndpointType,
-		m.task.Materialization.EndpointSpecJson,
+		m.materialization.EndpointType,
+		m.materialization.EndpointSpecJson,
 		m.host.Config.ConnectorNetwork,
 	)
 	if err != nil {
-		return pc.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
+		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
 	}
 	m.driverTx, err = conn.Transactions(shard.Context())
 	if err != nil {
-		return pc.Checkpoint{}, fmt.Errorf("driver.Transactions: %w", err)
+		return pf.Checkpoint{}, fmt.Errorf("driver.Transactions: %w", err)
 	}
 	m.driverRx = materialize.TransactionResponseChannel(m.driverTx)
 
@@ -130,20 +148,20 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	if err = pm.WriteOpen(
 		m.driverTx,
 		&m.request,
-		m.task.Materialization,
-		m.task.CommonsId,
-		&m.range_,
+		m.materialization,
+		m.labels.Build,
+		&m.labels.Range,
 		m.store.driverCheckpoint(),
 	); err != nil {
-		return pc.Checkpoint{}, err
+		return pf.Checkpoint{}, err
 	}
 
 	// Read Opened response with driver's Checkpoint.
 	opened, err := materialize.Rx(m.driverRx, true)
 	if err != nil {
-		return pc.Checkpoint{}, fmt.Errorf("reading Opened: %w", err)
+		return pf.Checkpoint{}, fmt.Errorf("reading Opened: %w", err)
 	} else if opened.Opened == nil {
-		return pc.Checkpoint{}, fmt.Errorf("expected Opened, got %#v", opened.String())
+		return pf.Checkpoint{}, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
 
 	// Release left-over Combiners (if any), then initialize combiners and
@@ -154,10 +172,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	m.combiners = m.combiners[:0]
 	m.flighted = m.flighted[:0]
 
-	for i, b := range m.task.Materialization.Bindings {
+	for i, b := range m.materialization.Bindings {
 		combiner, err := bindings.NewCombine(m.LogPublisher)
 		if err != nil {
-			return pc.Checkpoint{}, fmt.Errorf("creating combiner: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("creating combiner: %w", err)
 		}
 		m.combiners = append(m.combiners, combiner)
 		m.flighted = append(m.flighted, make(map[string]json.RawMessage))
@@ -171,7 +189,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 			b.Collection.KeyPtrs,
 			b.FieldValuePtrs(),
 		); err != nil {
-			return pc.Checkpoint{}, fmt.Errorf("building combiner: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("building combiner: %w", err)
 		}
 	}
 
@@ -179,33 +197,30 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 	// the |checkpoint| recovered from the local recovery log store.
 	if b := opened.Opened.FlowCheckpoint; len(b) != 0 {
 		if err = cp.Unmarshal(b); err != nil {
-			return pc.Checkpoint{}, fmt.Errorf("unmarshal Opened.FlowCheckpoint: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("unmarshal Opened.FlowCheckpoint: %w", err)
 		}
 	} else {
 		// Otherwise restore locally persisted checkpoint.
 		if cp, err = m.store.restoreCheckpoint(shard); err != nil {
-			return pc.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 		}
 	}
-
-	log.WithFields(log.Fields{
-		"task":       m.task.Name(),
-		"shard":      m.shardID,
-		"checkpoint": cp,
-	}).Debug("RestoreCheckpoint")
 
 	return cp, nil
 }
 
 // StartCommit implements consumer.Store.StartCommit
-func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
 	m.Log(log.DebugLevel, log.Fields{
-		"checkpoint": checkpoint,
+		"materialization": m.labels.TaskName,
+		"shard":           m.shardSpec.Id,
+		"build":           m.labels.Build,
+		"checkpoint":      cp,
 	}, "StartCommit")
 
 	// Write our intent to close the transaction and prepare for commit.
 	// This signals the driver to send remaining Loaded responses, if any.
-	if err := pm.WritePrepare(m.driverTx, &m.request, checkpoint); err != nil {
+	if err := pm.WritePrepare(m.driverTx, &m.request, cp); err != nil {
 		return client.FinishedOperation(fmt.Errorf("sending Prepare: %w", err))
 	}
 
@@ -233,7 +248,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	}
 
 	// Drain each binding.
-	for i, b := range m.task.Materialization.Bindings {
+	for i, b := range m.materialization.Bindings {
 		if err := drainBinding(
 			m.flighted[i],
 			m.combiners[i],
@@ -264,7 +279,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, checkpoint pc.Checkpoint
 	go awaitCommitted(m.driverRx, m.committed)
 
 	// Tell our JSON store to commit to its recovery log after |m.committed| resolves.
-	return m.store.startCommit(shard, checkpoint, consumer.OpFutures{m.committed: struct{}{}})
+	return m.store.startCommit(shard, cp, consumer.OpFutures{m.committed: struct{}{}})
 }
 
 // drainBinding drains the a single materialization binding by sending Store
@@ -351,7 +366,10 @@ func awaitCommitted(driverRx <-chan materialize.TransactionResponse, result *cli
 
 // Destroy implements consumer.Store.Destroy
 func (m *Materialize) Destroy() {
-	_ = m.driverTx.CloseSend()
+	if m.driverTx != nil {
+		_ = m.driverTx.CloseSend()
+	}
+	m.taskTerm.destroy()
 	m.store.destroy()
 }
 
@@ -389,7 +407,7 @@ func (m *Materialize) pollLoaded() error {
 // reduceLoaded reduces documents of the Loaded response into the matched combiner.
 func (m *Materialize) reduceLoaded(loaded *pm.TransactionResponse_Loaded) error {
 	var b = loaded.Binding
-	if b >= uint32(len(m.task.Materialization.Bindings)) {
+	if b >= uint32(len(m.materialization.Bindings)) {
 		return fmt.Errorf("driver error (binding %d out of range)", b)
 	}
 	var combiner = m.combiners[b]
@@ -431,12 +449,12 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	var combiner *bindings.Combine
 	var deltaUpdates bool
 
-	for i, shuffle := range m.shuffles {
-		if shuffle == doc.Shuffle {
+	for i := range m.materialization.Bindings {
+		if &m.materialization.Bindings[i].Shuffle == doc.Shuffle {
 			binding = i
 			flighted = m.flighted[i]
 			combiner = m.combiners[i]
-			deltaUpdates = m.task.Materialization.Bindings[i].DeltaUpdates
+			deltaUpdates = m.materialization.Bindings[i].DeltaUpdates
 		}
 	}
 
