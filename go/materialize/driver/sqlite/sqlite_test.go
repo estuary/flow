@@ -9,13 +9,13 @@ import (
 	"io"
 	"math"
 	"path"
-	"path/filepath"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
@@ -25,22 +25,26 @@ import (
 )
 
 func TestSQLGeneration(t *testing.T) {
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///sql-gen.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///sql-gen.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
 		},
 		MaterializeDriverFn: materialize.NewDriver,
-	})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+	}
+	require.NoError(t, bindings.BuildCatalog(args))
+
+	var spec *pf.MaterializationSpec
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		spec, err = catalog.LoadMaterialization(db, "test/sqlite")
+		return err
+	}))
 
 	var gen = sqlDriver.SQLiteSQLGenerator()
-	var spec = &built.Materializations[0]
 	var table = sqlDriver.TableForMaterialization("test_table", "", gen.IdentifierRenderer, spec.Bindings[0])
 
 	keyCreate, keyInsert, keyJoin, keyTruncate, err := sqlite.BuildSQL(
@@ -87,22 +91,25 @@ func TestSQLiteDriver(t *testing.T) {
 	var ctx = context.Background()
 	var driver = materialize.AdaptServerToClient(sqlite.NewSQLiteDriver())
 
-	var built, err = bindings.BuildCatalog(bindings.BuildArgs{
+	var args = bindings.BuildArgs{
 		Context:  ctx,
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			Directory:   "testdata",
-			Source:      "file:///driver-steps.yaml",
-			SourceType:  pf.ContentType_CATALOG_SPEC,
-			CatalogPath: filepath.Join(t.TempDir(), "catalog.db"),
+			BuildId:    "fixture",
+			Directory:  t.TempDir(),
+			Source:     "file:///driver-steps.yaml",
+			SourceType: pf.ContentType_CATALOG_SPEC,
 		},
 		MaterializeDriverFn: materialize.NewDriver,
-	})
-	require.NoError(t, err)
-	require.Empty(t, built.Errors)
+	}
+	require.NoError(t, bindings.BuildCatalog(args))
 
 	// Model MaterializationSpec we'll *mostly* use, but vary slightly in this test.
-	var model = built.Materializations[0]
+	var model *pf.MaterializationSpec
+	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+		model, err = catalog.LoadMaterialization(db, "a/materialization")
+		return err
+	}))
 
 	// Config fixture which matches schema of ParseConfig.
 	var endpointConfig = struct {
@@ -112,7 +119,7 @@ func TestSQLiteDriver(t *testing.T) {
 
 	// Validate should return constraints for a non-existant materialization
 	var validateReq = pm.ValidateRequest{
-		Materialization:  built.Materializations[0].Materialization,
+		Materialization:  model.Materialization,
 		EndpointType:     pf.EndpointType_SQLITE,
 		EndpointSpecJson: json.RawMessage(endpointJSON),
 		Bindings: []*pm.ValidateRequest_Binding{
@@ -149,7 +156,7 @@ func TestSQLiteDriver(t *testing.T) {
 	}
 	var applyReq = pm.ApplyRequest{
 		Materialization: &pf.MaterializationSpec{
-			Materialization:  built.Materializations[0].Materialization,
+			Materialization:  model.Materialization,
 			EndpointType:     pf.EndpointType_SQLITE,
 			EndpointSpecJson: json.RawMessage(endpointJSON),
 			Bindings: []*pf.MaterializationSpec_Binding{
