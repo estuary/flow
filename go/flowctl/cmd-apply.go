@@ -15,6 +15,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/runtime"
@@ -304,7 +305,7 @@ func createTaskShards(ctx context.Context, client pc.ShardClient,
 func applyMaterializations(ctx context.Context, built *catalog.BuiltCatalog, dryRun bool, network string) error {
 	for _, spec := range built.Materializations {
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "", network)
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), "", network, ops.StdLogPublisher())
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}

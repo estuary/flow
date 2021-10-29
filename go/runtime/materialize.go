@@ -120,6 +120,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pc.Checkpoint,
 		m.task.Materialization.EndpointSpecJson,
 		m.localDir,
 		m.host.Config.ConnectorNetwork,
+		m.LogPublisher,
 	)
 	if err != nil {
 		return pc.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)

@@ -57,6 +57,7 @@ type MaterializeDriverFn func(
 	endpointSpec json.RawMessage,
 	tempdir string,
 	connectorNetwork string,
+	logger ops.LogPublisher,
 ) (pm.DriverClient, error)
 
 // BuildArgs are arguments of the BuildCatalog function.
@@ -166,7 +167,7 @@ func BuildCatalog(args BuildArgs) (*catalog.BuiltCatalog, error) {
 				log.WithField("request", request).Debug("materialize validation requested")
 
 				var driver, err = args.MaterializeDriverFn(ctx, request.EndpointType,
-					json.RawMessage(request.EndpointSpecJson), "", args.BuildAPI_Config.ConnectorNetwork)
+					json.RawMessage(request.EndpointSpecJson), "", args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}

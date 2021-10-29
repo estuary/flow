@@ -34,55 +34,161 @@ const LogSourceField = "logSource"
 func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher LogPublisher) {
 	var reader = bufio.NewScanner(logSource)
 	defer logSource.Close()
-	var jsonLogs, textLogs int
-	// Serialize this once up front instead of separately for each message.
+	var forwarder = newLogForwarder(sourceDesc, fallbackLevel, publisher)
+	for reader.Scan() {
+		forwarder.forwardLine(reader.Bytes())
+	}
+
+	_ = forwarder.logFinished(reader.Err())
+}
+
+// NewLogForwardWriter returns a new `io.WriteCloser` that forwards all data written to it as logs
+// to the given publisher. The data written will be treated in exactly the same way as it is for
+// `ForwardLogs`.
+func NewLogForwardWriter(sourceDesc string, fallbackLevel log.Level, publisher LogPublisher) *LogForwardWriter {
+	return &LogForwardWriter{
+		logForwarder: newLogForwarder(sourceDesc, fallbackLevel, publisher),
+	}
+}
+
+// LogForwardWriter is an `io.WriteCloser` that forwards all the bytes written to it to an
+// `ops.LogPublisher`. It is designed to be used as the stderr of child processes so that logs from
+// the process will be forwarded.
+type LogForwardWriter struct {
+	logForwarder
+	buffer []byte
+}
+
+// maxLogLine is the maximum allowable length of any single log line that we will try to parse.
+// If logging output contains a sequence longer than this without a newline character, then it will
+// be broken up into chunks of this size, which are then processed as normal. The actual value here
+// was chosen somewhat arbitrarily.
+const maxLogLine = 65536
+
+// Write implements `io.Writer`
+func (f *LogForwardWriter) Write(p []byte) (n int, err error) {
+
+	var toWrite = p
+	var newlineIndex = bytes.IndexByte(toWrite, '\n')
+	for newlineIndex >= 0 {
+		var line = toWrite[:newlineIndex]
+		if len(f.buffer) > 0 {
+			line = append(f.buffer, line...)
+		}
+		if len(line) > 0 {
+			if err := f.forwardLine(line); err != nil {
+				return 0, fmt.Errorf("forwarding logs: %w", err)
+			}
+		}
+		f.buffer = f.buffer[:0]
+		toWrite = toWrite[newlineIndex+1:]
+		newlineIndex = bytes.IndexByte(toWrite, '\n')
+	}
+	// Ensure that the buffer doesn't grow indefinitely if the data does not include newlines.
+	// In this case, we'll just split the input at an arbitrary maximum length.
+	for len(f.buffer)+len(toWrite) >= maxLogLine {
+		// Append enough data to the buffer from toWrite to get to the max
+		var add = maxLogLine - len(f.buffer)
+		if len(toWrite) < add {
+			add = len(toWrite)
+		}
+		f.buffer = append(f.buffer, toWrite[:add]...)
+		toWrite = toWrite[add:]
+		if err := f.forwardLine(f.buffer); err != nil {
+			return 0, fmt.Errorf("forwarding logs: %w", err)
+		}
+		f.buffer = f.buffer[:0]
+	}
+	// No newline? No problem. Just buffer the data until a newline is encountered.
+	if len(toWrite) > 0 {
+		f.buffer = append(f.buffer, toWrite...)
+	}
+	return len(p), nil
+}
+
+// Close implements `io.Closer`
+func (f *LogForwardWriter) Close() (err error) {
+	// Is there some buffered data? If so, then we may emit one last log event
+	// since we now know that a newline is not forthcoming.
+	if len(f.buffer) > 0 {
+		err = f.forwardLine(f.buffer)
+		f.buffer = nil
+	}
+	return f.logFinished(err)
+}
+
+// logForwarder is an internal implementation for log forwarding, which is used by both `ForwardLogs`
+// and by `LogForwardWriter`.
+type logForwarder struct {
+	// If the level cannot be determined from the log event, then this level is used.
+	fallbackLevel log.Level
+	// Running counters of the number of lines processed for each type.
+	jsonLines int
+	textLines int
+	// Added as the `LogSourceField` to each event.
+	sourceDesc string
+	// Pre-serialized source desc, so we can avoid allocating on every event.
+	sourceDescJsonString json.RawMessage
+	publisher            LogPublisher
+}
+
+func newLogForwarder(sourceDesc string, fallbackLevel log.Level, publisher LogPublisher) logForwarder {
 	var sourceDescJsonString, err = json.Marshal(sourceDesc)
 	if err != nil {
 		panic(fmt.Sprintf("serializing sourceDesc: %v", err))
 	}
-	for reader.Scan() {
-		var line = reader.Bytes()
-		// Remove the trailing newline, since it'd be weird for it to be included in the output
-		line = bytes.Trim(line, " \n\t\r")
-		if len(line) > 0 {
-			// Try to parse the line as a structure json log event. If it parses, then we'll be able to
-			// pass through the properties and keep everything in a nice sensible shape.
-			var event = logEvent{}
-			if err = json.Unmarshal(line, &event); err == nil {
-				jsonLogs++
-				event.Fields[LogSourceField] = json.RawMessage(sourceDescJsonString)
-				// Default the timestamp and log level if they are not set.
-				if event.Timestamp.IsZero() {
-					event.Timestamp = time.Now().UTC()
-				}
-				// The zero value of a log level is PanicLevel, which means it wasn't parsed.
-				// Flow doesn't use panic or fatal levels, so those were already mapped to
-				// ErrorLevel during parsing.
-				var level = event.Level
-				if level < log.ErrorLevel {
-					level = fallbackLevel
-				}
-				publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
-			} else {
-				// fallback to logging the raw text of each line, along with the
-				textLogs++
-				var fields = map[string]json.RawMessage{
-					LogSourceField: json.RawMessage(sourceDescJsonString),
-				}
-				publisher.LogForwarded(time.Now().UTC(), fallbackLevel, fields, string(line))
-			}
-		}
+	return logForwarder{
+		fallbackLevel:        fallbackLevel,
+		sourceDesc:           sourceDesc,
+		sourceDescJsonString: json.RawMessage(sourceDescJsonString),
+		publisher:            publisher,
 	}
-	if err = reader.Err(); err != nil {
-		publisher.Log(log.ErrorLevel, log.Fields{
-			"error":        err,
-			LogSourceField: sourceDesc,
-		}, "failed to read logs from source")
+}
+
+func (f *logForwarder) forwardLine(line []byte) error {
+	// Trim trailing space, but not preceeding space, since indentation might actually be
+	// significant or helpful.
+	line = bytes.TrimRight(line, " \n\t\r")
+	if len(line) == 0 {
+		return nil
+	}
+	// Try to parse the line as a structure json log event. If it parses, then we'll be able to
+	// pass through the properties and keep everything in a nice sensible shape.
+	var event = logEvent{}
+	if err := json.Unmarshal(line, &event); err == nil {
+		f.jsonLines++
+		event.Fields[LogSourceField] = f.sourceDescJsonString
+		// Default the timestamp and log level if they are not set.
+		if event.Timestamp.IsZero() {
+			event.Timestamp = time.Now().UTC()
+		}
+		var level = f.fallbackLevel
+		if event.Level >= log.ErrorLevel {
+			level = event.Level
+		}
+		return f.publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
 	} else {
-		publisher.Log(log.TraceLevel, log.Fields{
-			"jsonLines":    jsonLogs,
-			"textLines":    textLogs,
-			LogSourceField: sourceDesc,
+		// fallback to logging the raw text of each line, along with the
+		f.textLines++
+		var fields = map[string]json.RawMessage{
+			LogSourceField: f.sourceDescJsonString,
+		}
+		return f.publisher.LogForwarded(time.Now().UTC(), f.fallbackLevel, fields, string(line))
+	}
+}
+
+func (f *logForwarder) logFinished(err error) error {
+	if err != nil {
+		f.publisher.Log(log.ErrorLevel, log.Fields{
+			"error":        err,
+			LogSourceField: f.sourceDesc,
+		}, "failed to read logs from source")
+		return err
+	} else {
+		return f.publisher.Log(log.TraceLevel, log.Fields{
+			"jsonLines":    f.jsonLines,
+			"textLines":    f.textLines,
+			LogSourceField: f.sourceDesc,
 		}, "finished forwarding logs")
 	}
 }
@@ -137,8 +243,9 @@ func eqIgnoreAsciiCase(a string, b []byte) bool {
 type logEvent struct {
 	Level     log.Level
 	Timestamp time.Time
-	Fields    map[string]json.RawMessage
-	Message   string
+	// Fields are kept as raw messages to avoid unnecessary parsing.
+	Fields  map[string]json.RawMessage
+	Message string
 }
 
 func (e *logEvent) UnmarshalJSON(b []byte) error {
