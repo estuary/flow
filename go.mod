@@ -5,7 +5,7 @@ go 1.16
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20211027220617-8330429c658f
+	github.com/estuary/protocols v0.0.0-20211102003626-cbc07f4175de
 	github.com/evanphx/json-patch/v5 v5.5.0
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.89.1-0.20210923211114-a1ff40b2ced0
+	go.gazette.dev/core v0.89.1-0.20211102012207-3059932fee87
 	golang.org/x/net v0.0.0-20210825183410-e898025ed96a
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/grpc v1.40.0
