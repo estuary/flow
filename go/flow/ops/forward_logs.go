@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -12,7 +11,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const LOG_SOURCE_FIELD = "logSource"
+// LogSourceField is the name of the field in the logs that's used to identify the original
+// source of forwarded messages.
+const LogSourceField = "logSource"
 
 // ForwardLogs reads lines from |logSource| and forwards them to the |publisher|. It attempts to
 // parse each line as a JSON-encoded structured log event, so that it will be logged at the level
@@ -31,7 +32,7 @@ const LOG_SOURCE_FIELD = "logSource"
 // For an example of how to configure a `tracing_subscriber` in Rust so that
 // it's compatible with this format, check out: crates/bindings/src/logging.rs
 func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher LogPublisher) {
-	var reader = bufio.NewReader(logSource)
+	var reader = bufio.NewScanner(logSource)
 	defer logSource.Close()
 	var jsonLogs, textLogs int
 	// Serialize this once up front instead of separately for each message.
@@ -39,67 +40,60 @@ func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCl
 	if err != nil {
 		panic(fmt.Sprintf("serializing sourceDesc: %v", err))
 	}
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err != io.EOF {
-				publisher.Log(log.ErrorLevel, log.Fields{
-					"error":          err,
-					LOG_SOURCE_FIELD: sourceDesc,
-				}, "failed to read logs from source")
-			}
-			break
-		}
+	for reader.Scan() {
+		var line = reader.Bytes()
 		// Remove the trailing newline, since it'd be weird for it to be included in the output
-		line = bytes.TrimSuffix(line, []byte{'\n'})
-		if len(line) == 0 {
-			continue
-		}
-
-		// Try to parse the line as a structure json log event. If it parses, then we'll be able to
-		// pass through the properties and keep everything in a nice sensible shape.
-		var event = logEvent{}
-		if err = json.Unmarshal(line, &event); err == nil {
-			jsonLogs++
-			event.Fields[LOG_SOURCE_FIELD] = json.RawMessage(sourceDescJsonString)
-			// Default the timestamp and log level if they are not set.
-			if event.Timestamp.IsZero() {
-				event.Timestamp = time.Now().UTC()
+		line = bytes.Trim(line, " \n\t\r")
+		if len(line) > 0 {
+			// Try to parse the line as a structure json log event. If it parses, then we'll be able to
+			// pass through the properties and keep everything in a nice sensible shape.
+			var event = logEvent{}
+			if err = json.Unmarshal(line, &event); err == nil {
+				jsonLogs++
+				event.Fields[LogSourceField] = json.RawMessage(sourceDescJsonString)
+				// Default the timestamp and log level if they are not set.
+				if event.Timestamp.IsZero() {
+					event.Timestamp = time.Now().UTC()
+				}
+				// The zero value of a log level is PanicLevel, which means it wasn't parsed.
+				// Flow doesn't use panic or fatal levels, so those were already mapped to
+				// ErrorLevel during parsing.
+				var level = event.Level
+				if level < log.ErrorLevel {
+					level = fallbackLevel
+				}
+				publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
+			} else {
+				// fallback to logging the raw text of each line, along with the
+				textLogs++
+				var fields = map[string]json.RawMessage{
+					LogSourceField: json.RawMessage(sourceDescJsonString),
+				}
+				publisher.LogForwarded(time.Now().UTC(), fallbackLevel, fields, string(line))
 			}
-			var level = fallbackLevel
-			if !event.Level.isZero() {
-				level = log.Level(event.Level)
-			}
-			publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
-		} else {
-			// fallback to logging the raw text of each line, along with the
-			textLogs++
-			var fields = map[string]json.RawMessage{
-				LOG_SOURCE_FIELD: json.RawMessage(sourceDescJsonString),
-			}
-			publisher.LogForwarded(time.Now().UTC(), fallbackLevel, fields, string(line))
 		}
 	}
-	publisher.Log(log.TraceLevel, log.Fields{
-		"jsonLines":      jsonLogs,
-		"textLines":      textLogs,
-		LOG_SOURCE_FIELD: sourceDesc,
-	}, "finished forwarding logs")
+	if err = reader.Err(); err != nil {
+		publisher.Log(log.ErrorLevel, log.Fields{
+			"error":        err,
+			LogSourceField: sourceDesc,
+		}, "failed to read logs from source")
+	} else {
+		publisher.Log(log.TraceLevel, log.Fields{
+			"jsonLines":    jsonLogs,
+			"textLines":    textLogs,
+			LogSourceField: sourceDesc,
+		}, "finished forwarding logs")
+	}
 }
 
-// jsonLogLevel is just a wrapper around a log.Level that allows for more flexible deserialization.
-type jsonLogLevel log.Level
-
-func (l jsonLogLevel) isZero() bool {
-	return l == 0
-}
-
-var INVALID_LOG_LEVEL = errors.New("invalid log level")
-
-func (l *jsonLogLevel) UnmarshalJSON(b []byte) error {
+// parseLogLevel tries to match the given bytes to a log level string such as "info" or "DEBUG".
+// Flow logs don't use "fatal" or "panic" levels, so those will be parsed as ErrorLevel.
+// It returns the level and a boolean which indicates whether the parse was successful.
+func parseLogLevel(b []byte) (log.Level, bool) {
 	// 5 is the shortest valid length (3 for err + 2 for quotes)
 	if len(b) < 5 {
-		return INVALID_LOG_LEVEL
+		return log.PanicLevel, false
 	}
 	// Strip the quotes. Even if they're not quotes, we don't care, since there's no possible
 	// non-string JSON token that would match any of these values.
@@ -107,48 +101,27 @@ func (l *jsonLogLevel) UnmarshalJSON(b []byte) error {
 
 	// Match against case-insensitive prefixes of common log levels. This is just an easy way to
 	// match multiple common spellings for things like "WARN" vs "warning".
-	for _, candidate := range []struct {
-		prefix string
-		level  log.Level
-	}{
-		{
-			prefix: "debug",
-			level:  log.DebugLevel,
-		},
-		{
-			prefix: "info",
-			level:  log.InfoLevel,
-		},
-		{
-			prefix: "trace",
-			level:  log.TraceLevel,
-		},
-		{
-			prefix: "warn",
-			level:  log.WarnLevel,
-		},
-		{
-			prefix: "err",
-			level:  log.ErrorLevel,
-		},
-		{
-			prefix: "fatal",
-			level:  log.ErrorLevel,
-		},
-		{
-			prefix: "panic",
-			level:  log.ErrorLevel,
-		},
+	for prefix, level := range map[string]log.Level{
+		"debug": log.DebugLevel,
+		"info":  log.InfoLevel,
+		"trace": log.TraceLevel,
+		"warn":  log.WarnLevel,
+		"err":   log.ErrorLevel,
+		"fatal": log.ErrorLevel,
+		"panic": log.ErrorLevel,
 	} {
-		if len(b) >= len(candidate.prefix) && eqIgnoreAsciiCase(candidate.prefix, b[0:len(candidate.prefix)]) {
-			*l = jsonLogLevel(candidate.level)
-			return nil
+		if len(b) >= len(prefix) && eqIgnoreAsciiCase(prefix, b[0:len(prefix)]) {
+			return level, true
 		}
 	}
 
-	return INVALID_LOG_LEVEL
+	return log.PanicLevel, false
 }
 
+// eqIgnoreAsciiCase returns true if the given inputs are the same, ignoring only ascii case.
+// Ignoring ascii case is all we need for parsing log levels and field names here, so we don't
+// bother with unicode case folding. This function is also called on a potentially hot path, as logs
+// are forwarded, so it avoids allocating (doesn't use strings.ToLower).
 func eqIgnoreAsciiCase(a string, b []byte) bool {
 	if len(a) != len(b) {
 		return false
@@ -162,7 +135,7 @@ func eqIgnoreAsciiCase(a string, b []byte) bool {
 }
 
 type logEvent struct {
-	Level     jsonLogLevel
+	Level     log.Level
 	Timestamp time.Time
 	Fields    map[string]json.RawMessage
 	Message   string
@@ -181,8 +154,9 @@ func (e *logEvent) UnmarshalJSON(b []byte) error {
 				e.Timestamp = t
 				delete(m, k)
 			}
-		} else if fieldMatches(k, "level", "lvl") && e.Level.isZero() {
-			if err := json.Unmarshal([]byte(v), &e.Level); err == nil {
+		} else if fieldMatches(k, "level", "lvl") && e.Level == log.PanicLevel {
+			if lvl, ok := parseLogLevel([]byte(v)); ok {
+				e.Level = lvl
 				delete(m, k)
 			}
 		} else if fieldMatches(k, "message", "msg") && e.Message == "" {

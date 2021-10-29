@@ -156,8 +156,6 @@ github.com/envoyproxy/go-control-plane v0.9.9-0.20201210154907-fd9021fe5dad/go.m
 github.com/envoyproxy/go-control-plane v0.9.9-0.20210217033140-668b12f5399d/go.mod h1:cXg6YxExXjJnVBQHBLXeUAgxn2UodCpnH306RInaBQk=
 github.com/envoyproxy/go-control-plane v0.9.9-0.20210512163311-63b5d3c536b0/go.mod h1:hliV/p42l8fGbc6Y9bQ70uLwIvmJyVE5k4iMKlh8wCQ=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
-github.com/estuary/protocols v0.0.0-20211006013521-9b8d02b54d19 h1:3R8n+MILPsx2+JFm/KE8Jq6AAeWJoj4Fu1j8hBeTBnE=
-github.com/estuary/protocols v0.0.0-20211006013521-9b8d02b54d19/go.mod h1:CcYehV5RxFk0tNW/K/9w08YvHuzhkEFARuomzDn4nhk=
 github.com/estuary/protocols v0.0.0-20211018140445-5adfa253d11d h1:EjDwnYX63X51DQRFm+4M8pkiPFGFj/W2fM9AJKmmMa0=
 github.com/estuary/protocols v0.0.0-20211018140445-5adfa253d11d/go.mod h1:CcYehV5RxFk0tNW/K/9w08YvHuzhkEFARuomzDn4nhk=
 github.com/evanphx/json-patch v4.2.0+incompatible h1:fUDGZCv/7iAN7u0puUVhvKCcsR6vRfwrJatElLBEf0I=

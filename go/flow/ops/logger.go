@@ -53,18 +53,16 @@ func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
 	}
 }
 
-type stdLogAppender struct {
-	level log.Level
-}
+type stdLogAppender struct{}
 
 // Level implements ops.LogPublisher for stdLogAppender
-func (l *stdLogAppender) Level() log.Level {
-	return l.level
+func (stdLogAppender) Level() log.Level {
+	return log.GetLevel()
 }
 
 // Log implements ops.LogPublisher for stdLogAppender
-func (l *stdLogAppender) Log(level log.Level, fields log.Fields, message string) error {
-	if level > l.level {
+func (l stdLogAppender) Log(level log.Level, fields log.Fields, message string) error {
+	if level > l.Level() {
 		return nil
 	}
 	log.WithFields(fields).Log(level, message)
@@ -72,8 +70,8 @@ func (l *stdLogAppender) Log(level log.Level, fields log.Fields, message string)
 }
 
 // LogForwarded implements ops.LogPublisher for stdLogAppender
-func (l *stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
-	if level > l.level {
+func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+	if level > l.Level() {
 		return nil
 	}
 	var entry = log.NewEntry(log.StandardLogger())
@@ -91,15 +89,5 @@ func (l *stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[
 // StdLogPublisher returns a LogPublisher that just forwards to the logrus package. This is used
 // during operations that happen outside of the Flow runtime (such as flowctl build or apply).
 func StdLogPublisher() LogPublisher {
-	return FilteredStdLogPublisher(log.GetLevel())
-}
-
-// FilteredStdLogPublisher returns a LogPublisher that just forwards to the logrus package, but with
-// a potentially more restrictive filter than the one that's attached to the global logger. Events
-// that pass this filter will be forwarded to the global logrus logger (which will then apply its
-// own level filter).
-func FilteredStdLogPublisher(level log.Level) LogPublisher {
-	return &stdLogAppender{
-		level: level,
-	}
+	return stdLogAppender{}
 }

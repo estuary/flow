@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"syscall"
 	"unsafe"
 
 	"github.com/estuary/flow/go/flow/ops"
@@ -26,11 +27,10 @@ type service struct {
 	in       []C.In1
 	buf      []byte
 
-	invoke1      func(*C.Channel, C.In1)
-	invoke4      func(*C.Channel, C.In4)
-	invoke16     func(*C.Channel, C.In16)
-	drop         func(*C.Channel)
-	logWritePipe *os.File
+	invoke1  func(*C.Channel, C.In1)
+	invoke4  func(*C.Channel, C.In4)
+	invoke16 func(*C.Channel, C.In16)
+	drop     func(*C.Channel)
 }
 
 // newService builds a new service instance. This is to be wrapped by concrete,
@@ -46,29 +46,35 @@ func newService(
 	drop func(*C.Channel),
 	logPublisher ops.LogPublisher,
 ) (*service, error) {
-	var logReader, logWriter, err = os.Pipe()
+	// We use a direct syscall here instead of `os.Pipe` because we need to ensure that _only_ the
+	// Rust side closes the file. `os.Pipe` returns `os.File`s, which will always close themselves
+	// when they are garbage collected, so we cannot create a `File` for the writer without it being
+	// closed by Go. The syscall returns raw file descriptors, though, which does exactly what we
+	// want. The syscall here was modeled after the one from `os.Pipe`.
+	var pipeFileDescriptors [2]int
+	var err = syscall.Pipe2(pipeFileDescriptors[0:], syscall.O_CLOEXEC)
 	if err != nil {
 		return nil, fmt.Errorf("creating loging pipe: %w", err)
 	}
+	var logReader = os.NewFile(uintptr(pipeFileDescriptors[0]), "|0")
 
 	// We don't expect our rust services to ever log in a format other than JSON. If they do, then
 	// we'll forward the text logs at the warning level so that someone notices, since it's likely
 	// that there's some problem.
 	var textLogLevel = logrus.WarnLevel
 	go ops.ForwardLogs(typeName, textLogLevel, logReader, logPublisher)
-	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(logWriter.Fd()))
+	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(pipeFileDescriptors[1]))
 
 	serviceCreatedCounter.WithLabelValues(typeName).Inc()
 	var svc = &service{
-		typeName:     typeName,
-		ch:           ch,
-		in:           make([]C.In1, 0, 16),
-		buf:          make([]byte, 0, 256),
-		invoke1:      invoke1,
-		invoke4:      invoke4,
-		invoke16:     invoke16,
-		drop:         drop,
-		logWritePipe: logWriter,
+		typeName: typeName,
+		ch:       ch,
+		in:       make([]C.In1, 0, 16),
+		buf:      make([]byte, 0, 256),
+		invoke1:  invoke1,
+		invoke4:  invoke4,
+		invoke16: invoke16,
+		drop:     drop,
 	}
 
 	return svc, nil
@@ -271,12 +277,6 @@ func (s *service) destroy() {
 		s.drop(s.ch)
 	}
 	s.ch = nil
-	if s.logWritePipe != nil {
-		if err := s.logWritePipe.Close(); err != nil {
-			logrus.WithField("error", err).Warn("error closing log write pipe")
-		}
-		s.logWritePipe = nil
-	}
 	serviceDestroyedCounter.WithLabelValues(s.typeName).Inc()
 }
 
