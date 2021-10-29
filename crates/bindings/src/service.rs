@@ -124,13 +124,12 @@ pub struct Channel {
 }
 
 /// Create a new Service instance, wrapped in an owning Channel.
-/// This is intended to be monomorphized by each Service implementation,
-/// and exposed via cbindgen.  See the UpperCase service for an example.
-/// All logs will be written to the `log_dest_file_descriptor`. This file descriptor will *not* be
-/// closed when the service is destroyed. It is the caller's responsibility to close it if and when
-/// desired. If the `log_dest_file_descriptor` is <= 0, then logging will be disabled entirely for
-/// this service. Each service must use a unique `log_dest_file_descriptor` to avoid interleaved
-/// logs making the JSON output unparseable.
+/// This is intended to be monomorphized by each Service implementation, and exposed via cbindgen.
+/// See the UpperCase service for an example. All logs will be written to the
+/// `log_dest_file_descriptor`. This file descriptor will be closed when the service is destroyed.
+/// If the `log_dest_file_descriptor` is <= 0, then logging will be disabled entirely for this
+/// service. Each service must use a unique `log_dest_file_descriptor` to avoid interleaved logs
+/// making the JSON output unparseable.
 #[inline]
 pub fn create<S: Service>(log_level_filter: i32, log_dest_file_descriptor: i32) -> *mut Channel {
     // Use service creation as a common entry hook through which we can install global tracing and
@@ -250,7 +249,6 @@ pub fn drop<S: Service>(ch: *mut Channel) {
         err_cap,
 
         log_subscriber,
-        ..
     } = *unsafe { Box::from_raw(ch) };
 
     // Drop svc_impl, arena, out, and tracing subscriber.
@@ -258,5 +256,5 @@ pub fn drop<S: Service>(ch: *mut Channel) {
     unsafe { Vec::<u8>::from_raw_parts(arena_ptr, arena_len, arena_cap) };
     unsafe { Vec::<Out>::from_raw_parts(out_ptr, out_len, out_cap) };
     unsafe { String::from_raw_parts(err_ptr, err_len, err_cap) };
-    unsafe { Box::from_raw(log_subscriber) };
+    unsafe { Box::from_raw(log_subscriber as *mut tracing::Dispatch) };
 }

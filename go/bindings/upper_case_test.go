@@ -54,6 +54,9 @@ func TestLogsForwardedFromService(t *testing.T) {
 
 	svc.sendMessage(2, frameableString("whoops"))
 	_, _, err = svc.poll()
+	// Destroying the service should cause the logging file to be closed, which will result in that
+	// last log event. We assert that we git the final log event because it means that destroying
+	// the service caused the logging file descriptor to be closed, ending the log forwarding goroutine.
 	svc.destroy()
 
 	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)

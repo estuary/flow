@@ -1,7 +1,6 @@
 use chrono::Utc;
 use std::fs::File;
 use std::io::{self, Write};
-use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 
 /// Setup a global tracing subscriber using the RUST_LOG env variable. This subscriber is only used
@@ -74,7 +73,7 @@ where
 /// subscriber, though, so `FileWriter` should not be used with a global subscriber. The
 /// `ManuallyDrop` is here because `service::create` says that we should not close this file.
 #[derive(Clone)]
-pub struct FileWriter(Arc<Mutex<ManuallyDrop<File>>>);
+pub struct FileWriter(Arc<Mutex<File>>);
 impl FileWriter {
     /// Creates a new `FileWriter`, which will write to the given `file_descriptor`. It's the
     /// caller's responsibility to ensure that the given file descriptor is valid, and not being
@@ -83,7 +82,7 @@ impl FileWriter {
         use std::os::unix::io::FromRawFd;
 
         let file = File::from_raw_fd(file_decriptor);
-        FileWriter(Arc::new(Mutex::new(ManuallyDrop::new(file))))
+        FileWriter(Arc::new(Mutex::new(file)))
     }
 }
 impl Write for FileWriter {

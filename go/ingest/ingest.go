@@ -201,6 +201,9 @@ func (i *Ingestion) Add(collection pf.Collection, doc json.RawMessage) error {
 	}
 
 	combine, err := bindings.NewCombine(ops.StdLogPublisher())
+	if err != nil {
+		return fmt.Errorf("creating combiner: %w", err)
+	}
 	if err = combine.Configure(
 		"ingester",
 		schemaIndex,

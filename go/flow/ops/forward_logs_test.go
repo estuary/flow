@@ -16,7 +16,7 @@ func TestLogLevelUnmarshaling(t *testing.T) {
 	var testCases = []struct {
 		input     string
 		expect    log.Level
-		expectErr error
+		expectErr bool
 	}{
 		{input: `"inFormation"`, expect: log.InfoLevel},
 		{input: `"info"`, expect: log.InfoLevel},
@@ -28,20 +28,19 @@ func TestLogLevelUnmarshaling(t *testing.T) {
 		{input: `"Trace a line in the sand"`, expect: log.TraceLevel},
 		{input: `"FATAL"`, expect: log.ErrorLevel},
 		{input: `"panic"`, expect: log.ErrorLevel},
-		{input: `{ "level": "info" }`, expectErr: INVALID_LOG_LEVEL},
-		{input: `"not a real level"`, expectErr: INVALID_LOG_LEVEL},
-		{input: `4`, expectErr: INVALID_LOG_LEVEL},
+		{input: `{ "level": "info" }`, expectErr: true},
+		{input: `"not a real level"`, expectErr: true},
+		{input: `4`, expectErr: true},
 	}
 
 	for _, testCase := range testCases {
-		var actual jsonLogLevel
-		var err = json.Unmarshal([]byte(testCase.input), &actual)
-		if testCase.expectErr == nil {
-			require.NoErrorf(t, err, "case failed: %+v", testCase)
+		var actual, ok = parseLogLevel([]byte(testCase.input))
+		if testCase.expectErr {
+			require.Falsef(t, ok, "case failed: %+v", testCase)
 		} else {
-			require.Equalf(t, testCase.expectErr, err, "expectErr: %+v, actual: %v", testCase, err)
+			require.Truef(t, ok, "parsing level failed: %+v", testCase)
 		}
-		require.Equalf(t, testCase.expect, log.Level(actual), "mismatched: %+v, actual: %v", testCase, actual)
+		require.Equalf(t, testCase.expect, actual, "mismatched: %+v, actual: %v", testCase, actual)
 	}
 }
 
@@ -154,7 +153,7 @@ func TestLogForwarding(t *testing.T) {
 		},
 		{
 			Level:   log.WarnLevel,
-			Message: " a b c",
+			Message: "a b c",
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
 			},

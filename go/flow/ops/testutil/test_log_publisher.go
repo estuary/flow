@@ -96,7 +96,8 @@ func (p *TestLogPublisher) WaitForLogs(t *testing.T, timeout time.Duration, logC
 			return
 		}
 	}
-	require.FailNowf(t, "WaitForLogs failed", "timed out after %s waiting on %d logs, only got: %d", timeout.String(), logCount, n)
+	var events = p.TakeEvents()
+	require.FailNowf(t, "WaitForLogs failed", "timed out after %s waiting on %d logs, only got %d: %+v", timeout.String(), logCount, n, events)
 }
 
 // RequireEventsMatching requires that the |expected| events have been logged. It performs this
