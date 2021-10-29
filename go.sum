@@ -127,8 +127,8 @@ github.com/envoyproxy/go-control-plane v0.9.9-0.20201210154907-fd9021fe5dad/go.m
 github.com/envoyproxy/go-control-plane v0.9.9-0.20210217033140-668b12f5399d/go.mod h1:cXg6YxExXjJnVBQHBLXeUAgxn2UodCpnH306RInaBQk=
 github.com/envoyproxy/go-control-plane v0.9.9-0.20210512163311-63b5d3c536b0/go.mod h1:hliV/p42l8fGbc6Y9bQ70uLwIvmJyVE5k4iMKlh8wCQ=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
-github.com/estuary/protocols v0.0.0-20211027220617-8330429c658f h1:q/2gJnTKsqBWsW1j22jkD0UFuSwRFk0ZUefTXD7XBTg=
-github.com/estuary/protocols v0.0.0-20211027220617-8330429c658f/go.mod h1:xKQ7EE8xMTJmVlkTsx8zkdlgisfibXeEvtvP71y9qN8=
+github.com/estuary/protocols v0.0.0-20211102003626-cbc07f4175de h1:8VwRgLBgZgQ+aCVYAhwI9idkkBkIBF4CYeLlR0ZTWXY=
+github.com/estuary/protocols v0.0.0-20211102003626-cbc07f4175de/go.mod h1:hBvva+bdYjM/384F8MBFFphEua8Mm26t/gM79lhZ72s=
 github.com/evanphx/json-patch v4.2.0+incompatible h1:fUDGZCv/7iAN7u0puUVhvKCcsR6vRfwrJatElLBEf0I=
 github.com/evanphx/json-patch v4.2.0+incompatible/go.mod h1:50XU6AFN0ol/bzJsmQLiYLvXMP4fmwYFNcr97nuDLSk=
 github.com/evanphx/json-patch/v5 v5.5.0 h1:bAmFiUJ+o0o2B4OiTFeE3MqCOtyo+jjPP9iZ0VRxYUc=
@@ -488,8 +488,9 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.0 h1:2aQv6F436YnN7I4VbI8PPYrBhu+SmrTaADcf8Mi/
 go.etcd.io/etcd/client/pkg/v3 v3.5.0/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3YSwc9/Ac1g=
 go.etcd.io/etcd/client/v3 v3.5.0 h1:62Eh0XOro+rDwkrypAGDfgmNh5Joq+z+W9HZdlXMzek=
 go.etcd.io/etcd/client/v3 v3.5.0/go.mod h1:AIKXXVX/DQXtfTEqBryiLTUXwON+GuvO6Z7lLS/oTh0=
-go.gazette.dev/core v0.89.1-0.20210923211114-a1ff40b2ced0 h1:IGhIYJVsXtX5rE2rSEDHYVvsBrxh3CGJrLU3o0+qE/I=
 go.gazette.dev/core v0.89.1-0.20210923211114-a1ff40b2ced0/go.mod h1:D8leP5T11xEW/kaNWGOWhQQYl+HyzM/qHpOfhsEYCtM=
+go.gazette.dev/core v0.89.1-0.20211102012207-3059932fee87 h1:WRJvkpHzLRoCF41XZKNEmukjBdbHLbs3tY76TY2tYOc=
+go.gazette.dev/core v0.89.1-0.20211102012207-3059932fee87/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
