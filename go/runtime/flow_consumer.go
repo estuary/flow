@@ -71,7 +71,6 @@ var _ consumer.Application = (*FlowConsumer)(nil)
 var _ consumer.BeginFinisher = (*FlowConsumer)(nil)
 var _ consumer.MessageProducer = (*FlowConsumer)(nil)
 var _ runconsumer.Application = (*FlowConsumer)(nil)
-var _ pf.SplitterServer = (*FlowConsumer)(nil)
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
@@ -206,7 +205,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	})
 
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
-	pf.RegisterSplitterServer(args.Server.GRPCServer, f)
 
 	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 		return shardGetHints(c, s, ghr)
@@ -255,8 +253,4 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	return nil
-}
-
-func (f *FlowConsumer) Split(ctx context.Context, req *pf.SplitRequest) (*pf.SplitResponse, error) {
-	return StartSplit(ctx, f.Service, req)
 }

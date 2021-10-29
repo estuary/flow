@@ -1,0 +1,6 @@
+([]protocol.ApplyRequest_Change) (len=1) {
+  (protocol.ApplyRequest_Change) delete:"shard-prelude" 
+}
+([]protocol.ApplyRequest_Change) (len=1) {
+  (protocol.ApplyRequest_Change) delete:"journal-prelude" 
+}

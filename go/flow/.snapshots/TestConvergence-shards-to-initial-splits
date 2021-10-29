@@ -1,0 +1,6 @@
+([]protocol.LabelSet) (len=4) {
+  (protocol.LabelSet) labels:<name:"estuary.dev/key-begin" value:"00000000" > labels:<name:"estuary.dev/key-end" value:"3fffffff" > labels:<name:"estuary.dev/rclock-begin" value:"00000000" > labels:<name:"estuary.dev/rclock-end" value:"ffffffff" > ,
+  (protocol.LabelSet) labels:<name:"estuary.dev/key-begin" value:"40000000" > labels:<name:"estuary.dev/key-end" value:"7fffffff" > labels:<name:"estuary.dev/rclock-begin" value:"00000000" > labels:<name:"estuary.dev/rclock-end" value:"ffffffff" > ,
+  (protocol.LabelSet) labels:<name:"estuary.dev/key-begin" value:"80000000" > labels:<name:"estuary.dev/key-end" value:"bfffffff" > labels:<name:"estuary.dev/rclock-begin" value:"00000000" > labels:<name:"estuary.dev/rclock-end" value:"ffffffff" > ,
+  (protocol.LabelSet) labels:<name:"estuary.dev/key-begin" value:"c0000000" > labels:<name:"estuary.dev/key-end" value:"ffffffff" > labels:<name:"estuary.dev/rclock-begin" value:"00000000" > labels:<name:"estuary.dev/rclock-end" value:"ffffffff" > 
+}
