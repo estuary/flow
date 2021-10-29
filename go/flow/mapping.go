@@ -13,7 +13,7 @@ import (
 	"sync"
 	"unsafe"
 
-	flowLabels "github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/minio/highwayhash"
@@ -22,7 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
 
@@ -96,13 +95,13 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 		var applySpec, err = BuildPartitionSpec(msg.Spec.PartitionTemplate,
 			// Build runtime labels of this partition from encoded logical
 			// partition values, and an initial single physical partition.
-			flowLabels.EncodePartitionLabels(
+			labels.EncodePartitionLabels(
 				msg.Spec.PartitionFields, msg.Partitions,
 				// We're creating a single physical partition, which covers
 				// the full range of keys in the logical partition.
 				pb.MustLabelSet(
-					flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-					flowLabels.KeyEnd, flowLabels.KeyEndMax,
+					labels.KeyBegin, labels.KeyBeginMin,
+					labels.KeyEnd, labels.KeyEndMax,
 				)))
 		if err != nil {
 			panic(err) // Cannot fail because KeyBegin is always set.
@@ -180,7 +179,7 @@ func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix [
 	for i, field := range msg.Spec.PartitionFields {
 		b = append(b, field...)
 		b = append(b, '=')
-		b = flowLabels.EncodePartitionValue(b, msg.Partitions[i])
+		b = labels.EncodePartitionValue(b, msg.Partitions[i])
 		b = append(b, '/')
 	}
 	var pivot = len(b)
@@ -211,13 +210,13 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 	// Find the first physical partition having KeyEnd > hexKey.
 	// Note we're performing this comparasion in a hex-encoded space.
 	var ind = sort.Search(len(physical), func(i int) bool {
-		var keyEnd = physical[i].Decoded.(*pb.JournalSpec).LabelSet.ValueOf(flowLabels.KeyEnd)
+		var keyEnd = physical[i].Decoded.(*pb.JournalSpec).LabelSet.ValueOf(labels.KeyEnd)
 		return keyEnd >= string(hexKey)
 	})
 
 	if ind == len(physical) {
 		return nil
-	} else if p := physical[ind].Decoded.(*pb.JournalSpec); p.LabelSet.ValueOf(flowLabels.KeyBegin) <= string(hexKey) {
+	} else if p := physical[ind].Decoded.(*pb.JournalSpec); p.LabelSet.ValueOf(labels.KeyBegin) <= string(hexKey) {
 		return p
 	}
 	return nil
