@@ -52,6 +52,8 @@ enum Status {
 // domain-specific labels & values to further define application behavior.
 // ShardSpec is-a allocator.ItemValue.
 message ShardSpec {
+  option (gogoproto.equal) = true;
+
   // ID of the shard.
   string id = 1 [
     (gogoproto.casttype) = "ShardID",
@@ -74,6 +76,8 @@ message ShardSpec {
   // events, read a comparably low-volume "purchase" event stream, and on each
   // purchase publish the bundle of its corresponding prior product views.
   message Source {
+    option (gogoproto.equal) = true;
+
     // Journal which this shard is consuming.
     string journal = 1 [ (gogoproto.casttype) =
                              "go.gazette.dev/core/broker/protocol.Journal" ];
