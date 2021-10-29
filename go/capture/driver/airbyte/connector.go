@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/gogo/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -42,6 +43,7 @@ func RunConnector(
 	jsonFiles map[string]interface{},
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
+	logPublisher ops.LogPublisher,
 ) error {
 	var imageArgs = []string{
 		"docker",
@@ -80,7 +82,7 @@ func RunConnector(
 	}
 	args = append(append(imageArgs, image), args...)
 
-	return runCommand(ctx, args, writeLoop, output)
+	return runCommand(ctx, args, writeLoop, output, logPublisher)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -95,6 +97,7 @@ func runCommand(
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
+	logPublisher ops.LogPublisher,
 ) error {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {
@@ -131,7 +134,8 @@ func runCommand(
 			return err
 		},
 	}
-	cmd.Stderr = &connectorStderr{delegate: os.Stderr}
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", log.InfoLevel, logPublisher)
+	cmd.Stderr = stderrForwarder
 
 	log.WithField("args", args).Info("invoking connector")
 	if err := cmd.Start(); err != nil {
@@ -148,14 +152,15 @@ func runCommand(
 
 	err = cmd.Wait()
 	var closeErr = cmd.Stdout.(io.Closer).Close()
+	// Ignore error on closeing stderr because it's already logged by the forwarder
+	_ = stderrForwarder.Close()
 
 	if err == nil {
 		// Expect clean output after a clean exit, regardless of cancellation status.
 		fe.onError(closeErr)
 	} else if ctx.Err() == nil {
-		// Expect a clean exit iff the context wasn't cancelled.
-		fe.onError(fmt.Errorf("%w with stderr:\n\n%s",
-			err, cmd.Stderr.(*connectorStderr).buffer.String()))
+		// Expect a clean exit if the context wasn't cancelled.
+		fe.onError(fmt.Errorf("connector failed: %w", err))
 	} else {
 		fe.onError(ctx.Err())
 	}
@@ -298,54 +303,56 @@ func (o *protoOutput) decode(p []byte) ([]byte, error) {
 // NewConnectorJSONOutput returns an io.WriterCloser for use as
 // the stdout handler of a connector. Its Write function parses
 // connector output as newline-delimited JSON records using the
-// provided initialization and post-decoding callbacks.
+// provided initialization and post-decoding callbacks. If the
+// json decoding returns an error, then `onDecodeError` will be
+// invoked with the entire line and the error that was returned
+// by the decoder. If it returns nil, then processing will continue.
 func NewConnectorJSONOutput(
 	newRecord func() interface{},
 	onDecode func(interface{}) error,
+	onDecodeError func([]byte, error) error,
 ) io.WriteCloser {
 
 	return &jsonOutput{
-		newRecord: newRecord,
-		onDecode:  onDecode,
+		newRecord:       newRecord,
+		onDecodeSuccess: onDecode,
+		onDecodeError:   onDecodeError,
 	}
 }
 
 type jsonOutput struct {
-	rem       []byte
-	newRecord func() interface{}
-	onDecode  func(interface{}) error
+	rem             []byte
+	newRecord       func() interface{}
+	onDecodeSuccess func(interface{}) error
+	onDecodeError   func([]byte, error) error
 }
 
 func (o *jsonOutput) Write(p []byte) (int, error) {
 	var n = len(p)
 
-	// Consume a remainder of |rem| stitched with |p|.
-	if len(o.rem) != 0 {
-		if ind := bytes.IndexByte(p, '\n') + 1; ind == 0 {
-			// Still no newline.
-			if nn := len(o.rem) + len(p); nn > maxMessageSize {
-				return 0, fmt.Errorf("message is too large (%d bytes without a newline)", nn)
-			} else {
-				o.rem = append(o.rem, p...)
-				return n, nil
-			}
-		} else {
-			// Copy in |p| through its first newline, and parse.
-			if err := o.parse(append(o.rem, p[:ind]...)); err != nil {
-				return 0, err
-			}
-			p = p[ind:]
+	var newlineIndex = bytes.IndexByte(p, '\n')
+	for newlineIndex >= 0 {
+		var line = p[:newlineIndex]
+		if len(o.rem) > 0 {
+			line = append(o.rem, line...)
 		}
-	}
-	// Consume newline frames of |p|.
-	if ind := bytes.LastIndexByte(p, '\n') + 1; ind != 0 {
-		if err := o.parse(p[:ind]); err != nil {
+		line = bytes.TrimSpace(line)
+		if err := o.parse(line); err != nil {
 			return 0, err
 		}
-		p = p[ind:]
+		p = p[newlineIndex+1:]
+		o.rem = o.rem[:0]
+		newlineIndex = bytes.IndexByte(p, '\n')
 	}
-	// Preserve any remainder of |p|.
-	o.rem = append(o.rem[:0], p...)
+
+	if len(o.rem)+len(p) > maxMessageSize {
+		return 0, fmt.Errorf("message is too large (%d bytes without a newline)", len(o.rem)+len(p))
+	}
+
+	// Preserve any remainder of p, since another newline is expected in a subsequent write
+	if len(p) > 0 {
+		o.rem = append(o.rem, p...)
+	}
 
 	return n, nil
 }
@@ -360,8 +367,12 @@ func (o *jsonOutput) parse(chunk []byte) error {
 		if err := dec.Decode(rec); err == io.EOF {
 			return nil
 		} else if err != nil {
-			return fmt.Errorf("decoding connector record: %w", err)
-		} else if err = o.onDecode(rec); err != nil {
+			// Technically, we might have successfully parsed a portion of this line already, and
+			// that portion would also be included in the chunk we pass here (and thus possibly
+			// logged). Calling dec.InputOffset won't help us here because the decode could have
+			// failed even though the input contained valid json tokens.
+			return o.onDecodeError(chunk, err)
+		} else if err = o.onDecodeSuccess(rec); err != nil {
 			return err
 		}
 	}
@@ -372,21 +383,6 @@ func (o *jsonOutput) Close() error {
 		return fmt.Errorf("connector stdout closed without a final newline: %q", string(o.rem))
 	}
 	return nil
-}
-
-type connectorStderr struct {
-	delegate io.Writer
-	buffer   bytes.Buffer
-}
-
-func (s *connectorStderr) Write(p []byte) (int, error) {
-	var rem = maxStderrBytes - s.buffer.Len()
-	if rem > len(p) {
-		rem = len(p)
-	}
-	s.buffer.Write(p[:rem])
-
-	return s.delegate.Write(p)
 }
 
 type firstError struct {
@@ -410,5 +406,4 @@ func (fe *firstError) unwrap() error {
 	return fe.err
 }
 
-const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.

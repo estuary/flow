@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/estuary/flow/go/capture/driver/airbyte"
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	protoio "github.com/gogo/protobuf/io"
@@ -36,10 +37,16 @@ func (c EndpointSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
+	logger      ops.LogPublisher
 }
 
 // NewDriver returns a new Docker image driver.
-func NewDriver(networkName string) pm.DriverServer { return driver{networkName: networkName} }
+func NewDriver(networkName string, logger ops.LogPublisher) pm.DriverServer {
+	return driver{
+		networkName: networkName,
+		logger:      logger,
+	}
+}
 
 // Spec returns the specification of the connector.
 func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
@@ -70,6 +77,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 				return nil
 			},
 		),
+		d.logger,
 	)
 	return resp, err
 }
@@ -103,6 +111,7 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 				return nil
 			},
 		),
+		d.logger,
 	)
 	return resp, err
 }
@@ -137,6 +146,7 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 				return nil
 			},
 		),
+		d.logger,
 	)
 	return resp, err
 }
@@ -169,6 +179,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 			func() proto.Message { return new(pm.TransactionResponse) },
 			func(m proto.Message) error { return stream.Send(m.(*pm.TransactionResponse)) },
 		),
+		d.logger,
 	)
 }
 
