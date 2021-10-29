@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"testing"
 
@@ -16,11 +15,16 @@ import (
 
 func TestJSONRecordBreaks(t *testing.T) {
 	var all []string
+	var errors []string
 
 	var s = &jsonOutput{
 		newRecord: func() interface{} { return new(string) },
-		onDecode: func(i interface{}) error {
+		onDecodeSuccess: func(i interface{}) error {
 			all = append(all, *i.(*string))
+			return nil
+		},
+		onDecodeError: func(b []byte, _ error) error {
+			errors = append(errors, string(b))
 			return nil
 		},
 	}
@@ -35,6 +39,10 @@ func TestJSONRecordBreaks(t *testing.T) {
 		require.Equal(t, v, all)
 		all = nil
 	}
+	var verifyErrors = func(expect ...string) {
+		require.Equal(t, expect, errors)
+		errors = nil
+	}
 
 	// Single line.
 	w("\"one\"\n")
@@ -42,10 +50,13 @@ func TestJSONRecordBreaks(t *testing.T) {
 	w("\"two")
 	w("three")
 	w("four\"\n")
+	// a line that can't be parsed into a string
+	w("123.45\n")
 	// Multiple linebreaks in one write.
 	w("\"five\"\n\"six\"\n\"seven\"\n")
 
 	verify([]string{"one", "twothreefour", "five", "six", "seven"})
+	verifyErrors("123.45")
 
 	// Worst-case line breaks.
 	w("\"one")
@@ -58,6 +69,12 @@ func TestJSONRecordBreaks(t *testing.T) {
 	w("nine\"")
 	w("\n")
 	verify([]string{"seveneight", "nine"})
+
+	// Invalid json in the middle of valid json. This is kind of a weird corner case, where the
+	// entire line will get logged because the invalid portion was in the middle of it.
+	w("\"uno\"dos\"tres\"\n")
+	verify([]string{"uno"})
+	verifyErrors("\"uno\"dos\"tres\"")
 
 	// A Close on a newline is okay.
 	require.NoError(t, s.Close())
@@ -78,7 +95,7 @@ func TestJSONRecordBreaks(t *testing.T) {
 
 	// If onDecode errors, it's returned.
 	var errFixture = fmt.Errorf("error!")
-	s.onDecode = func(i interface{}) error { return errFixture }
+	s.onDecodeSuccess = func(i interface{}) error { return errFixture }
 
 	_, err = s.Write([]byte("\"\n"))
 	require.Equal(t, errFixture, err)
@@ -175,17 +192,4 @@ func TestProtoRecordBreaks(t *testing.T) {
 	var n, err = s.Write([]byte{0xff, 0xff, 0xff, 0xff})
 	require.EqualError(t, err, "message is too large: 4294967295")
 	require.Equal(t, 0, n)
-}
-
-func TestStderrCapture(t *testing.T) {
-	var s = connectorStderr{delegate: ioutil.Discard}
-
-	var n, err = s.Write([]byte("whoops"))
-	require.Equal(t, 6, n)
-	require.NoError(t, err)
-	require.Equal(t, "whoops", s.buffer.String())
-
-	// Expect it caps the amount of output collected.
-	s.Write(bytes.Repeat([]byte("x"), maxStderrBytes))
-	require.Equal(t, maxStderrBytes, s.buffer.Len())
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/protocols/catalog"
@@ -122,7 +123,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		}
 
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network)
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogPublisher())
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}
