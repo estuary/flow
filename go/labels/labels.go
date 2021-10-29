@@ -2,6 +2,8 @@ package labels
 
 import (
 	"strings"
+
+	gazLabels "go.gazette.dev/core/labels"
 )
 
 // Heads up! Constants in this file must be mirrored to
@@ -60,6 +62,14 @@ const (
 	SplitSource = "estuary.dev/split-source"
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
+)
+
+// A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
+const (
+	ContentType             = gazLabels.ContentType
+	ContentType_JSONLines   = gazLabels.ContentType_JSONLines
+	ContentType_RecoveryLog = gazLabels.ContentType_RecoveryLog
+	ManagedBy               = gazLabels.ManagedBy
 )
 
 // IsRuntimeLabel returns whether the given |label| is managed by the Flow runtime,
