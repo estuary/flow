@@ -35,12 +35,12 @@ type Meta struct {
 // LogEvent is a Go struct definition that matches the log event documents defined by:
 // crates/build/src/ops/ops-log-schema.json
 type LogEvent struct {
-	Meta      Meta            `json:"_meta"`
-	Shard     *ShardRef       `json:"shard"`
-	Timestamp interface{}     `json:"ts"`
-	Level     string          `json:"level"`
-	Message   string          `json:"message"`
-	Fields    json.RawMessage `json:"fields,omitempty"`
+	Meta      Meta        `json:"_meta"`
+	Shard     *ShardRef   `json:"shard"`
+	Timestamp interface{} `json:"ts"`
+	Level     string      `json:"level"`
+	Message   string      `json:"message"`
+	Fields    interface{} `json:"fields,omitempty"`
 }
 
 // SetUUID implements message.Message for LogEvent
@@ -65,8 +65,9 @@ type LogPublisher struct {
 	opsCollection *pf.CollectionSpec
 	shard         ShardRef
 	root          *LogService
-	mapper        *constMapper
 	governerCh    chan<- *client.AsyncAppend
+	mapper        *flow.Mapper
+	partitions    tuple.Tuple
 }
 
 // LogService is used to create LogPublishers at runtime. There only needs to be a single
@@ -94,24 +95,17 @@ func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, task
 	if err = validateLogCollection(opsCollection); err != nil {
 		return nil, fmt.Errorf("logs collection spec is invalid: %w", err)
 	}
-	// (ab)Use a Mapper to resolve the journal that will serve as the destination for all logs from
-	// this publisher. This will create the journal now, if it doesn't exist. We do this once, now,
-	// and then re-use a constMapper from then on, since a LogPublisher always writes to a single
-	// journal.
 	var mapper = flow.Mapper{
 		Ctx:           r.ctx,
 		JournalClient: r.ajc,
 		Journals:      r.journals,
 		JournalRules:  commons.JournalRules.Rules,
 	}
-	var dummyMessage = flow.Mappable{
-		Spec:       opsCollection,
-		Partitions: tuple.Tuple{shard.Kind, shard.Name, shard.KeyBegin, shard.RClockBegin},
-	}
-
-	journal, journalContentType, err := mapper.Map(dummyMessage)
-	if err != nil {
-		return nil, fmt.Errorf("resolving logs journal: %w", err)
+	var partitions = tuple.Tuple{
+		shard.Kind,
+		shard.Name,
+		shard.KeyBegin,
+		shard.RClockBegin,
 	}
 
 	// Create a buffered channel that will serve to bound the number of pending appends to a logs
@@ -136,8 +130,7 @@ func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, task
 	logrus.WithFields(logrus.Fields{
 		"logCollection": opsCollectionName,
 		"level":         level.String(),
-		"journal":       journal,
-	}).Info("starting new log publisher")
+	}).Debug("starting new log publisher")
 
 	var publisher = &LogPublisher{
 		opsCollection: catalogTask.Ingestion,
@@ -145,10 +138,8 @@ func (r *LogService) NewPublisher(opsCollectionName string, shard ShardRef, task
 		root:          r,
 		level:         level,
 		governerCh:    governerCh,
-		mapper: &constMapper{
-			journal:            journal,
-			journalContentType: journalContentType,
-		},
+		mapper:        &mapper,
+		partitions:    partitions,
 	}
 	// Use a finalizer to close the governer channel when the publisher is no longer used.
 	// LogPublishers don't currently have an explicit Close function, so we assume they may be used
@@ -177,7 +168,7 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 	return err
 }
 
-// LogWithTime implements the ops.LogPublisher interface. It publishes log messages to the
+// LogForwarded implements the ops.LogPublisher interface. It publishes log messages to the
 // configured ops collection, and also forwards them to the normal logger.
 func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map[string]json.RawMessage, message string) error {
 	if p.level < level {
@@ -205,6 +196,9 @@ func levelString(level log.Level) string {
 	}
 }
 
+// doLog publishes a log event, and returns an error if it fails. The `fields` here are an
+// `interface{}` so that this can accept either the `logrus.Fields` from a normal message or the
+// `map[string]json.RawMessage` from a forwarded log event.
 func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
 	var err = p.tryLog(level, ts, fields, message)
 	if err != nil {
@@ -218,26 +212,27 @@ func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{
 }
 
 func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
-
-	var fieldsJson json.RawMessage
-	var err error
-	// The goal here is to leave fieldsJson empty if there are no fields, instead of serializing an
-	// empty object.
-	if fields != nil {
-		if fieldsJson, err = json.Marshal(fields); err != nil {
-			return fmt.Errorf("marshalling fields json: %w", err)
-		}
-	}
-
 	var event = LogEvent{
+		Meta: Meta{
+			UUID: string(pf.DocumentUUIDPlaceholder),
+		},
 		Shard:     &p.shard,
 		Timestamp: ts,
 		Level:     levelString(level),
-		Fields:    fieldsJson,
+		Fields:    fields,
 		Message:   message,
 	}
+	var eventJson, err = json.Marshal(&event)
+	if err != nil {
+		return fmt.Errorf("serializing log event: %w", err)
+	}
+	var mappable = flow.Mappable{
+		Spec:       p.opsCollection,
+		Doc:        json.RawMessage(eventJson),
+		Partitions: p.partitions,
+	}
 
-	op, err := p.root.messagePublisher.PublishCommitted(p.mapper.Map, &event)
+	op, err := p.root.messagePublisher.PublishCommitted(p.mapper.Map, mappable)
 	if err != nil {
 		return err
 	}
