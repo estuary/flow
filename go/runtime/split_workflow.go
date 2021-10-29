@@ -5,10 +5,8 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"path/filepath"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -143,114 +141,6 @@ func splitStatus(state *allocator.State, rhsID pc.ShardID) (
 	}
 
 	return
-}
-
-func StartSplit(ctx context.Context, svc *consumer.Service, req *pf.SplitRequest) (*pf.SplitResponse, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Query out the current KeyValue entry of the shard.
-	svc.State.KS.Mu.RLock()
-	var entry keyspace.KeyValue
-	if ind, ok := svc.State.Items.Search(
-		allocator.ItemKey(svc.State.KS, req.Shard.String())); ok {
-		entry = svc.State.Items[ind]
-	}
-	svc.State.KS.Mu.RUnlock()
-
-	if entry.Decoded == nil {
-		return &pf.SplitResponse{Status: pc.Status_SHARD_NOT_FOUND}, nil
-	}
-
-	// Decode |entry| twice, into future LHS & RHS specs.
-	// Note that it's already available as:
-	//   entry.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-	// We unmarshal clones so that we can independently modify them.
-	var lhsSpec, rhsSpec pc.ShardSpec
-	if err := lhsSpec.Unmarshal(entry.Raw.Value); err != nil {
-		return nil, fmt.Errorf("decoding spec: %w", err)
-	} else if err := rhsSpec.Unmarshal(entry.Raw.Value); err != nil {
-		return nil, fmt.Errorf("decoding spec: %w", err)
-	}
-
-	// Confirm |lhsSpec| doesn't have a current split.
-	if l := lhsSpec.LabelSet.ValuesOf(labels.SplitSource); len(l) != 0 {
-		return nil, fmt.Errorf("shard %s is already splitting from source %s", lhsSpec.Id, l[0])
-	}
-	if l := lhsSpec.LabelSet.ValuesOf(labels.SplitTarget); len(l) != 0 {
-		return nil, fmt.Errorf("shard %s is already splitting with target %s", lhsSpec.Id, l[0])
-	}
-
-	// Pick a split point of the parent range, which will divide the
-	// future LHS & RHS children. We create the RHS child now,
-	// and CompleteSplit will transition the LHS shard from its
-	// current parent range to the LHS child range.
-	var parentRange, err = labels.ParseRangeSpec(rhsSpec.LabelSet)
-	if err != nil {
-		return nil, fmt.Errorf("parsing range spec: %w", err)
-	}
-	var lhsRange, rhsRange = parentRange, parentRange
-
-	if req.SplitOnKey {
-		var pivot = uint32((uint64(parentRange.KeyBegin) + uint64(parentRange.KeyEnd) - 1) / 2)
-		lhsRange.KeyEnd, rhsRange.KeyBegin = pivot, pivot+1
-	} else {
-		var pivot = uint32((uint64(parentRange.RClockBegin) + uint64(parentRange.RClockEnd) - 1) / 2)
-		lhsRange.RClockEnd, rhsRange.RClockBegin = pivot, pivot+1
-	}
-	rhsSpec.LabelSet = labels.EncodeRange(rhsRange, rhsSpec.LabelSet)
-
-	// TODO(johnny): This is hacky and needs to be revisited as we work through
-	// control-plane / data-plane shard reconcilliation. In fact, this whole
-	// workflow should be moved into the control-plane!
-	if suffix, err := labels.ShardSuffix(rhsSpec.LabelSet); err != nil {
-		return nil, fmt.Errorf("building child shard suffix: %w", err)
-	} else {
-		rhsSpec.Id = pf.ShardID(filepath.Dir(rhsSpec.Id.String()) + "/" + suffix)
-	}
-
-	// Mark parent & child specs as having an in-progress split.
-	lhsSpec.LabelSet.SetValue(labels.SplitTarget, rhsSpec.Id.String())
-	rhsSpec.LabelSet.SetValue(labels.SplitSource, lhsSpec.Id.String())
-
-	// RHS child has no standbys during the split, since we must complete the
-	// split workflow to even know what hints they should begin replay from.
-	// CompleteSplit will update this value when the split completes.
-	rhsSpec.HotStandbys = 0
-
-	// Apply shard updates to initiate the split.
-	// A recovery log for the new child will be created by this apply.
-	applyResponse, err := svc.ShardAPI.Apply(ctx, svc,
-		&pc.ApplyRequest{Changes: []pc.ApplyRequest_Change{
-			{
-				Upsert:            &lhsSpec,
-				ExpectModRevision: entry.Raw.ModRevision,
-			},
-			{
-				Upsert:            &rhsSpec,
-				ExpectModRevision: 0, // Must not exist.
-			},
-		}})
-
-	if err != nil {
-		return nil, fmt.Errorf("applying shard updates: %w", err)
-	} else if applyResponse.Status != pc.Status_OK {
-		return &pf.SplitResponse{Status: applyResponse.Status}, nil
-	}
-
-	log.WithFields(log.Fields{
-		"lhs": lhsSpec.Id,
-		"rhs": rhsSpec.Id,
-	}).Info("started shard split")
-
-	return &pf.SplitResponse{
-		Status:      applyResponse.Status,
-		Header:      applyResponse.Header,
-		ParentRange: &parentRange,
-		LhsRange:    &lhsRange,
-		RhsRange:    &rhsRange,
-	}, nil
 }
 
 func CompleteSplit(svc *consumer.Service, shard consumer.Shard, rec *recoverylog.Recorder) error {
