@@ -104,7 +104,9 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 				}
 				return nil
 			},
+			d.onStdoutDecodeError,
 		),
+		d.logger,
 	)
 
 	// Expect connector spit out a successful ConnectorSpecification.
@@ -162,7 +164,9 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 				}
 				return nil
 			},
+			d.onStdoutDecodeError,
 		),
+		d.logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -248,7 +252,9 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 				}
 				return nil
 			},
+			d.onStdoutDecodeError,
 		),
+		d.logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -357,7 +363,7 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 
 	// We'll re-use this fields map whenever we log connector output.
 	var logFields = log.Fields{
-		"image": source.Image,
+		ops.LogSourceField: source.Image,
 	}
 
 	// Invoke the connector for reading.
@@ -388,7 +394,9 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 				}
 				return nil
 			},
+			d.onStdoutDecodeError,
 		),
+		d.logger,
 	); err != nil {
 		return err
 	}
@@ -407,6 +415,26 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 			DriverCheckpointJson: nil,
 			Rfc7396MergePatch:    false,
 		})
+}
+
+// onStdoutDecodeError is invoked whenever there's an error parsing a line into an airbyte JSON message.
+// If the line can be parsed as a JSON object, then we'll treat it as an error since it could
+// represent an airbyte message with an unknown or incompatible field.
+// If the line cannot be parsed into a JSON object, then the line will be logged and the error
+// ignored. This is because such a line most likely represents some non-JSON output from a println
+// in the connector code, which is, unfortunately, common among airbyte connectors.
+func (d driver) onStdoutDecodeError(naughtyLine []byte, decodeError error) error {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(naughtyLine, &obj); err == nil {
+		// This was a naughty JSON object
+		return decodeError
+	} else {
+		// We can't parse this as an object, so we'll just log it as plain text
+		d.logger.Log(log.InfoLevel, log.Fields{
+			ops.LogSourceField: "ignored invalid output from connector stdout",
+		}, strings.TrimSpace(string(naughtyLine))) // naughtyLine ends with a newline, so trim
+		return nil
+	}
 }
 
 // LogrusLevel returns an appropriate logrus.Level for the connector LogLevel.

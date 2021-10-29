@@ -3,6 +3,7 @@ package ops
 import (
 	"encoding/json"
 	"io"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -88,26 +89,103 @@ func TestLogEventUnmarshaling(t *testing.T) {
 			},
 		},
 	)
+	doTest(
+		`{"LVL": "not a real level", "LEVEL": "also not a real level", "level": "info", "message": {"wat": "huh"}, "fieldA": "valA", "ts": "not a real timestamp", "msg": "the real message"}`,
+		testutil.TestLogEvent{
+			Level: log.InfoLevel,
+			Fields: map[string]interface{}{
+				"fieldA":  "valA",
+				"LVL":     "not a real level",
+				"LEVEL":   "also not a real level",
+				"ts":      "not a real timestamp",
+				"message": map[string]interface{}{"wat": "huh"},
+			},
+			Message: "the real message",
+		},
+	)
 	doTest(`{}`, testutil.TestLogEvent{})
 }
 
+func TestLogForwardWriterWhenDataHasNoNewlines(t *testing.T) {
+	const maxLogLine = 65536
+	// We'll write more than the max line length, and assert that the writer breaks it into chunks
+	// at the max line length. We'll then assert that the remaining 999 bytes get logged at the end.
+	var rawLogs = strings.Repeat("f", maxLogLine*2+999)
+	var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
+	var sourceDesc = "naughty stderr"
+	var fallbackLevel = log.InfoLevel
+	var writer = NewLogForwardWriter(sourceDesc, fallbackLevel, publisher)
+
+	// Read from rawLogs in a bunch of random small chunks to ensure that the writer is piecing the
+	// lines together correctly.
+	var n int
+	for n < len(rawLogs) {
+		var nextLen = rand.Intn(20)
+		if len(rawLogs)-n < nextLen {
+			nextLen = len(rawLogs) - n
+		}
+		var slice = ([]byte(rawLogs)[n : n+nextLen])
+		n = n + nextLen
+		var w, err = writer.Write(slice)
+		require.NoError(t, err)
+		require.Equal(t, nextLen, w)
+	}
+
+	require.NoError(t, writer.Close())
+
+	var expected = []testutil.TestLogEvent{
+		{
+			Level:   fallbackLevel,
+			Message: strings.Repeat("f", maxLogLine),
+			Fields: map[string]interface{}{
+				"logSource": sourceDesc,
+			},
+		},
+		{
+			Level:   fallbackLevel,
+			Message: strings.Repeat("f", maxLogLine),
+			Fields: map[string]interface{}{
+				"logSource": sourceDesc,
+			},
+		},
+		{
+			Level:   fallbackLevel,
+			Message: strings.Repeat("f", 999),
+			Fields: map[string]interface{}{
+				"logSource": sourceDesc,
+			},
+		},
+		{
+			Level:   log.TraceLevel,
+			Message: "finished forwarding logs",
+			Fields: map[string]interface{}{
+				"logSource": sourceDesc,
+				"textLines": 3,
+			},
+		},
+	}
+
+	publisher.RequireEventsMatching(t, expected)
+
+}
+
 func TestLogForwarding(t *testing.T) {
+	// Pass the same input to both LogForwardWriter and ForwardLogs, and assert that we get the same
+	// log events as output.
+	// The raw logs contains empty lines and trailing whitespace, which should be trimmed off.
 	var rawLogs = `
-{"level": "TRace a line in the sand", "message": "yea boi", "fieldA": "valA", "ts": "2021-09-10T12:01:06.01234567Z"}
+{"level": "TRace", "message": "yea boi", "fieldA": "valA", "ts": "2021-09-10T12:01:06.01234567Z"}
 {"lVl": "iNfO", "MSG": "infoMessage", "fieldA": "valA", "ts": "2021-09-10T12:01:07.01234567Z"}
+
+
 {"lEVEl": "warning", "Message": "warnMessage", "fieldA": "warnValA", "TimeStamp": "2021-09-10T12:01:08.01234567Z"}
 2021-09-10T12:01:09.456Z INFO some text
 {"foo": "bar"}
  a b c
- {"Lvl": "not even close to a real level"}
-    `
-
-	var publisher = testutil.NewTestLogPublisher(log.DebugLevel)
+ {"Lvl": "not even close to a real level"}`
 
 	var sourceDesc = "testSource"
 	var fallbackLevel = log.WarnLevel
-	ForwardLogs(sourceDesc, fallbackLevel, io.NopCloser(strings.NewReader(rawLogs)), publisher)
-
 	var expected = []testutil.TestLogEvent{
 		{
 			Level:   log.TraceLevel,
@@ -153,7 +231,7 @@ func TestLogForwarding(t *testing.T) {
 		},
 		{
 			Level:   log.WarnLevel,
-			Message: "a b c",
+			Message: " a b c",
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
 			},
@@ -177,7 +255,34 @@ func TestLogForwarding(t *testing.T) {
 		},
 	}
 
-	publisher.RequireEventsMatching(t, expected)
+	t.Run("LogForwardWriter", func(t *testing.T) {
+		var publisher = testutil.NewTestLogPublisher(log.DebugLevel)
+		var writer = NewLogForwardWriter(sourceDesc, fallbackLevel, publisher)
+
+		// Read from rawLogs in a bunch of random small chunks to ensure that the writer is piecing the
+		// lines together correctly.
+		var n int
+		for n < len(rawLogs) {
+			var nextLen = rand.Intn(20)
+			if len(rawLogs)-n < nextLen {
+				nextLen = len(rawLogs) - n
+			}
+			var slice = ([]byte(rawLogs)[n : n+nextLen])
+			n = n + nextLen
+			var w, err = writer.Write(slice)
+			require.NoError(t, err)
+			require.Equal(t, nextLen, w)
+		}
+		require.NoError(t, writer.Close())
+
+		publisher.RequireEventsMatching(t, expected)
+	})
+
+	t.Run("ForwardLogs", func(t *testing.T) {
+		var publisher = testutil.NewTestLogPublisher(log.DebugLevel)
+		ForwardLogs(sourceDesc, fallbackLevel, io.NopCloser(strings.NewReader(rawLogs)), publisher)
+		publisher.RequireEventsMatching(t, expected)
+	})
 }
 
 func timestamp(strVal string) time.Time {
