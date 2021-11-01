@@ -204,6 +204,10 @@ func (fi *Index) Inspect(ctx context.Context, callback func(CoverSet) error) err
 func WalkAllStores(ctx context.Context, name pb.Journal, stores []pb.FragmentStore) (CoverSet, error) {
 	var set CoverSet
 
+	if DisableStores {
+		return set, nil
+	}
+
 	for _, store := range stores {
 		var err = List(ctx, store, name, func(f pb.Fragment) {
 			set, _ = set.Add(Fragment{Fragment: f})

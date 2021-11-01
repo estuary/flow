@@ -15,6 +15,10 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
+// DisableStores disables the use of configured journal stores.
+// If true, fragments are not persisted, and stores are not listed for existing fragments.
+var DisableStores bool = false
+
 type backend interface {
 	Provider() string
 	SignGet(ep *url.URL, fragment pb.Fragment, d time.Duration) (string, error)
@@ -26,15 +30,15 @@ type backend interface {
 }
 
 var sharedStores = struct {
-	s3  *s3Backend
-	gcs *gcsBackend
+	s3    *s3Backend
+	gcs   *gcsBackend
 	azure *azureBackend
-	fs  *fsBackend
+	fs    *fsBackend
 }{
-	s3:  newS3Backend(),
-	gcs: &gcsBackend{},
+	s3:    newS3Backend(),
+	gcs:   &gcsBackend{},
 	azure: &azureBackend{},
-	fs:  &fsBackend{},
+	fs:    &fsBackend{},
 }
 
 func getBackend(scheme string) backend {
@@ -79,7 +83,9 @@ func Open(ctx context.Context, fragment pb.Fragment) (io.ReadCloser, error) {
 // present, this is a no-op. If the Spool has not been compressed incrementally,
 // it will be compressed before being persisted.
 func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
-	if len(spec.Fragment.Stores) == 0 {
+	if DisableStores {
+		return nil // No-op.
+	} else if len(spec.Fragment.Stores) == 0 {
 		return nil // No-op.
 	}
 	spool.BackingStore = spec.Fragment.Stores[0]
@@ -111,7 +117,8 @@ func Persist(ctx context.Context, spool Spool, spec *pb.JournalSpec) error {
 	// multi-part upload failures such that the client wedged retrying
 	// indefinitely. Use a generous timeout to detect and recover from this
 	// class of error.
-	var timeoutCtx, _ = context.WithTimeout(ctx, 5*time.Minute)
+	var timeoutCtx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 
 	if err = b.Persist(timeoutCtx, ep, spool); err == nil {
 		storePersistedBytesTotal.WithLabelValues(b.Provider()).Add(float64(spool.ContentLength()))

@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 	"io/ioutil"
+	"math"
 	"mime"
 	"strings"
 	"text/template"
@@ -23,6 +24,10 @@ type Offset = int64
 
 // Offsets is a map of Journals and Offsets.
 type Offsets map[Journal]Offset
+
+// MaxReplication is a global bound on the degree of replication desired
+// by any JournalSpec.
+var MaxReplication int32 = math.MaxInt32
 
 // SplitMeta splits off a ";meta" path segment of this Journal, separately
 // returning the Journal and the ";meta" remainder (including leading
@@ -231,7 +236,12 @@ func (m *JournalSpec) MarshalString() string {
 
 // DesiredReplication returns the configured Replication of the spec. It
 // implements allocator.ItemValue.
-func (m *JournalSpec) DesiredReplication() int { return int(m.Replication) }
+func (m *JournalSpec) DesiredReplication() int {
+	if MaxReplication < m.Replication {
+		return int(MaxReplication)
+	}
+	return int(m.Replication)
+}
 
 // UnionJournalSpecs returns a JournalSpec combining all non-zero-valued fields
 // across |a| and |b|. Where both |a| and |b| provide a non-zero value for

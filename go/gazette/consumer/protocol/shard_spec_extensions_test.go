@@ -87,12 +87,18 @@ func (s *SpecSuite) TestShardSpecValidationCases(c *gc.C) {
 func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 	var spec = ShardSpec{
 		Id:          "shard-id",
-		HotStandbys: 2,
+		HotStandbys: 4,
 		Disable:     false,
 		HintPrefix:  "/a/path",
 		HintBackups: 2,
 	}
+	c.Check(spec.DesiredReplication(), gc.Equals, 5)
+
+	// Expect it honors the lower-bound of the spec & global limit.
+	defer func(r uint32) { MaxHotStandbys = r }(MaxHotStandbys)
+	MaxHotStandbys = 2
 	c.Check(spec.DesiredReplication(), gc.Equals, 3)
+
 	spec.Disable = true
 	c.Check(spec.DesiredReplication(), gc.Equals, 0)
 	spec.Disable, spec.HotStandbys = false, 0

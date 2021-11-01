@@ -83,6 +83,12 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	c.Check(spec.Validate(), gc.ErrorMatches, `invalid Replication \(1024; .*`)
 	spec.Replication = 3
 
+	// DesiredReplication honors the lower-bound of the spec & global limit.
+	c.Check(spec.DesiredReplication(), gc.Equals, 3)
+	defer func(r int32) { MaxReplication = r }(MaxReplication)
+	MaxReplication = 1
+	c.Check(spec.DesiredReplication(), gc.Equals, 1)
+
 	spec.Labels[0].Name = "xxx xxx"
 	c.Check(spec.Validate(), gc.ErrorMatches, `Labels.Labels\[0\].Name: not a valid token \(xxx xxx\)`)
 

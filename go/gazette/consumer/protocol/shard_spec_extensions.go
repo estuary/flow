@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"math"
 	"path"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -9,6 +10,10 @@ import (
 
 // ShardID uniquely identifies a shard processed by a Gazette consumer.
 type ShardID string
+
+// MaxHotStandbys is a global bound on the degree of hot standbys desired
+// by any ShardSpec.
+var MaxHotStandbys uint32 = math.MaxUint32
 
 // RoutedShardClient composes a ShardClient and DispatchRouter.
 type RoutedShardClient interface {
@@ -96,6 +101,9 @@ func (m *ShardSpec) MarshalString() string {
 func (m *ShardSpec) DesiredReplication() int {
 	if m.Disable {
 		return 0
+	}
+	if MaxHotStandbys < m.HotStandbys {
+		return 1 + int(MaxHotStandbys)
 	}
 	return 1 + int(m.HotStandbys)
 }

@@ -12,7 +12,7 @@ import (
 	"go.gazette.dev/core/broker"
 	"go.gazette.dev/core/broker/fragment"
 	"go.gazette.dev/core/broker/http_gateway"
-	"go.gazette.dev/core/broker/protocol"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -24,10 +24,12 @@ const iniFilename = "gazette.ini"
 var Config = new(struct {
 	Broker struct {
 		mbp.ServiceConfig
-		Limit         uint32 `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
-		FileRoot      string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
-		MaxAppendRate uint32 `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
-		MinAppendRate uint32 `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
+		Limit          uint32 `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
+		FileRoot       string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
+		MaxAppendRate  uint32 `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
+		MaxReplication uint32 `long:"max-replication" env:"MAX_REPLICATION" default:"9" description:"Maximum effective replication of any one journal, which upper-bounds its stated replication."`
+		MinAppendRate  uint32 `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
+		DisableStores  bool   `long:"disable-stores" env:"DISABLE_STORES" description:"Disable use of any configured journal fragment stores. The broker will neither list or persist remote fragments, and all data is discarded on broker exit."`
 	} `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 
 	Etcd struct {
@@ -50,7 +52,7 @@ func (cmdServe) Execute(args []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("broker configuration")
-	protocol.RegisterGRPCDispatcher(Config.Broker.Zone)
+	pb.RegisterGRPCDispatcher(Config.Broker.Zone)
 
 	// Bind our server listener, grabbing a random available port if Port is zero.
 	var srv, err = server.New("", Config.Broker.Port)
@@ -65,11 +67,13 @@ func (cmdServe) Execute(args []string) error {
 
 	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
 	broker.MaxAppendRate = int64(Config.Broker.MaxAppendRate)
+	pb.MaxReplication = int32(Config.Broker.MaxReplication)
+	fragment.DisableStores = Config.Broker.DisableStores
 
 	var (
-		lo   = protocol.NewJournalClient(srv.GRPCLoopback)
+		lo   = pb.NewJournalClient(srv.GRPCLoopback)
 		etcd = Config.Etcd.MustDial()
-		spec = &protocol.BrokerSpec{
+		spec = &pb.BrokerSpec{
 			JournalLimit: Config.Broker.Limit,
 			ProcessSpec:  Config.Broker.BuildProcessSpec(srv),
 		}
@@ -78,11 +82,11 @@ func (cmdServe) Execute(args []string) error {
 			allocator.MemberKey(ks, spec.Id.Zone, spec.Id.Suffix),
 			broker.JournalIsConsistent)
 		service  = broker.NewService(allocState, lo, etcd)
-		rjc      = protocol.NewRoutedJournalClient(lo, service)
+		rjc      = pb.NewRoutedJournalClient(lo, service)
 		tasks    = task.NewGroup(context.Background())
 		signalCh = make(chan os.Signal, 1)
 	)
-	protocol.RegisterJournalServer(srv.GRPCServer, service)
+	pb.RegisterJournalServer(srv.GRPCServer, service)
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
 
 	log.WithFields(log.Fields{

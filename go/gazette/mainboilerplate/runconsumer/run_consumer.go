@@ -75,7 +75,8 @@ type Config interface {
 type BaseConfig struct {
 	Consumer struct {
 		mbp.ServiceConfig
-		Limit uint32 `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
+		Limit          uint32 `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
+		MaxHotStandbys uint32 `long:"max-hot-standbys" env:"MAX_HOT_STANDBYS" default:"3" description:"Maximum effective hot standbys of any one shard, which upper-bounds its stated hot-standbys."`
 	} `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 
 	Broker struct {
@@ -134,6 +135,8 @@ func (sc Cmd) Execute(args []string) error {
 	if bc.Etcd.Prefix == "" {
 		bc.Etcd.Prefix = fmt.Sprintf("/gazette/consumers/%T", sc.App)
 	}
+
+	pc.MaxHotStandbys = uint32(bc.Consumer.MaxHotStandbys)
 
 	var (
 		etcd = bc.Etcd.MustDial()
