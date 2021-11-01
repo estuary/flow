@@ -364,12 +364,13 @@ func mapGRPCCtxErr(ctx context.Context, err error) error {
 
 var (
 	// Map common broker error statuses into named errors.
+	ErrInsufficientJournalBrokers = errors.New(pb.Status_INSUFFICIENT_JOURNAL_BROKERS.String())
+	ErrJournalNotFound            = errors.New(pb.Status_JOURNAL_NOT_FOUND.String())
 	ErrNotJournalBroker           = errors.New(pb.Status_NOT_JOURNAL_BROKER.String())
 	ErrNotJournalPrimaryBroker    = errors.New(pb.Status_NOT_JOURNAL_PRIMARY_BROKER.String())
 	ErrOffsetNotYetAvailable      = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
 	ErrRegisterMismatch           = errors.New(pb.Status_REGISTER_MISMATCH.String())
 	ErrWrongAppendOffset          = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
-	ErrInsufficientJournalBrokers = errors.New(pb.Status_INSUFFICIENT_JOURNAL_BROKERS.String())
 
 	// ErrOffsetJump is returned by Reader.Read to indicate that the next byte
 	// available to be read is at a larger offset than that requested (eg,

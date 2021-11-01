@@ -98,8 +98,9 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			} else {
 				return // Surface to caller.
 			}
-		case io.EOF, ErrInsufficientJournalBrokers, ErrNotJournalBroker:
+		case io.EOF, ErrInsufficientJournalBrokers, ErrNotJournalBroker, ErrJournalNotFound:
 			// Suppress logging for expected errors on first read attempt.
+			// We may be racing a concurrent Etcd watch and assignment of the broker cluster.
 			squelch = attempt == 0
 		default:
 		}
