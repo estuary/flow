@@ -47,7 +47,7 @@ func ParseStream(
 		onLines: callback,
 		onError: func(err error) { fe.SetIfNil(err) },
 	}
-	cmd.Stderr = &parserStderr{}
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		fe.SetIfNil(fmt.Errorf("starting connector: %w", err))
@@ -60,8 +60,7 @@ func ParseStream(
 	}(cmd.Process.Signal)
 
 	if err := cmd.Wait(); err != nil {
-		fe.SetIfNil(fmt.Errorf("%w with stderr:\n\n%s",
-			err, cmd.Stderr.(*parserStderr).err.String()))
+		fe.SetIfNil(fmt.Errorf("parser failed: %w", err))
 	}
 
 	if len(cmd.Stdout.(*parserStdout).rem) != 0 {
@@ -125,21 +124,3 @@ func (r *parserStdout) Write(p []byte) (int, error) {
 
 	return n, nil
 }
-
-// parserStderr is an io.Writer that collects a bounded amount of stderr from the parser.
-type parserStderr struct {
-	err bytes.Buffer
-}
-
-func (r *parserStderr) Write(p []byte) (int, error) {
-	var n = len(p)
-	var rem = maxStderrBytes - r.err.Len()
-
-	if rem < n {
-		p = p[:rem]
-	}
-	r.err.Write(p)
-	return n, nil
-}
-
-const maxStderrBytes = 8192

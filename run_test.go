@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -60,17 +59,4 @@ func TestStdoutLineBreaking(t *testing.T) {
 	var err = fmt.Errorf("error!")
 	s.onLines = func([]json.RawMessage) error { return err }
 	require.PanicsWithValue(t, err, func() { s.Write(nil) })
-}
-
-func TestStderrCapture(t *testing.T) {
-	var s = new(parserStderr)
-
-	var n, err = s.Write([]byte("whoops"))
-	require.Equal(t, 6, n)
-	require.NoError(t, err)
-	require.Equal(t, "whoops", s.err.String())
-
-	// Expect it caps the amount of output collected.
-	s.Write(bytes.Repeat([]byte("x"), maxStderrBytes))
-	require.Equal(t, maxStderrBytes, s.err.Len())
 }

@@ -67,7 +67,7 @@ pub fn resolve_config(
     }
 
     if let Some(c) = config.compression {
-        tracing::debug!("using provided compression: {}", c);
+        tracing::debug!(compression = %c, "using provided compression");
     } else {
         let mut inferred = determine_compression(&resolved);
         if inferred.is_none() {
@@ -75,12 +75,10 @@ pub fn resolve_config(
             content = new_input;
             inferred = detect_compression(&bytes);
         }
-        tracing::debug!("inferred compression: {:?}", inferred);
+        tracing::debug!(compression = ?inferred, "inferred compression");
         resolved.compression = inferred;
     }
 
-    // TODO: lookup parser and ask it for a recommended ParseConfig based on the current config and
-    // the content.
     Ok((resolved, content))
 }
 
@@ -93,7 +91,7 @@ pub fn parse(
     dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
     let (config, content) = resolve_config(config, content)?;
-    tracing::debug!(action = "resolved config", result = ?config);
+    tracing::debug!(config = ?config, "resolved config");
     let format = config.format.ok_or(ParseError::MissingFormat)?;
     let parser = parser_for(format);
 

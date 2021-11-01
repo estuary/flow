@@ -21,7 +21,7 @@ structopt = "*"
 tempfile = "*"
 thiserror = "*"
 tracing = "*"
-tracing-subscriber = "*"
+tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}
 unicode-bom = "*"
 unicode-normalization = "*"
 url = "*"
