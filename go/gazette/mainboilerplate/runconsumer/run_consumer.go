@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
@@ -75,8 +76,9 @@ type Config interface {
 type BaseConfig struct {
 	Consumer struct {
 		mbp.ServiceConfig
-		Limit          uint32 `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
-		MaxHotStandbys uint32 `long:"max-hot-standbys" env:"MAX_HOT_STANDBYS" default:"3" description:"Maximum effective hot standbys of any one shard, which upper-bounds its stated hot-standbys."`
+		Limit          uint32        `long:"limit" env:"LIMIT" default:"32" description:"Maximum number of Shards this consumer process will allocate"`
+		MaxHotStandbys uint32        `long:"max-hot-standbys" env:"MAX_HOT_STANDBYS" default:"3" description:"Maximum effective hot standbys of any one shard, which upper-bounds its stated hot-standbys."`
+		WatchDelay     time.Duration `long:"watch-delay" env:"WATCH_DELAY" default:"30ms" description:"Delay applied to the application of watched Etcd events. Larger values amortize the processing of fast-changing Etcd keys."`
 	} `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 
 	Broker struct {
@@ -152,6 +154,7 @@ func (sc Cmd) Execute(args []string) error {
 		signalCh = make(chan os.Signal, 1)
 	)
 	pc.RegisterShardServer(srv.GRPCServer, service)
+	ks.WatchApplyDelay = bc.Consumer.WatchDelay
 
 	// Register Resolver as a prometheus.Collector for tracking shard status
 	prometheus.MustRegister(service.Resolver)

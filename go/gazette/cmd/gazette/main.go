@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
@@ -24,12 +25,13 @@ const iniFilename = "gazette.ini"
 var Config = new(struct {
 	Broker struct {
 		mbp.ServiceConfig
-		Limit          uint32 `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
-		FileRoot       string `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
-		MaxAppendRate  uint32 `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
-		MaxReplication uint32 `long:"max-replication" env:"MAX_REPLICATION" default:"9" description:"Maximum effective replication of any one journal, which upper-bounds its stated replication."`
-		MinAppendRate  uint32 `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
-		DisableStores  bool   `long:"disable-stores" env:"DISABLE_STORES" description:"Disable use of any configured journal fragment stores. The broker will neither list or persist remote fragments, and all data is discarded on broker exit."`
+		Limit          uint32        `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
+		FileRoot       string        `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
+		MaxAppendRate  uint32        `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
+		MaxReplication uint32        `long:"max-replication" env:"MAX_REPLICATION" default:"9" description:"Maximum effective replication of any one journal, which upper-bounds its stated replication."`
+		MinAppendRate  uint32        `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
+		DisableStores  bool          `long:"disable-stores" env:"DISABLE_STORES" description:"Disable use of any configured journal fragment stores. The broker will neither list or persist remote fragments, and all data is discarded on broker exit."`
+		WatchDelay     time.Duration `long:"watch-delay" env:"WATCH_DELAY" default:"30ms" description:"Delay applied to the application of watched Etcd events. Larger values amortize the processing of fast-changing Etcd keys."`
 	} `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 
 	Etcd struct {
@@ -88,6 +90,7 @@ func (cmdServe) Execute(args []string) error {
 	)
 	pb.RegisterJournalServer(srv.GRPCServer, service)
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
+	ks.WatchApplyDelay = Config.Broker.WatchDelay
 
 	log.WithFields(log.Fields{
 		"zone":     spec.Id.Zone,
