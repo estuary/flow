@@ -12,17 +12,9 @@ const iniFilename = "flow.ini"
 func main() {
 	var parser = flags.NewParser(nil, flags.HelpFlag|flags.PassDoubleDash)
 
-	addCmd(parser, "apply", "Apply a Flow catalog to a cluster", `
-Build a Flow catalog and apply it to a running cluster.
-`, &cmdApply{})
-
 	addCmd(parser, "test", "Locally test a Flow catalog", `
 Locally test a Flow catalog.
-`, &cmdTest{})
-
-	addCmd(parser, "develop", "Locally develop a Flow catalog", `
-Locally develop a Flow catalog.
-`, &cmdDevelop{})
+		`, &cmdTest{})
 
 	addCmd(parser, "check", "Check a Flow catalog for errors", `
 Quickly load and validate a Flow catalog, and generate updated TypeScript types.
@@ -69,12 +61,7 @@ and auto-completions.
 serve a Flow consumer with the provided configuration, until signaled to
 exit (via SIGTERM). Upon receiving a signal, the consumer will seek to discharge
 its responsible shards and will exit only when it can safely do so.
-`, &runtime.FlowConsumerConfig{ConnectorNetwork: ""})
-
-	addCmd(serve, "ingester", "Serve the Flow ingester", `
-Serve a Flow ingester with the provided configuration, until signaled to
-exit (via SIGTERM).
-`, &cmdIngester{})
+`, &runtime.FlowConsumerConfig{})
 
 	// journals command - Add all journals sub-commands from gazctl under this command.
 	journals, err := parser.Command.AddCommand("journals", "Interact with broker journals", "", gazctlcmd.JournalsCfg)
@@ -85,6 +72,25 @@ exit (via SIGTERM).
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("shards", shards, true), "failed to add commands")
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
+
+	apis, err := parser.Command.AddCommand("api", "Lower-level, programatic APIs", "", &struct{}{})
+	mbp.Must(err, "failed to add command")
+
+	addCmd(apis, "local-data-plane", "Run an ephemeral, local data plane", `
+Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
+`, &apiLocalDataPlane{})
+
+	addCmd(apis, "build", "Build a Flow catalog", `
+Build a Flow catalog.
+`, &apiBuild{})
+
+	addCmd(apis, "activate", "Activate a built Flow catalog", `
+Activate a Flow catalog.
+`, &apiActivate{})
+
+	addCmd(apis, "test", "Run tests of an activated catalog", `
+Run tests of an activated catalog
+`, &apiTest{})
 
 	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)

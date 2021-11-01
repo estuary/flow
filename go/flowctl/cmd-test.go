@@ -5,31 +5,20 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"sort"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/testing"
-	pf "github.com/estuary/protocols/flow"
-	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
-	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/broker/client"
-	"go.gazette.dev/core/broker/fragment"
+	"go.gazette.dev/core/broker/protocol"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"google.golang.org/grpc"
 )
 
 type cmdTest struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
-	Shards      int                   `long:"shards" default:"1" description:"Number of shards for each tested derivation"`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Timeout     time.Duration         `long:"timeout" default:"10m" description:"Maximum time for a test invocation"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
@@ -45,227 +34,81 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	var err error
 	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
 
-	runDir, err := ioutil.TempDir("", "flow-test")
+	// Create a temporary directory which will contain the Etcd database
+	// and various unix:// sockets.
+	tempdir, err := ioutil.TempDir("", "flow-test")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}
-	defer os.RemoveAll(runDir)
+	defer os.RemoveAll(tempdir)
 
-	var ctx, cancel = context.WithTimeout(context.Background(), cmd.Timeout)
+	// Install a signal handler which will cancel our context.
+	var ctx, cancel = signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 
-	// Install a signal handler which will cancel our base context.
-	var signalCh = make(chan os.Signal, 1)
-	signal.Notify(signalCh, syscall.SIGTERM, syscall.SIGINT)
-
-	go func() {
-		<-signalCh
-		log.Info("caught signal; shutting down")
-		cancel()
-	}()
-
-	// Temporary running directory, used for:
-	// * Storing our built catalog database.
-	// * Etcd storage and UDS sockets.
-	// * NPM worker UDS socket.
-	// * Backing persisted file:/// fragments.
-
-	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
-		CatalogPath:       filepath.Join(runDir, "catalog.db"),
-		ConnectorNetwork:  cmd.Network,
-		Directory:         cmd.Directory,
-		Source:            cmd.Source,
-		SourceType:        pf.ContentType_CATALOG_SPEC,
-		TypescriptCompile: true,
-		TypescriptPackage: false,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Override the catalog for a local, ephemeral testing context.
-	flow.OverrideForLocalExecution(built)
-	flow.OverrideForLocalFragmentStores(built)
-
-	// Spawn Etcd and NPM worker processes for cluster use.
-	etcd, etcdClient, err := startEtcd(runDir)
-	if err != nil {
-		return err
-	}
-	defer stopWorker(etcd)
-
-	var lambdaJSUDS = filepath.Join(runDir, "lambda-js")
-	jsWorker, err := startJSWorker(cmd.Directory, lambdaJSUDS)
-	if err != nil {
-		return err
-	}
-	defer stopWorker(jsWorker)
-
-	// Configure and start the cluster.
-	var cfg = testing.ClusterConfig{
-		Context:            ctx,
-		DisableClockTicks:  true, // Test driver advances synthetic time.
-		Etcd:               etcdClient,
-		EtcdCatalogPrefix:  "/flowctl/test/catalog",
-		EtcdBrokerPrefix:   "/flowctl/test/broker",
-		EtcdConsumerPrefix: "/flowctl/test/runtime",
-		ServiceConfig: mbp.ServiceConfig{
-			ZoneConfig: mbp.ZoneConfig{Zone: "local"},
-			Host:       "localhost",
-			Port:       0, // Any available port.
+	// Start a local data plane bound to our context.
+	var dataPlane = apiLocalDataPlane{
+		BuildsRoot:  "file://" + cmd.Directory,
+		UnixSockets: true,
+		Log: mbp.LogConfig{
+			Level:  "warn",
+			Format: cmd.Log.Format,
 		},
 	}
-	pb.RegisterGRPCDispatcher(cfg.ZoneConfig.Zone)
-
-	// Apply catalog task specifications to the cluster.
-	_, catalogRevision, err := flow.ApplyCatalogToEtcd(flow.ApplyArgs{
-		Ctx:           cfg.Context,
-		Etcd:          cfg.Etcd,
-		Root:          cfg.EtcdCatalogPrefix,
-		Build:         built,
-		TypeScriptUDS: lambdaJSUDS,
-	})
+	_, brokerAddr, consumerAddr, err := dataPlane.start(ctx, tempdir)
 	if err != nil {
-		return fmt.Errorf("applying catalog to Etcd: %w", err)
+		return fmt.Errorf("starting local data plane: %w", err)
 	}
 
-	fragment.FileSystemStoreRoot = filepath.Join(runDir, "fragments")
-	defer client.InstallFileTransport(fragment.FileSystemStoreRoot)()
+	// Build into a new database. Arrange to clean it up on exit.
+	var buildID = newBuildID()
+	defer func() { _ = os.Remove(filepath.Join(cmd.Directory, buildID)) }()
 
-	cluster, err := testing.NewCluster(cfg)
-	if err != nil {
-		return fmt.Errorf("NewCluster: %w", err)
-	}
-	defer func() {
-		if err := cluster.Stop(); err != nil {
-			log.WithField("err", err).Error("stopping local test cluster")
-		} else {
-			log.Info("local test cluster stopped")
-		}
-	}()
-
-	// Apply derivation shard specs.
-	if err = applyDerivationShards(ctx, built, cluster.Shards, cmd.Shards, catalogRevision); err != nil {
-		return fmt.Errorf("applying derivation shards: %w", err)
-	} else if err = cluster.WaitForShardsToAssign(); err != nil {
-		return fmt.Errorf("waiting for shards to assign: %w", err)
+	if err := (apiBuild{
+		BuildID:    buildID,
+		Directory:  cmd.Directory,
+		FileRoot:   "/",
+		Network:    cmd.Network,
+		Source:     cmd.Source,
+		SourceType: "catalog",
+		TSPackage:  true,
+	}.execute(ctx)); err != nil {
+		return err
 	}
 
-	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
-	sort.Slice(built.Tests, func(i, j int) bool {
-		return built.Tests[i].Steps[0].StepScope < built.Tests[j].Steps[0].StepScope
-	})
+	// Activate derivations of the built database into the local dataplane.
+	var activate = apiActivate{
+		BuildID:        buildID,
+		BuildsRoot:     "file://" + cmd.Directory,
+		Network:        cmd.Network,
+		InitialSplits:  1,
+		AllDerivations: true,
+	}
+	activate.Broker.Address = protocol.Endpoint(brokerAddr)
+	activate.Consumer.Address = protocol.Endpoint(consumerAddr)
 
-	var graph = testing.NewGraph(cluster.Consumer.Catalog.AllTasks())
-	var failed []string
-	fmt.Println("Running ", len(built.Tests), " tests...")
-
-	for _, testCase := range built.Tests {
-		if ctx.Err() != nil {
-			break
-		} else if err = cluster.Consumer.ClearRegistersForTest(cfg.Context); err != nil {
-			return fmt.Errorf("clearing registers ahead of test case: %w", err)
-		} else if scope, err := testing.RunTestCase(graph, cluster, &testCase); err != nil {
-			var path, ptr = scopeToPathAndPtr(cmd.Directory, scope)
-			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
-			fmt.Println(err)
-			failed = append(failed, testCase.Test)
-		} else {
-			var path, _ = scopeToPathAndPtr(cmd.Directory, testCase.Steps[0].StepScope)
-			fmt.Println("✔️", path, "::", green(testCase.Test))
-		}
+	if err = activate.execute(ctx); err != nil {
+		return err
 	}
 
-	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
-		len(built.Tests), len(built.Tests)-len(failed), len(failed))
-
-	if failed != nil {
-		return fmt.Errorf("failed tests: [%s]", strings.Join(failed, ", "))
+	// Test the built database against the local dataplane.
+	var test = apiTest{
+		BuildID:    buildID,
+		BuildsRoot: "file://" + cmd.Directory,
 	}
+	test.Broker.Address = protocol.Endpoint(brokerAddr)
+	test.Consumer.Address = protocol.Endpoint(consumerAddr)
+
+	if err = test.execute(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
-
-func startEtcd(tmpdir string) (*exec.Cmd, *clientv3.Client, error) {
-	var cmd = exec.Command("etcd",
-		"--listen-peer-urls", "unix://peer.sock:0",
-		"--listen-client-urls", "unix://client.sock:0",
-		"--advertise-client-urls", "unix://client.sock:0",
-	)
-	// The Etcd --log-level flag was added in v3.4. Use it's environment variable
-	// version to remain compatible with older `etcd` binaries.
-	cmd.Env = append(cmd.Env, "ETCD_LOG_LEVEL=error", "ETCD_LOGGER=zap")
-	cmd.Env = append(cmd.Env, os.Environ()...)
-
-	cmd.Dir = tmpdir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	// Deliver a SIGTERM to the process if this thread should die uncleanly.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
-	// Place child its own process group, so that terminal SIGINT isn't delivered
-	// from the terminal and so that we may close leases properly.
-	cmd.SysProcAttr.Setpgid = true
-
-	log.WithFields(log.Fields{"args": cmd.Args, "dir": cmd.Dir}).Info("starting etcd")
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("starting etcd: %w", err)
-	}
-
-	etcdClient, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{"unix://" + cmd.Dir + "/client.sock:0"},
-		DialTimeout: 5 * time.Second,
-		DialOptions: []grpc.DialOption{grpc.WithBlock()},
-		// Require a reasonably recent server cluster.
-		RejectOldCluster: true,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("building etcd client: %w", err)
-	}
-
-	var ctx = context.Background()
-
-	// Look for any left-over leases of a prior invocation, and remove them.
-	leases, err := etcdClient.Leases(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fetching existing leases: %w", err)
-	}
-	for _, lease := range leases.Leases {
-		if _, err := etcdClient.Revoke(ctx, lease.ID); err != nil {
-			return nil, nil, fmt.Errorf("revoking existing lease: %w", err)
-		}
-		log.WithField("lease", lease.ID).
-			Warn("removed an existing Etcd lease (unclean shutdown?)")
-	}
-
-	// Arrange to close the |etcdClient| as soon as the process completes.
-	// We do this because ctrl-C sent to `flowctl develop` will also immediately
-	// propagate to the `etcd` binary; as part of normal shutdown we'll try to
-	// release associated Etcd leases, and will wedge for ~10 seconds trying to
-	// do so before timing out and bailing out.
-	go func() {
-		_, _ = cmd.Process.Wait()
-		etcdClient.Close()
-	}()
-
-	return cmd, etcdClient, nil
-}
-
-func startJSWorker(dir, socketPath string) (*exec.Cmd, error) {
-	return flow.StartCmdAndReadReady(dir, socketPath,
-		false, // Use process group of parent. Terminal signals pass through.
-		"node", "dist/flow_generated/flow/main.js")
-}
-
-func stopWorker(cmd *exec.Cmd) {
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	_ = cmd.Wait()
-}
-
-var green = color.New(color.FgGreen).SprintFunc()
-var yellow = color.New(color.FgYellow).SprintFunc()
-var red = color.New(color.FgRed).SprintFunc()
