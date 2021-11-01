@@ -601,6 +601,18 @@ message CatalogCommons {
   string typescript_package_url = 14;
 }
 
+// LogLevelFilter is a common representation of a simple logging filter, which is shared between
+// Rust and Go code. This enum is not used directly within other messages here because logging is
+// configured at the time that Rust Service instances are created, not when they're configured.
+enum LogLevelFilter {
+  OFF = 0;
+  ERROR = 1;
+  WARN = 2;
+  INFO = 3;
+  DEBUG = 4;
+  TRACE = 5;
+};
+
 message SchemaAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
