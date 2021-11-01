@@ -127,7 +127,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 	conn, err := capture.NewDriver(ctx,
 		c.capture.EndpointType,
 		c.capture.EndpointSpecJson,
-		c.host.Config.ConnectorNetwork,
+		c.host.Config.Flow.Network,
 		c.LogPublisher,
 	)
 	if err != nil {
@@ -139,7 +139,7 @@ func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureRespon
 		KeyBegin:             c.labels.Range.KeyBegin,
 		KeyEnd:               c.labels.Range.KeyEnd,
 		DriverCheckpointJson: c.store.driverCheckpoint(),
-		Tail:                 !c.host.Config.Poll,
+		Tail:                 !c.host.Config.Flow.Poll,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("driver.Capture: %w", err)
