@@ -8,6 +8,7 @@ import (
 	"go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"golang.org/x/net/trace"
 )
 
 // ShardStat wraps consumer.ShardStat to provide additional synchronization
@@ -30,7 +31,11 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 	if cid := reqJournalEtcd.ClusterId; cid != 0 && cid != journals.Header.ClusterId {
 		err = fmt.Errorf("request journals Etcd ClusterId doesn't match our own (%d vs %d)",
 			reqJournalEtcd.ClusterId, journals.Header.ClusterId)
-	} else {
+	} else if reqJournalEtcd.Revision > journals.Header.Revision {
+		if tr, ok := trace.FromContext(ctx); ok {
+			tr.LazyPrintf(" ... at journals revision %d, but want at least %d",
+				journals.Header.Revision, reqJournalEtcd.Revision)
+		}
 		err = journals.WaitForRevision(ctx, reqJournalEtcd.Revision)
 	}
 	journals.Mu.RUnlock()
