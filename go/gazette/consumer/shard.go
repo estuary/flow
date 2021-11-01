@@ -95,13 +95,19 @@ func newShard(svc *Service, item keyspace.KeyValue) *shard {
 	}
 	// Initialize |progress|. After completeRecovery(), Resolve() may begin
 	// returning this shard and/or test against |progress.readThrough|.
-	// From here on out, |progress| is only updated from within runTransactions().
+	// |progress| is updated from synchronous calls to completeRecovery()
+	// and then runTransactions() made by servePrimary().
 	s.progress.signalCh = make(chan struct{})
 	s.progress.readThrough = make(pb.Offsets)
 	s.progress.publishAt = make(pb.Offsets)
+
+	// During completeRecovery() we'll initialize with offsets of the recovered
+	// checkpoint. However it may be missing journals which are included in Sources.
+	// Initialize them now with zeros, which may be updated later.
 	for _, src := range s.resolved.spec.Sources {
 		s.progress.readThrough[src.Journal] = 0
 	}
+
 	return s
 }
 

@@ -311,6 +311,13 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		}
 	}
 
+	// Update read progress to reflect the restored checkpoint. Note that when we
+	// close |storeReadyCh| in just a moment, concurrent Stat RPCs may begin
+	// accessing |progress| (but not before).
+	for j, src := range cp.Sources {
+		s.progress.readThrough[j] = src.ReadThrough
+	}
+
 	close(s.storeReadyCh) // Unblocks Resolve().
 
 	return cp, nil
