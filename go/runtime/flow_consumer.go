@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -21,26 +22,16 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-type FlowConfig struct {
-	BuildsRoot string `long:"builds-root" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
-	BrokerRoot string `long:"broker-root" env:"BROKER_ROOT" default:"/gazette/cluster/flow" description:"Broker Etcd base prefix"`
-}
-
-// FlowConsumerConfig configures the flow-consumer application.
+// FlowConsumerConfig configures the Flow consumer application.
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
-	Flow FlowConfig `group:"flow" namespace:"flow" env-namespace:"FLOW"`
-
-	// DisableClockTicks is exposed for in-process testing, where we manually adjust the current Timepoint.
-	DisableClockTicks bool
-	// Poll is exposed for a non-blocking local develop / test workflow.
-	Poll bool
-	// ConnectorNetwork controls the network access of launched connectors. When
-	// empty, connectors will be launched on their own isolated Docker network.
-	// Otherwise, they will be given access to the named network. This is useful
-	// for local develop / test workflows where connector sources/sinks may be
-	// running on localhost.
-	ConnectorNetwork string
+	Flow struct {
+		BuildsRoot string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
+		BrokerRoot string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+		Network    string `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+		TestAPIs   bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
+		Poll       bool   `long:"poll" description:"Poll connectors, rather than running them continuously"`
+	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
 // Execute delegates to runconsumer.Cmd.Execute.
@@ -150,36 +141,16 @@ func (f *FlowConsumer) ReadThrough(shard consumer.Shard, store consumer.Store, a
 // NewConfig returns a new config instance.
 func (f *FlowConsumer) NewConfig() runconsumer.Config { return new(FlowConsumerConfig) }
 
-// ClearRegistersForTest is an in-process testing API that clears registers of derivation shards.
-func (f *FlowConsumer) ClearRegistersForTest(ctx context.Context) error {
-	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
-		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(labels.TaskType, labels.TaskTypeDerivation),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list shards: %w", err)
-	}
+func (f *FlowConsumer) tickTimepoint(wallTime time.Time) {
+	// Advance the |wallTime| by a synthetic positive delta,
+	// which may be non-zero in testing contexts (only).
+	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.Service.PublishClockDelta)))
+	var now = wallTime.Add(delta)
 
-	for _, shard := range listing.Shards {
-		var res, err = f.Service.Resolver.Resolve(consumer.ResolveArgs{
-			Context:  ctx,
-			ShardID:  shard.Spec.Id,
-			MayProxy: false,
-		})
-		if err != nil {
-			return fmt.Errorf("resolving shard %s: %w", shard.Spec.Id, err)
-		} else if res.Status != pc.Status_OK {
-			return fmt.Errorf("shard %s !OK status %s", shard.Spec.Id, res.Status)
-		}
-		defer res.Done()
-
-		if err := res.Store.(*Derive).ClearRegistersForTest(); err != nil {
-			return fmt.Errorf("clearing registers of shard %s: %w", shard.Spec.Id, err)
-		}
-	}
-
-	return nil
+	f.Timepoint.Mu.Lock()
+	f.Timepoint.Now.Next.Resolve(now)
+	f.Timepoint.Now = f.Timepoint.Now.Next
+	f.Timepoint.Mu.Unlock()
 }
 
 // InitApplication starts shared services of the flow-consumer.
@@ -204,8 +175,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return nil
 	})
 
-	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
-
+	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
 	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 		return shardGetHints(c, s, ghr)
 	}
@@ -218,28 +188,18 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	f.Service = args.Service
 	f.Builds = builds
 	f.Journals = journals
-
-	// Setup a logger that shards can use to publish logs and metrics
-	var ajc = client.NewAppendService(args.Context, args.Service.Journals)
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
 
 	// Start a ticker of the shared *Timepoint.
-	if !f.Config.DisableClockTicks {
-		go func() {
-			// When running flowctl test, clock ticks will be disabled and PublishClockDelta will be
-			// used to manually adjust the clock. When running _normally_, we should only adjust the
-			// clock using these ticks, and the PublishClockDelta should never be applied.
-			if f.Service.PublishClockDelta > 0 {
-				panic("PublishClockDelta must be 0 if DisableClockTicks is false, but was > 0")
-			}
-			for t := range time.Tick(time.Second) {
-				f.Timepoint.Mu.Lock()
-				f.Timepoint.Now.Next.Resolve(t)
-				f.Timepoint.Now = f.Timepoint.Now.Next
-				f.Timepoint.Mu.Unlock()
-			}
-		}()
-	}
+	go func() {
+		for t := range time.Tick(time.Second) {
+			f.tickTimepoint(t)
+		}
+	}()
+
+	// Shared AppendService used for logs and also test ingestions (where enabled).
+	var ajc = client.NewAppendService(args.Context, args.Service.Journals)
+
 	f.LogService = &LogService{
 		ctx:      args.Context,
 		ajc:      ajc,
@@ -251,6 +211,11 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		// and so it doesn't seem worth the complexity to modify this timepoint during tests.
 		messagePublisher: message.NewPublisher(ajc, nil),
 	}
+
+	if config.Flow.TestAPIs {
+		pf.RegisterTestingServer(args.Server.GRPCServer, NewFlowTesting(f, ajc))
+	}
+	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
 
 	return nil
 }
