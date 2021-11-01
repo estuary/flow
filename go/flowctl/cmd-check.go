@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"crypto/rand"
+	"encoding/base64"
+	"os"
 	"path/filepath"
 
-	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
-	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -28,27 +28,31 @@ func (cmd cmdCheck) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
-	pb.RegisterGRPCDispatcher("local")
 
-	var err error
-	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
-		return fmt.Errorf("filepath.Abs: %w", err)
-	}
-	var ctx = context.Background()
+	var buildID = newBuildID()
+	var err = apiBuild{
+		BuildID:    buildID,
+		Directory:  cmd.Directory,
+		Source:     cmd.Source,
+		SourceType: "catalog",
+		FileRoot:   "/",
+		Network:    cmd.Network,
+		TSGenerate: true,
+		TSCompile:  false,
+		TSPackage:  false,
+	}.execute(context.Background())
 
-	_, err = buildCatalog(ctx, pf.BuildAPI_Config{
-		CatalogPath:      filepath.Join(cmd.Directory, "catalog.db"),
-		ConnectorNetwork: cmd.Network,
-		Directory:        cmd.Directory,
-		Source:           cmd.Source,
-		SourceType:       pf.ContentType_CATALOG_SPEC,
+	// Cleanup output database.
+	defer func() { _ = os.Remove(filepath.Join(cmd.Directory, buildID)) }()
 
-		// Check doesn't compile or package TypeScript modules.
-		TypescriptGenerate: true,
-	})
+	return err
+}
+
+func newBuildID() string {
+	var data [9]byte
+	var _, err = rand.Read(data[:])
 	if err != nil {
-		return err
+		panic(err)
 	}
-
-	return nil
+	return base64.URLEncoding.EncodeToString(data[:])
 }

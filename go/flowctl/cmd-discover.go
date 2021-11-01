@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,11 +14,13 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/capture/driver/airbyte"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/protocols/capture"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -233,14 +236,35 @@ func writeConfigStub(ctx context.Context, image string, connectorNetwork string,
 	var tmpfile = filepath.Join(tmpdir, "schema.yaml")
 	mbp.Must(ioutil.WriteFile(tmpfile, specResponse.EndpointSpecSchemaJson, 0600), "writing spec")
 
-	built, err := buildCatalog(ctx, pf.BuildAPI_Config{
-		CatalogPath: filepath.Join(tmpdir, "catalog.db"),
-		Directory:   tmpdir,
-		Source:      tmpfile,
-		SourceType:  pf.ContentType_JSON_SCHEMA,
-	})
-	if err != nil {
-		return fmt.Errorf("parsing JSON schema spec: %w", err)
+	// Build the schema
+	var buildConfig = pf.BuildAPI_Config{
+		BuildId:    newBuildID(),
+		Directory:  tmpdir,
+		Source:     tmpfile,
+		SourceType: pf.ContentType_JSON_SCHEMA,
+	}
+	// Cleanup output database.
+	defer func() { _ = os.Remove(buildConfig.OutputPath()) }()
+
+	if err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:             ctx,
+		BuildAPI_Config:     buildConfig,
+		FileRoot:            "/",
+		CaptureDriverFn:     nil, // Not used.
+		MaterializeDriverFn: nil, // Not used.
+	}); err != nil {
+		return fmt.Errorf("building schema catalog: %w", err)
+	}
+
+	// Load extracted schema locations.
+	var locations []catalog.SchemaLocation
+	if err = catalog.Extract(buildConfig.OutputPath(), func(db *sql.DB) error {
+		if locations, err = catalog.LoadAllInferences(db); err != nil {
+			return fmt.Errorf("loading inferences: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	var config interface{}
@@ -249,11 +273,11 @@ func writeConfigStub(ctx context.Context, image string, connectorNetwork string,
 	// Because we're creating yaml.Nodes instead of []interface{}
 	// or map[string]interface{}, ptr.Create() is unable to create
 	// a sub-location after visiting its parent.
-	sort.Slice(built.Locations, func(i int, j int) bool {
-		return len(built.Locations[i].Location) > len(built.Locations[j].Location)
+	sort.Slice(locations, func(i int, j int) bool {
+		return len(locations[i].Location) > len(locations[j].Location)
 	})
 
-	for _, loc := range built.Locations {
+	for _, loc := range locations {
 		if ptr, err := flow.NewPointer(loc.Location); err != nil {
 			return fmt.Errorf("build pointer: %w", err)
 		} else if node, err := ptr.Create(&config); err != nil {
