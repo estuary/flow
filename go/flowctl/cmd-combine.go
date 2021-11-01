@@ -3,13 +3,17 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/materialize"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -42,29 +46,43 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	}
 	var ctx = context.Background()
 
-	catalog, err := buildCatalog(ctx, pf.BuildAPI_Config{
-		CatalogPath: filepath.Join(cmd.Directory, "catalog.db"),
-		Directory:   cmd.Directory,
-		Source:      cmd.Source,
-		SourceType:  pf.ContentType_CATALOG_SPEC,
-	})
-	if err != nil {
-		return err
+	var config = pf.BuildAPI_Config{
+		BuildId:    newBuildID(),
+		Directory:  cmd.Directory,
+		Source:     cmd.Source,
+		SourceType: pf.ContentType_CATALOG_SPEC,
+	}
+	// Cleanup output database.
+	defer func() { _ = os.Remove(config.OutputPath()) }()
+
+	if err = bindings.BuildCatalog(bindings.BuildArgs{
+		Context:             ctx,
+		BuildAPI_Config:     config,
+		FileRoot:            "/",
+		CaptureDriverFn:     capture.NewDriver,
+		MaterializeDriverFn: materialize.NewDriver,
+	}); err != nil {
+		return fmt.Errorf("building catalog: %w", err)
 	}
 
 	var collection *pf.CollectionSpec
-	for _, c := range catalog.Collections {
-		if c.Collection.String() == cmd.Collection {
-			collection = &c
-			break
+	var bundle pf.SchemaBundle
+
+	if err = catalog.Extract(config.OutputPath(), func(db *sql.DB) error {
+		if collection, err = catalog.LoadCollection(db, cmd.Collection); err != nil {
+			return fmt.Errorf("loading collection %s: %w", cmd.Collection, err)
 		}
+		if bundle, err = catalog.LoadSchemaBundle(db); err != nil {
+			return fmt.Errorf("loading schemas: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if collection == nil {
-		return fmt.Errorf("The catalog does not define a collection named: %q", cmd.Collection)
-	}
-	schemaIndex, err := bindings.NewSchemaIndex(&catalog.Schemas)
+
+	schemaIndex, err := bindings.NewSchemaIndex(&bundle)
 	if err != nil {
-		return fmt.Errorf("building schema bundle: %w", err)
+		return fmt.Errorf("building schema index: %w", err)
 	}
 
 	combine, err := bindings.NewCombine(ops.StdLogPublisher())
