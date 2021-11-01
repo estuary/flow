@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/dustinkirkland/golang-petname"
+	petname "github.com/dustinkirkland/golang-petname"
 	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/server"
 )
@@ -22,7 +22,7 @@ type ServiceConfig struct {
 	ZoneConfig
 	ID   string `long:"id" env:"ID" description:"Unique ID of this process. Auto-generated if not set"`
 	Host string `long:"host" env:"HOST" description:"Addressable, advertised hostname or IP of this process. Hostname is used if not set"`
-	Port uint16 `long:"port" env:"PORT" description:"Service port for HTTP and gRPC requests. A random port is used if not set"`
+	Port string `long:"port" env:"PORT" description:"Service port for HTTP and gRPC requests. A random port is used if not set. Port may also take the form 'unix:///path/to/socket' to use a Unix Domain Socket"`
 }
 
 // ProcessSpec of the ServiceConfig.
@@ -36,10 +36,17 @@ func (cfg ServiceConfig) BuildProcessSpec(srv *server.Server) protocol.ProcessSp
 		cfg.Host, err = os.Hostname()
 		Must(err, "failed to determine hostname")
 	}
-	cfg.Port = uint16(srv.RawListener.Addr().(*net.TCPAddr).Port)
+
+	var endpoint string
+	switch addr := srv.RawListener.Addr().(type) {
+	case *net.TCPAddr:
+		endpoint = fmt.Sprintf("http://%s:%d", cfg.Host, addr.Port)
+	case *net.UnixAddr:
+		endpoint = fmt.Sprintf("%s://%s%s", addr.Net, cfg.Host, addr.Name)
+	}
 
 	return protocol.ProcessSpec{
 		Id:       protocol.ProcessSpec_ID{Zone: cfg.Zone, Suffix: cfg.ID},
-		Endpoint: protocol.Endpoint(fmt.Sprintf("http://%s:%d", cfg.Host, cfg.Port)),
+		Endpoint: protocol.Endpoint(endpoint),
 	}
 }

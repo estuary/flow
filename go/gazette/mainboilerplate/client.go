@@ -18,7 +18,8 @@ type AddressConfig struct {
 
 // MustDial dials the server address using a protocol.Dispatcher balancer, and panics on error.
 func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
-	var cc, err = grpc.DialContext(ctx, c.Address.URL().Host,
+	var cc, err = grpc.DialContext(ctx,
+		c.Address.GRPCAddr(),
 		grpc.WithInsecure(),
 		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName),
 		// Use a tighter bound for the maximum back-off delay (default is 120s).

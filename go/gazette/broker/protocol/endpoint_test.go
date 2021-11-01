@@ -33,4 +33,12 @@ func (s *EndpointSuite) TestURLConversion(c *gc.C) {
 	c.Check(func() { ep.URL() }, gc.PanicMatches, "not absolute: .*")
 }
 
+func (s *EndpointSuite) TestGRPCConversion(c *gc.C) {
+	var ep Endpoint = "http://host:1234/path?query"
+	c.Check(ep.GRPCAddr(), gc.Equals, "host:1234")
+
+	ep = "unix://some-host/a/path"
+	c.Check(ep.GRPCAddr(), gc.Equals, "unix:///a/path")
+}
+
 var _ = gc.Suite(&EndpointSuite{})

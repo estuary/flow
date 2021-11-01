@@ -27,6 +27,19 @@ func (ep Endpoint) URL() *url.URL {
 	}
 }
 
+// GRPCAddr maps this Endpoint into an address form suitable for gRPC to dial.
+func (ep Endpoint) GRPCAddr() string {
+	// gRPC wants the host/authority of a unix:// URL to be empty,
+	// whereas we populate it with the hostname. Strip it.
+	var addr string
+	if u := ep.URL(); u.Scheme == "unix" {
+		addr = "unix://" + u.Path
+	} else {
+		addr = u.Host
+	}
+	return addr
+}
+
 func (ep Endpoint) parse() (*url.URL, error) {
 	var url, err = url.Parse(string(ep))
 	if err != nil {

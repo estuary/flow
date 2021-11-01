@@ -273,7 +273,7 @@ func (d *dispatcher) idToAddr(rt Route, id ProcessSpec_ID) string {
 	}
 	for i := range rt.Members {
 		if rt.Members[i] == id {
-			return rt.Endpoints[i].URL().Host
+			return rt.Endpoints[i].GRPCAddr()
 		}
 	}
 	panic("ProcessSpec_ID must be in Route.Members")

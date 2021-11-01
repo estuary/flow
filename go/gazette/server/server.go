@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -20,8 +21,8 @@ import (
 // socket (using CMux). Additional protocols may be added to the Server by
 // interacting directly with its provided CMux.
 type Server struct {
-	// RawListener is the bound TCP listener of the Server.
-	RawListener *net.TCPListener
+	// RawListener is the bound listener of the Server.
+	RawListener net.Listener
 	// CMux wraps RawListener to provide connection protocol multiplexing over
 	// a single bound socket. gRPC and HTTP Listeners are provided by default.
 	// Additional Listeners may be added directly via CMux.Match() -- though
@@ -42,11 +43,18 @@ type Server struct {
 }
 
 // New builds and returns a Server of the given TCP network interface |iface|
-// and |port|. |port| may be zero, in which case a random free port is assigned.
-func New(iface string, port uint16) (*Server, error) {
-	var addr = fmt.Sprintf("%s:%d", iface, port)
+// and |port|. |port| may be empty, in which case a random free port is assigned.
+func New(iface string, port string) (*Server, error) {
+	var network, addr string
+	if port == "" {
+		network, addr = "tcp", fmt.Sprintf("%s:0", iface) // Assign a random free port.
+	} else if u, err := url.Parse(port); err == nil && u.Scheme == "unix" {
+		network, addr = "unix", u.Path
+	} else {
+		network, addr = "tcp", fmt.Sprintf("%s:%s", iface, port)
+	}
 
-	var raw, err = net.Listen("tcp", addr)
+	var raw, err = net.Listen(network, addr)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to bind service address (%s)", addr)
 	}
@@ -57,7 +65,7 @@ func New(iface string, port uint16) (*Server, error) {
 			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
 		),
-		RawListener: raw.(*net.TCPListener),
+		RawListener: raw,
 	}
 	srv.CMux = cmux.New(srv.RawListener)
 
@@ -110,7 +118,7 @@ func New(iface string, port uint16) (*Server, error) {
 // MustLoopback builds and returns a new Server instance bound to a random
 // port on the loopback interface. It panics on error.
 func MustLoopback() *Server {
-	if srv, err := New("127.0.0.1", 0); err != nil {
+	if srv, err := New("127.0.0.1", ""); err != nil {
 		log.WithField("err", err).Panic("failed to build Server")
 		panic("not reached")
 	} else {
