@@ -61,8 +61,8 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 
 	if err := build.Extract(func(db *sql.DB) error {
 
-		// Explicit names to pluck. Or, if --all or --all-derivations,
-		// those are also honored.
+		// Index explicit names to activate. If --all or --all-derivations is set,
+		// additional names not in |names| may also be activated.
 		var names = make(map[string]struct{})
 		for _, t := range cmd.Names {
 			names[t] = struct{}{}
@@ -73,7 +73,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		} else {
 			for _, c := range all {
 				var _, ok = names[c.Collection.String()]
-				if ok || cmd.All {
+				if ok || cmd.All || cmd.AllDerivations {
 					collections = append(collections, c)
 				}
 			}
