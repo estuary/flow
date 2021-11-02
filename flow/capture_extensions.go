@@ -30,7 +30,11 @@ func (m *CaptureSpec) Validate() error {
 			return pb.ExtendContext(err, "Bindings[%d]", i)
 		}
 	}
-
+	if err := m.ShardTemplate.Validate(); err != nil {
+		return pb.ExtendContext(err, "ShardTemplate")
+	} else if err := m.RecoveryLogTemplate.Validate(); err != nil {
+		return pb.ExtendContext(err, "RecoveryLogTemplate")
+	}
 	return nil
 }
 

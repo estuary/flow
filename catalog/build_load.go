@@ -42,7 +42,6 @@ type BuiltCatalog struct {
 	Materializations []pf.MaterializationSpec
 	NPMPackage       []byte
 	Schemas          pf.SchemaBundle
-	ShardRules       pf.ShardRules
 	Tests            []pf.TestSpec
 }
 
@@ -165,14 +164,6 @@ func LoadFromSQLite(path string) (*BuiltCatalog, error) {
 		func(l []interface{}) { out.Schemas.Bundle[*l[0].(*string)] = *l[1].(*string) },
 	); err != nil {
 		return nil, fmt.Errorf("loading schema documents: %w", err)
-	}
-
-	if err := loadSpecs(db,
-		`SELECT spec FROM shard_rules ORDER BY rule ASC;`,
-		func() loadableSpec { return new(pf.ShardRules_Rule) },
-		func(l loadableSpec) { out.ShardRules.Rules = append(out.ShardRules.Rules, *l.(*pf.ShardRules_Rule)) },
-	); err != nil {
-		return nil, fmt.Errorf("loading shard rules: %w", err)
 	}
 
 	if err := loadSpecs(db,
