@@ -140,14 +140,14 @@ go-test-ci:   $(GO_BUILD_DEPS) ${TOOLBIN}/etcd
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: ${GOBIN}/flowctl ${TOOLBIN}/etcd
+catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${TOOLBIN}/etcd
 	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
-# upstream targes are all PHONY as well, so there would be no way to prevent them from runnign twice if you
+# upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you
 # invoke e.g. `make package` followed by `make docker-image`. If the `docker-image` target depended
 # on the `package` target, it would not skip the package step when you invoke `docker-image`.
 # For now, the github action workflow manually invokes make to perform each of these tasks.
@@ -155,27 +155,16 @@ package: $(PACKAGE_TARGETS)
 docker-image:
 	docker build \
 		--file ${ROOTDIR}/.devcontainer/release.Dockerfile \
-		--tag quay.io/estuary/flow:${VERSION} \
-		--tag quay.io/estuary/flow:dev \
 		--tag ghcr.io/estuary/flow:${VERSION} \
 		--tag ghcr.io/estuary/flow:dev \
 		${PKGDIR}/
 
 .PHONY: docker-push
 docker-push:
-	docker push quay.io/estuary/flow:${VERSION}
 	docker push ghcr.io/estuary/flow:${VERSION}
 
 # This is used by the GH Action workflow to push the 'dev' tag.
 # It is invoked only for builds on the master branch.
 .PHONY: docker-push-dev
 docker-push-dev:
-	docker push quay.io/estuary/flow:dev
 	docker push ghcr.io/estuary/flow:dev
-
-##########################################################################
-# Make targets used for development:
-
-.PHONY: develop
-develop: ${GOBIN}/flowctl ${TOOLBIN}/etcd
-	${GOBIN}/flowctl develop --source ${ROOTDIR}/examples/local-sqlite.flow.yaml --log.level info $(ARGS)
