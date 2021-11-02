@@ -208,7 +208,7 @@ message Inference {
 }
 
 message CollectionSpec {
-  // Next tag: 9.
+  // Next tag: 10.
 
   // Name of this collection.
   string collection = 1 [ (gogoproto.casttype) = "Collection" ];
@@ -231,6 +231,8 @@ message CollectionSpec {
   // transaction acknowledgements of writes into this collection.
   string ack_json_template = 7
       [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+  // Template for partitions of this collection.
+  protocol.JournalSpec partition_template = 9;
 }
 
 // TransformSpec describes a specific transform of a derivation.
@@ -249,6 +251,8 @@ message TransformSpec {
 
 // DerivationSpec describes a collection, and it's means of derivation.
 message DerivationSpec {
+  // Next tag: 7.
+
   // Derivations are collections.
   CollectionSpec collection = 1 [ (gogoproto.nullable) = false ];
   // Schema against which derivation registers are validated,
@@ -261,6 +265,10 @@ message DerivationSpec {
   ];
   // Transforms of this derivation.
   repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
+  // Template for shards of this derivation.
+  consumer.ShardSpec shard_template = 5;
+  // Template for recovery logs of shards of this derivation.
+  protocol.JournalSpec recovery_log_template = 6;
 }
 
 // EndpointType enumerates the endpoint types understood by Flow.
@@ -298,6 +306,8 @@ message FieldSelection {
 
 // CaptureSpec describes a collection and its capture from an endpoint.
 message CaptureSpec {
+  // Next tag: 8.
+
   // Name of this capture.
   string capture = 1 [ (gogoproto.casttype) = "Capture" ];
   // Type of the captures's endpoint.
@@ -325,11 +335,17 @@ message CaptureSpec {
   repeated Binding bindings = 4;
   // Minimum interval of time between successive invocations of the capture.
   uint32 interval_seconds = 5;
+  // Template for shards of this capture.
+  consumer.ShardSpec shard_template = 6;
+  // Template for recovery logs of shards of this capture.
+  protocol.JournalSpec recovery_log_template = 7;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
 // endpoint.
 message MaterializationSpec {
+  // Next tag: 7.
+
   // Name of this materialization.
   string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Type of the materialization's endpoint.
@@ -362,6 +378,10 @@ message MaterializationSpec {
     Shuffle shuffle = 6 [ (gogoproto.nullable) = false ];
   }
   repeated Binding bindings = 4;
+  // Template for shards of this materialization.
+  consumer.ShardSpec shard_template = 5;
+  // Template for recovery logs of shards of this materialization.
+  protocol.JournalSpec recovery_log_template = 6;
 }
 
 // TestSpec describes a catalog test.
@@ -432,21 +452,6 @@ message JournalRules {
     protocol.LabelSelector selector = 2 [ (gogoproto.nullable) = false ];
     // Template to union into the base JournalSpec.
     protocol.JournalSpec template = 3 [ (gogoproto.nullable) = false ];
-  }
-  repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
-}
-
-// ShardRules are an ordered sequence of Rules which specify a
-// condition -- as a label selector -- and, if matched, a template
-// to apply to the base ShardSpec.
-message ShardRules {
-  message Rule {
-    // Name of the rule.
-    string rule = 1;
-    // Label selector which must pass for the template to be applied.
-    protocol.LabelSelector selector = 2 [ (gogoproto.nullable) = false ];
-    // Template to union into the base ShardSpec.
-    consumer.ShardSpec template = 3 [ (gogoproto.nullable) = false ];
   }
   repeated Rule rules = 1 [ (gogoproto.nullable) = false ];
 }
@@ -555,13 +560,14 @@ service Splitter { rpc Split(SplitRequest) returns (SplitResponse); }
 // A CatalogTask is associated with a CatalogCommons, which provides all
 // resources required by the current specification that may be shared
 // with other CatalogTasks.
+// TODO(johnny): Deprecated. CatalogTask is expected to go away
+// as we move task specifications out of Etcd.
 message CatalogTask {
-  // Tags 1-10 are available for future use.
+  // Tags 1-9 are available for future use.
 
   // Catalog commons used by this task.
   string commons_id = 10;
   // A capture of a data source into a collection.
-  // These don't do anything quite yet.
   CaptureSpec capture = 11;
   // An ingested collection.
   CollectionSpec ingestion = 12;
@@ -575,16 +581,19 @@ message CatalogTask {
 // CatalogTasks. It's indexed and referenced on its |commons_id|, which is an
 // opaque and unique identifier. A commons is garbage-collected when it's
 // no longer referred to by any CatalogTasks.
+// TODO(johnny): Deprecated. CatalogCommons is expected to go away
+// as we move task specifications out of Etcd.
 message CatalogCommons {
+  reserved 11;
+
   // ID of this commons.
   string commons_id = 1;
 
   // Tags 2-9 are available for future use.
 
   // Journal rules applied to create and update JournalSpecs.
+  // Deprecated.
   JournalRules journal_rules = 10 [ (gogoproto.nullable) = false ];
-  // Shard rules applied to create and update ShardSpecs.
-  ShardRules shard_rules = 11 [ (gogoproto.nullable) = false ];
   // Schema definitions, against which registers and sourced or derived
   // documents are validated.
   SchemaBundle schemas = 12 [ (gogoproto.nullable) = false ];
@@ -838,12 +847,6 @@ message BuildAPI {
     ContentType source_type = 3;
     // Path of the catalog database to write.
     string catalog_path = 4;
-    // Optional supplemental journal rules to add, beyond those already in the
-    // catalog. This is used to add development & testing overrides.
-    JournalRules extra_journal_rules = 5;
-    // Optional supplemental shard rules to add, beyond those already in the
-    // catalog. This is used to add development & testing overrides.
-    ShardRules extra_shard_rules = 6;
     // Should the TypeScript package be generated?
     bool typescript_generate = 7;
     // Should the TypeScript package be built? Implies generation.

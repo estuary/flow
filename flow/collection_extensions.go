@@ -52,6 +52,9 @@ func (m *CollectionSpec) Validate() error {
 			return pb.NewValidationError("no keyed projection for key pointer %q", p)
 		}
 	}
+	if err := m.PartitionTemplate.Validate(); err != nil {
+		return pb.ExtendContext(err, "PartitionTemplate")
+	}
 
 	return nil
 }
@@ -72,7 +75,11 @@ func (m *DerivationSpec) Validate() error {
 			return pb.ExtendContext(err, "Transform[%d]", i)
 		}
 	}
-
+	if err := m.ShardTemplate.Validate(); err != nil {
+		return pb.ExtendContext(err, "ShardTemplate")
+	} else if err := m.RecoveryLogTemplate.Validate(); err != nil {
+		return pb.ExtendContext(err, "RecoveryLogTemplate")
+	}
 	return nil
 }
 

@@ -32,31 +32,6 @@ func (m *JournalRules) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the Rule is invalid.
-func (m *ShardRules_Rule) Validate() error {
-	if m.Rule == "" {
-		return pb.NewValidationError("missing Rule")
-	}
-	if err := m.Selector.Validate(); err != nil {
-		return pb.ExtendContext(err, "Selector")
-	}
-
-	// We cannot validate templates because, by design,
-	// they are only partial specifications.
-
-	return nil
-}
-
-// Validate returns an error if the Rules are invalid.
-func (m *ShardRules) Validate() error {
-	for i, r := range m.Rules {
-		if err := r.Validate(); err != nil {
-			return pb.ExtendContext(err, "Rules[%d]", i)
-		}
-	}
-	return nil
-}
-
 // Validate returns an error if the CatalogTask is invalid.
 func (m *CatalogTask) Validate() error {
 	if m.CommonsId == "" {
@@ -141,8 +116,6 @@ func (m *CatalogCommons) Validate() error {
 		return pb.NewValidationError("missing CommonsId")
 	} else if err := m.JournalRules.Validate(); err != nil {
 		return pb.ExtendContext(err, "JournalRules")
-	} else if err := m.ShardRules.Validate(); err != nil {
-		return pb.ExtendContext(err, "ShardRules")
 	}
 	return nil
 }
