@@ -3,9 +3,10 @@ module github.com/estuary/flow
 go 1.16
 
 require (
+	cloud.google.com/go/storage v1.18.2
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20211102003626-cbc07f4175de
+	github.com/estuary/protocols v0.0.0-20211105170117-f515832123f0
 	github.com/evanphx/json-patch/v5 v5.5.0
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
@@ -26,6 +27,7 @@ require (
 	go.gazette.dev/core v0.89.1-0.20211102012207-3059932fee87
 	golang.org/x/net v0.0.0-20210825183410-e898025ed96a
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
+	google.golang.org/api v0.60.0
 	google.golang.org/grpc v1.40.0
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 )
