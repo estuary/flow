@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,16 +14,19 @@ import (
 	"runtime"
 	"sync"
 
+	"cloud.google.com/go/storage"
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/protocols/catalog"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
+	"google.golang.org/api/option"
 )
 
 // BuildService manages active catalog builds.
 type BuildService struct {
-	baseURL *url.URL                // URL to which buildIDs are joined.
-	builds  map[string]*sharedBuild // All active builds.
-	mu      sync.Mutex
+	baseURL  *url.URL                // URL to which buildIDs are joined.
+	builds   map[string]*sharedBuild // All active builds.
+	gsClient *storage.Client         // Google storage client which is initalized on first use.
+	mu       sync.Mutex
 }
 
 // Build is lightweight reference to a shared catalog build.
@@ -62,8 +67,9 @@ func NewBuildService(baseURL string) (*BuildService, error) {
 	base.Path = path.Clean(base.Path) + "/"
 
 	return &BuildService{
-		baseURL: base,
-		builds:  make(map[string]*sharedBuild),
+		baseURL:  base,
+		builds:   make(map[string]*sharedBuild),
+		gsClient: nil, // Initialized lazily.
 	}, nil
 }
 
@@ -156,7 +162,7 @@ func (b *Build) dbInit() (err error) {
 	defer func() { b.dbErr = err }()
 
 	var resource = b.svc.baseURL.ResolveReference(&url.URL{Path: b.buildID})
-	b.dbLocalPath, b.dbTempfile, err = fetchResource(resource)
+	b.dbLocalPath, b.dbTempfile, err = fetchResource(b.svc, resource)
 	if err != nil {
 		return fmt.Errorf("fetching DB: %w", err)
 	}
@@ -270,11 +276,40 @@ func (b *sharedBuild) destroy() error {
 	return nil
 }
 
-func fetchResource(resource *url.URL) (path string, tempfile *os.File, _ error) {
-	// TODO(johnny): Support gs:// scheme by fetching to a local |tempfile| using application default credentials.
+func fetchResource(svc *BuildService, resource *url.URL) (path string, tempfile *os.File, err error) {
+	var ctx = context.Background()
+
 	switch resource.Scheme {
 	case "file":
 		return resource.Path, nil, nil
+	case "gs":
+		// Building the client will fail if application default credentials aren't located.
+		// https://developers.google.com/accounts/docs/application-default-credentials
+		svc.mu.Lock()
+		if svc.gsClient == nil {
+			svc.gsClient, err = storage.NewClient(ctx, option.WithScopes(storage.ScopeReadOnly))
+		}
+		svc.mu.Unlock()
+
+		if err != nil {
+			return "", nil, fmt.Errorf("building google storage client: %w", err)
+		}
+
+		var r *storage.Reader
+		if r, err = svc.gsClient.Bucket(resource.Host).Object(resource.Path[1:]).NewReader(ctx); err != nil {
+			return "", nil, err
+		}
+		defer r.Close()
+
+		if tempfile, err = ioutil.TempFile("", "build"); err != nil {
+			return "", nil, err
+		}
+		if _, err = io.Copy(tempfile, r); err != nil {
+			_ = os.Remove(tempfile.Name())
+			return "", nil, err
+		}
+
+		return tempfile.Name(), tempfile, nil
 
 	default:
 		return "", nil, fmt.Errorf("unsupported scheme: %s", resource.Scheme)
