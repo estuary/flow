@@ -108,8 +108,6 @@ func (r *LogService) NewPublisher(
 	var partitions = tuple.Tuple{
 		shard.Kind,
 		shard.Name,
-		shard.KeyBegin,
-		shard.RClockBegin,
 	}
 	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
 
@@ -263,7 +261,7 @@ func (m *constMapper) Map(msg message.Mappable) (pb.Journal, string, error) {
 // collection that we'll publish to. This validation should fail if someone were to change the
 // generated ops collections without updating this file to match.
 func validateLogCollection(c *pf.CollectionSpec) error {
-	var expectedPartitionFields = []string{"kind", "name", "rangeKeyBegin", "rangeRClockBegin"}
+	var expectedPartitionFields = []string{"kind", "name"}
 	if err := validateStringSliceEq(expectedPartitionFields, c.PartitionFields); err != nil {
 		return fmt.Errorf("invalid partition fields: %w", err)
 	}
