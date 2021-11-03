@@ -107,17 +107,9 @@ fn add_ops_collection(
         models::JournalTemplate::default(),
     );
 
-    // Ops collections are partitioned by shard, so that each shard has dedicated journals for
-    // logs and stats. The names of these partition fields are important because partitions are
-    // ordered lexicographically, and we want the partitions to be ordered from most general to
-    // most specific (kind -> name -> rangeKeyBegin -> rangeRClockBegin). This corresponds to the
-    // hierarchy that will be used for storing fragments.
-    let projections = &[
-        ("kind", "/shard/kind"),
-        ("name", "/shard/name"),
-        ("rangeKeyBegin", "/shard/keyBegin"),
-        ("rangeRClockBegin", "/shard/rClockBegin"),
-    ];
+    // Ops collections are partitioned by kind and name, to allow users to easily consume logs or
+    // stats for a single task, or all tasks of a type.
+    let projections = &[("kind", "/shard/kind"), ("name", "/shard/name")];
     for (field, ptr) in projections {
         tables.projections.insert_row(
             scope.clone(),
