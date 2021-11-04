@@ -153,6 +153,7 @@ func (m *ApplyResponse) UnmarshalJSON(b []byte) error {
 	return jsonpb.Unmarshal(bytes.NewReader(b), m)
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionRequest) Validate() error {
 	var count int
 	if m.Open != nil {
@@ -185,13 +186,20 @@ func (m *TransactionRequest) Validate() error {
 		}
 		count += 1
 	}
+	if m.Acknowledge != nil {
+		if err := m.Acknowledge.Validate(); err != nil {
+			return pb.ExtendContext(err, "Acknowledge")
+		}
+		count += 1
+	}
 
 	if count != 1 {
-		return pb.NewValidationError("expected one of Open, Load, Prepare, Store, Commit")
+		return pb.NewValidationError("expected one of Open, Load, Prepare, Store, Commit, Acknowledge")
 	}
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionRequest_Open) Validate() error {
 	if err := m.Materialization.Validate(); err != nil {
 		return pb.ExtendContext(err, "Materialization")
@@ -204,6 +212,7 @@ func (m *TransactionRequest_Open) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionRequest_Load) Validate() error {
 	if len(m.PackedKeys) == 0 {
 		return pb.NewValidationError("expected PackedKeys")
@@ -211,6 +220,7 @@ func (m *TransactionRequest_Load) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionRequest_Prepare) Validate() error {
 	if len(m.FlowCheckpoint) == 0 {
 		return pb.NewValidationError("expected FlowCheckpoint")
@@ -218,6 +228,7 @@ func (m *TransactionRequest_Prepare) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionRequest_Store) Validate() error {
 	if ll := len(m.DocsJson); ll == 0 {
 		return pb.NewValidationError("expected DocsJson")
@@ -231,10 +242,17 @@ func (m *TransactionRequest_Store) Validate() error {
 	return nil
 }
 
+// Validate is a no-op.
 func (m *TransactionRequest_Commit) Validate() error {
 	return nil
 }
 
+// Validate is a no-op.
+func (m *TransactionRequest_Acknowledge) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse) Validate() error {
 	var count int
 	if m.Opened != nil {
@@ -255,24 +273,32 @@ func (m *TransactionResponse) Validate() error {
 		}
 		count += 1
 	}
-	if m.Committed != nil {
-		if err := m.Committed.Validate(); err != nil {
-			return pb.ExtendContext(err, "Committed")
+	if m.DriverCommitted != nil {
+		if err := m.DriverCommitted.Validate(); err != nil {
+			return pb.ExtendContext(err, "DriverCommitted")
+		}
+		count += 1
+	}
+	if m.Acknowledged != nil {
+		if err := m.Acknowledged.Validate(); err != nil {
+			return pb.ExtendContext(err, "Acknowledged")
 		}
 		count += 1
 	}
 
 	if count != 1 {
-		return pb.NewValidationError("expected one of Opened, Loaded, Prepared, Committed")
+		return pb.NewValidationError("expected one of Opened, Loaded, Prepared, DriverCommitted, Acknowledged")
 	}
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_Opened) Validate() error {
 	// FlowCheckpoint may be empty.
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_Loaded) Validate() error {
 	if len(m.DocsJson) == 0 {
 		return pb.NewValidationError("expected DocsJson")
@@ -280,6 +306,7 @@ func (m *TransactionResponse_Loaded) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_Prepared) Validate() error {
 	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
 		return pb.NewValidationError("expected DriverCheckpointJson")
@@ -287,7 +314,13 @@ func (m *TransactionResponse_Prepared) Validate() error {
 	return nil
 }
 
-func (m *TransactionResponse_Committed) Validate() error {
+// Validate returns an error if the message is not well-formed.
+func (m *TransactionResponse_DriverCommitted) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *TransactionResponse_Acknowledged) Validate() error {
 	return nil
 }
 

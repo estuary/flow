@@ -3,6 +3,8 @@ syntax = "proto3";
 package capture;
 option go_package = "github.com/estuary/protocols/capture";
 
+import "broker/protocol/protocol.proto";
+import "consumer/protocol/protocol.proto";
 import "flow/flow.proto";
 import "gogoproto/gogo.proto";
 
@@ -18,10 +20,109 @@ service Driver {
   rpc Spec(SpecRequest) returns (SpecResponse);
   // Discover returns the set of resources available from this Driver.
   rpc Discover(DiscoverRequest) returns (DiscoverResponse);
-  // Validate that resources and bound CollectionSpecs are compatible with one another.
+  // Validate that resources and bound CollectionSpecs are compatible with one
+  // another.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
-  // Capture bound resources as a stream of documents and driver checkpoints.
-  rpc Capture(CaptureRequest) returns (stream CaptureResponse);
+  // Pull is a very long lived RPC through which the Flow runtime and a
+  // Driver cooperatively execute an unbounded number of transactions.
+  //
+  // The Pull workflow pulls streams of documents into capturing Flow
+  // collections. Streams are incremental and resume-able, with resumption
+  // semantics defined by the driver. The Flow Runtime uses a transactional
+  // recovery log to support this workflow, and the driver may persist arbitrary
+  // driver checkpoints into that log as part of the RPC lifecycle,
+  // to power its chosen resumption semantics.
+  //
+  // Pull tasks are split-able, and many concurrent invocations of the RPC
+  // may collectively capture from a source, where each task split has an
+  // identified range of keys it's responsible for. The meaning of a "key",
+  // and it's application within the remote store being captured from, is up
+  // to the driver. The driver might map partitions or shards into the keyspace,
+  // and from there to a covering task split. Or, it might map distinct files,
+  // or some other unit of scaling.
+  //
+  // RPC Lifecycle
+  // =============
+  //
+  // :PullRequest.Open:
+  //    - The Flow runtime opens the pull stream.
+  // :PullResponse.Opened:
+  //    - The driver responds with Opened.
+  //
+  // PullRequest.Open and PullRequest.Opened are sent only once, at the
+  // commencement of the stream. Thereafter the protocol loops:
+  //
+  // :PullResponse.Documents:
+  //    - The driver tells the runtime of some documents, which are pending a
+  //      future Checkpoint.
+  //    - If the driver sends multiple Documents messages without an
+  //      interleaving Checkpoint, the Flow runtime MUST commit
+  //      documents of all such messages in a single transaction.
+  // :PullResponse.Checkpoint:
+  //    - The driver tells the runtime of a checkpoint: a watermark in the
+  //      captured documents stream which is eligble to be used as a
+  //      transaction commit boundary.
+  //    - Whether the checkpoint becomes a commit boundary is at the
+  //      discretion of the Flow runtime. It may combine multiple checkpoints
+  //      into a single transaction.
+  // :PullRequest.Acknowledge:
+  //    - The Flow runtime tells the driver that its Checkpoint has committed.
+  //    - The runtime sends one ordered Acknowledge for each Checkpoint.
+  //
+  rpc Pull(stream PullRequest) returns (stream PullResponse);
+}
+
+// Runtime is the Flow runtime service which implements push-based captures.
+service Runtime {
+  // Push may be a short or very long lived RPC through which the Flow runtime
+  // and a driver cooperatively execute an unbounded number of transactions.
+  //
+  // The Push workflow pushes streams of documents into capturing Flow
+  // collections. The driver is responsible for initiation and resumption of
+  // push streams. The Flow runtime uses a transactional recovery log to support
+  // this workflow, and the driver may persist arbitrary driver checkpoints into
+  // that log as part of the RPC lifecycle, to power its chosen resumption
+  // semantics.
+  //
+  // A push RPC is evaluated against a specific task shard split, which is
+  // encoded in the PushRequest.Open.Header. A driver may perform its own load
+  // balancing by obtain a shard listing and embedding a selected shard into
+  // that header. Or, it may leave it empty and an arbitary shard will be
+  // randomly chosen for it.
+  //
+  // RPC Lifecycle
+  // =============
+  //
+  // :PushRequest.Open:
+  //    - The driver opens the push stream, naming its capture and
+  //      optional routing header.
+  // :PushResponse.Opened:
+  //    - The Flow runtime responds with Opened, which tells the driver
+  //      of the specific CaptureSpec and [key_begin, key_end] range of
+  //      this RPC, as well as the last driver checkpoint.
+  //    - The semantics and treatment of the key range is up to the driver.
+  //
+  // PushRequest.Open and PushRequest.Opened are sent only once, at the
+  // commencement of the stream. Thereafter the protocol loops:
+  //
+  // :PushRequest.Documents:
+  //    - The driver tells the runtime of some documents, which are pending a
+  //      future Checkpoint.
+  //    - If the driver sends multiple Documents messages without an
+  //      interleaving Checkpoint, the Flow runtime MUST commit
+  //      documents of all such messages in a single transaction.
+  // :PushRequest.Checkpoint:
+  //    - The driver tells the runtime of a checkpoint: a watermark in the
+  //      captured documents stream which is eligble to be used as a
+  //      transaction commit boundary.
+  //    - Whether the checkpoint becomes a commit boundary is at the
+  //      discretion of the Flow runtime. It may combine multiple checkpoints
+  //      into a single transaction.
+  // :PushResponse.Acknowledge:
+  //    - The Flow runtime tells the driver that its Checkpoint has committed.
+  //    - The runtime sends one ordered Acknowledge for each Checkpoint.
+  //
+  rpc Push(stream PushRequest) returns (PushResponse);
 }
 
 // SpecRequest is the request type of the Spec RPC.
@@ -91,8 +192,8 @@ message DiscoverResponse {
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
   // Name of the capture being validated.
-  string capture = 1 [ (gogoproto.casttype) =
-    "github.com/estuary/protocols/flow.Capture" ];
+  string capture = 1
+      [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Capture" ];
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 2;
   // Driver specification, as an encoded JSON object.
@@ -100,8 +201,8 @@ message ValidateRequest {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Bindings of endpoint resources and collections to which they would be captured.
-  // Bindings are ordered and unique on the bound collection name.
+  // Bindings of endpoint resources and collections to which they would be
+  // captured. Bindings are ordered and unique on the bound collection name.
   message Binding {
     // JSON-encoded object which specifies the endpoint resource to be captured.
     string resource_spec_json = 1 [
@@ -116,8 +217,8 @@ message ValidateRequest {
 
 // ValidateResponse is the response type of the Validate RPC.
 message ValidateResponse {
-  // Validation responses for each binding of the request,
-  // and matching the request ordering.
+  // Validation responses for each binding of the request, and matching the
+  // request ordering. Each Binding must have a unique resource_path.
   message Binding {
     // Components of the resource path which fully qualify the resource
     // identified by this binding.
@@ -129,63 +230,128 @@ message ValidateResponse {
   repeated Binding bindings = 1;
 }
 
-// CaptureRequest is the request type of a Capture RPC.
-message CaptureRequest {
-  // Capture to be run, which is the CaptureSpec
-  // last provided to a successful Validate RPC.
-  flow.CaptureSpec capture = 1;
-  // [key_begin, key_end] inclusive range of keys processed by this
-  // transaction stream. Ranges reflect the disjoint chunks of ownership
-  // specific to each instance of a scale-out capture implementation.
-  fixed32 key_begin = 2;
-  fixed32 key_end = 3;
-  // Last-persisted driver checkpoint from a previous capture stream.
-  // Or empty, if the driver has cleared or never set its checkpoint.
-  bytes driver_checkpoint_json = 4 [
+// Documents is a set of documents drawn from a binding of the capture.
+message Documents {
+  // The capture binding for documents of this message.
+  uint32 binding = 1;
+  // Byte arena of the response.
+  bytes arena = 2
+      [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena" ];
+  // Captured JSON documents.
+  repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
+}
+
+// Checkpoint represents the driver's intention to commit.
+message Checkpoint {
+  // Optional driver checkpoint of this transaction, to be persisted
+  // by the Flow runtime and returned in a future PullRequest or PushResponse.
+  // If empty, then a previous checkpoint is cleared.
+  bytes driver_checkpoint_json = 1 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "driverCheckpoint"
   ];
-  // If true, perform a blocking tail of the capture.
-  // If false, produce all ready output and then close the stream.
-  bool tail = 5;
+  // If true, then the driver checkpoint must be non-empty and is
+  // applied as an RFC7396 Merge Patch atop the immediately preceeding
+  // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+  bool rfc7396_merge_patch = 2;
 }
 
-// CaptureResponse is the response type of a Capture RPC.
+// Acknowledge is a notification that a Checkpoint has committed to the
+// Flow runtime's recovery log.
+message Acknowledge {}
+
+// PullRequest is the request type of a Driver.Pull RPC.
 // It will have exactly one top-level field set, which represents its message
 // type.
-message CaptureResponse {
-  // Opened responds to CaptureRequest of the client,
-  // and is sent exactly once as the first message of the stream.
-  message Opened {
-  }
-  Opened opened = 1;
-
-  // Captured returns documents of the capture stream.
-  message Captured {
-    // The capture binding for documents of this Captured response.
-    uint32 binding = 1;
-    // Byte arena of the response.
-    bytes arena = 2 [
-      (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena"
-    ];
-    // Captured JSON documents.
-    repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
-  }
-  Captured captured = 2;
-
-  // Commit previous captured documents.
-  message Commit {
-    // Optional driver checkpoint of this transaction, to be persisted
-    // by the Flow runtime and returned in a future CaptureRequest.
-    // If empty, then a previous checkpoint is cleared.
-    bytes driver_checkpoint_json = 1 [
+message PullRequest {
+  // Open opens a Pull of the driver, and is sent exactly once as the first
+  // message of the stream.
+  message Open {
+    // CaptureSpec to be pulled.
+    flow.CaptureSpec capture = 1;
+    // [key_begin, key_end] inclusive range of keys processed by this
+    // transaction stream. Ranges reflect the disjoint chunks of ownership
+    // specific to each instance of a scale-out capture implementation.
+    fixed32 key_begin = 2;
+    fixed32 key_end = 3;
+    // Last-persisted driver checkpoint from a previous capture stream.
+    // Or empty, if the driver has cleared or never set its checkpoint.
+    bytes driver_checkpoint_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
-    // If true, then the driver checkpoint must be non-empty and is
-    // applied as an RFC7396 Merge Patch atop the immediately preceeding
-    // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
-    bool rfc7396_merge_patch = 2;
+    // If true, perform a blocking tail of the capture.
+    // If false, produce all ready output and then close the stream.
+    bool tail = 5;
   }
-  Commit commit = 3;
+  Open open = 1;
+
+  // Tell the driver that its Checkpoint has committed to the Flow recovery log.
+  Acknowledge acknowledge = 2;
+}
+
+// PullResponse is the response type of a Driver.Pull RPC.
+// It will have exactly one top-level field set, which represents its message
+// type.
+message PullResponse {
+  // Opened responds to PullRequest.Open of the runtime,
+  // and is sent exactly once as the first message of the stream.
+  message Opened {}
+  Opened opened = 1;
+
+  // Captured documents of the stream.
+  Documents documents = 2;
+
+  // Checkpoint all preceeding Documents of this stream.
+  Checkpoint checkpoint = 3;
+}
+
+// PushRequest is the request message of the Runtime.Push RPC.
+message PushRequest {
+  // Open opens a Push of the runtime, and is sent exactly once as the first
+  // message of the stream.
+  message Open {
+    // Header identifies a specific Shard and Route to which this stream is
+    // directed. It's optional, and is typically attached by a proxying peer.
+    protocol.Header header = 1;
+    // Name of the capture under which we're pushing.
+    string capture = 2
+        [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Capture" ];
+  }
+  Open open = 1;
+
+  // Captured documents of the stream.
+  Documents documents = 2;
+
+  // Checkpoint all preceeding Documents of this stream.
+  Checkpoint checkpoint = 3;
+}
+
+// PushResponse is the response message of the Runtime.Push RPC.
+message PushResponse {
+  // Opened responds to PushRequest.Open of the driver,
+  // and is sent exactly once as the first message of the stream.
+  message Opened {
+    // Status of the Push open.
+    consumer.Status status = 1;
+    // Header of the response.
+    protocol.Header header = 2 [ (gogoproto.nullable) = false ];
+    // CaptureSpec to be pushed.
+    flow.CaptureSpec capture = 3;
+    // [key_begin, key_end] inclusive range of keys processed by this
+    // transaction stream. Ranges reflect the disjoint chunks of ownership
+    // specific to each instance of a scale-out capture implementation.
+    fixed32 key_begin = 4;
+    fixed32 key_end = 5;
+    // Last-persisted driver checkpoint from a previous capture stream.
+    // Or empty, if the driver has cleared or never set its checkpoint.
+    bytes driver_checkpoint_json = 6 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "driverCheckpoint"
+    ];
+  }
+  Opened opened = 1;
+
+  // Tell the driver that its Checkpoint has committed to the Flow recovery log.
+  Acknowledge acknowledge = 2;
 }
