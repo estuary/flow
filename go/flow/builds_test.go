@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"database/sql"
+	"net/url"
 	"runtime"
 	"testing"
 
@@ -12,8 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBuildBaseParsing(t *testing.T) {
+	var builds, err = NewBuildService("https://example/")
+	require.NoError(t, err)
+	require.Equal(t, &url.URL{Scheme: "https", Host: "example", Path: "/"}, builds.baseURL)
+
+	builds, err = NewBuildService("https://example/with/slash/")
+	require.NoError(t, err)
+	require.Equal(t, &url.URL{Scheme: "https", Host: "example", Path: "/with/slash/"}, builds.baseURL)
+
+	_, err = NewBuildService("https://example/no/slash")
+	require.EqualError(t, err, "base URL \"https://example/no/slash\" must end in '/'")
+	_, err = NewBuildService("https://example")
+	require.EqualError(t, err, "base URL \"https://example\" must end in '/'")
+}
+
 func TestBuildReferenceCounting(t *testing.T) {
-	var builds, err = NewBuildService("file:///not/used")
+	var builds, err = NewBuildService("file:///not/used/")
 	require.NoError(t, err)
 
 	var b1 = builds.Open("an-id")
@@ -49,7 +65,7 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
-	var builds, err = NewBuildService("file://" + args.Directory)
+	var builds, err = NewBuildService("file://" + args.Directory + "/")
 	require.NoError(t, err)
 
 	// Open. Expect DB is not initialized until first use.
@@ -97,7 +113,7 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 }
 
 func TestInitOfMissingBuild(t *testing.T) {
-	var builds, err = NewBuildService("file:///dev/null")
+	var builds, err = NewBuildService("file:///dev/null/")
 	require.NoError(t, err)
 
 	var b1 = builds.Open("a-build")
