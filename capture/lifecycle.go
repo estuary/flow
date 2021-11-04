@@ -7,35 +7,35 @@ import (
 	pf "github.com/estuary/protocols/flow"
 )
 
-// StageCaptured potentially sends a previously staged Captured into the stream,
-// and then stages its arguments into response.Captured.
-func StageCaptured(
+// StagePullDocuments potentially sends a previously staged Documents into
+// the stream, and then stages its arguments into response.Captured.
+func StagePullDocuments(
 	stream interface {
-		Send(*CaptureResponse) error
+		Send(*PullResponse) error
 	},
-	response **CaptureResponse,
+	response **PullResponse,
 	binding int,
 	document json.RawMessage,
 ) error {
 	// Send current |response| if we would re-allocate.
 	if *response != nil {
 		var rem int
-		if l := (*response).Captured; int(l.Binding) != binding {
+		if l := (*response).Documents; int(l.Binding) != binding {
 			rem = -1 // Must flush this response.
 		} else if cap(l.DocsJson) != len(l.DocsJson) {
 			rem = cap(l.Arena) - len(l.Arena)
 		}
 		if rem < len(document) {
 			if err := stream.Send(*response); err != nil {
-				return fmt.Errorf("sending Captured response: %w", err)
+				return fmt.Errorf("sending Documents response: %w", err)
 			}
 			*response = nil
 		}
 	}
 
 	if *response == nil {
-		*response = &CaptureResponse{
-			Captured: &CaptureResponse_Captured{
+		*response = &PullResponse{
+			Documents: &Documents{
 				Binding:  uint32(binding),
 				Arena:    make(pf.Arena, 0, arenaSize),
 				DocsJson: make([]pf.Slice, 0, sliceSize),
@@ -43,33 +43,97 @@ func StageCaptured(
 		}
 	}
 
-	var l = (*response).Captured
+	var l = (*response).Documents
 	l.DocsJson = append(l.DocsJson, l.Arena.Add(document))
 
 	return nil
 }
 
-// WriteCommit flushes a pending Captured response, and sends a Commit response
-// with the provided driver checkpoint.
-func WriteCommit(
+// StagePushDocuments potentially sends a previously staged Documents into
+// the stream, and then stages its arguments into response.Captured.
+func StagePushDocuments(
 	stream interface {
-		Send(*CaptureResponse) error
+		Send(*PushRequest) error
 	},
-	response **CaptureResponse,
-	commit *CaptureResponse_Commit,
+	request **PushRequest,
+	binding int,
+	document json.RawMessage,
 ) error {
-	// Flush partial Captured response, if required.
+	// Send current |request| if we would re-allocate.
+	if *request != nil {
+		var rem int
+		if l := (*request).Documents; int(l.Binding) != binding {
+			rem = -1 // Must flush this response.
+		} else if cap(l.DocsJson) != len(l.DocsJson) {
+			rem = cap(l.Arena) - len(l.Arena)
+		}
+		if rem < len(document) {
+			if err := stream.Send(*request); err != nil {
+				return fmt.Errorf("sending Documents request: %w", err)
+			}
+			*request = nil
+		}
+	}
+
+	if *request == nil {
+		*request = &PushRequest{
+			Documents: &Documents{
+				Binding:  uint32(binding),
+				Arena:    make(pf.Arena, 0, arenaSize),
+				DocsJson: make([]pf.Slice, 0, sliceSize),
+			},
+		}
+	}
+
+	var l = (*request).Documents
+	l.DocsJson = append(l.DocsJson, l.Arena.Add(document))
+
+	return nil
+}
+
+// WritePullCheckpoint flushes a pending Documents response,
+// and sends a Checkpoint response with the provided driver checkpoint.
+func WritePullCheckpoint(
+	stream interface {
+		Send(*PullResponse) error
+	},
+	response **PullResponse,
+	checkpoint *Checkpoint,
+) error {
+	// Flush partial Documents response, if required.
 	if *response != nil {
 		if err := stream.Send(*response); err != nil {
-			return fmt.Errorf("flushing final Captured response: %w", err)
+			return fmt.Errorf("flushing final Documents response: %w", err)
 		}
 		*response = nil
 	}
 
-	if err := stream.Send(&CaptureResponse{
-		Commit: commit,
-	}); err != nil {
-		return fmt.Errorf("sending Commit response: %w", err)
+	if err := stream.Send(&PullResponse{Checkpoint: checkpoint}); err != nil {
+		return fmt.Errorf("sending Checkpoint response: %w", err)
+	}
+
+	return nil
+}
+
+// WritePushCheckpoint flushes a pending Documents response,
+// and sends a Checkpoint response with the provided driver checkpoint.
+func WritePushCheckpoint(
+	stream interface {
+		Send(*PushRequest) error
+	},
+	request **PushRequest,
+	checkpoint *Checkpoint,
+) error {
+	// Flush partial Documents request, if required.
+	if *request != nil {
+		if err := stream.Send(*request); err != nil {
+			return fmt.Errorf("flushing final Documents request: %w", err)
+		}
+		*request = nil
+	}
+
+	if err := stream.Send(&PushRequest{Checkpoint: checkpoint}); err != nil {
+		return fmt.Errorf("sending Checkpoint request: %w", err)
 	}
 
 	return nil

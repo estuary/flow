@@ -3,6 +3,7 @@ package capture
 import (
 	pf "github.com/estuary/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer/protocol"
 )
 
 func (m *SpecRequest) Validate() error {
@@ -95,19 +96,63 @@ func (m *ValidateResponse_Binding) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the CaptureRequest isn't well-formed.
-func (m *CaptureRequest) Validate() error {
+// Validate returns an error if the Documents isn't well-formed.
+func (m *Documents) Validate() error {
+	if len(m.DocsJson) == 0 {
+		return pb.NewValidationError("expected DocsJson")
+	}
+	return nil
+}
+
+// Validate returns an error if the Checkpoint isn't well-formed.
+func (m *Checkpoint) Validate() error {
+	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
+		return pb.NewValidationError("expected DriverCheckpointJson")
+	}
+	return nil
+}
+
+// Validate returns an error if the Acknowledge isn't well-formed.
+func (m *Acknowledge) Validate() error {
+	return nil // No-op.
+}
+
+// Validate returns an error if the PullRequest isn't well-formed.
+func (m *PullRequest) Validate() error {
+	var count int
+	if m.Open != nil {
+		if err := m.Open.Validate(); err != nil {
+			return pb.ExtendContext(err, "Opened")
+		}
+		count += 1
+	}
+	if m.Acknowledge != nil {
+		if err := m.Acknowledge.Validate(); err != nil {
+			return pb.ExtendContext(err, "Acknowledge")
+		}
+		count += 1
+	}
+
+	if count != 1 {
+		return pb.NewValidationError("expected one of Open, Acknowledge")
+	}
+	return nil
+}
+
+// Validate returns an error if the PullRequest_Open isn't well-formed.
+func (m *PullRequest_Open) Validate() error {
 	if err := m.Capture.Validate(); err != nil {
 		return pb.ExtendContext(err, "Capture")
 	} else if m.KeyEnd < m.KeyBegin {
 		return pb.NewValidationError("invalid key range (KeyEnd < KeyBegin)")
 	}
 	// DriverCheckpointJson may be empty.
+	// Tail has no validations.
 	return nil
 }
 
-// Validate returns an error if the CaptureResponse isn't well-formed.
-func (m *CaptureResponse) Validate() error {
+// Validate returns an error if the PullResponse isn't well-formed.
+func (m *PullResponse) Validate() error {
 	var count int
 	if m.Opened != nil {
 		if err := m.Opened.Validate(); err != nil {
@@ -115,42 +160,111 @@ func (m *CaptureResponse) Validate() error {
 		}
 		count += 1
 	}
-	if m.Captured != nil {
-		if err := m.Captured.Validate(); err != nil {
-			return pb.ExtendContext(err, "Captured")
+	if m.Documents != nil {
+		if err := m.Documents.Validate(); err != nil {
+			return pb.ExtendContext(err, "Documents")
 		}
 		count += 1
 	}
-	if m.Commit != nil {
-		if err := m.Commit.Validate(); err != nil {
-			return pb.ExtendContext(err, "Commit")
+	if m.Checkpoint != nil {
+		if err := m.Checkpoint.Validate(); err != nil {
+			return pb.ExtendContext(err, "Checkpoint")
 		}
 		count += 1
 	}
 
 	if count != 1 {
-		return pb.NewValidationError("expected one of Opened, Captured, Commit")
+		return pb.NewValidationError("expected one of Opened, Documents, Checkpoint")
 	}
 	return nil
 }
 
 // Validate is currently a no-op.
-func (m *CaptureResponse_Opened) Validate() error {
+func (m *PullResponse_Opened) Validate() error {
 	return nil // Opened has no fields.
 }
 
-// Validate returns an error if the CaptureResponse_Captured isn't well-formed.
-func (m *CaptureResponse_Captured) Validate() error {
-	if len(m.DocsJson) == 0 {
-		return pb.NewValidationError("expected DocsJson")
+// Validate returns an error if the PushRequest isn't well-formed.
+func (m *PushRequest) Validate() error {
+	var count int
+	if m.Open != nil {
+		if err := m.Open.Validate(); err != nil {
+			return pb.ExtendContext(err, "Open")
+		}
+		count += 1
+	}
+	if m.Documents != nil {
+		if err := m.Documents.Validate(); err != nil {
+			return pb.ExtendContext(err, "Documents")
+		}
+		count += 1
+	}
+	if m.Checkpoint != nil {
+		if err := m.Checkpoint.Validate(); err != nil {
+			return pb.ExtendContext(err, "Checkpoint")
+		}
+		count += 1
+	}
+
+	if count != 1 {
+		return pb.NewValidationError("expected one of Open, Documents, Checkpoint")
 	}
 	return nil
 }
 
-// Validate returns an error if the CaptureResponse_Commit isn't well-formed.
-func (m *CaptureResponse_Commit) Validate() error {
-	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
-		return pb.NewValidationError("expected DriverCheckpointJson")
+// Validate returns an error if the PushRequest_Open isn't well-formed.
+func (m *PushRequest_Open) Validate() error {
+	if m.Header != nil {
+		if err := m.Header.Validate(); err != nil {
+			return pb.ExtendContext(err, "Header")
+		}
 	}
+	if err := m.Capture.Validate(); err != nil {
+		return pb.ExtendContext(err, "Capture")
+	}
+	return nil
+}
+
+// Validate returns an error if the PushResponse isn't well-formed.
+func (m *PushResponse) Validate() error {
+	var count int
+	if m.Opened != nil {
+		if err := m.Opened.Validate(); err != nil {
+			return pb.ExtendContext(err, "Open")
+		}
+		count += 1
+	}
+	if m.Acknowledge != nil {
+		if err := m.Acknowledge.Validate(); err != nil {
+			return pb.ExtendContext(err, "Acknowledge")
+		}
+		count += 1
+	}
+
+	if count != 1 {
+		return pb.NewValidationError("expected one of Opened, Acknowledge")
+	}
+	return nil
+}
+
+// Validate returns an error if the PushResponse_Opened isn't well-formed.
+func (m *PushResponse_Opened) Validate() error {
+	if err := m.Status.Validate(); err != nil {
+		return pb.ExtendContext(err, "Status")
+	} else if err := m.Header.Validate(); err != nil {
+		return pb.ExtendContext(err, "Header")
+	}
+
+	if m.Status != protocol.Status_OK {
+		// Capture, KeyBegin, KeyEnd, and DriverCheckpointJson are unset.
+	} else if m.Capture == nil {
+		return pb.NewValidationError("missing Capture")
+	} else if err := m.Capture.Validate(); err != nil {
+		return pb.ExtendContext(err, "Capture")
+	} else if m.KeyEnd < m.KeyBegin {
+		return pb.NewValidationError("invalid key range (KeyEnd < KeyBegin)")
+	}
+	// DriverCheckpointJson may be empty.
+
 	return nil
 }

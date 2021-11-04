@@ -47,42 +47,249 @@ service Driver {
   // Apply a CollectionSpec and FieldSelections to a materialization target.
   rpc Apply(ApplyRequest) returns (ApplyResponse);
   // Transactions is a very long lived RPC through which the Flow runtime and a
-  // materialization endpoint cooperatively execute an unbounded number of
-  // transactions. The RPC follows the following lifecycle:
+  // Driver cooperatively execute an unbounded number of transactions.
   //
-  // :Open:
-  //    - The Flow runtime client sends TransactionRequest.Open,
-  //      opening the stream and requesting it be fenced from other streams.
-  // :Opened:
-  //    - The driver server sends TransactionResponse.Opened after ensuring
-  //      that other raced clients are fenced (if fencing is supported).
+  // This RPC workflow maintains a materialized view of a Flow collection
+  // in an external system. It has distinct load, prepare, store, and commit
+  // phases. The Flow runtime and driver cooperatively maintain a fully-reduced
+  // view of each document by loading current states from the store, reducing in
+  // a number of updates, and then transactionally storing updated documents and
+  // checkpoints.
+  //
+  // Push-only Endpoints & Delta Updates
+  // ===================================
+  //
+  // Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature.
+  // Flow materializations can run in a delta-updates mode, where the load
+  // phase is always skipped, and Flow does not attempt to store fully-reduced
+  // documents. Instead, during the store phase, the runtime sends delta
+  // updates which reflect the combined roll-up of collection documents
+  // processed only within this transaction.
+  //
+  // To illustrate with a simple counter, without delta-updates Flow would reduce
+  // collection documents [-1, 3, 2] with an initial value `0`, and then store
+  // 4. Next transaction, 4 is loaded, reduced with [6, -7, -1], and 2 is
+  // stored.
+  //
+  // Compare to delta mode: collection documents [-1, 3, 2] are combined to
+  // store a delta-update of 4. Next transaction, [6, -7, -1] is combined to
+  // store a delta-update of -2. If stored deltas were written to pub/sub, note
+  // that a subscriber could still reduce over each delta to recover the current
+  // sum of 2.
+  //
+  // On Transactionality
+  // ===================
+  //
+  // The beating heart of transactionality in materializations is this:
+  // there is a consumption checkpoint, and there is a state of the view.
+  // As the materialization progresses, both the checkpoint and the view state
+  // will change. Updates to the checkpoint and to the view state MUST always
+  // commit together, in the exact same transaction.
+  //
+  // Flow transaction tasks have a backing transactional recovery log,
+  // which is capable of durable commits that update both the checkpoint
+  // and also a (reasonably small) driver-defined state. More on driver
+  // states later.
+  //
+  // Many interesting systems are also fully transactional in nature.
+  //
+  // When implementing a matherialization driver, the first question an
+  // implementor must answer is: whose commit is authoritative?
+  // Flow's recovery log, or the materialized system ?
+  // This protocol supports either.
+  //
+  // Implementation Pattern: Remote Store is Authoritative
+  // =====================================================
+  //
+  // In this pattern, the remote store persists view states and the Flow
+  // consumption checkpoints which those views reflect (there are many such
+  // checkpoints: one per task split). The Flow recovery log is not used.
+  //
+  // Typically this workflow runs in the context of a synchronous BEGIN/COMMIT
+  // transaction, which updates table states and a Flow checkpoint together.
+  // The transaction need be scoped only to the store phase of this workflow,
+  // as the Flow runtime assumes only read-committed loads.
+  //
+  // Flow is a distributed system, and an important consideration is the effect
+  // of a "zombie" assignment of a materialization task, which can race a
+  // newly-promoted assignment of that same task.
+  //
+  // Fencing is a technique which uses the transactional capabilities of a store
+  // to "fence off" an older zombie assignment, such that it's prevented from
+  // committing further transactions. This avoids a failure mode where:
+  //  - New assignment N recovers a checkpoint at Ti.
+  //  - Zombie assignment Z commits another transaction at Ti+1.
+  //  - N beings processing from Ti, inadvertently duplicating the effects of
+  //  Ti+1.
+  //
+  // When authoritative, the remote store must implement fencing behavior.
+  // As a sketch, the store can maintain a nonce value alongside the checkpoint
+  // of each task split. The nonce is updated on each open of this RPC,
+  // and each commit transaction then verifies that the nonce has not been
+  // changed.
+  //
+  // In the future, if another RPC opens and updates the nonce, it fences off
+  // this instance of the task split and prevents it from committing further
+  // transactions.
+  //
+  // Implementation Pattern: Recovery Log with Non-Transactional Store
+  // =================================================================
+  //
+  // In this pattern, the recovery log persists the Flow checkpoint and handles
+  // fencing semantics. During the load and store phases, the driver
+  // directly manipulates a non-transactional store or API.
+  //
+  // Note that this pattern is at-least-once. A transaction may fail part-way
+  // through and be restarted, causing its effects to be partially or fully
+  // replayed.
+  //
+  // Care must be taken if the collection's schema has reduction annotations
+  // such as `sum`, as those reductions may be applied more than once due to
+  // a partially completed, but ultimately failed transaction.
+  //
+  // If the collection's schema is last-write-wins, this mode still provides
+  // effectively-once behavior. Collections which aren't last-write-wins
+  // can be turned into last-write-wins through the use of derivation
+  // registers.
+  //
+  // Implementation Pattern: Recovery Log with Idempotent Apply
+  // ==========================================================
+  //
+  // In this pattern the recovery log is authoritative, but the driver uses
+  // external stable storage to stage the effects of a transaction -- rather
+  // than directly applying them to the store -- such that those effects can be
+  // idempotently applied after the transaction commits.
+  //
+  // This allows stores which feature a weaker transactionality guarantee to
+  // still be used in an exactly-once way, so long as they support an idempotent
+  // apply operation.
+  //
+  // Driver checkpoints can facilitate this pattern. For example, a driver might
+  // generate a unique filename in S3 and reference it in its prepared
+  // checkpoint, which is committed to the recovery log. During the "store"
+  // phase, it writes to this S3 file. After the transaction commits, it tells
+  // the store of the new file to incorporate. The store must handle
+  // idempotency, by applying the effects of the unique file just once, even if
+  // told of the file multiple times.
+  //
+  // A related extension of this pattern is for the driver to embed a Flow
+  // checkpoint into its driver checkpoint. Doing so allows the driver to
+  // express an intention to restart from an older alternative checkpoint, as
+  // compared to the most recent committed checkpoint of the recovery log.
+  //
+  // As mentioned above, it's crucial that store states and checkpoints commit
+  // together. While seemingly bending that rule, this pattern is consistent
+  // with it because, on commit, the semantic contents of the store include BOTH
+  // its base state, as well as the staged idempotent update. The store just may
+  // not know it yet, but eventually it must because of the retried idempotent
+  // apply.
+  //
+  // Note the driver must therefore ensure that staged updates are fully applied
+  // before returning an "load" responses, in order to provide the correct
+  // read-committed semantics required by the Flow runtime.
+  //
+  // RPC Lifecycle
+  // =============
+  //
+  // The RPC follows the following lifecycle:
+  //
+  // :TransactionRequest.Open:
+  //    - The Flow runtime opens the stream.
+  // :TransactionResponse.Opened:
+  //    - If the remote store is authoritative, it must fence off other RPCs
+  //      of this task split from committing further transactions,
+  //      and it retrieves a Flow checkpoint which is returned to the runtime.
   //
   // TransactionRequest.Open and TransactionResponse.Opened are sent only
   // once, at the commencement of the stream. Thereafter the protocol loops:
   //
-  // :Load:
-  //    - The client sends zero or more TransactionRequest.Load.
-  //    - The driver server may immediately send any number of
-  //      TransactionResponse.Loaded in response.
-  //    - Or, it may defer responding with some or all loads
-  //      until later (see TransactionResponse.Prepared).
-  // :Prepare:
-  //    - The client sends TransactionRequest.Prepare.
-  //    - At this time, the server must flush remaining
-  //      TransactionResponse.Loaded.
-  // :Prepared:
-  //    - If the server has remaining TransactionResponse.Loaded
-  //      to send, it must send them now.
-  //    - The server sends TransactionResponse.Prepared.
-  // :Store:
-  //    - The client sends zero or more TransactionRequest.Store.
-  // :Commit:
-  //    - The client sends TransactionRequest.Commit.
-  //    - The server commits the prepared Flow checkpoint and all stores.
-  // :Committed:
-  //    - The server sends TransactionResponse.Committed.
-  //    - The Flow runtime persists the prepared driver checkpoint.
-  //    - Client and server begin a new transaction and loop to "Load".
+  // Load phase
+  // ==========
+  //
+  // The Load phases is Load requests *intermixed* with one
+  // Acknowledge/Acknowledged message flow. The driver must accomodate an
+  // Acknowledge that occurs before, during, or after a sequence of Load
+  // requests. It's guaranteed to see exactly one Acknowledge request during
+  // this phase.
+  //
+  // :TransactionRequest.Acknowledge:
+  //    - The runtime tells the driver that a commit to the recovery log has
+  //      completed.
+  //    - The driver applies a staged update to the base store, where
+  //      applicable.
+  //    - Note Acknowledge is sent in the very first iteration for consistency.
+  //      Semantically, it's an acknowledgement of the recovered checkpoint.
+  //      If a previous invocation failed after recovery log commit but before
+  //      applying the staged change, this is an opportunity to ensure that
+  //      apply occurs.
+  // :TransactionResponse.Acknowledged:
+  //    - The driver responds to the runtime only after applying a staged
+  //      update, where applicable.
+  //    - If there is no staged update, the driver immediately responds on
+  //      seeing Acknowledge.
+  //
+  // :TransactionRequest.Load:
+  //    - The runtime sends zero or more Load messages.
+  //    - The driver may send any number of TransactionResponse.Loaded in
+  //      response.
+  //    - If the driver will apply a staged update, it must await Acknowledge
+  //      and have applied the update to the store *before* evaluating any Loads,
+  //      to ensure correct read-committed behavior.
+  //    - The driver may defer responding with some or all loads until the
+  //      prepare phase.
+  // :TransactionResponse.Loaded:
+  //    - The driver sends zero or more Loaded messages, once for each loaded
+  //      document.
+  //    - Document keys not found in the store are omitted and not sent as
+  //      Loaded.
+  //
+  // Prepare phase
+  // =============
+  //
+  // The prepare phase begins only after the prior transaction has both
+  // committed and also been acknowledged. It marks the bounds of the present
+  // transaction.
+  //
+  // Upon entering this phase, the driver must immediately evaluate any deferred
+  // Load requests and send remaining Loaded responses.
+  //
+  // :TransactionRequest.Prepare:
+  //    - The runtime sends a Prepare message with its Flow checkpoint.
+  // :TransactionResponse.Prepared:
+  //    - The driver sends Prepared after having flushed all Loaded responses.
+  //    - The driver may include a driver checkpoint update which will be
+  //      committed to the recovery log with this transaction.
+  //
+  // Store phase
+  // ===========
+  //
+  // The store phase is when the runtime sends the driver materialized document
+  // updates, as well as an indication of whether the document is an insert,
+  // update, or delete (in other words, was it returned in a Loaded response?).
+  //
+  // :TransactionRequest.Store:
+  //    - The runtime sends zero or more Store messages.
+  //
+  // Commit phase
+  // ============
+  //
+  // The commit phase marks the end of the store phase, and tells the driver of
+  // the runtime's intent to commit to its recovery log. If the remote store is
+  // authoritative, the driver must commit its transaction at this time.
+  //
+  // :TransactionRequest.Commit:
+  //    - The runtime sends a Commit message, denoting its intention to commit.
+  //    - If the remote store is authoritative, the driver includes the Flow
+  //      checkpoint into its transaction and commits it along with view state
+  //      updates.
+  //    - Otherwise, the driver immediately responds with DriverCommitted.
+  // :TransactionResponse.DriverCommitted:
+  //    - The driver sends a DriverCommitted message.
+  //    - The runtime commits Flow and driver checkpoint to its recovery
+  //      log. The completion of this commit will be marked by an
+  //      Acknowledge during the next load phase.
+  //    - Runtime and driver begin a new, pipelined transaction by looping to
+  //      load while this transaction continues to commit.
   //
   // An error of any kind rolls back the transaction in progress and terminates
   // the stream.
@@ -123,8 +330,9 @@ message SpecResponse {
 // ValidateRequest is the request type of the Validate RPC.
 message ValidateRequest {
   // Name of the materialization being validated.
-  string materialization = 1 [ (gogoproto.casttype) =
-    "github.com/estuary/protocols/flow.Materialization" ];
+  string materialization = 1
+      [ (gogoproto.casttype) =
+            "github.com/estuary/protocols/flow.Materialization" ];
   // Endpoint type addressed by this request.
   flow.EndpointType endpoint_type = 2;
   // Driver specification, as an encoded JSON object.
@@ -132,10 +340,11 @@ message ValidateRequest {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "endpointSpec"
   ];
-  // Bindings of endpoint resources and collections from which they would be materialized.
-  // Bindings are ordered and unique on the bound collection name.
+  // Bindings of endpoint resources and collections from which they would be
+  // materialized. Bindings are ordered and unique on the bound collection name.
   message Binding {
-    // JSON-encoded object which specifies the endpoint resource to be materialized.
+    // JSON-encoded object which specifies the endpoint resource to be
+    // materialized.
     string resource_spec_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceSpec"
@@ -154,8 +363,8 @@ message ValidateRequest {
 
 // ValidateResponse is the response type of the Validate RPC.
 message ValidateResponse {
-  // Validation responses for each binding of the request,
-  // and matching the request ordering.
+  // Validation responses for each binding of the request, and matching the
+  // request ordering. Each Binding must have a unique resource_path.
   message Binding {
     // Constraints over collection projections imposed by the Driver,
     // keyed by the projection field name. Projections of the CollectionSpec
@@ -210,31 +419,35 @@ message ApplyResponse {
 // It will have exactly one top-level field set, which represents its message
 // type.
 message TransactionRequest {
-  // Open a transaction stream and, where supported, fence off other
-  // streams of this materialization that overlap the provide
-  // [key_begin, key_end) range, such that those streams cannot
-  // issue further commits.
+  // Open a transaction stream.
   //
-  // Fencing semantics are optional, but required for exactly-once semantics.
-  // Non-transactional stores can ignore this aspect and achieve at-least-once.
+  // If the Flow recovery log is authoritative:
+  // The driver is given its last committed driver checkpoint in this request.
+  // It MAY return a Flow checkpoint in its opened response -- perhaps an older
+  // Flow checkpoint which was previously embedded within its driver checkpoint.
   //
-  // Where implemented, servers must guarantee that no other streams of this
-  // materialization which overlap the provided [key_begin, key_end)
-  // (now "zombie" streams) can commit transactions, and must then
-  // return the final checkpoint committed by this stream in its response.
+  // If the remote store is authoritative:
+  // The driver MUST fence off other streams of this materialization that
+  // overlap the provided [key_begin, key_end) range, such that those streams
+  // cannot issue further commits. The driver MUST return its stored checkpoint
+  // for this materialization and range [key_begin, key_end] in its Opened
+  // response.
+  //
   message Open {
-    // Materialization to be transacted, which is the MaterializationSpec
-    // last provided to a successful Apply RPC.
+    // Materialization to be transacted.
     flow.MaterializationSpec materialization = 1;
-    // Version of the opened MaterializationSpec, which matches the version
-    // last provided to a successful Apply RPC.
+    // Version of the opened MaterializationSpec.
+    // The driver may want to require that this match the version last
+    // provided to a successful Apply RPC. It's possible that it won't,
+    // due to expected propagation races in Flow's distributed runtime.
     string version = 2;
-    // [begin, end] inclusive range of keys processed by this transaction stream.
-    // Ranges are with respect to a 32-bit hash of a packed document key.
+    // [begin, end] inclusive range of keys processed by this transaction
+    // stream. Ranges are with respect to a 32-bit hash of a packed document
+    // key.
     fixed32 key_begin = 3;
     fixed32 key_end = 4;
-    // Last-persisted driver checkpoint from a previous transaction stream.
-    // Or empty, if the driver has cleared or never set its checkpoint.
+    // Last-persisted driver checkpoint committed in the Flow runtime recovery
+    // log. Or empty, if the driver has cleared or never set its checkpoint.
     bytes driver_checkpoint_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
@@ -249,9 +462,8 @@ message TransactionRequest {
     // The materialization binding for documents of this Load request.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2 [
-      (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena"
-    ];
+    bytes arena = 2
+        [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena" ];
     // Packed tuples of collection keys, enumerating the documents to load.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
   }
@@ -269,9 +481,8 @@ message TransactionRequest {
     // The materialization binding for documents of this Store request.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2 [
-      (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena"
-    ];
+    bytes arena = 2
+        [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena" ];
     // Packed tuples holding keys of each document.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
     // Packed tuples holding values for each document.
@@ -283,9 +494,15 @@ message TransactionRequest {
   }
   Store store = 4;
 
-  // Commit the transaction.
+  // Mark the end of the Store phase, and if the remote store is authoritative,
+  // instruct it to commit its transaction.
   message Commit {}
   Commit commit = 5;
+
+  // Notify the driver that the previous transaction has committed to the Flow
+  // runtime's recovery log.
+  message Acknowledge {}
+  Acknowledge acknowledge = 6;
 }
 
 // TransactionResponse is the response type of a Transaction RPC.
@@ -294,16 +511,13 @@ message TransactionRequest {
 message TransactionResponse {
   // Opened responds to TransactionRequest.Open of the client.
   message Opened {
-    // Flow checkpoint which was previously committed with this |shard_fqn|.
-    // May be nil if the Driver is not stateful, in which case the Flow runtime
-    // will use its most-recent internal checkpoint. Note this internal
-    // checkpoint is at-least-once (at most one following transaction may have
-    // been partially or even fully committed since it was recorded).
+    // Flow checkpoint to begin processing from.
+    // If empty, the most recent checkpoint of the Flow recovery log is used.
     //
-    // A driver may also send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
-    // to instruct the Flow runtime to disregard its internal checkpoint and
-    // fully rebuild the materialization from scratch. This sentinel is a
-    // trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
+    // Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+    // to explicitly begin processing from a zero-valued checkpoint, effectively
+    // rebuilding the materialization from scratch. This sentinel is a trivial
+    // encoding of the max-value 2^29-1 protobuf tag with boolean true.
     bytes flow_checkpoint = 1;
   }
   Opened opened = 1;
@@ -317,9 +531,8 @@ message TransactionResponse {
     // The materialization binding for documents of this Loaded response.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2 [
-      (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena"
-    ];
+    bytes arena = 2
+        [ (gogoproto.casttype) = "github.com/estuary/protocols/flow.Arena" ];
     // Loaded JSON documents.
     repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
   }
@@ -342,7 +555,23 @@ message TransactionResponse {
   }
   Prepared prepared = 3;
 
-  // Acknowledge the transaction as committed.
-  message Committed {}
-  Committed committed = 4;
+  // Mark the end of the Store phase, indicating that all documents have been
+  // fully stored.
+  //
+  // If the remote store is authoritative, tell the Flow runtime that it has
+  // committed.
+  //
+  // If the recovery log is authoritative, DriverCommitted is sent but no actual
+  // transactional driver commit is performed.
+  message DriverCommitted {}
+  DriverCommitted driver_committed = 4;
+
+  // Notify the Flow runtime of receipt of it's confirmation that the
+  // Flow recovery log has committed.
+  //
+  // If the driver utilizes staged data which is idempotently applied,
+  // it must apply staged data of the commit at this time, and respond
+  // with Acknowledged only once that's completed.
+  message Acknowledged {}
+  Acknowledged acknowledged = 5;
 }

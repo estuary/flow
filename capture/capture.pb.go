@@ -12,6 +12,8 @@ import (
 	github_com_estuary_protocols_flow "github.com/estuary/protocols/flow"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
+	protocol "go.gazette.dev/core/broker/protocol"
+	protocol1 "go.gazette.dev/core/consumer/protocol"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -305,8 +307,8 @@ func (m *ValidateRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateRequest proto.InternalMessageInfo
 
-// Bindings of endpoint resources and collections to which they would be captured.
-// Bindings are ordered and unique on the bound collection name.
+// Bindings of endpoint resources and collections to which they would be
+// captured. Bindings are ordered and unique on the bound collection name.
 type ValidateRequest_Binding struct {
 	// JSON-encoded object which specifies the endpoint resource to be captured.
 	ResourceSpecJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_spec_json,json=resourceSpec,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_json,omitempty"`
@@ -391,8 +393,8 @@ func (m *ValidateResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
 
-// Validation responses for each binding of the request,
-// and matching the request ordering.
+// Validation responses for each binding of the request, and matching the
+// request ordering. Each Binding must have a unique resource_path.
 type ValidateResponse_Binding struct {
 	// Components of the resource path which fully qualify the resource
 	// identified by this binding.
@@ -438,10 +440,190 @@ func (m *ValidateResponse_Binding) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ValidateResponse_Binding proto.InternalMessageInfo
 
-// CaptureRequest is the request type of a Capture RPC.
-type CaptureRequest struct {
-	// Capture to be run, which is the CaptureSpec
-	// last provided to a successful Validate RPC.
+// Documents is a set of documents drawn from a binding of the capture.
+type Documents struct {
+	// The capture binding for documents of this message.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
+	// Byte arena of the response.
+	Arena github_com_estuary_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/protocols/flow.Arena" json:"arena,omitempty"`
+	// Captured JSON documents.
+	DocsJson             []flow.Slice `protobuf:"bytes,3,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *Documents) Reset()         { *m = Documents{} }
+func (m *Documents) String() string { return proto.CompactTextString(m) }
+func (*Documents) ProtoMessage()    {}
+func (*Documents) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{6}
+}
+func (m *Documents) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Documents) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Documents.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Documents) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Documents.Merge(m, src)
+}
+func (m *Documents) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Documents) XXX_DiscardUnknown() {
+	xxx_messageInfo_Documents.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Documents proto.InternalMessageInfo
+
+// Checkpoint represents the driver's intention to commit.
+type Checkpoint struct {
+	// Optional driver checkpoint of this transaction, to be persisted
+	// by the Flow runtime and returned in a future PullRequest or PushResponse.
+	// If empty, then a previous checkpoint is cleared.
+	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
+	// If true, then the driver checkpoint must be non-empty and is
+	// applied as an RFC7396 Merge Patch atop the immediately preceeding
+	// checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+	Rfc7396MergePatch    bool     `protobuf:"varint,2,opt,name=rfc7396_merge_patch,json=rfc7396MergePatch,proto3" json:"rfc7396_merge_patch,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Checkpoint) Reset()         { *m = Checkpoint{} }
+func (m *Checkpoint) String() string { return proto.CompactTextString(m) }
+func (*Checkpoint) ProtoMessage()    {}
+func (*Checkpoint) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{7}
+}
+func (m *Checkpoint) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Checkpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Checkpoint.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Checkpoint) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Checkpoint.Merge(m, src)
+}
+func (m *Checkpoint) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Checkpoint) XXX_DiscardUnknown() {
+	xxx_messageInfo_Checkpoint.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Checkpoint proto.InternalMessageInfo
+
+// Acknowledge is a notification that a Checkpoint has committed to the
+// Flow runtime's recovery log.
+type Acknowledge struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Acknowledge) Reset()         { *m = Acknowledge{} }
+func (m *Acknowledge) String() string { return proto.CompactTextString(m) }
+func (*Acknowledge) ProtoMessage()    {}
+func (*Acknowledge) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{8}
+}
+func (m *Acknowledge) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Acknowledge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Acknowledge.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Acknowledge) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Acknowledge.Merge(m, src)
+}
+func (m *Acknowledge) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Acknowledge) XXX_DiscardUnknown() {
+	xxx_messageInfo_Acknowledge.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Acknowledge proto.InternalMessageInfo
+
+// PullRequest is the request type of a Driver.Pull RPC.
+// It will have exactly one top-level field set, which represents its message
+// type.
+type PullRequest struct {
+	Open *PullRequest_Open `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
+	// Tell the driver that its Checkpoint has committed to the Flow recovery log.
+	Acknowledge          *Acknowledge `protobuf:"bytes,2,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *PullRequest) Reset()         { *m = PullRequest{} }
+func (m *PullRequest) String() string { return proto.CompactTextString(m) }
+func (*PullRequest) ProtoMessage()    {}
+func (*PullRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{9}
+}
+func (m *PullRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PullRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PullRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PullRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullRequest.Merge(m, src)
+}
+func (m *PullRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *PullRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PullRequest proto.InternalMessageInfo
+
+// Open opens a Pull of the driver, and is sent exactly once as the first
+// message of the stream.
+type PullRequest_Open struct {
+	// CaptureSpec to be pulled.
 	Capture *flow.CaptureSpec `protobuf:"bytes,1,opt,name=capture,proto3" json:"capture,omitempty"`
 	// [key_begin, key_end] inclusive range of keys processed by this
 	// transaction stream. Ranges reflect the disjoint chunks of ownership
@@ -459,18 +641,18 @@ type CaptureRequest struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *CaptureRequest) Reset()         { *m = CaptureRequest{} }
-func (m *CaptureRequest) String() string { return proto.CompactTextString(m) }
-func (*CaptureRequest) ProtoMessage()    {}
-func (*CaptureRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1a9237c253632276, []int{6}
+func (m *PullRequest_Open) Reset()         { *m = PullRequest_Open{} }
+func (m *PullRequest_Open) String() string { return proto.CompactTextString(m) }
+func (*PullRequest_Open) ProtoMessage()    {}
+func (*PullRequest_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{9, 0}
 }
-func (m *CaptureRequest) XXX_Unmarshal(b []byte) error {
+func (m *PullRequest_Open) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *CaptureRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *PullRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_CaptureRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_PullRequest_Open.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -480,42 +662,44 @@ func (m *CaptureRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return b[:n], nil
 	}
 }
-func (m *CaptureRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CaptureRequest.Merge(m, src)
+func (m *PullRequest_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullRequest_Open.Merge(m, src)
 }
-func (m *CaptureRequest) XXX_Size() int {
+func (m *PullRequest_Open) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *CaptureRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_CaptureRequest.DiscardUnknown(m)
+func (m *PullRequest_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullRequest_Open.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_CaptureRequest proto.InternalMessageInfo
+var xxx_messageInfo_PullRequest_Open proto.InternalMessageInfo
 
-// CaptureResponse is the response type of a Capture RPC.
+// PullResponse is the response type of a Driver.Pull RPC.
 // It will have exactly one top-level field set, which represents its message
 // type.
-type CaptureResponse struct {
-	Opened               *CaptureResponse_Opened   `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
-	Captured             *CaptureResponse_Captured `protobuf:"bytes,2,opt,name=captured,proto3" json:"captured,omitempty"`
-	Commit               *CaptureResponse_Commit   `protobuf:"bytes,3,opt,name=commit,proto3" json:"commit,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                  `json:"-"`
-	XXX_unrecognized     []byte                    `json:"-"`
-	XXX_sizecache        int32                     `json:"-"`
+type PullResponse struct {
+	Opened *PullResponse_Opened `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
+	// Captured documents of the stream.
+	Documents *Documents `protobuf:"bytes,2,opt,name=documents,proto3" json:"documents,omitempty"`
+	// Checkpoint all preceeding Documents of this stream.
+	Checkpoint           *Checkpoint `protobuf:"bytes,3,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
+	XXX_unrecognized     []byte      `json:"-"`
+	XXX_sizecache        int32       `json:"-"`
 }
 
-func (m *CaptureResponse) Reset()         { *m = CaptureResponse{} }
-func (m *CaptureResponse) String() string { return proto.CompactTextString(m) }
-func (*CaptureResponse) ProtoMessage()    {}
-func (*CaptureResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1a9237c253632276, []int{7}
+func (m *PullResponse) Reset()         { *m = PullResponse{} }
+func (m *PullResponse) String() string { return proto.CompactTextString(m) }
+func (*PullResponse) ProtoMessage()    {}
+func (*PullResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{10}
 }
-func (m *CaptureResponse) XXX_Unmarshal(b []byte) error {
+func (m *PullResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *CaptureResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *PullResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_CaptureResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_PullResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -525,38 +709,38 @@ func (m *CaptureResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return b[:n], nil
 	}
 }
-func (m *CaptureResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CaptureResponse.Merge(m, src)
+func (m *PullResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullResponse.Merge(m, src)
 }
-func (m *CaptureResponse) XXX_Size() int {
+func (m *PullResponse) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *CaptureResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_CaptureResponse.DiscardUnknown(m)
+func (m *PullResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_CaptureResponse proto.InternalMessageInfo
+var xxx_messageInfo_PullResponse proto.InternalMessageInfo
 
-// Opened responds to CaptureRequest of the client,
+// Opened responds to PullRequest.Open of the runtime,
 // and is sent exactly once as the first message of the stream.
-type CaptureResponse_Opened struct {
+type PullResponse_Opened struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *CaptureResponse_Opened) Reset()         { *m = CaptureResponse_Opened{} }
-func (m *CaptureResponse_Opened) String() string { return proto.CompactTextString(m) }
-func (*CaptureResponse_Opened) ProtoMessage()    {}
-func (*CaptureResponse_Opened) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1a9237c253632276, []int{7, 0}
+func (m *PullResponse_Opened) Reset()         { *m = PullResponse_Opened{} }
+func (m *PullResponse_Opened) String() string { return proto.CompactTextString(m) }
+func (*PullResponse_Opened) ProtoMessage()    {}
+func (*PullResponse_Opened) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{10, 0}
 }
-func (m *CaptureResponse_Opened) XXX_Unmarshal(b []byte) error {
+func (m *PullResponse_Opened) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *CaptureResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *PullResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_CaptureResponse_Opened.Marshal(b, m, deterministic)
+		return xxx_messageInfo_PullResponse_Opened.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -566,43 +750,131 @@ func (m *CaptureResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]by
 		return b[:n], nil
 	}
 }
-func (m *CaptureResponse_Opened) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CaptureResponse_Opened.Merge(m, src)
+func (m *PullResponse_Opened) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullResponse_Opened.Merge(m, src)
 }
-func (m *CaptureResponse_Opened) XXX_Size() int {
+func (m *PullResponse_Opened) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *CaptureResponse_Opened) XXX_DiscardUnknown() {
-	xxx_messageInfo_CaptureResponse_Opened.DiscardUnknown(m)
+func (m *PullResponse_Opened) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullResponse_Opened.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_CaptureResponse_Opened proto.InternalMessageInfo
+var xxx_messageInfo_PullResponse_Opened proto.InternalMessageInfo
 
-// Captured returns documents of the capture stream.
-type CaptureResponse_Captured struct {
-	// The capture binding for documents of this Captured response.
-	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Byte arena of the response.
-	Arena github_com_estuary_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/protocols/flow.Arena" json:"arena,omitempty"`
-	// Captured JSON documents.
-	DocsJson             []flow.Slice `protobuf:"bytes,3,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
+// PushRequest is the request message of the Runtime.Push RPC.
+type PushRequest struct {
+	Open *PushRequest_Open `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
+	// Captured documents of the stream.
+	Documents *Documents `protobuf:"bytes,2,opt,name=documents,proto3" json:"documents,omitempty"`
+	// Checkpoint all preceeding Documents of this stream.
+	Checkpoint           *Checkpoint `protobuf:"bytes,3,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
+	XXX_unrecognized     []byte      `json:"-"`
+	XXX_sizecache        int32       `json:"-"`
+}
+
+func (m *PushRequest) Reset()         { *m = PushRequest{} }
+func (m *PushRequest) String() string { return proto.CompactTextString(m) }
+func (*PushRequest) ProtoMessage()    {}
+func (*PushRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{11}
+}
+func (m *PushRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PushRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PushRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PushRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PushRequest.Merge(m, src)
+}
+func (m *PushRequest) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *PushRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PushRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PushRequest proto.InternalMessageInfo
+
+// Open opens a Push of the runtime, and is sent exactly once as the first
+// message of the stream.
+type PushRequest_Open struct {
+	// Header identifies a specific Shard and Route to which this stream is
+	// directed. It's optional, and is typically attached by a proxying peer.
+	Header *protocol.Header `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
+	// Name of the capture under which we're pushing.
+	Capture              github_com_estuary_protocols_flow.Capture `protobuf:"bytes,2,opt,name=capture,proto3,casttype=github.com/estuary/protocols/flow.Capture" json:"capture,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                                  `json:"-"`
+	XXX_unrecognized     []byte                                    `json:"-"`
+	XXX_sizecache        int32                                     `json:"-"`
+}
+
+func (m *PushRequest_Open) Reset()         { *m = PushRequest_Open{} }
+func (m *PushRequest_Open) String() string { return proto.CompactTextString(m) }
+func (*PushRequest_Open) ProtoMessage()    {}
+func (*PushRequest_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{11, 0}
+}
+func (m *PushRequest_Open) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PushRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PushRequest_Open.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PushRequest_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PushRequest_Open.Merge(m, src)
+}
+func (m *PushRequest_Open) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *PushRequest_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_PushRequest_Open.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PushRequest_Open proto.InternalMessageInfo
+
+// PushResponse is the response message of the Runtime.Push RPC.
+type PushResponse struct {
+	Opened *PushResponse_Opened `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
+	// Tell the driver that its Checkpoint has committed to the Flow recovery log.
+	Acknowledge          *Acknowledge `protobuf:"bytes,2,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
 	XXX_sizecache        int32        `json:"-"`
 }
 
-func (m *CaptureResponse_Captured) Reset()         { *m = CaptureResponse_Captured{} }
-func (m *CaptureResponse_Captured) String() string { return proto.CompactTextString(m) }
-func (*CaptureResponse_Captured) ProtoMessage()    {}
-func (*CaptureResponse_Captured) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1a9237c253632276, []int{7, 1}
+func (m *PushResponse) Reset()         { *m = PushResponse{} }
+func (m *PushResponse) String() string { return proto.CompactTextString(m) }
+func (*PushResponse) ProtoMessage()    {}
+func (*PushResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{12}
 }
-func (m *CaptureResponse_Captured) XXX_Unmarshal(b []byte) error {
+func (m *PushResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *CaptureResponse_Captured) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *PushResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_CaptureResponse_Captured.Marshal(b, m, deterministic)
+		return xxx_messageInfo_PushResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -612,45 +884,52 @@ func (m *CaptureResponse_Captured) XXX_Marshal(b []byte, deterministic bool) ([]
 		return b[:n], nil
 	}
 }
-func (m *CaptureResponse_Captured) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CaptureResponse_Captured.Merge(m, src)
+func (m *PushResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PushResponse.Merge(m, src)
 }
-func (m *CaptureResponse_Captured) XXX_Size() int {
+func (m *PushResponse) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *CaptureResponse_Captured) XXX_DiscardUnknown() {
-	xxx_messageInfo_CaptureResponse_Captured.DiscardUnknown(m)
+func (m *PushResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_PushResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_CaptureResponse_Captured proto.InternalMessageInfo
+var xxx_messageInfo_PushResponse proto.InternalMessageInfo
 
-// Commit previous captured documents.
-type CaptureResponse_Commit struct {
-	// Optional driver checkpoint of this transaction, to be persisted
-	// by the Flow runtime and returned in a future CaptureRequest.
-	// If empty, then a previous checkpoint is cleared.
-	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
-	// If true, then the driver checkpoint must be non-empty and is
-	// applied as an RFC7396 Merge Patch atop the immediately preceeding
-	// checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
-	Rfc7396MergePatch    bool     `protobuf:"varint,2,opt,name=rfc7396_merge_patch,json=rfc7396MergePatch,proto3" json:"rfc7396_merge_patch,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+// Opened responds to PushRequest.Open of the driver,
+// and is sent exactly once as the first message of the stream.
+type PushResponse_Opened struct {
+	// Status of the Push open.
+	Status protocol1.Status `protobuf:"varint,1,opt,name=status,proto3,enum=consumer.Status" json:"status,omitempty"`
+	// Header of the response.
+	Header protocol.Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header"`
+	// CaptureSpec to be pushed.
+	Capture *flow.CaptureSpec `protobuf:"bytes,3,opt,name=capture,proto3" json:"capture,omitempty"`
+	// [key_begin, key_end] inclusive range of keys processed by this
+	// transaction stream. Ranges reflect the disjoint chunks of ownership
+	// specific to each instance of a scale-out capture implementation.
+	KeyBegin uint32 `protobuf:"fixed32,4,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
+	KeyEnd   uint32 `protobuf:"fixed32,5,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
+	// Last-persisted driver checkpoint from a previous capture stream.
+	// Or empty, if the driver has cleared or never set its checkpoint.
+	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,6,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *CaptureResponse_Commit) Reset()         { *m = CaptureResponse_Commit{} }
-func (m *CaptureResponse_Commit) String() string { return proto.CompactTextString(m) }
-func (*CaptureResponse_Commit) ProtoMessage()    {}
-func (*CaptureResponse_Commit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1a9237c253632276, []int{7, 2}
+func (m *PushResponse_Opened) Reset()         { *m = PushResponse_Opened{} }
+func (m *PushResponse_Opened) String() string { return proto.CompactTextString(m) }
+func (*PushResponse_Opened) ProtoMessage()    {}
+func (*PushResponse_Opened) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1a9237c253632276, []int{12, 0}
 }
-func (m *CaptureResponse_Commit) XXX_Unmarshal(b []byte) error {
+func (m *PushResponse_Opened) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *CaptureResponse_Commit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *PushResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_CaptureResponse_Commit.Marshal(b, m, deterministic)
+		return xxx_messageInfo_PushResponse_Opened.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -660,17 +939,17 @@ func (m *CaptureResponse_Commit) XXX_Marshal(b []byte, deterministic bool) ([]by
 		return b[:n], nil
 	}
 }
-func (m *CaptureResponse_Commit) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CaptureResponse_Commit.Merge(m, src)
+func (m *PushResponse_Opened) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PushResponse_Opened.Merge(m, src)
 }
-func (m *CaptureResponse_Commit) XXX_Size() int {
+func (m *PushResponse_Opened) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *CaptureResponse_Commit) XXX_DiscardUnknown() {
-	xxx_messageInfo_CaptureResponse_Commit.DiscardUnknown(m)
+func (m *PushResponse_Opened) XXX_DiscardUnknown() {
+	xxx_messageInfo_PushResponse_Opened.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_CaptureResponse_Commit proto.InternalMessageInfo
+var xxx_messageInfo_PushResponse_Opened proto.InternalMessageInfo
 
 func init() {
 	proto.RegisterType((*SpecRequest)(nil), "capture.SpecRequest")
@@ -682,76 +961,95 @@ func init() {
 	proto.RegisterType((*ValidateRequest_Binding)(nil), "capture.ValidateRequest.Binding")
 	proto.RegisterType((*ValidateResponse)(nil), "capture.ValidateResponse")
 	proto.RegisterType((*ValidateResponse_Binding)(nil), "capture.ValidateResponse.Binding")
-	proto.RegisterType((*CaptureRequest)(nil), "capture.CaptureRequest")
-	proto.RegisterType((*CaptureResponse)(nil), "capture.CaptureResponse")
-	proto.RegisterType((*CaptureResponse_Opened)(nil), "capture.CaptureResponse.Opened")
-	proto.RegisterType((*CaptureResponse_Captured)(nil), "capture.CaptureResponse.Captured")
-	proto.RegisterType((*CaptureResponse_Commit)(nil), "capture.CaptureResponse.Commit")
+	proto.RegisterType((*Documents)(nil), "capture.Documents")
+	proto.RegisterType((*Checkpoint)(nil), "capture.Checkpoint")
+	proto.RegisterType((*Acknowledge)(nil), "capture.Acknowledge")
+	proto.RegisterType((*PullRequest)(nil), "capture.PullRequest")
+	proto.RegisterType((*PullRequest_Open)(nil), "capture.PullRequest.Open")
+	proto.RegisterType((*PullResponse)(nil), "capture.PullResponse")
+	proto.RegisterType((*PullResponse_Opened)(nil), "capture.PullResponse.Opened")
+	proto.RegisterType((*PushRequest)(nil), "capture.PushRequest")
+	proto.RegisterType((*PushRequest_Open)(nil), "capture.PushRequest.Open")
+	proto.RegisterType((*PushResponse)(nil), "capture.PushResponse")
+	proto.RegisterType((*PushResponse_Opened)(nil), "capture.PushResponse.Opened")
 }
 
 func init() { proto.RegisterFile("capture/capture.proto", fileDescriptor_1a9237c253632276) }
 
 var fileDescriptor_1a9237c253632276 = []byte{
-	// 933 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x56, 0x4b, 0x6f, 0x1b, 0x55,
-	0x14, 0xee, 0x8d, 0x5d, 0x3f, 0x4e, 0x1e, 0x76, 0x2e, 0x29, 0x9d, 0x18, 0x14, 0xbb, 0x06, 0x09,
-	0x57, 0x11, 0x63, 0xe4, 0x48, 0x8d, 0x40, 0x3c, 0x54, 0xa7, 0x05, 0xa9, 0x52, 0x4b, 0x74, 0x03,
-	0x2c, 0xd8, 0x58, 0x93, 0x3b, 0xa7, 0xf6, 0x90, 0xf1, 0xdc, 0x61, 0x66, 0xdc, 0xca, 0x4b, 0x76,
-	0x6c, 0x60, 0xc1, 0x86, 0x2d, 0x5b, 0x7e, 0x01, 0x7f, 0x21, 0x4b, 0x76, 0xec, 0x22, 0xd1, 0x8a,
-	0x1f, 0xc0, 0x36, 0x1b, 0xd0, 0x7d, 0xcc, 0x64, 0xec, 0x3c, 0xea, 0xc2, 0xa6, 0x9b, 0x64, 0xee,
-	0xbd, 0xe7, 0xfb, 0xe6, 0x9c, 0xf3, 0x7d, 0x67, 0xae, 0xe1, 0x06, 0x77, 0xc2, 0x64, 0x12, 0x61,
-	0xd7, 0xfc, 0xb7, 0xc3, 0x48, 0x24, 0x82, 0x96, 0xcd, 0xb2, 0x51, 0x7b, 0xec, 0x8b, 0xa7, 0x5d,
-	0xf9, 0x47, 0x9f, 0x34, 0x36, 0x86, 0x62, 0x28, 0xd4, 0x63, 0x57, 0x3e, 0xe9, 0xdd, 0xf6, 0x8f,
-	0x04, 0x96, 0x0f, 0x42, 0xe4, 0x0c, 0xbf, 0x9d, 0x60, 0x9c, 0xd0, 0x5d, 0x58, 0xc5, 0xc0, 0x0d,
-	0x85, 0x17, 0x24, 0x83, 0x64, 0x1a, 0xa2, 0x45, 0x5a, 0xa4, 0xb3, 0xd6, 0xa3, 0xb6, 0x62, 0xba,
-	0x6f, 0x8e, 0xbe, 0x98, 0x86, 0xc8, 0x56, 0x30, 0xb7, 0xa2, 0x9f, 0x02, 0xcd, 0x80, 0x71, 0x88,
-	0x7c, 0xf0, 0x4d, 0x2c, 0x02, 0x6b, 0xa9, 0x45, 0x3a, 0xd5, 0xfe, 0x9b, 0xa7, 0x27, 0x4d, 0x0b,
-	0x03, 0x2e, 0x5c, 0x2f, 0x18, 0x76, 0xe5, 0x81, 0xcd, 0x9c, 0xa7, 0x0f, 0x31, 0x8e, 0x9d, 0x61,
-	0x8e, 0x47, 0xe6, 0xd1, 0xfe, 0x8b, 0xc0, 0x8a, 0x4e, 0x28, 0x0e, 0x45, 0x10, 0x23, 0x3d, 0x80,
-	0xcd, 0x59, 0xe2, 0x98, 0x8f, 0x70, 0xec, 0x68, 0x7e, 0xb2, 0x00, 0x3f, 0xcd, 0xf3, 0x1f, 0x28,
-	0xb0, 0x24, 0x8d, 0x30, 0x16, 0x93, 0x88, 0xe3, 0x79, 0xd2, 0x45, 0x92, 0xa6, 0x29, 0x3c, 0x47,
-	0xba, 0x0d, 0xeb, 0xae, 0xe0, 0x93, 0x31, 0x06, 0x89, 0x93, 0x78, 0x22, 0x18, 0x4c, 0x22, 0xdf,
-	0x2a, 0x48, 0x32, 0x56, 0x9f, 0x39, 0xf8, 0x32, 0xf2, 0xdb, 0x3f, 0x11, 0xa8, 0xdd, 0xf3, 0x62,
-	0x2e, 0x9e, 0x60, 0xf4, 0xca, 0x34, 0xff, 0xb7, 0x25, 0xa8, 0x9f, 0x25, 0x65, 0x04, 0xf8, 0x08,
-	0x2a, 0x87, 0x5e, 0x20, 0xd1, 0xb1, 0x45, 0x5a, 0x85, 0xce, 0x72, 0xef, 0x96, 0x9d, 0x9a, 0x6e,
-	0x3e, 0xd8, 0xee, 0xeb, 0x48, 0x96, 0x41, 0x1a, 0xcf, 0x09, 0x94, 0xcd, 0x2e, 0xbd, 0x0d, 0xf5,
-	0x08, 0xb9, 0x18, 0x8f, 0x31, 0x70, 0xd1, 0x1d, 0x04, 0xce, 0x58, 0xd7, 0x58, 0x65, 0xb5, 0xdc,
-	0xfe, 0x23, 0x67, 0xac, 0x4a, 0x9a, 0x55, 0x68, 0xf1, 0x92, 0xf2, 0xd2, 0xd0, 0x07, 0xb0, 0x91,
-	0xf6, 0x7e, 0x46, 0xe4, 0xc2, 0x02, 0x4c, 0x6b, 0x29, 0xd2, 0x08, 0xbc, 0x09, 0x95, 0x23, 0x9c,
-	0x0e, 0xc2, 0x24, 0x8a, 0xad, 0x62, 0xab, 0xd0, 0xa9, 0xb2, 0xf2, 0x11, 0x4e, 0xf7, 0x93, 0x28,
-	0x6e, 0xff, 0x5a, 0x80, 0xda, 0x57, 0x8e, 0xef, 0xb9, 0x4e, 0x82, 0xa9, 0x9c, 0x9f, 0x41, 0x3a,
-	0x8d, 0xc6, 0xa7, 0xef, 0x9e, 0x9e, 0x34, 0x6f, 0x0f, 0xbd, 0x64, 0x34, 0x39, 0xb4, 0xb9, 0x18,
-	0x77, 0x31, 0x4e, 0x26, 0x4e, 0x34, 0xed, 0xaa, 0x51, 0xe4, 0xc2, 0x8f, 0xf5, 0xbc, 0xee, 0x69,
-	0x10, 0x4b, 0xd1, 0xe7, 0x7d, 0xb1, 0xf4, 0xbf, 0x7c, 0x51, 0x78, 0x59, 0x5f, 0xd0, 0x0f, 0x73,
-	0x16, 0x28, 0x2a, 0x0b, 0xb4, 0x32, 0x0b, 0xcc, 0x55, 0x7d, 0x81, 0x03, 0x7e, 0xc8, 0x39, 0xe0,
-	0x62, 0x59, 0xc9, 0x4b, 0xcb, 0xfa, 0x01, 0x00, 0x17, 0xbe, 0x8f, 0x5c, 0xce, 0x93, 0xea, 0xc7,
-	0x72, 0x6f, 0x43, 0xf7, 0x63, 0x2f, 0xdb, 0x97, 0x91, 0xfd, 0xe2, 0xf1, 0x49, 0xf3, 0x1a, 0xcb,
-	0x45, 0xb7, 0xbf, 0x23, 0x50, 0x3f, 0xcb, 0x7a, 0x01, 0x97, 0xcf, 0x07, 0x5f, 0x50, 0xa3, 0x7d,
-	0x56, 0xe2, 0x5b, 0xb0, 0x9a, 0x95, 0x18, 0x3a, 0xc9, 0x48, 0xd1, 0x55, 0xcf, 0xf2, 0xdf, 0x77,
-	0x92, 0x51, 0xfb, 0x0f, 0x02, 0x6b, 0xa9, 0xce, 0xc6, 0x2e, 0xdb, 0xb3, 0x76, 0x59, 0xee, 0xad,
-	0xdb, 0x79, 0x3b, 0xa8, 0x8f, 0x62, 0x66, 0x89, 0x37, 0xa0, 0x2a, 0xad, 0x78, 0x88, 0x43, 0x4f,
-	0x97, 0x5f, 0x66, 0xd2, 0x9b, 0x7d, 0xb9, 0xa6, 0x37, 0x41, 0xfa, 0x72, 0x80, 0x81, 0xab, 0xb4,
-	0x2e, 0xb3, 0xd2, 0x11, 0x4e, 0xef, 0x07, 0x2e, 0x7d, 0x04, 0xaf, 0xbb, 0x91, 0xf7, 0x04, 0xa3,
-	0x01, 0x1f, 0x21, 0x3f, 0xd2, 0xc6, 0x50, 0x0a, 0x14, 0x5b, 0xa4, 0xb3, 0xf2, 0x02, 0x05, 0xea,
-	0x1a, 0xbb, 0x97, 0x41, 0x29, 0x85, 0x62, 0xe2, 0x78, 0xbe, 0x75, 0xbd, 0x45, 0x3a, 0x15, 0xa6,
-	0x9e, 0xdb, 0x7f, 0x17, 0xa0, 0x96, 0x55, 0x66, 0x9a, 0xbb, 0x0b, 0x25, 0x11, 0x62, 0x80, 0xae,
-	0xa9, 0xac, 0x99, 0xb5, 0x76, 0x2e, 0xd2, 0xfe, 0x5c, 0x85, 0x31, 0x13, 0x2e, 0x55, 0x31, 0x91,
-	0xae, 0x11, 0xf9, 0xd6, 0xa5, 0x50, 0xb3, 0x76, 0x59, 0x06, 0x91, 0xef, 0x95, 0x5f, 0x15, 0x2f,
-	0x51, 0x7d, 0xb8, 0xea, 0xbd, 0x7b, 0x2a, 0x8c, 0x99, 0xf0, 0x46, 0x05, 0x4a, 0x3a, 0x93, 0xc6,
-	0xcf, 0x04, 0x2a, 0x29, 0x33, 0xb5, 0xa0, 0x6c, 0x14, 0x57, 0x85, 0xac, 0xb2, 0x74, 0x49, 0xef,
-	0xc2, 0x75, 0x27, 0xc2, 0xc0, 0x51, 0x59, 0xae, 0xf4, 0xb7, 0x4f, 0x4f, 0x9a, 0xef, 0xbc, 0x78,
-	0xd2, 0xef, 0x4a, 0x08, 0xd3, 0x48, 0x6a, 0x43, 0xd5, 0x15, 0x3c, 0x4e, 0x67, 0x54, 0x5a, 0x70,
-	0x59, 0x3b, 0xe0, 0xc0, 0xf7, 0x38, 0x1a, 0x23, 0x57, 0x64, 0xcc, 0x83, 0x58, 0x04, 0x8d, 0xef,
-	0x09, 0x94, 0x74, 0xda, 0x57, 0xe8, 0x4a, 0xfe, 0x93, 0xae, 0x36, 0xbc, 0x16, 0x3d, 0xe6, 0xbb,
-	0x3b, 0xef, 0xdf, 0x19, 0x8c, 0x31, 0x1a, 0x2a, 0x1f, 0xf3, 0x91, 0xaa, 0xad, 0xc2, 0xd6, 0xcd,
-	0xd1, 0x43, 0x79, 0xb2, 0x2f, 0x0f, 0x7a, 0xff, 0x10, 0x28, 0xdd, 0x53, 0x24, 0x74, 0x07, 0x8a,
-	0x6a, 0x40, 0x37, 0xb2, 0x56, 0xe7, 0x7e, 0x5e, 0x34, 0x6e, 0xcc, 0xed, 0x1a, 0x7f, 0x7c, 0x02,
-	0x95, 0xf4, 0x26, 0xa1, 0xd6, 0x05, 0x97, 0x8b, 0x06, 0x6f, 0x5e, 0x7a, 0xed, 0x48, 0x82, 0x74,
-	0x48, 0x73, 0x04, 0x73, 0x9f, 0xa6, 0x1c, 0xc1, 0xb9, 0xf1, 0xff, 0x18, 0xca, 0x46, 0x65, 0x7a,
-	0xf3, 0xbc, 0x49, 0x34, 0xdc, 0xba, 0xcc, 0x3d, 0xef, 0x91, 0xfe, 0x9d, 0xe3, 0x3f, 0xb7, 0xae,
-	0x1d, 0x3f, 0xdb, 0x22, 0xbf, 0x3f, 0xdb, 0x22, 0xbf, 0x3c, 0xdf, 0x22, 0x5f, 0xbf, 0x7d, 0xa5,
-	0xfc, 0x86, 0xe9, 0xb0, 0xa4, 0xb6, 0x76, 0xfe, 0x0d, 0x00, 0x00, 0xff, 0xff, 0x01, 0x14, 0xa0,
-	0x50, 0xcf, 0x09, 0x00, 0x00,
+	// 1143 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x56, 0x4f, 0x6f, 0x1b, 0x45,
+	0x14, 0xef, 0xda, 0x8e, 0xff, 0x3c, 0x27, 0x8d, 0x33, 0x4d, 0xc1, 0x31, 0x55, 0x62, 0x16, 0x24,
+	0x5c, 0x45, 0x5d, 0x57, 0x0e, 0x24, 0x02, 0x81, 0x20, 0x4e, 0x0a, 0xa8, 0x52, 0xdb, 0x68, 0x02,
+	0x1c, 0xb8, 0x58, 0x9b, 0xdd, 0xa9, 0xbd, 0x78, 0xbd, 0xb3, 0xec, 0xec, 0x36, 0xf2, 0x91, 0x3b,
+	0x70, 0x40, 0x20, 0x71, 0x42, 0x5c, 0xf9, 0x00, 0x88, 0x2f, 0xc0, 0x21, 0x17, 0x24, 0x3e, 0x41,
+	0x24, 0x5a, 0xf1, 0x1d, 0x50, 0x4e, 0x68, 0x66, 0x67, 0x77, 0xc7, 0x4e, 0x9a, 0x38, 0xa9, 0x84,
+	0xb8, 0x24, 0x3b, 0x6f, 0xde, 0xfb, 0xf9, 0xbd, 0xf7, 0xfb, 0xbd, 0x99, 0x81, 0x9b, 0x96, 0xe9,
+	0x87, 0x51, 0x40, 0xda, 0xf2, 0xbf, 0xe1, 0x07, 0x34, 0xa4, 0xa8, 0x24, 0x97, 0x8d, 0xd5, 0x83,
+	0x80, 0x0e, 0x49, 0xd0, 0x16, 0x66, 0x8b, 0xba, 0xe9, 0x47, 0xec, 0xd8, 0x68, 0x5a, 0xd4, 0x63,
+	0xd1, 0xe8, 0x1c, 0x8f, 0xc5, 0xc7, 0x2e, 0x3d, 0x6c, 0xf3, 0x3f, 0xd2, 0xb0, 0xdc, 0xa7, 0x7d,
+	0x2a, 0x3e, 0xdb, 0xfc, 0x2b, 0xb6, 0xea, 0xdf, 0x6a, 0x50, 0xdd, 0xf7, 0x89, 0x85, 0xc9, 0x97,
+	0x11, 0x61, 0x21, 0xda, 0x82, 0x05, 0xe2, 0xd9, 0x3e, 0x75, 0xbc, 0xb0, 0x17, 0x8e, 0x7d, 0x52,
+	0xd7, 0x9a, 0x5a, 0xeb, 0x7a, 0x07, 0x19, 0x02, 0xe9, 0x9e, 0xdc, 0xfa, 0x64, 0xec, 0x13, 0x3c,
+	0x4f, 0x94, 0x15, 0xfa, 0x10, 0x50, 0x1a, 0xc8, 0x7c, 0x62, 0xf5, 0xbe, 0x60, 0xd4, 0xab, 0xe7,
+	0x9a, 0x5a, 0xab, 0xd2, 0xbd, 0x75, 0x72, 0xbc, 0x56, 0x27, 0x9e, 0x45, 0x6d, 0xc7, 0xeb, 0xb7,
+	0xf9, 0x86, 0x81, 0xcd, 0xc3, 0x07, 0x84, 0x31, 0xb3, 0xaf, 0xe0, 0xf0, 0x3c, 0xf4, 0xbf, 0x35,
+	0x98, 0x8f, 0x13, 0x62, 0x3e, 0xf5, 0x18, 0x41, 0xfb, 0xb0, 0x32, 0x09, 0xcc, 0xac, 0x01, 0x19,
+	0x99, 0x31, 0xbe, 0x36, 0x03, 0x3e, 0x52, 0xf1, 0xf7, 0x45, 0x30, 0x07, 0x0d, 0x08, 0xa3, 0x51,
+	0x60, 0x91, 0xd3, 0xa0, 0xb3, 0x24, 0x8d, 0x92, 0x70, 0x05, 0x74, 0x1d, 0x96, 0x6c, 0x6a, 0x45,
+	0x23, 0xe2, 0x85, 0x66, 0xe8, 0x50, 0xaf, 0x17, 0x05, 0x6e, 0x3d, 0xcf, 0xc1, 0x70, 0x6d, 0x62,
+	0xe3, 0xd3, 0xc0, 0xd5, 0xbf, 0xd3, 0x60, 0x71, 0xd7, 0x61, 0x16, 0x7d, 0x42, 0x82, 0xff, 0x4d,
+	0xf3, 0x7f, 0xcb, 0x41, 0x2d, 0x4b, 0x4a, 0x12, 0xf0, 0x1e, 0x94, 0x0f, 0x1c, 0x8f, 0x47, 0xb3,
+	0xba, 0xd6, 0xcc, 0xb7, 0xaa, 0x9d, 0x57, 0x8d, 0x44, 0xb6, 0xd3, 0xce, 0x46, 0x37, 0xf6, 0xc4,
+	0x69, 0x48, 0xe3, 0x99, 0x06, 0x25, 0x69, 0x45, 0xb7, 0xa1, 0x16, 0x10, 0x8b, 0x8e, 0x46, 0xc4,
+	0xb3, 0x89, 0xdd, 0xf3, 0xcc, 0x51, 0x5c, 0x63, 0x05, 0x2f, 0x2a, 0xf6, 0x87, 0xe6, 0x48, 0x94,
+	0x34, 0xc9, 0xd0, 0xec, 0x25, 0xa9, 0xd4, 0xa0, 0xfb, 0xb0, 0x9c, 0xf4, 0x7e, 0x82, 0xe4, 0xfc,
+	0x0c, 0x48, 0xd7, 0x93, 0x48, 0x49, 0xf0, 0x0a, 0x94, 0x87, 0x64, 0xdc, 0xf3, 0xc3, 0x80, 0xd5,
+	0x0b, 0xcd, 0x7c, 0xab, 0x82, 0x4b, 0x43, 0x32, 0xde, 0x0b, 0x03, 0xa6, 0xff, 0x92, 0x87, 0xc5,
+	0xcf, 0x4c, 0xd7, 0xb1, 0xcd, 0x90, 0x24, 0x74, 0x7e, 0x04, 0xc9, 0x3c, 0x4b, 0x9d, 0xde, 0x39,
+	0x39, 0x5e, 0xbb, 0xdd, 0x77, 0xc2, 0x41, 0x74, 0x60, 0x58, 0x74, 0xd4, 0x26, 0x2c, 0x8c, 0xcc,
+	0x60, 0x9c, 0x8e, 0x2e, 0x8b, 0xe7, 0x75, 0x27, 0x0e, 0xc2, 0x49, 0xf4, 0x69, 0x5d, 0xe4, 0x5e,
+	0x48, 0x17, 0xf9, 0xcb, 0xea, 0x02, 0xbd, 0xab, 0x48, 0xa0, 0x20, 0x24, 0xd0, 0x4c, 0x25, 0x30,
+	0x55, 0xf5, 0x19, 0x0a, 0xf8, 0x46, 0x51, 0xc0, 0xd9, 0xb4, 0x6a, 0x97, 0xa6, 0xf5, 0x1d, 0x00,
+	0x8b, 0xba, 0x2e, 0xb1, 0xf8, 0x3c, 0x89, 0x7e, 0x54, 0x3b, 0xcb, 0x71, 0x3f, 0x76, 0x52, 0x3b,
+	0xf7, 0xec, 0x16, 0x8e, 0x8e, 0xd7, 0xae, 0x61, 0xc5, 0x5b, 0xff, 0x4a, 0x83, 0x5a, 0x96, 0xf5,
+	0x0c, 0x2a, 0x9f, 0x76, 0x3e, 0xa3, 0x46, 0x23, 0x2b, 0xf1, 0x35, 0x58, 0x48, 0x4b, 0xf4, 0xcd,
+	0x70, 0x20, 0xe0, 0x2a, 0x59, 0xfe, 0x7b, 0x66, 0x38, 0xd0, 0x7f, 0xd4, 0xa0, 0xb2, 0x2b, 0xd5,
+	0xc5, 0x50, 0x1d, 0x4a, 0x12, 0x49, 0xb4, 0x62, 0x01, 0x27, 0x4b, 0xb4, 0x0d, 0x73, 0x66, 0x40,
+	0x3c, 0x53, 0x94, 0x38, 0xdf, 0x5d, 0x3f, 0x39, 0x5e, 0x7b, 0xe3, 0x62, 0x05, 0x6d, 0xf3, 0x10,
+	0x1c, 0x47, 0x22, 0x03, 0x2a, 0x36, 0xb5, 0x58, 0xc2, 0x3d, 0x2f, 0xad, 0x1a, 0x77, 0x6a, 0xdf,
+	0x75, 0x2c, 0x22, 0x1b, 0x54, 0xe6, 0x3e, 0xf7, 0x19, 0xf5, 0xf4, 0xaf, 0x35, 0x80, 0x9d, 0x01,
+	0xb1, 0x86, 0x82, 0x7f, 0xf4, 0x10, 0x5e, 0xb2, 0x03, 0xe7, 0x09, 0x09, 0x7a, 0x56, 0x6a, 0xcc,
+	0x58, 0x9b, 0xbf, 0x80, 0xb5, 0x5a, 0x1c, 0xab, 0xe0, 0x19, 0x70, 0x23, 0x78, 0x6c, 0x6d, 0x6d,
+	0xbc, 0xbd, 0xd9, 0x1b, 0x91, 0xa0, 0x2f, 0x7a, 0x64, 0x0d, 0x44, 0x7d, 0x65, 0xbc, 0x24, 0xb7,
+	0x1e, 0xf0, 0x9d, 0x3d, 0xbe, 0xa1, 0x2f, 0x40, 0x75, 0xdb, 0x1a, 0x7a, 0xf4, 0xd0, 0x25, 0x76,
+	0x9f, 0xe8, 0xbf, 0xe7, 0xa0, 0xba, 0x17, 0xb9, 0x6e, 0x32, 0x64, 0x77, 0xa0, 0x40, 0x7d, 0x12,
+	0x27, 0x53, 0xed, 0xac, 0xa4, 0x9c, 0x29, 0x3e, 0xc6, 0x23, 0x9f, 0x78, 0x58, 0xb8, 0xa1, 0x4d,
+	0xa8, 0x9a, 0x19, 0x5a, 0x2a, 0x9c, 0x24, 0x4a, 0xf9, 0x25, 0xac, 0x3a, 0x36, 0xfe, 0xd0, 0xa0,
+	0xc0, 0x61, 0xd0, 0xfa, 0xe4, 0x50, 0x57, 0x3b, 0x4b, 0x86, 0x3a, 0xb4, 0xe2, 0xea, 0x4a, 0x07,
+	0xf7, 0x15, 0xa8, 0xf0, 0x03, 0xe3, 0x80, 0xf4, 0x9d, 0x58, 0xa4, 0x25, 0xcc, 0x4f, 0x90, 0x2e,
+	0x5f, 0xa3, 0x97, 0x81, 0x9f, 0x1e, 0x3d, 0xe2, 0xd9, 0x62, 0x22, 0x4b, 0xb8, 0x38, 0x24, 0xe3,
+	0x7b, 0x9e, 0x7d, 0x4e, 0xc7, 0x0b, 0x57, 0xea, 0x38, 0x82, 0x42, 0x68, 0x3a, 0x6e, 0x7d, 0x4e,
+	0xb4, 0x58, 0x7c, 0xeb, 0xbf, 0x6a, 0x30, 0x1f, 0xb7, 0x48, 0xea, 0xff, 0x4d, 0x28, 0xf2, 0x06,
+	0x11, 0x5b, 0x96, 0x75, 0x6b, 0xaa, 0x93, 0x52, 0xf9, 0x8f, 0x84, 0x0f, 0x96, 0xbe, 0xe8, 0xae,
+	0xd0, 0x56, 0xac, 0x62, 0xd9, 0x4c, 0x94, 0x5d, 0x0e, 0xc9, 0x0e, 0xce, 0x9c, 0xd0, 0x06, 0x40,
+	0x56, 0x95, 0x28, 0xbc, 0xda, 0xb9, 0x91, 0x86, 0x64, 0x59, 0x63, 0xc5, 0xad, 0x51, 0x86, 0x62,
+	0xfc, 0xc3, 0xfa, 0x4f, 0x82, 0x7e, 0x36, 0xb8, 0x98, 0xfe, 0xd4, 0x47, 0xa5, 0xff, 0x3f, 0xca,
+	0x77, 0x2c, 0xc5, 0xd2, 0x82, 0xe2, 0x80, 0x98, 0x36, 0x09, 0x64, 0x7e, 0x35, 0x23, 0x7d, 0xa5,
+	0x7d, 0x2c, 0xec, 0x58, 0xee, 0xab, 0x77, 0x45, 0xee, 0x45, 0xee, 0x0a, 0xfd, 0xfb, 0x3c, 0x27,
+	0x96, 0x17, 0x3f, 0x03, 0xb1, 0x99, 0xdb, 0x34, 0xb1, 0x57, 0x9d, 0x93, 0x1f, 0x72, 0x09, 0x55,
+	0xbc, 0x78, 0x16, 0x9a, 0x61, 0xc4, 0xe4, 0x33, 0xa6, 0x66, 0x24, 0x8f, 0x56, 0x63, 0x5f, 0xd8,
+	0xb1, 0xdc, 0x47, 0x46, 0xda, 0xa6, 0xdc, 0xd9, 0x6d, 0x92, 0x67, 0x54, 0xd2, 0x2c, 0x65, 0x06,
+	0xf3, 0x97, 0x9b, 0xc1, 0xc2, 0xf3, 0x67, 0x70, 0x6e, 0xc6, 0x19, 0x2c, 0x5e, 0x65, 0x06, 0x3b,
+	0xff, 0x68, 0x50, 0xdc, 0x15, 0x46, 0xb4, 0x01, 0x05, 0x71, 0x85, 0x65, 0xdd, 0x54, 0x1e, 0xe0,
+	0x8d, 0x9b, 0x53, 0x56, 0xc9, 0xe2, 0xfb, 0x50, 0x4e, 0xde, 0x5a, 0xa8, 0x7e, 0xc6, 0xf3, 0x2b,
+	0x0e, 0x5e, 0x79, 0xee, 0xc3, 0x8c, 0x03, 0x24, 0xd7, 0x98, 0x02, 0x30, 0x75, 0x79, 0x2b, 0x00,
+	0xa7, 0x2e, 0xc8, 0x2d, 0x28, 0xf0, 0x93, 0x40, 0x49, 0x5b, 0x39, 0x62, 0x95, 0xb4, 0xd5, 0xe3,
+	0xa2, 0xa5, 0xdd, 0xd5, 0x3a, 0x1f, 0x40, 0x09, 0x47, 0x5e, 0xe8, 0x8c, 0x08, 0x7a, 0x8b, 0x63,
+	0xb0, 0xc1, 0x04, 0x46, 0x3a, 0xa7, 0x13, 0x18, 0x99, 0x32, 0x5b, 0x5a, 0x77, 0xf3, 0xe8, 0xaf,
+	0xd5, 0x6b, 0x47, 0x4f, 0x57, 0xb5, 0x3f, 0x9f, 0xae, 0x6a, 0x3f, 0x3f, 0x5b, 0xd5, 0x3e, 0x7f,
+	0xfd, 0xdc, 0xc9, 0x90, 0x30, 0x07, 0x45, 0x61, 0xda, 0xf8, 0x37, 0x00, 0x00, 0xff, 0xff, 0x17,
+	0xa0, 0x61, 0x72, 0x6e, 0x0d, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -771,10 +1069,56 @@ type DriverClient interface {
 	Spec(ctx context.Context, in *SpecRequest, opts ...grpc.CallOption) (*SpecResponse, error)
 	// Discover returns the set of resources available from this Driver.
 	Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error)
-	// Validate that resources and bound CollectionSpecs are compatible with one another.
+	// Validate that resources and bound CollectionSpecs are compatible with one
+	// another.
 	Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error)
-	// Capture bound resources as a stream of documents and driver checkpoints.
-	Capture(ctx context.Context, in *CaptureRequest, opts ...grpc.CallOption) (Driver_CaptureClient, error)
+	// Pull is a very long lived RPC through which the Flow runtime and a
+	// Driver cooperatively execute an unbounded number of transactions.
+	//
+	// The Pull workflow pulls streams of documents into capturing Flow
+	// collections. Streams are incremental and resume-able, with resumption
+	// semantics defined by the driver. The Flow Runtime uses a transactional
+	// recovery log to support this workflow, and the driver may persist arbitrary
+	// driver checkpoints into that log as part of the RPC lifecycle,
+	// to power its chosen resumption semantics.
+	//
+	// Pull tasks are split-able, and many concurrent invocations of the RPC
+	// may collectively capture from a source, where each task split has an
+	// identified range of keys it's responsible for. The meaning of a "key",
+	// and it's application within the remote store being captured from, is up
+	// to the driver. The driver might map partitions or shards into the keyspace,
+	// and from there to a covering task split. Or, it might map distinct files,
+	// or some other unit of scaling.
+	//
+	// RPC Lifecycle
+	// =============
+	//
+	// :PullRequest.Open:
+	//    - The Flow runtime opens the pull stream.
+	// :PullResponse.Opened:
+	//    - The driver responds with Opened.
+	//
+	// PullRequest.Open and PullRequest.Opened are sent only once, at the
+	// commencement of the stream. Thereafter the protocol loops:
+	//
+	// :PullResponse.Documents:
+	//    - The driver tells the runtime of some documents, which are pending a
+	//      future Checkpoint.
+	//    - If the driver sends multiple Documents messages without an
+	//      interleaving Checkpoint, the Flow runtime MUST commit
+	//      documents of all such messages in a single transaction.
+	// :PullResponse.Checkpoint:
+	//    - The driver tells the runtime of a checkpoint: a watermark in the
+	//      captured documents stream which is eligble to be used as a
+	//      transaction commit boundary.
+	//    - Whether the checkpoint becomes a commit boundary is at the
+	//      discretion of the Flow runtime. It may combine multiple checkpoints
+	//      into a single transaction.
+	// :PullRequest.Acknowledge:
+	//    - The Flow runtime tells the driver that its Checkpoint has committed.
+	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+	//
+	Pull(ctx context.Context, opts ...grpc.CallOption) (Driver_PullClient, error)
 }
 
 type driverClient struct {
@@ -812,32 +1156,31 @@ func (c *driverClient) Validate(ctx context.Context, in *ValidateRequest, opts .
 	return out, nil
 }
 
-func (c *driverClient) Capture(ctx context.Context, in *CaptureRequest, opts ...grpc.CallOption) (Driver_CaptureClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/capture.Driver/Capture", opts...)
+func (c *driverClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Driver_PullClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/capture.Driver/Pull", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &driverCaptureClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &driverPullClient{stream}
 	return x, nil
 }
 
-type Driver_CaptureClient interface {
-	Recv() (*CaptureResponse, error)
+type Driver_PullClient interface {
+	Send(*PullRequest) error
+	Recv() (*PullResponse, error)
 	grpc.ClientStream
 }
 
-type driverCaptureClient struct {
+type driverPullClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverCaptureClient) Recv() (*CaptureResponse, error) {
-	m := new(CaptureResponse)
+func (x *driverPullClient) Send(m *PullRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *driverPullClient) Recv() (*PullResponse, error) {
+	m := new(PullResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -851,10 +1194,56 @@ type DriverServer interface {
 	Spec(context.Context, *SpecRequest) (*SpecResponse, error)
 	// Discover returns the set of resources available from this Driver.
 	Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error)
-	// Validate that resources and bound CollectionSpecs are compatible with one another.
+	// Validate that resources and bound CollectionSpecs are compatible with one
+	// another.
 	Validate(context.Context, *ValidateRequest) (*ValidateResponse, error)
-	// Capture bound resources as a stream of documents and driver checkpoints.
-	Capture(*CaptureRequest, Driver_CaptureServer) error
+	// Pull is a very long lived RPC through which the Flow runtime and a
+	// Driver cooperatively execute an unbounded number of transactions.
+	//
+	// The Pull workflow pulls streams of documents into capturing Flow
+	// collections. Streams are incremental and resume-able, with resumption
+	// semantics defined by the driver. The Flow Runtime uses a transactional
+	// recovery log to support this workflow, and the driver may persist arbitrary
+	// driver checkpoints into that log as part of the RPC lifecycle,
+	// to power its chosen resumption semantics.
+	//
+	// Pull tasks are split-able, and many concurrent invocations of the RPC
+	// may collectively capture from a source, where each task split has an
+	// identified range of keys it's responsible for. The meaning of a "key",
+	// and it's application within the remote store being captured from, is up
+	// to the driver. The driver might map partitions or shards into the keyspace,
+	// and from there to a covering task split. Or, it might map distinct files,
+	// or some other unit of scaling.
+	//
+	// RPC Lifecycle
+	// =============
+	//
+	// :PullRequest.Open:
+	//    - The Flow runtime opens the pull stream.
+	// :PullResponse.Opened:
+	//    - The driver responds with Opened.
+	//
+	// PullRequest.Open and PullRequest.Opened are sent only once, at the
+	// commencement of the stream. Thereafter the protocol loops:
+	//
+	// :PullResponse.Documents:
+	//    - The driver tells the runtime of some documents, which are pending a
+	//      future Checkpoint.
+	//    - If the driver sends multiple Documents messages without an
+	//      interleaving Checkpoint, the Flow runtime MUST commit
+	//      documents of all such messages in a single transaction.
+	// :PullResponse.Checkpoint:
+	//    - The driver tells the runtime of a checkpoint: a watermark in the
+	//      captured documents stream which is eligble to be used as a
+	//      transaction commit boundary.
+	//    - Whether the checkpoint becomes a commit boundary is at the
+	//      discretion of the Flow runtime. It may combine multiple checkpoints
+	//      into a single transaction.
+	// :PullRequest.Acknowledge:
+	//    - The Flow runtime tells the driver that its Checkpoint has committed.
+	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+	//
+	Pull(Driver_PullServer) error
 }
 
 // UnimplementedDriverServer can be embedded to have forward compatible implementations.
@@ -870,8 +1259,8 @@ func (*UnimplementedDriverServer) Discover(ctx context.Context, req *DiscoverReq
 func (*UnimplementedDriverServer) Validate(ctx context.Context, req *ValidateRequest) (*ValidateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Validate not implemented")
 }
-func (*UnimplementedDriverServer) Capture(req *CaptureRequest, srv Driver_CaptureServer) error {
-	return status.Errorf(codes.Unimplemented, "method Capture not implemented")
+func (*UnimplementedDriverServer) Pull(srv Driver_PullServer) error {
+	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
 }
 
 func RegisterDriverServer(s *grpc.Server, srv DriverServer) {
@@ -932,25 +1321,30 @@ func _Driver_Validate_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Driver_Capture_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(CaptureRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(DriverServer).Capture(m, &driverCaptureServer{stream})
+func _Driver_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(DriverServer).Pull(&driverPullServer{stream})
 }
 
-type Driver_CaptureServer interface {
-	Send(*CaptureResponse) error
+type Driver_PullServer interface {
+	Send(*PullResponse) error
+	Recv() (*PullRequest, error)
 	grpc.ServerStream
 }
 
-type driverCaptureServer struct {
+type driverPullServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverCaptureServer) Send(m *CaptureResponse) error {
+func (x *driverPullServer) Send(m *PullResponse) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func (x *driverPullServer) Recv() (*PullRequest, error) {
+	m := new(PullRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 var _Driver_serviceDesc = grpc.ServiceDesc{
@@ -972,9 +1366,212 @@ var _Driver_serviceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Capture",
-			Handler:       _Driver_Capture_Handler,
+			StreamName:    "Pull",
+			Handler:       _Driver_Pull_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "capture/capture.proto",
+}
+
+// RuntimeClient is the client API for Runtime service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type RuntimeClient interface {
+	// Push may be a short or very long lived RPC through which the Flow runtime
+	// and a driver cooperatively execute an unbounded number of transactions.
+	//
+	// The Push workflow pushes streams of documents into capturing Flow
+	// collections. The driver is responsible for initiation and resumption of
+	// push streams. The Flow runtime uses a transactional recovery log to support
+	// this workflow, and the driver may persist arbitrary driver checkpoints into
+	// that log as part of the RPC lifecycle, to power its chosen resumption
+	// semantics.
+	//
+	// A push RPC is evaluated against a specific task shard split, which is
+	// encoded in the PushRequest.Open.Header. A driver may perform its own load
+	// balancing by obtain a shard listing and embedding a selected shard into
+	// that header. Or, it may leave it empty and an arbitary shard will be
+	// randomly chosen for it.
+	//
+	// RPC Lifecycle
+	// =============
+	//
+	// :PushRequest.Open:
+	//    - The driver opens the push stream, naming its capture and
+	//      optional routing header.
+	// :PushResponse.Opened:
+	//    - The Flow runtime responds with Opened, which tells the driver
+	//      of the specific CaptureSpec and [key_begin, key_end] range of
+	//      this RPC, as well as the last driver checkpoint.
+	//    - The semantics and treatment of the key range is up to the driver.
+	//
+	// PushRequest.Open and PushRequest.Opened are sent only once, at the
+	// commencement of the stream. Thereafter the protocol loops:
+	//
+	// :PushRequest.Documents:
+	//    - The driver tells the runtime of some documents, which are pending a
+	//      future Checkpoint.
+	//    - If the driver sends multiple Documents messages without an
+	//      interleaving Checkpoint, the Flow runtime MUST commit
+	//      documents of all such messages in a single transaction.
+	// :PushRequest.Checkpoint:
+	//    - The driver tells the runtime of a checkpoint: a watermark in the
+	//      captured documents stream which is eligble to be used as a
+	//      transaction commit boundary.
+	//    - Whether the checkpoint becomes a commit boundary is at the
+	//      discretion of the Flow runtime. It may combine multiple checkpoints
+	//      into a single transaction.
+	// :PushResponse.Acknowledge:
+	//    - The Flow runtime tells the driver that its Checkpoint has committed.
+	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+	//
+	Push(ctx context.Context, opts ...grpc.CallOption) (Runtime_PushClient, error)
+}
+
+type runtimeClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewRuntimeClient(cc *grpc.ClientConn) RuntimeClient {
+	return &runtimeClient{cc}
+}
+
+func (c *runtimeClient) Push(ctx context.Context, opts ...grpc.CallOption) (Runtime_PushClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Runtime_serviceDesc.Streams[0], "/capture.Runtime/Push", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &runtimePushClient{stream}
+	return x, nil
+}
+
+type Runtime_PushClient interface {
+	Send(*PushRequest) error
+	CloseAndRecv() (*PushResponse, error)
+	grpc.ClientStream
+}
+
+type runtimePushClient struct {
+	grpc.ClientStream
+}
+
+func (x *runtimePushClient) Send(m *PushRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *runtimePushClient) CloseAndRecv() (*PushResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(PushResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// RuntimeServer is the server API for Runtime service.
+type RuntimeServer interface {
+	// Push may be a short or very long lived RPC through which the Flow runtime
+	// and a driver cooperatively execute an unbounded number of transactions.
+	//
+	// The Push workflow pushes streams of documents into capturing Flow
+	// collections. The driver is responsible for initiation and resumption of
+	// push streams. The Flow runtime uses a transactional recovery log to support
+	// this workflow, and the driver may persist arbitrary driver checkpoints into
+	// that log as part of the RPC lifecycle, to power its chosen resumption
+	// semantics.
+	//
+	// A push RPC is evaluated against a specific task shard split, which is
+	// encoded in the PushRequest.Open.Header. A driver may perform its own load
+	// balancing by obtain a shard listing and embedding a selected shard into
+	// that header. Or, it may leave it empty and an arbitary shard will be
+	// randomly chosen for it.
+	//
+	// RPC Lifecycle
+	// =============
+	//
+	// :PushRequest.Open:
+	//    - The driver opens the push stream, naming its capture and
+	//      optional routing header.
+	// :PushResponse.Opened:
+	//    - The Flow runtime responds with Opened, which tells the driver
+	//      of the specific CaptureSpec and [key_begin, key_end] range of
+	//      this RPC, as well as the last driver checkpoint.
+	//    - The semantics and treatment of the key range is up to the driver.
+	//
+	// PushRequest.Open and PushRequest.Opened are sent only once, at the
+	// commencement of the stream. Thereafter the protocol loops:
+	//
+	// :PushRequest.Documents:
+	//    - The driver tells the runtime of some documents, which are pending a
+	//      future Checkpoint.
+	//    - If the driver sends multiple Documents messages without an
+	//      interleaving Checkpoint, the Flow runtime MUST commit
+	//      documents of all such messages in a single transaction.
+	// :PushRequest.Checkpoint:
+	//    - The driver tells the runtime of a checkpoint: a watermark in the
+	//      captured documents stream which is eligble to be used as a
+	//      transaction commit boundary.
+	//    - Whether the checkpoint becomes a commit boundary is at the
+	//      discretion of the Flow runtime. It may combine multiple checkpoints
+	//      into a single transaction.
+	// :PushResponse.Acknowledge:
+	//    - The Flow runtime tells the driver that its Checkpoint has committed.
+	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+	//
+	Push(Runtime_PushServer) error
+}
+
+// UnimplementedRuntimeServer can be embedded to have forward compatible implementations.
+type UnimplementedRuntimeServer struct {
+}
+
+func (*UnimplementedRuntimeServer) Push(srv Runtime_PushServer) error {
+	return status.Errorf(codes.Unimplemented, "method Push not implemented")
+}
+
+func RegisterRuntimeServer(s *grpc.Server, srv RuntimeServer) {
+	s.RegisterService(&_Runtime_serviceDesc, srv)
+}
+
+func _Runtime_Push_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeServer).Push(&runtimePushServer{stream})
+}
+
+type Runtime_PushServer interface {
+	SendAndClose(*PushResponse) error
+	Recv() (*PushRequest, error)
+	grpc.ServerStream
+}
+
+type runtimePushServer struct {
+	grpc.ServerStream
+}
+
+func (x *runtimePushServer) SendAndClose(m *PushResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *runtimePushServer) Recv() (*PushRequest, error) {
+	m := new(PushRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+var _Runtime_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "capture.Runtime",
+	HandlerType: (*RuntimeServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Push",
+			Handler:       _Runtime_Push_Handler,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "capture/capture.proto",
@@ -1385,7 +1982,7 @@ func (m *ValidateResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *CaptureRequest) Marshal() (dAtA []byte, err error) {
+func (m *Documents) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1395,12 +1992,187 @@ func (m *CaptureRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CaptureRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Documents) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *CaptureRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Documents) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.DocsJson) > 0 {
+		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintCapture(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Arena) > 0 {
+		i -= len(m.Arena)
+		copy(dAtA[i:], m.Arena)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.Arena)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Checkpoint) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Checkpoint) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Checkpoint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Rfc7396MergePatch {
+		i--
+		if m.Rfc7396MergePatch {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.DriverCheckpointJson) > 0 {
+		i -= len(m.DriverCheckpointJson)
+		copy(dAtA[i:], m.DriverCheckpointJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.DriverCheckpointJson)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Acknowledge) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Acknowledge) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Acknowledge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PullRequest) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PullRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PullRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Acknowledge != nil {
+		{
+			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Open != nil {
+		{
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PullRequest_Open) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PullRequest_Open) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PullRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1453,7 +2225,7 @@ func (m *CaptureRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *CaptureResponse) Marshal() (dAtA []byte, err error) {
+func (m *PullResponse) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1463,12 +2235,12 @@ func (m *CaptureResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CaptureResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *PullResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *CaptureResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1477,9 +2249,9 @@ func (m *CaptureResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.Commit != nil {
+	if m.Checkpoint != nil {
 		{
-			size, err := m.Commit.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1489,9 +2261,9 @@ func (m *CaptureResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x1a
 	}
-	if m.Captured != nil {
+	if m.Documents != nil {
 		{
-			size, err := m.Captured.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Documents.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1516,7 +2288,7 @@ func (m *CaptureResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *CaptureResponse_Opened) Marshal() (dAtA []byte, err error) {
+func (m *PullResponse_Opened) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1526,12 +2298,12 @@ func (m *CaptureResponse_Opened) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CaptureResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
+func (m *PullResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *CaptureResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *PullResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1543,7 +2315,7 @@ func (m *CaptureResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 	return len(dAtA) - i, nil
 }
 
-func (m *CaptureResponse_Captured) Marshal() (dAtA []byte, err error) {
+func (m *PushRequest) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1553,12 +2325,12 @@ func (m *CaptureResponse_Captured) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CaptureResponse_Captured) MarshalTo(dAtA []byte) (int, error) {
+func (m *PushRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *CaptureResponse_Captured) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *PushRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1567,36 +2339,46 @@ func (m *CaptureResponse_Captured) MarshalToSizedBuffer(dAtA []byte) (int, error
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.DocsJson) > 0 {
-		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintCapture(dAtA, i, uint64(size))
+	if m.Checkpoint != nil {
+		{
+			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
 			}
-			i--
-			dAtA[i] = 0x1a
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0x1a
 	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.Arena)))
+	if m.Documents != nil {
+		{
+			size, err := m.Documents.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Binding != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.Binding))
+	if m.Open != nil {
+		{
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *CaptureResponse_Commit) Marshal() (dAtA []byte, err error) {
+func (m *PushRequest_Open) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1606,12 +2388,12 @@ func (m *CaptureResponse_Commit) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CaptureResponse_Commit) MarshalTo(dAtA []byte) (int, error) {
+func (m *PushRequest_Open) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *CaptureResponse_Commit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *PushRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1620,22 +2402,148 @@ func (m *CaptureResponse_Commit) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.Rfc7396MergePatch {
+	if len(m.Capture) > 0 {
+		i -= len(m.Capture)
+		copy(dAtA[i:], m.Capture)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.Capture)))
 		i--
-		if m.Rfc7396MergePatch {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
+		dAtA[i] = 0x12
+	}
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
 		}
 		i--
-		dAtA[i] = 0x10
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PushResponse) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PushResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Acknowledge != nil {
+		{
+			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Opened != nil {
+		{
+			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PushResponse_Opened) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PushResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
 	if len(m.DriverCheckpointJson) > 0 {
 		i -= len(m.DriverCheckpointJson)
 		copy(dAtA[i:], m.DriverCheckpointJson)
 		i = encodeVarintCapture(dAtA, i, uint64(len(m.DriverCheckpointJson)))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x32
+	}
+	if m.KeyEnd != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyEnd))
+		i--
+		dAtA[i] = 0x2d
+	}
+	if m.KeyBegin != 0 {
+		i -= 4
+		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyBegin))
+		i--
+		dAtA[i] = 0x25
+	}
+	if m.Capture != nil {
+		{
+			size, err := m.Capture.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	{
+		size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintCapture(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if m.Status != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.Status))
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -1844,7 +2752,83 @@ func (m *ValidateResponse_Binding) ProtoSize() (n int) {
 	return n
 }
 
-func (m *CaptureRequest) ProtoSize() (n int) {
+func (m *Documents) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovCapture(uint64(m.Binding))
+	}
+	l = len(m.Arena)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if len(m.DocsJson) > 0 {
+		for _, e := range m.DocsJson {
+			l = e.ProtoSize()
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Checkpoint) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.DriverCheckpointJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Rfc7396MergePatch {
+		n += 2
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Acknowledge) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *PullRequest) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Acknowledge != nil {
+		l = m.Acknowledge.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *PullRequest_Open) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1873,7 +2857,7 @@ func (m *CaptureRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *CaptureResponse) ProtoSize() (n int) {
+func (m *PullResponse) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1883,12 +2867,12 @@ func (m *CaptureResponse) ProtoSize() (n int) {
 		l = m.Opened.ProtoSize()
 		n += 1 + l + sovCapture(uint64(l))
 	}
-	if m.Captured != nil {
-		l = m.Captured.ProtoSize()
+	if m.Documents != nil {
+		l = m.Documents.ProtoSize()
 		n += 1 + l + sovCapture(uint64(l))
 	}
-	if m.Commit != nil {
-		l = m.Commit.ProtoSize()
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
 		n += 1 + l + sovCapture(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -1897,7 +2881,7 @@ func (m *CaptureResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *CaptureResponse_Opened) ProtoSize() (n int) {
+func (m *PullResponse_Opened) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1909,24 +2893,63 @@ func (m *CaptureResponse_Opened) ProtoSize() (n int) {
 	return n
 }
 
-func (m *CaptureResponse_Captured) ProtoSize() (n int) {
+func (m *PushRequest) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Binding != 0 {
-		n += 1 + sovCapture(uint64(m.Binding))
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
 	}
-	l = len(m.Arena)
+	if m.Documents != nil {
+		l = m.Documents.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *PushRequest_Open) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Header != nil {
+		l = m.Header.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.Capture)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
 	}
-	if len(m.DocsJson) > 0 {
-		for _, e := range m.DocsJson {
-			l = e.ProtoSize()
-			n += 1 + l + sovCapture(uint64(l))
-		}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *PushResponse) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Opened != nil {
+		l = m.Opened.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Acknowledge != nil {
+		l = m.Acknowledge.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -1934,18 +2957,30 @@ func (m *CaptureResponse_Captured) ProtoSize() (n int) {
 	return n
 }
 
-func (m *CaptureResponse_Commit) ProtoSize() (n int) {
+func (m *PushResponse_Opened) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
+	if m.Status != 0 {
+		n += 1 + sovCapture(uint64(m.Status))
+	}
+	l = m.Header.ProtoSize()
+	n += 1 + l + sovCapture(uint64(l))
+	if m.Capture != nil {
+		l = m.Capture.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.KeyBegin != 0 {
+		n += 5
+	}
+	if m.KeyEnd != 0 {
+		n += 5
+	}
 	l = len(m.DriverCheckpointJson)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Rfc7396MergePatch {
-		n += 2
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -3026,7 +4061,7 @@ func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CaptureRequest) Unmarshal(dAtA []byte) error {
+func (m *Documents) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3049,10 +4084,427 @@ func (m *CaptureRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: CaptureRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Documents: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CaptureRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Documents: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
+			}
+			m.Binding = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Binding |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
+			if m.Arena == nil {
+				m.Arena = []byte{}
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocsJson = append(m.DocsJson, flow.Slice{})
+			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Checkpoint) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Checkpoint: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Checkpoint: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DriverCheckpointJson = append(m.DriverCheckpointJson[:0], dAtA[iNdEx:postIndex]...)
+			if m.DriverCheckpointJson == nil {
+				m.DriverCheckpointJson = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Rfc7396MergePatch", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Rfc7396MergePatch = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Acknowledge) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Acknowledge: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Acknowledge: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PullRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PullRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PullRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Open == nil {
+				m.Open = &PullRequest_Open{}
+			}
+			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Acknowledge == nil {
+				m.Acknowledge = &Acknowledge{}
+			}
+			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PullRequest_Open) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Open: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Open: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -3187,7 +4639,7 @@ func (m *CaptureRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
+func (m *PullResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3210,10 +4662,10 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: CaptureResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: PullResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CaptureResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: PullResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -3246,7 +4698,7 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Opened == nil {
-				m.Opened = &CaptureResponse_Opened{}
+				m.Opened = &PullResponse_Opened{}
 			}
 			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -3254,7 +4706,7 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Captured", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3281,16 +4733,16 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Captured == nil {
-				m.Captured = &CaptureResponse_Captured{}
+			if m.Documents == nil {
+				m.Documents = &Documents{}
 			}
-			if err := m.Captured.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Documents.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Commit", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3317,10 +4769,10 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Commit == nil {
-				m.Commit = &CaptureResponse_Commit{}
+			if m.Checkpoint == nil {
+				m.Checkpoint = &Checkpoint{}
 			}
-			if err := m.Commit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3346,7 +4798,7 @@ func (m *CaptureResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CaptureResponse_Opened) Unmarshal(dAtA []byte) error {
+func (m *PullResponse_Opened) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3397,7 +4849,7 @@ func (m *CaptureResponse_Opened) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CaptureResponse_Captured) Unmarshal(dAtA []byte) error {
+func (m *PushRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3420,68 +4872,15 @@ func (m *CaptureResponse_Captured) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Captured: wiretype end group for non-group")
+			return fmt.Errorf("proto: PushRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Captured: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: PushRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
-			}
-			m.Binding = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.Binding |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3508,8 +4907,82 @@ func (m *CaptureResponse_Captured) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DocsJson = append(m.DocsJson, flow.Slice{})
-			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if m.Open == nil {
+				m.Open = &PushRequest_Open{}
+			}
+			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Documents == nil {
+				m.Documents = &Documents{}
+			}
+			if err := m.Documents.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Checkpoint == nil {
+				m.Checkpoint = &Checkpoint{}
+			}
+			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3535,7 +5008,7 @@ func (m *CaptureResponse_Captured) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *CaptureResponse_Commit) Unmarshal(dAtA []byte) error {
+func (m *PushRequest_Open) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3558,13 +5031,363 @@ func (m *CaptureResponse_Commit) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Commit: wiretype end group for non-group")
+			return fmt.Errorf("proto: Open: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Commit: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Open: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Header == nil {
+				m.Header = &protocol.Header{}
+			}
+			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capture", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Capture = github_com_estuary_protocols_flow.Capture(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PushResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PushResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PushResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Opened", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Opened == nil {
+				m.Opened = &PushResponse_Opened{}
+			}
+			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Acknowledge == nil {
+				m.Acknowledge = &Acknowledge{}
+			}
+			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PushResponse_Opened) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Opened: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Opened: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			m.Status = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Status |= protocol1.Status(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capture", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Capture == nil {
+				m.Capture = &flow.CaptureSpec{}
+			}
+			if err := m.Capture.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 5 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyBegin", wireType)
+			}
+			m.KeyBegin = 0
+			if (iNdEx + 4) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyBegin = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
+			iNdEx += 4
+		case 5:
+			if wireType != 5 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyEnd", wireType)
+			}
+			m.KeyEnd = 0
+			if (iNdEx + 4) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyEnd = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
+			iNdEx += 4
+		case 6:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
 			}
@@ -3598,26 +5421,6 @@ func (m *CaptureResponse_Commit) Unmarshal(dAtA []byte) error {
 				m.DriverCheckpointJson = []byte{}
 			}
 			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Rfc7396MergePatch", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.Rfc7396MergePatch = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipCapture(dAtA[iNdEx:])

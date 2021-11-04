@@ -273,6 +273,7 @@ enum EndpointType {
   // Reserved for REMOTE gRPC servers if there's ever a use case.
   INVALID = 0;
   SQLITE = 2;
+  INGEST = 3;
   AIRBYTE_SOURCE = 7;
   FLOW_SINK = 8;
 }
@@ -311,7 +312,8 @@ message CaptureSpec {
     json_name = "endpointSpec"
   ];
   // Bindings of endpoint resources and collections into which they're captured.
-  // Bindings are ordered and unique on the bound collection name.
+  // Bindings are ordered and unique on the bound collection name,
+  // and are also unique on the resource path.
   message Binding {
     // JSON-encoded object which specifies the endpoint resource to be captured.
     string resource_spec_json = 1 [
@@ -319,7 +321,7 @@ message CaptureSpec {
       json_name = "resourceSpec"
     ];
     // Driver-supplied path components which fully qualify the
-    // subresource being materialized.
+    // subresource being captured.
     repeated string resource_path = 2;
     // Collection to be captured into.
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
@@ -349,7 +351,8 @@ message MaterializationSpec {
     json_name = "endpointSpec"
   ];
   // Bindings of endpoint resources and collections from which they're
-  // materialized. Bindings are ordered and unique on the bound collection name.
+  // materialized. Bindings are ordered and unique on the bound collection name,
+  // and are also unique on the resource path.
   message Binding {
     // JSON-encoded object which specifies the endpoint resource to be
     // materialized.
@@ -503,9 +506,10 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
-// LogLevelFilter is a common representation of a simple logging filter, which is shared between
-// Rust and Go code. This enum is not used directly within other messages here because logging is
-// configured at the time that Rust Service instances are created, not when they're configured.
+// LogLevelFilter is a common representation of a simple logging filter, which
+// is shared between Rust and Go code. This enum is not used directly within
+// other messages here because logging is configured at the time that Rust
+// Service instances are created, not when they're configured.
 enum LogLevelFilter {
   OFF = 0;
   ERROR = 1;
@@ -771,9 +775,7 @@ message ResetStateRequest {}
 message ResetStateResponse {}
 
 // AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
-message AdvanceTimeRequest {
-  uint64 advance_seconds = 1;
-}
+message AdvanceTimeRequest { uint64 advance_seconds = 1; }
 
 // AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
 message AdvanceTimeResponse {}
