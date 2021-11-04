@@ -40,6 +40,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
+	var buildsRoot = "file://" + cmd.Directory + "/"
 
 	// Create a temporary directory which will contain the Etcd database
 	// and various unix:// sockets.
@@ -55,7 +56,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Start a local data plane bound to our context.
 	var dataPlane = apiLocalDataPlane{
-		BuildsRoot:  "file://" + cmd.Directory,
+		BuildsRoot:  buildsRoot,
 		UnixSockets: true,
 		Log: mbp.LogConfig{
 			Level:  "warn",
@@ -86,7 +87,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	// Activate derivations of the built database into the local dataplane.
 	var activate = apiActivate{
 		BuildID:        buildID,
-		BuildsRoot:     "file://" + cmd.Directory,
+		BuildsRoot:     buildsRoot,
 		Network:        cmd.Network,
 		InitialSplits:  1,
 		AllDerivations: true,
@@ -101,7 +102,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	// Test the built database against the local dataplane.
 	var test = apiTest{
 		BuildID:    buildID,
-		BuildsRoot: "file://" + cmd.Directory,
+		BuildsRoot: buildsRoot,
 	}
 	test.Broker.Address = protocol.Endpoint(brokerAddr)
 	test.Consumer.Address = protocol.Endpoint(consumerAddr)

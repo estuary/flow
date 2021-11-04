@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"runtime"
 	"sync"
 
@@ -57,14 +56,16 @@ type sharedBuild struct {
 }
 
 // NewBuildService returns a new *BuildService.
+// The |baseURL| must be an absolute URL which ends in '/'.
 func NewBuildService(baseURL string) (*BuildService, error) {
 	var base, err = url.Parse(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing base URL: %w", err)
 	} else if !base.IsAbs() {
 		return nil, fmt.Errorf("base URL %q is not absolute", baseURL)
+	} else if l := len(base.Path); l == 0 || base.Path[l-1] != '/' {
+		return nil, fmt.Errorf("base URL %q must end in '/'", baseURL)
 	}
-	base.Path = path.Clean(base.Path) + "/"
 
 	return &BuildService{
 		baseURL:  base,
