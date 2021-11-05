@@ -1,4 +1,4 @@
-mod csv;
+mod character_separated;
 mod json;
 mod projection;
 
@@ -108,8 +108,9 @@ pub fn parse(
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
         Format::Json => json::new_parser(),
-        Format::Csv => csv::new_csv_parser(),
-        Format::Tsv => csv::new_tsv_parser(),
+        Format::Csv => character_separated::new_csv_parser(),
+        Format::Tsv => character_separated::new_tsv_parser(),
+        Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
     }
 }
 

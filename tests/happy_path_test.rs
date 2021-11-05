@@ -1,9 +1,9 @@
 mod testutil;
 
-use std::fs::{self};
+use std::fs;
 use std::path::PathBuf;
 
-use parser::{JsonPointer, ParseConfig};
+use parser::{Format, JsonPointer, ParseConfig};
 use serde_json::json;
 use testutil::{input_for_file, run_test};
 
@@ -16,6 +16,19 @@ fn valid_examples_are_parsed_with_default_config() {
             assert_file_is_parsed(entry.path());
         }
     }
+}
+
+#[test]
+fn w3c_extended_log_file_is_parsed() {
+    let config = ParseConfig {
+        // Explicit format is required, since there's no file extension that's associated with
+        // this format.
+        format: Some(Format::W3cExtendedLog),
+        ..Default::default()
+    };
+    let input = input_for_file("tests/examples/w3c-extended-log");
+    let result = run_test(&config, input);
+    result.assert_success(1);
 }
 
 /// The file `requires-explicit-quote.csv` has 206 columns. The header row does not use any quote

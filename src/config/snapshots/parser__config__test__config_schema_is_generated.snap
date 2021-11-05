@@ -228,7 +228,8 @@ expression: schema
       "enum": [
         "json",
         "csv",
-        "tsv"
+        "tsv",
+        "w3cExtendedLog"
       ]
     }
   }

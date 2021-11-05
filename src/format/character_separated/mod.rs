@@ -1,27 +1,24 @@
 //! Parsers for character-separated formats like csv.
-use super::{Format, Output, ParseError, ParseResult, Parser};
-use crate::format::projection::{build_projections, collate, TypeInfo};
-use crate::input::{detect_encoding, Input};
-use crate::{
-    config::{
-        csv::{CharacterSeparatedConfig, LineEnding},
-        ParseConfig,
-    },
-    ErrorThreshold,
+
+mod error_buffer;
+mod w3c_extended_log;
+
+use self::error_buffer::ParseErrorBuffer;
+use crate::config::{
+    csv::{CharacterSeparatedConfig, LineEnding},
+    ParseConfig,
 };
+use crate::format::projection::{build_projections, collate, TypeInfo};
+use crate::format::{Format, Output, ParseError, ParseResult, Parser};
+use crate::input::{detect_encoding, Input};
 use csv::{Reader, StringRecord, Terminator};
 use doc::Pointer;
 use json::schema::types;
 use serde_json::Value;
-use std::{collections::VecDeque, io};
+use std::{collections::BTreeMap, io};
 
-struct CsvParser {
-    /// The specific format associated with this parser. Used to lookup the correct configuration
-    /// section.
-    format: Format,
-    /// The default value used to separate values in a row.
-    default_delimiter: u8,
-}
+/// Returns a parser for the [W3C extended log format](https://www.w3.org/TR/WD-logfile.html)
+pub use self::w3c_extended_log::new_w3c_extended_log_parser;
 
 /// Returns a Parser for the comma-separated values format.
 pub fn new_csv_parser() -> Box<dyn Parser> {
@@ -37,6 +34,14 @@ pub fn new_tsv_parser() -> Box<dyn Parser> {
         format: Format::Tsv,
         default_delimiter: b'\t',
     })
+}
+
+struct CsvParser {
+    /// The specific format associated with this parser. Used to lookup the correct configuration
+    /// section.
+    format: Format,
+    /// The default value used to separate values in a row.
+    default_delimiter: u8,
 }
 
 // There's definitely some room for improvement in this function, but it doesn't seem worth the
@@ -71,7 +76,7 @@ fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<u8> {
 
 impl Parser for CsvParser {
     fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError> {
-        let mut projections = build_projections(config)?;
+        let projections = build_projections(config)?;
         let user_provided_config = get_config(self.format, config).cloned().unwrap_or_default();
         // Transcode into UTF-8 before attempting to parse the CSV. This simplifies a lot, since
         // our ultimate target is JSON in UTF-8, and since the configuration is also provided as
@@ -140,41 +145,49 @@ impl Parser for CsvParser {
                 .collect();
             tracing::debug!(nColumns = headers.len(), "Parsed headers from file");
         }
+        let columns = resolve_headers(headers, projections, CSV_NULLS);
 
-        // Associate each header with projection information. This is needed in order to construct
-        // a potentially nested JSON document from the tabular data. If there's no projection
-        // information available for a given field, then we'll use a default projection that simply
-        // uses the column name as the JSON property name and permits any type of value. This is so
-        // that the parser can at least do a basic CSV to JSON conversion without having any prior
-        // knowledge about the desired shape of the JSON.
-        let mut columns = Vec::new();
-        for name in headers {
-            let projection = projections
-                .remove(&collate(name.chars()).collect::<String>())
-                .unwrap_or_else(|| {
-                    let location = String::from("/") + name.as_str();
-                    TypeInfo {
-                        possible_types: None,
-                        must_exist: false,
-                        target_location: Pointer::from_str(&location),
-                    }
-                });
-            columns.push(Header { name, projection });
-        }
-        tracing::info!("Resolved column headers: {:?}", columns);
-
-        let csv_output = CsvOutput {
-            headers: columns,
-            reader,
-            current_row: csv::StringRecord::new(),
-            row_num: 0,
+        let csv_output = CsvOutput::new(columns, reader);
+        let iterator = if let Some(threshold) = user_provided_config.error_threshold {
+            Box::new(ParseErrorBuffer::new(csv_output, threshold)) as Output
+        } else {
+            Box::new(csv_output) as Output
         };
-        let iterator = ParseErrorBuffer::new(
-            csv_output,
-            user_provided_config.error_threshold.unwrap_or_default(),
-        );
-        Ok(Box::new(iterator))
+        Ok(iterator)
     }
+}
+
+/// Associates each column header with projection information. This is needed in order to construct
+/// a potentially nested JSON document from the tabular data. If there's no projection information
+/// available for a given field, then we'll use a default projection that simply uses the column
+/// name as the JSON property name and permits any type of value. This is so that the parser can at
+/// least do a basic CSV to JSON conversion without having any prior knowledge about the desired
+/// shape of the JSON.
+fn resolve_headers(
+    column_header_names: Vec<String>,
+    mut projections: BTreeMap<String, TypeInfo>,
+    null_sentinels: &'static [&'static str],
+) -> Vec<Header> {
+    let mut columns = Vec::new();
+    for name in column_header_names {
+        let projection = projections
+            .remove(&collate(name.chars()).collect::<String>())
+            .unwrap_or_else(|| {
+                let location = String::from("/") + name.as_str();
+                TypeInfo {
+                    possible_types: None,
+                    must_exist: false,
+                    target_location: Pointer::from_str(&location),
+                }
+            });
+        columns.push(Header {
+            name,
+            projection,
+            null_sentinels,
+        });
+    }
+    tracing::info!(headers = ?columns, "resolved column headers");
+    columns
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -198,7 +211,7 @@ fn box_err<E: Into<Error>>(err: E) -> Box<dyn std::error::Error> {
 
 const PARSE_ORDER: &[TargetType] = &[
     // Try null before string so that fields that allow either null or string will end up as null
-    // if a field is empty.
+    // if a field matches a null sentinel value.
     TargetType::Null,
     // Always attempt integer before fractional.
     TargetType::Integer,
@@ -237,10 +250,16 @@ impl TargetType {
 
 /// Encapsulates a specific named column and associated Projection information.
 #[derive(Debug, Clone)]
-struct Header {
-    name: String,
-    projection: TypeInfo,
+pub struct Header {
+    pub name: String,
+    pub projection: TypeInfo,
+    /// The allowable values that will be interpreted as null. Ignored if the projection
+    /// information doesn't allow nulls. This is static because we currently don't have a use case
+    /// for them to be dynamic, and it's convenient to just use string literals.
+    pub null_sentinels: &'static [&'static str],
 }
+
+pub const CSV_NULLS: &[&str] = &["", "NULL", "null", "nil"];
 
 impl Header {
     fn parse(&self, value: &str) -> Result<Value, Error> {
@@ -267,10 +286,13 @@ impl Header {
 
     fn parse_as_type(&self, value: &str, target_type: TargetType) -> Option<Value> {
         match target_type {
-            TargetType::Null => match value {
-                "" | "NULL" | "null" | "nil" => Some(Value::Null),
-                _ => None,
-            },
+            TargetType::Null => {
+                if self.null_sentinels.contains(&value) {
+                    Some(Value::Null)
+                } else {
+                    None
+                }
+            }
             TargetType::Array => serde_json::from_str::<Vec<Value>>(value)
                 .ok()
                 .map(|a| Value::Array(a)),
@@ -319,6 +341,15 @@ pub struct CsvOutput {
 }
 
 impl CsvOutput {
+    pub fn new(headers: Vec<Header>, reader: Reader<Box<dyn io::Read>>) -> CsvOutput {
+        CsvOutput {
+            headers,
+            reader,
+            current_row: StringRecord::new(),
+            row_num: 0,
+        }
+    }
+
     fn parse_current_row(&mut self) -> Result<Value, ParseError> {
         let CsvOutput {
             headers,
@@ -375,112 +406,49 @@ impl Iterator for CsvOutput {
     }
 }
 
-// How many of the recent records to consider when trying to decide if
-// we've entered a new region of bad data of the file.
-const ERROR_BUFFER_WINDOW_SIZE: usize = 1000;
-
-/// A decorating iterator that tracks parsing errors and absorbs a specified
-/// rate of errors. If that rate is exceeded, then all the errors encountered
-/// are returned. Should not be polled again once an error is returned.
-#[derive(Debug)]
-struct ParseErrorBuffer<I> {
-    /// The iterator we're wrapping.
-    inner: I,
-    /// The amount of errors we can absorb before halting parsing.
-    threshold: ErrorThreshold,
-    /// The number of records we've seen.
-    total_records: usize,
-    /// TODO
-    errors_in_buffer: usize,
-    /// The most recent rows.
-    buffer: VecDeque<ParseResult>,
-}
-
-impl<I: Iterator<Item = ParseResult>> ParseErrorBuffer<I> {
-    pub fn new(inner: I, threshold: ErrorThreshold) -> Self {
-        Self {
-            inner,
-            threshold,
-            total_records: 0,
-            errors_in_buffer: 0,
-            buffer: VecDeque::with_capacity(ERROR_BUFFER_WINDOW_SIZE),
-        }
-    }
-
-    /// Consumes the next item out of the inner iterator and pops the next item
-    /// out of the internal buffer.
-    pub fn advance(&mut self) -> Option<I::Item> {
-        let popped = self.buffer.pop_front();
-        self.buffer_next();
-        if let Some(Err(_)) = popped {
-            self.errors_in_buffer -= 1;
-        }
-        popped
-    }
-
-    /// Returns true when the error buffer contains too many errors.
-    pub fn exceeded(&self) -> bool {
-        if self.total_records == 0 || self.errors_in_buffer == 0 {
-            return false;
-        }
-
-        // If the whole file is smaller than the window size, we only want to
-        // consider the records we have when determining the file's error rate.
-        // Otherwise, we'll use the window size for this calculation.
-        let window_size = usize::min(self.total_records, ERROR_BUFFER_WINDOW_SIZE);
-        let error_rate = self.errors_in_buffer as f64 / window_size as f64;
-
-        self.threshold.exceeded((100.0 * error_rate) as u8)
-    }
-
-    /// Fill up the internal buffer with as many items as we can.
-    pub fn prefill_buffer(&mut self) {
-        while self.buffer.len() < ERROR_BUFFER_WINDOW_SIZE && self.buffer_next() {
-            // Continue buffering
-        }
-    }
-
-    /// Returns true if we successfully added another item to the buffer.
-    fn buffer_next(&mut self) -> bool {
-        if let Some(item) = self.inner.next() {
-            if item.is_err() {
-                self.errors_in_buffer += 1;
-            }
-            self.total_records += 1;
-            self.buffer.push_back(item);
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl<I: Iterator<Item = ParseResult>> Iterator for ParseErrorBuffer<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.prefill_buffer();
-
-        loop {
-            if self.exceeded() {
-                return Some(Err(ParseError::ErrorLimitExceeded(self.threshold)));
-            } else {
-                let item = self.advance()?;
-                if item.is_ok() {
-                    return Some(item);
-                } else {
-                    tracing::warn!(error=?item.unwrap_err(), "failed to parse row");
-                    continue;
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
+
+    fn test_input(content: impl Into<Vec<u8>>) -> Input {
+        use std::io::Cursor;
+        Input::Stream(Box::new(Cursor::new(content.into())))
+    }
+
+    #[test]
+    fn values_parsed_as_null_when_sentinel_matches() {
+        let conf = ParseConfig {
+            format: Some(Format::Csv),
+            schema: json!({
+                "type": "object",
+                "properties": {
+                    "foo": {
+                        "type": ["string", "integer", "null"]
+                    }
+                }
+            }),
+            ..Default::default()
+        };
+        let csv = test_input("foo\nnuul\nNULL\nnil\nNul\nnull\nnullll\n0\n");
+        let results = new_csv_parser()
+            .parse(&conf, csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        assert_eq!(
+            vec![
+                json!({"foo": "nuul"}),
+                json!({ "foo": null }),
+                json!({ "foo": null }),
+                json!({"foo": "Nul"}),
+                json!({ "foo": null }),
+                json!({"foo": "nullll"}),
+                json!({"foo": 0}),
+            ],
+            results
+        );
+    }
 
     #[test]
     fn values_parsed_as_strings_when_numbers_would_overflow() {

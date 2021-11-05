@@ -15,7 +15,9 @@ fn no_tolerance_for_errors_test() {
     run_test(&config, csv.as_input()).assert_success(500);
 
     csv.write_rows(1, &|i| format!("{},{},unexpected-column!", i, i * i));
-    run_test(&config, csv.as_input()).assert_failure(0);
+    // Still outputs 500 rows and fails on 501st, because no buffering is done when the error
+    // threshold is unset.
+    run_test(&config, csv.as_input()).assert_failure(500);
 }
 
 #[test]

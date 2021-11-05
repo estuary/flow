@@ -103,6 +103,9 @@ pub enum Format {
     Csv,
     /// Tab-separated values
     Tsv,
+    /// A W3C Extended Log file, as defined by the working group draft at:
+    /// https://www.w3.org/TR/WD-logfile.html
+    W3cExtendedLog,
 }
 
 impl std::convert::TryFrom<String> for Format {
@@ -140,11 +143,17 @@ impl Format {
             Format::Json => "json",
             Format::Csv => "csv",
             Format::Tsv => "tsv",
+            Format::W3cExtendedLog => "w3cExtendedLog",
         }
     }
 
     pub fn all() -> &'static [Format] {
-        &[Format::Json, Format::Csv, Format::Tsv]
+        &[
+            Format::Json,
+            Format::Csv,
+            Format::Tsv,
+            Format::W3cExtendedLog,
+        ]
     }
 }
 impl fmt::Display for Format {
