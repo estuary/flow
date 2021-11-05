@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	pf "github.com/estuary/protocols/flow"
+	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 )
 
 // Extract is a convenience for testing. It opens a given catalog database,
