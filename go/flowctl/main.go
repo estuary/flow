@@ -43,16 +43,34 @@ into their broader Flow catalog.
 	// value, so don't want to expose it to users. We might just want to delete this, but leaving it
 	// hidden for now. This was added to aid in debugging:
 	// https://github.com/estuary/flow/issues/238
-	var combineCommand = addCmd(parser, "combine", "Combine documents from stdin", `
+	addCmd(parser, "combine", "Combine documents from stdin", `
 Read documents from stdin, validate and combine them on the collection's key, and print the results to stdout. The input documents must be JSON encoded and given one per line, and the output documents will be printed in the same way.
-`, &cmdCombine{})
-	combineCommand.Hidden = true
+`, &cmdCombine{}).Hidden = true
 
 	addCmd(parser, "json-schema", "Print the catalog JSON schema", `
 Print the JSON schema specification of Flow catalogs, as understood by this
 specific build of Flow. This JSON schema can be used to enable IDE support
 and auto-completions.
 `, &cmdJSONSchema{})
+
+	addCmd(parser, "local-data-plane", "Run an ephemeral, local data plane", `
+Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
+A local data plane is intended for local development and testing, and doesn't persist
+fragments to the configured storage mappings of collections and Flow tasks.
+
+If you intend to use a local data plane with 'flowctl api await', then you must
+use the --poll flag, such that connectors poll their sources and then exit
+rather than tailing sources continuously. This is uncommon, and typically only
+used for integration testing workflows.
+`, &cmdLocalDataPlane{})
+
+	addCmd(parser, "deploy", "Build a catalog and deploy it to a data plane", `
+Build a catalog from --source. Then, activate it into a data plane.
+
+If --block-and-cleanup, then await a Ctrl-C from the user and then fully remove
+the deployment, cleaning up all its effects and restoring the data plane to
+its original state.
+`, &cmdDeploy{})
 
 	serve, err := parser.Command.AddCommand("serve", "Serve a component of Flow", "", &struct{}{})
 	mbp.Must(err, "failed to add command")
@@ -73,28 +91,35 @@ its responsible shards and will exit only when it can safely do so.
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
 
-	apis, err := parser.Command.AddCommand("api", "Lower-level, programatic APIs", "", &struct{}{})
+	apis, err := parser.Command.AddCommand("api", "Low-level APIs for automation", `
+API commands which are designed for use in scripts and automated workflows,
+including the Flow control plane. Users should not need to run API commands
+directly (but are welcome to).
+	`, &struct{}{})
 	mbp.Must(err, "failed to add command")
-
-	addCmd(apis, "local-data-plane", "Run an ephemeral, local data plane", `
-Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
-`, &apiLocalDataPlane{})
 
 	addCmd(apis, "build", "Build a Flow catalog", `
 Build a Flow catalog.
 `, &apiBuild{})
 
 	addCmd(apis, "activate", "Activate a built Flow catalog", `
-Activate a Flow catalog.
+Activate tasks and collections of a Flow catalog.
 `, &apiActivate{})
 
 	addCmd(apis, "test", "Run tests of an activated catalog", `
 Run tests of an activated catalog
 `, &apiTest{})
 
+	addCmd(apis, "await", "Wait for a catalog's dataflow to complete", `
+Monitor a catalog's dataflow execution in the data-plane, and exit when it finishes.
+`, &apiAwait{})
+
+	addCmd(apis, "delete", "Delete from a built Flow catalog", `
+Delete tasks and collections of a built Flow catalog.
+`, &apiDelete{})
+
 	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)
-
 }
 
 func addCmd(to interface {

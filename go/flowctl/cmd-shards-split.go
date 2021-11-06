@@ -46,7 +46,9 @@ func (cmd cmdSplit) execute(ctx context.Context) error {
 	var sc = cmd.Consumer.MustShardClient(ctx)
 	var jc = cmd.Broker.MustJournalClient(ctx)
 
-	if err = pingClients(ctx, sc, jc); err != nil {
+	// Fetch configuration from the data plane.
+	_, err = pingAndFetchConfig(ctx, sc, jc)
+	if err != nil {
 		return err
 	}
 

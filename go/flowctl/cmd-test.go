@@ -55,7 +55,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	defer cancel()
 
 	// Start a local data plane bound to our context.
-	var dataPlane = apiLocalDataPlane{
+	var dataPlane = cmdLocalDataPlane{
 		BuildsRoot:  buildsRoot,
 		UnixSockets: true,
 		Log: mbp.LogConfig{
@@ -110,6 +110,23 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if err = test.execute(ctx); err != nil {
 		return err
 	}
+
+	// Delete derivations and collections from the local dataplane.
+	var delete = apiDelete{
+		BuildID:    buildID,
+		BuildsRoot: buildsRoot,
+		Network:    cmd.Network,
+		All:        true,
+	}
+	delete.Broker.Address = protocol.Endpoint(brokerAddr)
+	delete.Consumer.Address = protocol.Endpoint(consumerAddr)
+
+	if err = delete.execute(ctx); err != nil {
+		return err
+	}
+
+	// Stop the data plane. It exits as we've removed all entities.
+	dataPlane.gracefulStop()
 
 	return nil
 }

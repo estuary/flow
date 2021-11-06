@@ -162,6 +162,10 @@ func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep 
 
 // Advance implements Driver for a Cluster.
 func (c *ClusterDriver) Advance(ctx context.Context, delta TestTime) error {
+	if c.tc == nil {
+		return ErrAdvanceDisabled
+	}
+
 	var _, err = c.tc.AdvanceTime(ctx, &pf.AdvanceTimeRequest{
 		AdvanceSeconds: uint64(delta / TestTime(time.Second)),
 	})
@@ -418,7 +422,7 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 	for _, collection := range driver.collections {
 		// List journals of the collection.
 		list, err := client.ListAllJournals(ctx, driver.rjc,
-			flow.ListPartitionsRequest(collection))
+			flow.ListPartitionsAtBuildRequest(collection, driver.buildID))
 		if err != nil {
 			return fmt.Errorf("listing journals of %s: %w", collection.Collection, err)
 		}
@@ -439,8 +443,12 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 			offsets[journal.Spec.Name] = r.Response.Offset
 		}
 
+		// TODO(johnny): switch to using the entire broker keyspace, rather than a narrowed
+		// version only looking at journals, so that etcd revisions are compatible.
+		list.Header.Etcd.Revision = 1
+
 		// Track it as a completed ingestion.
-		graph.CompletedIngest(collection.Collection, &Clock{Etcd: pb.Header_Etcd{}, Offsets: offsets})
+		graph.CompletedIngest(collection.Collection, &Clock{Etcd: list.Header.Etcd, Offsets: offsets})
 	}
 
 	// Run an empty test to poll all Stats implied by the completed ingests.

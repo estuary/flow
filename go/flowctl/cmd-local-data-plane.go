@@ -8,21 +8,27 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
-type apiLocalDataPlane struct {
+type cmdLocalDataPlane struct {
 	BrokerPort   uint16                `long:"broker-port" default:"8080" description:"Port bound by Gazette broker"`
 	BuildsRoot   string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	ConsumerPort uint16                `long:"consumer-port" default:"9000" description:"Port bound by Flow consumer"`
 	UnixSockets  bool                  `long:"unix-sockets" description:"Gazette and the Flow consumer should bind Unix domain sockets rather than TCP ports"`
+	Poll         bool                  `long:"poll" description:"Poll connectors, rather than running them continuously. Required in order to use 'flowctl api poll'"`
 	Log          mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics  mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+
+	etcd     *exec.Cmd
+	gazette  *exec.Cmd
+	consumer *exec.Cmd
 }
 
-func (cmd apiLocalDataPlane) Execute(_ []string) error {
+func (cmd cmdLocalDataPlane) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
 
@@ -33,10 +39,11 @@ func (cmd apiLocalDataPlane) Execute(_ []string) error {
 	}
 	defer os.RemoveAll(tempdir)
 
-	// Install a signal handler which will cancel our context.
-	var ctx, cancel = signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	// Install a signal handler which will gracefully stop, and then kill our data plane.
+	var sigCh = make(chan os.Signal)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
-	_, brokerAddr, consumerAddr, err := cmd.start(ctx, tempdir)
+	_, brokerAddr, consumerAddr, err := cmd.start(context.Background(), tempdir)
 	if err != nil {
 		return fmt.Errorf("starting data plane: %w", err)
 	}
@@ -44,19 +51,29 @@ func (cmd apiLocalDataPlane) Execute(_ []string) error {
 	fmt.Printf("export BROKER_ADDRESS=%s\n", brokerAddr)
 	fmt.Printf("export CONSUMER_ADDRESS=%s\n", consumerAddr)
 
-	<-ctx.Done()
-	defer cancel()
+	<-sigCh
+	fmt.Println("Stopping the local data plane.")
+
+	time.AfterFunc(time.Second, func() {
+		fmt.Println("The data plane is taking a while to stop.")
+		fmt.Println("Are there still running tasks or collection journals? It blocks until they're deleted.")
+		fmt.Println("Or, Ctrl-C again to force it to stop.")
+
+		<-sigCh
+		cmd.kill()
+	})
+	cmd.gracefulStop()
 
 	return nil
 }
 
-func (cmd apiLocalDataPlane) start(ctx context.Context, tempdir string) (etcdAddr, brokerAddr, consumerAddr string, _ error) {
+func (cmd *cmdLocalDataPlane) start(ctx context.Context, tempdir string) (etcdAddr, brokerAddr, consumerAddr string, _ error) {
 	// Shell out to start etcd, gazette, and the flow consumer.
-	etcdCmd, etcdAddr := cmd.etcdCmd(ctx, tempdir)
-	gazetteCmd, brokerAddr := cmd.gazetteCmd(ctx, tempdir, etcdAddr)
-	consumerCmd, consumerAddr := cmd.consumerCmd(ctx, tempdir, cmd.BuildsRoot, etcdAddr, brokerAddr)
+	cmd.etcd, etcdAddr = cmd.etcdCmd(ctx, tempdir)
+	cmd.gazette, brokerAddr = cmd.gazetteCmd(ctx, tempdir, etcdAddr)
+	cmd.consumer, consumerAddr = cmd.consumerCmd(ctx, tempdir, cmd.BuildsRoot, etcdAddr, brokerAddr)
 
-	for _, cmd := range []*exec.Cmd{etcdCmd, gazetteCmd, consumerCmd} {
+	for _, cmd := range []*exec.Cmd{cmd.etcd, cmd.gazette, cmd.consumer} {
 		// Deliver a SIGTERM to the process if this thread should die uncleanly.
 		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 		// Place child its own process group, so that terminal SIGINT isn't delivered
@@ -68,11 +85,24 @@ func (cmd apiLocalDataPlane) start(ctx context.Context, tempdir string) (etcdAdd
 			return "", "", "", err
 		}
 	}
-
 	return etcdAddr, brokerAddr, consumerAddr, nil
 }
 
-func (cmd apiLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.Cmd, string) {
+func (cmd *cmdLocalDataPlane) gracefulStop() {
+	for _, cmd := range []*exec.Cmd{cmd.consumer, cmd.gazette, cmd.etcd} {
+		_ = syscall.Kill(cmd.Process.Pid, syscall.SIGTERM)
+		_ = cmd.Wait() // Expected to be an error.
+	}
+}
+
+func (cmd *cmdLocalDataPlane) kill() {
+	for _, cmd := range []*exec.Cmd{cmd.consumer, cmd.gazette, cmd.etcd} {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait() // Expected to be an error.
+	}
+}
+
+func (cmd cmdLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.Cmd, string) {
 	var out = exec.CommandContext(ctx,
 		"etcd",
 		"--listen-peer-urls", "unix://peer.sock:0",
@@ -91,7 +121,7 @@ func (cmd apiLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec
 	return out, "unix://" + out.Dir + "/client.sock:0"
 }
 
-func (cmd apiLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etcdAddr string) (*exec.Cmd, string) {
+func (cmd cmdLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etcdAddr string) (*exec.Cmd, string) {
 	var addr, port string
 	if cmd.UnixSockets {
 		port = "unix://localhost" + tempdir + "/gazette.sock"
@@ -121,7 +151,7 @@ func (cmd apiLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etc
 	return out, addr
 }
 
-func (cmd apiLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot, etcdAddr, gazetteAddr string) (*exec.Cmd, string) {
+func (cmd cmdLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot, etcdAddr, gazetteAddr string) (*exec.Cmd, string) {
 	var addr, port string
 	if cmd.UnixSockets {
 		port = "unix://localhost" + tempdir + "/consumer.sock"
@@ -131,7 +161,7 @@ func (cmd apiLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoo
 		addr = "http://localhost:" + port
 	}
 
-	var out = exec.CommandContext(ctx,
+	var args = []string{
 		"flowctl",
 		"serve",
 		"consumer",
@@ -146,7 +176,12 @@ func (cmd apiLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoo
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,
-	)
+	}
+	if cmd.Poll {
+		args = append(args, "--flow.poll")
+	}
+
+	var out = exec.CommandContext(ctx, args[0], args[1:]...)
 	out.Env = append(out.Env, os.Environ()...)
 	out.Env = append(out.Env, "TMPDIR="+tempdir)
 	out.Dir = tempdir
