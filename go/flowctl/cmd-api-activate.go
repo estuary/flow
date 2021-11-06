@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
@@ -48,8 +49,9 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	var sc = cmd.Consumer.MustShardClient(ctx)
 	var jc = cmd.Broker.MustJournalClient(ctx)
 
-	// Ping to ensure connectivity.
-	if err = pingClients(ctx, sc, jc); err != nil {
+	// Fetch configuration from the data plane.
+	_, err = pingAndFetchConfig(ctx, sc, jc)
+	if err != nil {
 		return err
 	}
 
@@ -61,61 +63,48 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	var tasks []pf.Task
 
 	if err := build.Extract(func(db *sql.DB) error {
-
-		// Explicit names to pluck. Or, if --all or --all-derivations,
-		// those are also honored.
-		var names = make(map[string]struct{})
-		for _, t := range cmd.Names {
-			names[t] = struct{}{}
-		}
-
-		if all, err := catalog.LoadAllCollections(db); err != nil {
-			return err
-		} else {
-			for _, c := range all {
-				var _, ok = names[c.Collection.String()]
-				if ok || cmd.All {
-					collections = append(collections, c)
-				}
-			}
-		}
-		if all, err := catalog.LoadAllCaptures(db); err != nil {
-			return err
-		} else {
-			for _, t := range all {
-				var _, ok = names[t.TaskName()]
-				if ok || cmd.All {
-					tasks = append(tasks, t)
-				}
-			}
-		}
-		if all, err := catalog.LoadAllDerivations(db); err != nil {
-			return err
-		} else {
-			for _, t := range all {
-				var _, ok = names[t.TaskName()]
-				if ok || cmd.All || cmd.AllDerivations {
-					tasks = append(tasks, t)
-				}
-			}
-		}
-		if all, err := catalog.LoadAllMaterializations(db); err != nil {
-			return err
-		} else {
-			for _, t := range all {
-				var _, ok = names[t.TaskName()]
-				if ok || cmd.All {
-					tasks = append(tasks, t)
-				}
-			}
-		}
-		return nil
+		collections, tasks, err = loadFromCatalog(db, cmd.Names, cmd.All, cmd.AllDerivations)
+		return err
 	}); err != nil {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
 
-	// Apply materializations to endpoints first, before we create or update the
-	// task shards that will reference them.
+	// Apply captures to endpoints before we create or update the task shards
+	// that will reference them.
+	for _, t := range tasks {
+		var spec, ok = t.(*pf.CaptureSpec)
+		if !ok {
+			continue
+		}
+
+		_, err := capture.NewDriver(ctx,
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
+		if err != nil {
+			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
+		}
+
+		// TODO(johnny): This requires supporting protocol changes to enable.
+		/*
+			response, err := driver.Apply(ctx, &pfc.ApplyRequest{
+				Capture: spec,
+				Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+				DryRun:  cmd.DryRun,
+			})
+			if err != nil {
+				return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
+			}
+
+			if response.ActionDescription != "" {
+				fmt.Println("Applying capture ", spec.Capture, ":")
+				fmt.Println(response.ActionDescription)
+			}
+			log.WithFields(log.Fields{"name": spec.Capture}).
+				Info("applied capture to endpoint")
+		*/
+	}
+
+	// As with captures, apply materializations before we create or update the
+	// task shards that reference them.
 	for _, t := range tasks {
 		var spec, ok = t.(*pf.MaterializationSpec)
 		if !ok {
@@ -141,7 +130,8 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			fmt.Println("Applying materialization ", spec.Materialization, ":")
 			fmt.Println(response.ActionDescription)
 		}
-		log.WithFields(log.Fields{"name": spec.Materialization}).Info("applied to endpoint")
+		log.WithFields(log.Fields{"name": spec.Materialization}).
+			Info("applied materialization to endpoint")
 	}
 
 	shards, journals, err := flow.ActivationChanges(ctx, jc, sc, collections, tasks, cmd.InitialSplits)
@@ -217,22 +207,99 @@ func (cmd apiActivate) Execute(_ []string) error {
 	return cmd.execute(context.Background())
 }
 
-func pingClients(ctx context.Context, sc pc.ShardClient, jc pb.JournalClient) error {
+// fakeConfig is a placeholder for a future protocol configuration
+// returned by the Flow consumer.
+type fakeConfig struct {
+	JournalsEtcd pb.Header_Etcd
+	ShardsEtcd   pb.Header_Etcd
+}
+
+// TODO(johnny): In the future this should fetch a configuration response from
+// the flow consumer, which includes its journals Etcd header and build ID.
+func pingAndFetchConfig(ctx context.Context, sc pc.ShardClient, jc pb.JournalClient) (fakeConfig, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
-	if _, err := sc.List(ctx, &pc.ListRequest{
+	shardResp, err := sc.List(ctx, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", "this/shard/does/not/exist")},
-	}); err != nil {
-		return fmt.Errorf("pinging shard client: %w", err)
-	}
-	if _, err := jc.List(ctx, &pb.ListRequest{
-		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "this/collection/does/not/exist")},
-	}); err != nil {
-		return fmt.Errorf("pinging journal client: %w", err)
+	})
+	if err != nil {
+		return fakeConfig{}, fmt.Errorf("pinging shard client: %w", err)
 	}
 
-	return nil
+	journalsResp, err := jc.List(ctx, &pb.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "this/collection/does/not/exist")},
+	})
+	if err != nil {
+		return fakeConfig{}, fmt.Errorf("pinging journal client: %w", err)
+	}
+
+	var out = fakeConfig{
+		JournalsEtcd: journalsResp.Header.Etcd,
+		ShardsEtcd:   shardResp.Header.Etcd,
+	}
+
+	// TODO(johnny): Because this is the broker Etcd header, it may reflect modifications
+	// which are larger than the largest journals revision. As a work around for now,
+	// narrow to a revision we know it's possible to read through.
+	out.JournalsEtcd.Revision = 1
+
+	return out, nil
+}
+
+// loadFromCatalog loads collections and tasks in |names| from the catalog.
+// If |allDerivations|, then all derivations are also loaded.
+// If |all|, then all entities are loaded.
+func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*pf.CollectionSpec, []pf.Task, error) {
+	var idx = make(map[string]struct{})
+	for _, t := range names {
+		idx[t] = struct{}{}
+	}
+
+	var collections []*pf.CollectionSpec
+	var tasks []pf.Task
+
+	if loaded, err := catalog.LoadAllCollections(db); err != nil {
+		return nil, nil, err
+	} else {
+		for _, c := range loaded {
+			var _, ok = idx[c.Collection.String()]
+			if ok || all {
+				collections = append(collections, c)
+			}
+		}
+	}
+	if loaded, err := catalog.LoadAllCaptures(db); err != nil {
+		return nil, nil, err
+	} else {
+		for _, t := range loaded {
+			var _, ok = idx[t.TaskName()]
+			if ok || all {
+				tasks = append(tasks, t)
+			}
+		}
+	}
+	if loaded, err := catalog.LoadAllDerivations(db); err != nil {
+		return nil, nil, err
+	} else {
+		for _, t := range loaded {
+			var _, ok = idx[t.TaskName()]
+			if ok || all || allDerivations {
+				tasks = append(tasks, t)
+			}
+		}
+	}
+	if loaded, err := catalog.LoadAllMaterializations(db); err != nil {
+		return nil, nil, err
+	} else {
+		for _, t := range loaded {
+			var _, ok = idx[t.TaskName()]
+			if ok || all {
+				tasks = append(tasks, t)
+			}
+		}
+	}
+	return collections, tasks, nil
 }
 
 func applyAllChanges(

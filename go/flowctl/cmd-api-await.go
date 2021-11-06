@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/testing"
@@ -16,7 +14,7 @@ import (
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
-type apiTest struct {
+type apiAwait struct {
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
 	BuildsRoot  string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
@@ -25,7 +23,7 @@ type apiTest struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
-func (cmd apiTest) execute(ctx context.Context) error {
+func (cmd apiAwait) execute(ctx context.Context) error {
 	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
 	if err != nil {
 		return err
@@ -33,11 +31,10 @@ func (cmd apiTest) execute(ctx context.Context) error {
 
 	ctx = pb.WithDispatchDefault(ctx)
 	var sc = cmd.Consumer.MustShardClient(ctx)
-	var tc = pf.NewTestingClient(cmd.Consumer.MustDial(ctx))
 	var rjc = cmd.Broker.MustRoutedJournalClient(ctx)
 
 	// Fetch configuration from the data plane.
-	_, err = pingAndFetchConfig(ctx, sc, rjc)
+	config, err := pingAndFetchConfig(ctx, sc, rjc)
 	if err != nil {
 		return err
 	}
@@ -45,27 +42,23 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	var build = builds.Open(cmd.BuildID)
 	defer build.Close()
 
-	// Identify tests to verify and associated collections & schemas.
-	var config pf.BuildAPI_Config
+	// Load collections and tasks.
 	var collections []*pf.CollectionSpec
+	var captures []*pf.CaptureSpec
 	var derivations []*pf.DerivationSpec
-	var tests []*pf.TestSpec
-	var bundle pf.SchemaBundle
+	var materializations []*pf.MaterializationSpec
 
 	if err := build.Extract(func(db *sql.DB) error {
-		if config, err = catalog.LoadBuildConfig(db); err != nil {
+		if collections, err = catalog.LoadAllCollections(db); err != nil {
 			return err
 		}
-		if collections, err = catalog.LoadAllCollections(db); err != nil {
+		if captures, err = catalog.LoadAllCaptures(db); err != nil {
 			return err
 		}
 		if derivations, err = catalog.LoadAllDerivations(db); err != nil {
 			return err
 		}
-		if tests, err = catalog.LoadAllTests(db); err != nil {
-			return err
-		}
-		if bundle, err = catalog.LoadSchemaBundle(db); err != nil {
+		if materializations, err = catalog.LoadAllMaterializations(db); err != nil {
 			return err
 		}
 		return nil
@@ -73,49 +66,30 @@ func (cmd apiTest) execute(ctx context.Context) error {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
 
-	// Run all test cases ordered by their scope, which implicitly orders on resource file and test name.
-	sort.Slice(tests, func(i, j int) bool {
-		return tests[i].Steps[0].StepScope < tests[j].Steps[0].StepScope
-	})
-
-	// Build a testing graph and driver to track and drive test execution.
-	driver, err := testing.NewClusterDriver(ctx, sc, rjc, tc, cmd.BuildID, &bundle, collections)
+	// Build a testing graph and driver to track dataflow execution.
+	// It doesn't require a schema bundle or testing client given how we'll use it (no actual tests).
+	driver, err := testing.NewClusterDriver(ctx, sc, rjc, nil, cmd.BuildID, &pf.SchemaBundle{}, collections)
 	if err != nil {
 		return fmt.Errorf("building test driver: %w", err)
 	}
+	var graph = testing.NewGraph(captures, derivations, materializations)
 
-	var graph = testing.NewGraph(nil, derivations, nil)
+	// "Ingest" the capture EOF pseudo-journal to mark
+	// capture tasks as having a pending stat, which is recursively tracked
+	// through derivations and materializations of the catalog.
+	for _, capture := range captures {
+		graph.CompletedIngest(
+			pf.Collection(capture.Capture),
+			&testing.Clock{
+				Etcd:    config.JournalsEtcd,
+				Offsets: pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Capture)): 1},
+			},
+		)
+	}
+	// Initialize fetches current collection offsets, and waits for the dataflow
+	// execution to fully settle (including our ingested capture EOFs).
 	if err = testing.Initialize(ctx, driver, graph); err != nil {
 		return fmt.Errorf("initializing dataflow tracking: %w", err)
-	}
-
-	var failed []string
-	fmt.Println("Running ", len(tests), " tests...")
-
-	for _, testCase := range tests {
-		if ctx.Err() != nil {
-			break
-		}
-
-		var _, err = tc.ResetState(ctx, &pf.ResetStateRequest{})
-		if err != nil {
-			return fmt.Errorf("reseting internal state between test cases: %w", err)
-		} else if scope, err := testing.RunTestCase(ctx, graph, driver, testCase); err != nil {
-			var path, ptr = scopeToPathAndPtr(config.Directory, scope)
-			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
-			fmt.Println(err)
-			failed = append(failed, testCase.Test)
-		} else {
-			var path, _ = scopeToPathAndPtr(config.Directory, testCase.Steps[0].StepScope)
-			fmt.Println("✔️", path, "::", green(testCase.Test))
-		}
-	}
-
-	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
-		len(tests), len(tests)-len(failed), len(failed))
-
-	if failed != nil {
-		return fmt.Errorf("failed tests: [%s]", strings.Join(failed, ", "))
 	}
 
 	if err := build.Close(); err != nil {
@@ -124,7 +98,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	return nil
 }
 
-func (cmd apiTest) Execute(_ []string) error {
+func (cmd apiAwait) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
 

@@ -75,20 +75,14 @@ func RunTestCase(ctx context.Context, graph *Graph, driver Driver, test *pf.Test
 
 		// Advance time to unblock the next PendingStat.
 		if nextReady != -1 {
-			err := driver.Advance(ctx, nextReady)
-			if err != nil {
-				if err == ErrAdvanceDisabled {
-					log.WithFields(log.Fields{
-						"delay": nextReady,
-						"task":  nextName,
-					}).Warn("sleeping until next task is ready.")
-				} else {
-					return scope, fmt.Errorf("driver.Advance: %w", err)
-				}
-			} else {
-				graph.CompletedAdvance(nextReady)
-				continue
+			if err := driver.Advance(ctx, nextReady); err == ErrAdvanceDisabled {
+				log.WithFields(log.Fields{"delay": nextReady, "task": nextName}).
+					Warn("task reads with a time delay and may block")
+			} else if err != nil {
+				return scope, fmt.Errorf("driver.Advance: %w", err)
 			}
+			graph.CompletedAdvance(nextReady)
+			continue
 		}
 
 		// All steps are completed, and no pending stats remain. All done.
