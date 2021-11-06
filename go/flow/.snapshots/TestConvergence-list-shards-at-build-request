@@ -1,0 +1,1 @@
+(protocol.ListRequest) selector:<include:<labels:<name:"estuary.dev/build" value:"foo-build" > labels:<name:"estuary.dev/task-name" value:"example/derivation" > labels:<name:"estuary.dev/task-type" value:"derivation" > > exclude:<> > 

@@ -124,6 +124,11 @@ func TestConvergence(t *testing.T) {
 		cupaloy.SnapshotT(t, out)
 	})
 
+	t.Run("list-shards-at-build-request", func(t *testing.T) {
+		var out = ListShardsAtBuildRequest(derivation, "foo-build")
+		cupaloy.SnapshotT(t, out)
+	})
+
 	t.Run("list-recovery-logs-request", func(t *testing.T) {
 		var out = ListRecoveryLogsRequest(derivation)
 		cupaloy.SnapshotT(t, out)
@@ -131,6 +136,11 @@ func TestConvergence(t *testing.T) {
 
 	t.Run("list-partitions-request", func(t *testing.T) {
 		var out = ListPartitionsRequest(collection)
+		cupaloy.SnapshotT(t, out)
+	})
+
+	t.Run("list-partitions-at-build-request", func(t *testing.T) {
+		var out = ListPartitionsAtBuildRequest(collection, "bar-build")
 		cupaloy.SnapshotT(t, out)
 	})
 
@@ -317,6 +327,37 @@ func TestConvergence(t *testing.T) {
 		}
 
 		var shards, journals, err = ActivationChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, 2)
+		require.NoError(t, err)
+		cupaloy.SnapshotT(t, shards, journals)
+	})
+
+	t.Run("deletion-empty-cluster", func(t *testing.T) {
+		var ctx = context.Background()
+		var jc = &mockJournals{}
+		var sc = &mockShards{}
+
+		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, "fixture")
+		require.NoError(t, err)
+		cupaloy.SnapshotT(t, shards, journals)
+	})
+
+	t.Run("deletion-full-cluster", func(t *testing.T) {
+		var ctx = context.Background()
+		var jc = &mockJournals{
+			collections: map[string]*pb.ListResponse{
+				collection.Collection.String(): {Journals: allPartitions},
+			},
+			logs: map[string]*pb.ListResponse{
+				derivation.TaskName(): {Journals: allLogs},
+			},
+		}
+		var sc = &mockShards{
+			tasks: map[string]*pc.ListResponse{
+				derivation.TaskName(): {Shards: allShards},
+			},
+		}
+
+		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, "fixture")
 		require.NoError(t, err)
 		cupaloy.SnapshotT(t, shards, journals)
 	})
