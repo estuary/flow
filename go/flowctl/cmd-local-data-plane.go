@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -18,8 +19,9 @@ type cmdLocalDataPlane struct {
 	BrokerPort   uint16                `long:"broker-port" default:"8080" description:"Port bound by Gazette broker"`
 	BuildsRoot   string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	ConsumerPort uint16                `long:"consumer-port" default:"9000" description:"Port bound by Flow consumer"`
-	UnixSockets  bool                  `long:"unix-sockets" description:"Gazette and the Flow consumer should bind Unix domain sockets rather than TCP ports"`
 	Poll         bool                  `long:"poll" description:"Poll connectors, rather than running them continuously. Required in order to use 'flowctl api poll'"`
+	Tempdir      string                `long:"tempdir" description:"Directory for data plane files. If not set, a temporary directory is created and then deleted upon exit"`
+	UnixSockets  bool                  `long:"unix-sockets" description:"Bind Gazette to 'gazette.sock' and Flow to 'consumer.sock' within the --tempdir (instead of TCP ports)"`
 	Log          mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics  mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 
@@ -32,12 +34,20 @@ func (cmd cmdLocalDataPlane) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
 
-	// Create a temporary directory which will contain the Etcd database and various unix:// sockets.
-	tempdir, err := ioutil.TempDir("", "flow-local-data-plane")
-	if err != nil {
-		return fmt.Errorf("creating temp directory: %w", err)
+	var tempdir = cmd.Tempdir
+	var err error
+
+	if tempdir == "" {
+		// Create a temporary directory which will contain the Etcd database and various unix:// sockets.
+		if tempdir, err = ioutil.TempDir("", "flow-local-data-plane"); err != nil {
+			return fmt.Errorf("creating temp directory: %w", err)
+		}
+		defer os.RemoveAll(tempdir)
+	} else {
+		if tempdir, err = filepath.Abs(tempdir); err != nil {
+			return fmt.Errorf("--tempdir: %w", err)
+		}
 	}
-	defer os.RemoveAll(tempdir)
 
 	// Install a signal handler which will gracefully stop, and then kill our data plane.
 	var sigCh = make(chan os.Signal)
@@ -105,9 +115,11 @@ func (cmd *cmdLocalDataPlane) kill() {
 func (cmd cmdLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.Cmd, string) {
 	var out = exec.CommandContext(ctx,
 		"etcd",
-		"--listen-peer-urls", "unix://peer.sock:0",
-		"--listen-client-urls", "unix://client.sock:0",
 		"--advertise-client-urls", "unix://client.sock:0",
+		"--data-dir", filepath.Join(tempdir, "data-plane.etcd"),
+		"--listen-client-urls", "unix://client.sock:0",
+		"--listen-peer-urls", "unix://peer.sock:0",
+		"--name", "data-plane",
 	)
 	// The Etcd --log-level flag was added in v3.4. Use it's environment variable
 	// version to remain compatible with older `etcd` binaries.
