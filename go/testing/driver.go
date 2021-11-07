@@ -443,10 +443,6 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 			offsets[journal.Spec.Name] = r.Response.Offset
 		}
 
-		// TODO(johnny): switch to using the entire broker keyspace, rather than a narrowed
-		// version only looking at journals, so that etcd revisions are compatible.
-		list.Header.Etcd.Revision = 1
-
 		// Track it as a completed ingestion.
 		graph.CompletedIngest(collection.Collection, &Clock{Etcd: list.Header.Etcd, Offsets: offsets})
 	}

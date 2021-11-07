@@ -13,6 +13,7 @@ import (
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
+	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -25,15 +26,15 @@ func TestPartitionPicking(t *testing.T) {
 	var fixtures = buildCombineFixtures(t)
 	var logicalPrefix, hexKey, b []byte
 
-	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/items"}})
+	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/root"}})
 
 	for ind, tc := range []struct {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/items/a/collection/bar=32/foo=A/", "b9f08d38"},
-		{"/items/a/collection/bar=32/foo=A/", "1505e3cb"},
-		{"/items/a/collection/bar=42/foo=A%2FB/", "b9f08d38"},
+		{"/root/items/a/collection/bar=32/foo=A/", "b9f08d38"},
+		{"/root/items/a/collection/bar=32/foo=A/", "1505e3cb"},
+		{"/root/items/a/collection/bar=42/foo=A%2FB/", "b9f08d38"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0], fixtures[ind])
 
@@ -42,47 +43,49 @@ func TestPartitionPicking(t *testing.T) {
 	}
 
 	m.journals.KeyValues = keyspace.KeyValues{
-		{Decoded: &pb.JournalSpec{
+		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "77"),
-		}},
-		{Decoded: &pb.JournalSpec{
+		}}},
+		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=77",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "78", flowLabels.KeyEnd, "dd"),
-		}},
-		{Decoded: &pb.JournalSpec{
+		}}},
+		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
 			Name:     "a/collection/bar=42/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
-		}},
+		}}},
 	}
 	for i, j := range m.journals.KeyValues {
-		m.journals.KeyValues[i].Raw.Key = append([]byte(m.journals.Root+"/"), j.Decoded.(*pb.JournalSpec).Name...)
+		m.journals.KeyValues[i].Raw.Key = append(
+			[]byte(m.journals.Root+allocator.ItemsPrefix),
+			j.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name...)
 	}
 
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("23")).Name.String(),
+		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("23")).Name.String(),
 	)
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=77",
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("90")).Name.String(),
+		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("90")).Name.String(),
 	)
 	require.Nil(t,
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("ef")), // Out of range.
+		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("ef")), // Out of range.
 	)
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("ab")).Name.String(),
+		m.pickPartition([]byte("/root/items/a/collection/bar=42/foo=A/"), []byte("ab")).Name.String(),
 	)
 
 	// Issue #255 regression cases.
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=32/foo=A/"), []byte("77")).Name.String(),
+		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("77")).Name.String(),
 	)
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
-		m.pickPartition([]byte("/items/a/collection/bar=42/foo=A/"), []byte("dd")).Name.String(),
+		m.pickPartition([]byte("/root/items/a/collection/bar=42/foo=A/"), []byte("dd")).Name.String(),
 	)
 }
 
@@ -162,12 +165,13 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	journals.Mu.RLock()
 	defer journals.Mu.RUnlock()
 
-	require.Len(t, journals.KeyValues, 2)
+	var items = journals.KeyValues.Prefixed(journals.Root + allocator.ItemsPrefix)
+	require.Len(t, items, 2)
 	for i, n := range []string{
 		"a/collection/bar=32/foo=A/pivot=00",
 		"a/collection/bar=42/foo=A%2FB/pivot=00",
 	} {
-		require.Equal(t, n, journals.KeyValues[i].Decoded.(*pb.JournalSpec).Name.String())
+		require.Equal(t, n, items[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name.String())
 	}
 
 	broker.Tasks.Cancel()
