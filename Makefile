@@ -19,13 +19,11 @@ RUSTBIN = ${CARGO_TARGET_DIR}/release
 # during the build process. Note the go tool ignores directories
 # with leading '.' or '_'.
 WORKDIR  = ${ROOTDIR}/.build
-# Tools used during build & test.
-TOOLBIN = ${WORKDIR}/tools
 # Packaged build outputs.
 PKGDIR = ${WORKDIR}/package
 # All invocations can reference installed tools, Rust, and Go binaries.
 # Each takes precedence over the configured $PATH
-PATH := ${TOOLBIN}:${RUSTBIN}:${GOBIN}:${PATH}
+PATH := ${RUSTBIN}:${GOBIN}:${PATH}
 
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
@@ -55,16 +53,15 @@ GO_BUILD_DEPS = \
 default: rust-build package
 
 # `etcd` is used for testing, and packaged as a release artifact.
-${TOOLBIN}/etcd:
-	mkdir -p ${TOOLBIN} \
-		&& curl -L -o /tmp/etcd.tgz \
+${GOBIN}/etcd:
+	curl -L -o /tmp/etcd.tgz \
 			https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
 		&& echo "${ETCD_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
 		&& tar --extract \
 			--file /tmp/etcd.tgz \
 			--directory /tmp/ \
-		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${TOOLBIN}/ \
-		&& chown ${UID}:${UID} ${TOOLBIN}/etcd ${TOOLBIN}/etcdctl \
+		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${GOBIN}/ \
+		&& chown ${UID}:${UID} ${GOBIN}/etcd ${GOBIN}/etcdctl \
 		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
 		&& rm /tmp/etcd.tgz \
 		&& $@ --version
@@ -91,8 +88,8 @@ ${RUSTBIN}/librocks-exp/librocksdb.a:
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/etcd: ${PKGDIR} ${TOOLBIN}/etcd
-	cp ${TOOLBIN}/etcd $@
+${PKGDIR}/bin/etcd: ${PKGDIR} ${GOBIN}/etcd
+	cp ${GOBIN}/etcd $@
 ${PKGDIR}/bin/flowctl:     ${PKGDIR} ${GOBIN}/flowctl
 	cp ${GOBIN}/flowctl $@
 ${PKGDIR}/bin/gazctl: ${PKGDIR} ${GOBIN}/gazctl
@@ -120,7 +117,7 @@ print-versions:
 		&& /usr/bin/ld.lld --version
 
 .PHONY: install-tools
-install-tools: ${TOOLBIN}/etcd
+install-tools: ${GOBIN}/etcd
 
 .PHONY: rust-build
 rust-build:
@@ -131,16 +128,16 @@ rust-test:
 	FLOW_VERSION=${VERSION} cargo test --release --locked
 
 .PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) ${TOOLBIN}/etcd
+go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) ${TOOLBIN}/etcd
+go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd
 	GORACE="halt_on_error=1" \
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${TOOLBIN}/etcd
+catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd
 	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: package
