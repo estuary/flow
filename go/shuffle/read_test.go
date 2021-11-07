@@ -14,6 +14,7 @@ import (
 	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
+	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
@@ -63,7 +64,7 @@ func TestReadBuilding(t *testing.T) {
 		aJournal: {
 			spec: pb.JournalSpec{
 				Name:     aJournal,
-				LabelSet: allJournals.KeyValues[0].Decoded.(*pb.JournalSpec).LabelSet,
+				LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
 			},
 			req: pf.ShuffleRequest{
 				Shuffle: pf.JournalShuffle{
@@ -94,7 +95,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Equal(t, &read{
 		spec: pb.JournalSpec{
 			Name:     aJournal,
-			LabelSet: allJournals.KeyValues[0].Decoded.(*pb.JournalSpec).LabelSet,
+			LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
 		},
 		req: pf.ShuffleRequest{
 			Shuffle: pf.JournalShuffle{
@@ -477,7 +478,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 
 func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.DerivationSpec) {
 	var journals = flow.Journals{
-		KeySpace: &keyspace.KeySpace{Root: "/the/journals"}}
+		KeySpace: &keyspace.KeySpace{Root: "/the/root"}}
 
 	for _, j := range []struct {
 		bar   string
@@ -496,9 +497,9 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 
 		journals.KeyValues = append(journals.KeyValues, keyspace.KeyValue{
 			Raw: mvccpb.KeyValue{
-				Key: append(append([]byte(journals.Root), '/'), name...),
+				Key: []byte(allocator.ItemKey(journals.KeySpace, name)),
 			},
-			Decoded: &pb.JournalSpec{
+			Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
 				Name: pb.Journal(name),
 				LabelSet: pb.MustLabelSet(
 					labels.Collection, "foo",
@@ -507,7 +508,7 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 					labels.KeyBegin, j.begin,
 					labels.KeyEnd, j.end,
 				),
-			},
+			}},
 		})
 	}
 	var shards = []*pc.ShardSpec{

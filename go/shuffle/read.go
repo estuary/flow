@@ -496,10 +496,11 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 	defer allJournals.Mu.RUnlock()
 
 	for _, shuffle := range shuffles {
-		var sources = allJournals.Prefixed(allJournals.Root + "/" + shuffle.SourceCollection.String() + "/")
+		var prefix = allocator.ItemKey(allJournals.KeySpace, shuffle.SourceCollection.String()) + "/"
+		var sources = allJournals.Prefixed(prefix)
 
 		for _, kv := range sources {
-			var source = kv.Decoded.(*pb.JournalSpec)
+			var source = kv.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
 
 			if !shuffle.SourcePartitions.Matches(source.LabelSet) {
 				continue
