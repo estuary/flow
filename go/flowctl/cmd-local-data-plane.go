@@ -78,10 +78,16 @@ func (cmd cmdLocalDataPlane) Execute(_ []string) error {
 }
 
 func (cmd *cmdLocalDataPlane) start(ctx context.Context, tempdir string) (etcdAddr, brokerAddr, consumerAddr string, _ error) {
+	var execDir, err = os.Executable()
+	if err != nil {
+		return "", "", "", fmt.Errorf("getting path of current executable: %w", err)
+	}
+	execDir = filepath.Dir(execDir)
+
 	// Shell out to start etcd, gazette, and the flow consumer.
-	cmd.etcd, etcdAddr = cmd.etcdCmd(ctx, tempdir)
-	cmd.gazette, brokerAddr = cmd.gazetteCmd(ctx, tempdir, etcdAddr)
-	cmd.consumer, consumerAddr = cmd.consumerCmd(ctx, tempdir, cmd.BuildsRoot, etcdAddr, brokerAddr)
+	cmd.etcd, etcdAddr = cmd.etcdCmd(ctx, execDir, tempdir)
+	cmd.gazette, brokerAddr = cmd.gazetteCmd(ctx, execDir, tempdir, etcdAddr)
+	cmd.consumer, consumerAddr = cmd.consumerCmd(ctx, execDir, tempdir, cmd.BuildsRoot, etcdAddr, brokerAddr)
 
 	for _, cmd := range []*exec.Cmd{cmd.etcd, cmd.gazette, cmd.consumer} {
 		// Deliver a SIGTERM to the process if this thread should die uncleanly.
@@ -112,9 +118,9 @@ func (cmd *cmdLocalDataPlane) kill() {
 	}
 }
 
-func (cmd cmdLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.Cmd, string) {
+func (cmd cmdLocalDataPlane) etcdCmd(ctx context.Context, execdir, tempdir string) (*exec.Cmd, string) {
 	var out = exec.CommandContext(ctx,
-		"etcd",
+		filepath.Join(execdir, "etcd"),
 		"--advertise-client-urls", "unix://client.sock:0",
 		"--data-dir", filepath.Join(tempdir, "data-plane.etcd"),
 		"--listen-client-urls", "unix://client.sock:0",
@@ -133,7 +139,7 @@ func (cmd cmdLocalDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec
 	return out, "unix://" + out.Dir + "/client.sock:0"
 }
 
-func (cmd cmdLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etcdAddr string) (*exec.Cmd, string) {
+func (cmd cmdLocalDataPlane) gazetteCmd(ctx context.Context, execdir, tempdir string, etcdAddr string) (*exec.Cmd, string) {
 	var addr, port string
 	if cmd.UnixSockets {
 		port = "unix://localhost" + tempdir + "/gazette.sock"
@@ -144,7 +150,7 @@ func (cmd cmdLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etc
 	}
 
 	var out = exec.CommandContext(ctx,
-		"gazette",
+		filepath.Join(execdir, "gazette"),
 		"serve",
 		"--broker.disable-stores",
 		"--broker.max-replication", "1",
@@ -163,7 +169,7 @@ func (cmd cmdLocalDataPlane) gazetteCmd(ctx context.Context, tempdir string, etc
 	return out, addr
 }
 
-func (cmd cmdLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot, etcdAddr, gazetteAddr string) (*exec.Cmd, string) {
+func (cmd cmdLocalDataPlane) consumerCmd(ctx context.Context, execdir, tempdir, buildsRoot, etcdAddr, gazetteAddr string) (*exec.Cmd, string) {
 	var addr, port string
 	if cmd.UnixSockets {
 		port = "unix://localhost" + tempdir + "/consumer.sock"
@@ -174,7 +180,7 @@ func (cmd cmdLocalDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoo
 	}
 
 	var args = []string{
-		"flowctl",
+		filepath.Join(execdir, "flowctl"),
 		"serve",
 		"consumer",
 		"--broker.address", gazetteAddr,
