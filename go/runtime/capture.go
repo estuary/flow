@@ -102,13 +102,11 @@ func (c *Capture) StartReadingMessages(shard consumer.Shard, cp pf.Checkpoint,
 	// Build a context to capture under, and arrange for it to be cancelled
 	// if the shard specification is updated.
 	var ctx, cancel = context.WithCancel(shard.Context())
-	signalOnSpecUpdate(c.host.Service.State.KS, shard, c.shardSpec, cancel)
+	go signalOnSpecUpdate(c.host.Service.State.KS, shard, c.shardSpec, cancel)
 
 	var driverRx, err = c.openCapture(ctx)
 	if err != nil {
-		c.Log(log.ErrorLevel, log.Fields{
-			"error": err.Error(),
-		}, "failed to open capture")
+		c.Log(log.ErrorLevel, log.Fields{"error": err.Error()}, "failed to open capture")
 		ch <- consumer.EnvelopeOrError{Error: err}
 		return
 	}
