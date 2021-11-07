@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -172,7 +173,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 
 func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
 	b = append(b, m.journals.Root...)
-	b = append(b, '/')
+	b = append(b, allocator.ItemsPrefix...)
 	b = append(b, msg.Spec.PartitionTemplate.Name...)
 	b = append(b, '/')
 
@@ -210,13 +211,16 @@ func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalS
 	// Find the first physical partition having KeyEnd > hexKey.
 	// Note we're performing this comparasion in a hex-encoded space.
 	var ind = sort.Search(len(physical), func(i int) bool {
-		var keyEnd = physical[i].Decoded.(*pb.JournalSpec).LabelSet.ValueOf(labels.KeyEnd)
+		var keyEnd = physical[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet.ValueOf(labels.KeyEnd)
 		return keyEnd >= string(hexKey)
 	})
 
 	if ind == len(physical) {
 		return nil
-	} else if p := physical[ind].Decoded.(*pb.JournalSpec); p.LabelSet.ValueOf(labels.KeyBegin) <= string(hexKey) {
+	}
+
+	var p = physical[ind].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
+	if p.LabelSet.ValueOf(labels.KeyBegin) <= string(hexKey) {
 		return p
 	}
 	return nil

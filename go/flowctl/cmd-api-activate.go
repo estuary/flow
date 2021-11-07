@@ -234,17 +234,10 @@ func pingAndFetchConfig(ctx context.Context, sc pc.ShardClient, jc pb.JournalCli
 		return fakeConfig{}, fmt.Errorf("pinging journal client: %w", err)
 	}
 
-	var out = fakeConfig{
+	return fakeConfig{
 		JournalsEtcd: journalsResp.Header.Etcd,
 		ShardsEtcd:   shardResp.Header.Etcd,
-	}
-
-	// TODO(johnny): Because this is the broker Etcd header, it may reflect modifications
-	// which are larger than the largest journals revision. As a work around for now,
-	// narrow to a revision we know it's possible to read through.
-	out.JournalsEtcd.Revision = 1
-
-	return out, nil
+	}, nil
 }
 
 // loadFromCatalog loads collections and tasks in |names| from the catalog.
