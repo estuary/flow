@@ -121,7 +121,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	}
 
 	// Build a combiner of documents for this collection.
-	combiner, err := bindings.NewCombine(ops.StdLogPublisher())
+	combiner, err := bindings.NewCombine(ops.StdLogger())
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	}

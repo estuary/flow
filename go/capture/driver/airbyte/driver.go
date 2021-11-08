@@ -63,11 +63,11 @@ func (c ResourceSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
-	logger      ops.LogPublisher
+	logger      ops.Logger
 }
 
 // NewDriver returns a new JSON docker image driver.
-func NewDriver(networkName string, logger ops.LogPublisher) pc.DriverServer {
+func NewDriver(networkName string, logger ops.Logger) pc.DriverServer {
 	return driver{
 		networkName: networkName,
 		logger:      logger,

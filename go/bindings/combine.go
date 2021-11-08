@@ -36,7 +36,7 @@ type Combine struct {
 }
 
 // NewCombiner builds and returns a new Combine.
-func NewCombine(logPublisher ops.LogPublisher) (*Combine, error) {
+func NewCombine(logPublisher ops.Logger) (*Combine, error) {
 	var svc, err = newCombineSvc(logPublisher)
 	if err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func drainCombineToCallback(
 	return
 }
 
-func newCombineSvc(logPublisher ops.LogPublisher) (*service, error) {
+func newCombineSvc(logPublisher ops.Logger) (*service, error) {
 	return newService(
 		"combine",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.combine_create(logFilter, logDest) },

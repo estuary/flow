@@ -37,11 +37,11 @@ func (c EndpointSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
-	logger      ops.LogPublisher
+	logger      ops.Logger
 }
 
 // NewDriver returns a new Docker image driver.
-func NewDriver(networkName string, logger ops.LogPublisher) pm.DriverServer {
+func NewDriver(networkName string, logger ops.Logger) pm.DriverServer {
 	return driver{
 		networkName: networkName,
 		logger:      logger,

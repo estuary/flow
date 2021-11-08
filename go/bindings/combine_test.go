@@ -124,7 +124,7 @@ func TestCombineBindings(t *testing.T) {
 		return nil
 	}))
 
-	combiner, err := NewCombine(ops.StdLogPublisher())
+	combiner, err := NewCombine(ops.StdLogger())
 	require.NoError(t, err)
 
 	// Loop to exercise re-use of a Combiner.

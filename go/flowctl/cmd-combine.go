@@ -85,7 +85,7 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		return fmt.Errorf("building schema index: %w", err)
 	}
 
-	combine, err := bindings.NewCombine(ops.StdLogPublisher())
+	combine, err := bindings.NewCombine(ops.StdLogger())
 	if err != nil {
 		return fmt.Errorf("creating combiner: %w", err)
 	}

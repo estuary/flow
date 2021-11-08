@@ -21,7 +21,7 @@ type Extractor struct {
 
 // NewExtractor returns an instance of the Extractor service.
 func NewExtractor() (*Extractor, error) {
-	var svc, err = newExtractSvc(ops.StdLogPublisher())
+	var svc, err = newExtractSvc(ops.StdLogger())
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 	return e.uuids, e.tuples, nil
 }
 
-func newExtractSvc(logger ops.LogPublisher) (*service, error) {
+func newExtractSvc(logger ops.Logger) (*service, error) {
 	return newService(
 		"extract",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.extract_create(logFilter, logDest) },
