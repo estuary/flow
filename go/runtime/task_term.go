@@ -69,7 +69,8 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	t.LogPublisher, err = host.LogService.NewPublisher(t.labels, logsCollection, t.schemaIndex)
+	t.LogPublisher, err = NewLogPublisher(shard.Context(), shard.JournalClient(),
+		host.Journals, t.labels, logsCollection, t.schemaIndex)
 	if err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
 	}
