@@ -20,8 +20,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
@@ -45,16 +45,27 @@ var _ message.Message = Mappable{}
 // partition, creating that partition if it doesn't yet exist.
 type Mapper struct {
 	ctx      context.Context // TODO(johnny): Fix gazette so this is passed on the Map call.
-	jc       pb.JournalClient
+	etcd     *clientv3.Client
 	journals Journals
+	shardFQN string
 }
 
-// NewMapper builds and returns a new Mapper.
-func NewMapper(ctx context.Context, jc pb.JournalClient, journals Journals) Mapper {
+// NewMapper builds and returns a new Mapper, which monitors from |journals|
+// and creates new partitions into the given |etcd| client.
+// When creating partitions, it requires that |shardFQN| still exists, to ensure
+// that its creation of new partitions doesn't race with the tear-down of its
+// authority to create those partitions.
+func NewMapper(
+	ctx context.Context,
+	etcd *clientv3.Client,
+	journals Journals,
+	shardFQN string,
+) Mapper {
 	return Mapper{
 		ctx:      ctx,
-		jc:       jc,
+		etcd:     etcd,
 		journals: journals,
+		shardFQN: shardFQN,
 	}
 }
 
@@ -83,7 +94,6 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	for attempt := 0; true; attempt++ {
 		// Pick a partition at the current Etcd |revision|.
 		m.journals.Mu.RLock()
-		var revision = m.journals.Header.Revision
 		var picked = m.pickPartition(logicalPrefix, hexKey)
 		m.journals.Mu.RUnlock()
 
@@ -108,49 +118,50 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			panic(err) // Cannot fail because KeyBegin is always set.
 		}
 
-		applyResponse, err := client.ApplyJournals(m.ctx, m.jc, &pb.ApplyRequest{
-			Changes: []pb.ApplyRequest_Change{
-				{
-					Upsert:            applySpec,
-					ExpectModRevision: 0,
-				},
-			},
-		})
+		var applyKey = allocator.ItemKey(m.journals.KeySpace, applySpec.Name.String())
+		applyBytes, err := applySpec.Marshal()
+		if err != nil {
+			panic(err) // Cannot fail because a custom marshaler isn't used.
+		}
+
+		// Conditionally apply the new specification in an Etcd transaction.
+		applyResponse, err := m.etcd.Txn(m.ctx).If(
+			// Require that the partition doesn't already exist.
+			clientv3.Compare(clientv3.ModRevision(applyKey), "=", 0),
+			// Require that the shard FQN under which we're running has not been removed.
+			clientv3.Compare(clientv3.ModRevision(m.shardFQN), "!=", 0),
+		).Then(
+			// Put the spec (which doesn't yet exist).
+			clientv3.OpPut(applyKey, string(applyBytes)),
+		).Else(
+			// The spec exists. Fetch its current version & revision.
+			clientv3.OpGet(applyKey),
+		).Commit()
+
 		var readThrough int64
 
-		if applyResponse != nil && applyResponse.Status == pb.Status_ETCD_TRANSACTION_FAILED {
-			// We lost a race to create this journal, and |err| is "ETCD_TRANSACTION_FAILED".
+		if err != nil {
+			return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name, err)
+		} else if !applyResponse.Succeeded {
+			// We lost a race to create this journal.
+			//
 			// This is expected to happen very infrequently, when we race
-			// another process to create the journal. If it happens repeatedly
-			// in a tight loop, it's likely that there's a mis-configuration of
-			// the Etcd broker keyspace prefix.
+			// another process to create the journal, or are racing the removal
+			// of the shard spec under which we're running.
 
-			// We know that |revision| is behind and that we must await a future
-			// journal revision, but we don't know which one. We *cannot* use the
-			// Etcd revision of |applyResponse| because we're only watching a
-			// portion of the broker's keyspace, and revisions it returns may
-			// reflect members or assignments we're not watching. Were we to await
-			// them, we could block indefinitely.
-
-			// So, we simply await the next revision, which is near certain to
-			// include it but isn't guaranteed to do so. It's possible that we'll
-			// loop again.
-			readThrough = revision + 1
-
-			log.WithFields(log.Fields{
-				"err":         err,
-				"attempt":     attempt,
-				"journal":     applySpec.Name,
-				"readThrough": readThrough,
-			}).Warn("failed to create partition (will retry)")
-
-		} else if err != nil {
-			return "", "", fmt.Errorf("creating journal '%s': %w", applySpec.Name, err)
+			// Did we lose because the journal already exists ?
+			if kvs := applyResponse.Responses[0].GetResponseRange().Kvs; len(kvs) != 0 {
+				readThrough = kvs[0].ModRevision // Read through its last update.
+			} else {
+				// The shard spec that granted us authority to create partitions was removed.
+				return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name,
+					fmt.Errorf("shard spec doesn't exist"))
+			}
 		} else {
 			// On success, |applyResponse| always reference the revision of the
 			// applied Etcd transaction, which is guaranteed to produce an update
 			// into |m.Journals|.
-			readThrough = applyResponse.Header.Etcd.Revision
+			readThrough = applyResponse.Header.Revision
 
 			log.WithFields(log.Fields{
 				"attempt":     attempt,

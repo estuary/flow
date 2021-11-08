@@ -26,7 +26,7 @@ func TestPartitionPicking(t *testing.T) {
 	var fixtures = buildCombineFixtures(t)
 	var logicalPrefix, hexKey, b []byte
 
-	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/root"}})
+	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/root"}}, "")
 
 	for ind, tc := range []struct {
 		expectPrefix string
@@ -127,8 +127,12 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	journals.WatchApplyDelay = time.Millisecond * 10
 	go journals.Watch(ctx, etcd)
 
+	// Create a shard FQN fixture, which gives authority to create partitions.
+	_, err = etcd.Put(ctx, "/the.shard", "")
+	require.NoError(t, err)
+
 	var fixtures = buildCombineFixtures(t)
-	var mapper = NewMapper(ctx, broker.Client(), journals)
+	var mapper = NewMapper(ctx, etcd, journals, "/the.shard")
 
 	// Apply one of the fixture partitions out-of-band. The Mapper initially
 	// will not see this partition, will attempt to create it, and will then
@@ -163,8 +167,6 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	}
 
 	journals.Mu.RLock()
-	defer journals.Mu.RUnlock()
-
 	var items = journals.KeyValues.Prefixed(journals.Root + allocator.ItemsPrefix)
 	require.Len(t, items, 2)
 	for i, n := range []string{
@@ -173,6 +175,18 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	} {
 		require.Equal(t, n, items[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name.String())
 	}
+	journals.Mu.RUnlock()
+
+	// Remove the fixture standing in as a shard FQN.
+	_, err = etcd.Delete(ctx, "/the.shard")
+	require.NoError(t, err)
+
+	// Modify |fixtures| to trigger an attempt to create a new partition.
+	fixtures[0].Partitions[0] = 52
+	// Expect an attempt to publish fails on discovering the shard FQN was removed.
+	_, err = pub.PublishCommitted(mapper.Map, fixtures[0])
+	require.EqualError(t, err,
+		"creating partition a/collection/bar=52/foo=A/pivot=00: shard spec doesn't exist")
 
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
