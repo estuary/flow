@@ -9,7 +9,6 @@ use crate::format::{Output, ParseError, Parser};
 use crate::input::Input;
 use std::io::BufRead;
 
-// TODO: Put a span in the error so we can display the source.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("file is missing the required #Fields directive")]
@@ -93,6 +92,8 @@ impl Parser for W3cLogParser {
 
         let reader = csv::ReaderBuilder::new()
             .delimiter(b'\t')
+            // Configure the CSV reader to ignore lines that start with a `#`, so that we don't
+            // need to skip ahead after parsing the headers.
             .comment(Some(b'#'))
             .has_headers(false)
             .from_reader(input.into_stream());

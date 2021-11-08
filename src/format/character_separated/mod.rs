@@ -8,14 +8,13 @@ use crate::config::{
     csv::{CharacterSeparatedConfig, LineEnding},
     ParseConfig,
 };
-use crate::format::projection::{build_projections, collate, TypeInfo};
+use crate::format::projection::{build_projections, Projection, Projections};
 use crate::format::{Format, Output, ParseError, ParseResult, Parser};
 use crate::input::{detect_encoding, Input};
 use csv::{Reader, StringRecord, Terminator};
-use doc::Pointer;
 use json::schema::types;
 use serde_json::Value;
-use std::{collections::BTreeMap, io};
+use std::io;
 
 /// Returns a parser for the [W3C extended log format](https://www.w3.org/TR/WD-logfile.html)
 pub use self::w3c_extended_log::new_w3c_extended_log_parser;
@@ -165,21 +164,12 @@ impl Parser for CsvParser {
 /// shape of the JSON.
 fn resolve_headers(
     column_header_names: Vec<String>,
-    mut projections: BTreeMap<String, TypeInfo>,
+    projections: Projections,
     null_sentinels: &'static [&'static str],
 ) -> Vec<Header> {
     let mut columns = Vec::new();
     for name in column_header_names {
-        let projection = projections
-            .remove(&collate(name.chars()).collect::<String>())
-            .unwrap_or_else(|| {
-                let location = String::from("/") + name.as_str();
-                TypeInfo {
-                    possible_types: None,
-                    must_exist: false,
-                    target_location: Pointer::from_str(&location),
-                }
-            });
+        let projection = projections.lookup(&name);
         columns.push(Header {
             name,
             projection,
@@ -193,7 +183,7 @@ fn resolve_headers(
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("value {0:?} is not valid for: {1:?}")]
-    InvalidType(String, TypeInfo),
+    InvalidType(String, Projection),
 
     #[error("failed to parse character-separated content: {0}")]
     InvalidContent(#[from] csv::Error),
@@ -252,7 +242,7 @@ impl TargetType {
 #[derive(Debug, Clone)]
 pub struct Header {
     pub name: String,
-    pub projection: TypeInfo,
+    pub projection: Projection,
     /// The allowable values that will be interpreted as null. Ignored if the projection
     /// information doesn't allow nulls. This is static because we currently don't have a use case
     /// for them to be dynamic, and it's convenient to just use string literals.
