@@ -67,19 +67,10 @@ type LogPublisher struct {
 	level         logrus.Level
 	opsCollection *pf.CollectionSpec
 	shard         ShardRef
-	root          *LogService
 	governerCh    chan<- *client.AsyncAppend
 	mapper        *flow.Mapper
+	publisher     *message.Publisher
 	partitions    tuple.Tuple
-}
-
-// LogService is used to create LogPublishers at runtime. There only needs to be a single
-// LogService instance for the entire flow consumer application.
-type LogService struct {
-	ctx              context.Context
-	ajc              *client.AppendService
-	journals         flow.Journals
-	messagePublisher *message.Publisher
 }
 
 // logCollection returns the collection to which logs of the given task name are written.
@@ -89,7 +80,10 @@ func logCollection(taskName string) pf.Collection {
 
 // NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
 // the given task and appended as documents to the given |opsCollectionName|.
-func (r *LogService) NewPublisher(
+func NewLogPublisher(
+	ctx context.Context,
+	ajc client.AsyncJournalClient,
+	journals flow.Journals,
 	labeling labels.ShardLabeling,
 	collection *pf.CollectionSpec,
 	schemaIndex *bindings.SchemaIndex,
@@ -109,7 +103,14 @@ func (r *LogService) NewPublisher(
 		shard.Kind,
 		shard.Name,
 	}
-	var mapper = flow.NewMapper(r.ctx, r.ajc, r.journals)
+	var mapper = flow.NewMapper(ctx, ajc, journals)
+
+	// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
+	// UUID of log documents will always reflect the current wall-clock time, even when those
+	// log documents were produced during test runs, where `readDelay`s might normally cause
+	// time to skip forward. This probably only matters in extremely outlandish test scenarios,
+	// and so it doesn't seem worth the complexity to modify this timepoint during tests.
+	var publisher = message.NewPublisher(ajc, nil)
 
 	// Create a buffered channel that will serve to bound the number of pending appends to a logs
 	// collection. We'll loop over all the append operations in the channel and wait for them to
@@ -135,22 +136,27 @@ func (r *LogService) NewPublisher(
 		"level":         level.String(),
 	}).Debug("starting new log publisher")
 
-	var publisher = &LogPublisher{
+	var out = &LogPublisher{
 		opsCollection: collection,
 		shard:         shard,
-		root:          r,
 		level:         level,
 		governerCh:    governerCh,
 		mapper:        &mapper,
+		publisher:     publisher,
 		partitions:    partitions,
 	}
 	// Use a finalizer to close the governer channel when the publisher is no longer used.
 	// LogPublishers don't currently have an explicit Close function, so we assume they may be used
 	// right up until they're garbage collected.
-	runtime.SetFinalizer(publisher, func(pub *LogPublisher) {
+	//
+	// TODO(johnny): I'm not sure we should be using finalizers in this way.
+	// Rather, we should use them only to assert that the resource was closed
+	// before it was dropped. See:
+	// https://crawshaw.io/blog/sharp-edged-finalizers
+	runtime.SetFinalizer(out, func(pub *LogPublisher) {
 		close(pub.governerCh)
 	})
-	return publisher, nil
+	return out, nil
 }
 
 // Level implements the ops.Logger interface.
@@ -235,7 +241,7 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface
 		Partitions: p.partitions,
 	}
 
-	op, err := p.root.messagePublisher.PublishCommitted(p.mapper.Map, mappable)
+	op, err := p.publisher.PublishCommitted(p.mapper.Map, mappable)
 	if err != nil {
 		return err
 	}
