@@ -371,7 +371,7 @@ func CombineDocuments(
 		return nil, fmt.Errorf("extracting UUIDs: %w", err)
 	}
 
-	combiner, err := bindings.NewCombine(ops.StdLogPublisher())
+	combiner, err := bindings.NewCombine(ops.StdLogger())
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	} else if err = combiner.Configure(

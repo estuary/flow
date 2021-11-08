@@ -164,7 +164,7 @@ func TestNoOpServiceFunctional(t *testing.T) {
 }
 
 func TestUpperServiceWithStrides(t *testing.T) {
-	var svc = newUpperCase(ops.StdLogPublisher())
+	var svc = newUpperCase(ops.StdLogger())
 	defer svc.destroy()
 
 	for i := 0; i != 4; i++ {
@@ -252,7 +252,7 @@ func BenchmarkUpperService(b *testing.B) {
 
 	for _, stride := range strides {
 		b.Run("cgo-"+strconv.Itoa(stride), func(b *testing.B) {
-			var svc = newUpperCase(ops.StdLogPublisher())
+			var svc = newUpperCase(ops.StdLogger())
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {

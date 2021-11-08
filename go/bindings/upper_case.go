@@ -15,7 +15,7 @@ import (
 // newUpperCase is a testing Service that upper-cases each input Frame,
 // and returns the running sum length of its inputs via its response
 // Frame Code.
-func newUpperCase(logPublisher ops.LogPublisher) *service {
+func newUpperCase(logPublisher ops.Logger) *service {
 	var svc, err = newService(
 		"uppercase",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.upper_case_create(logFilter, logDest) },
@@ -54,7 +54,7 @@ func newNoOpService() *service {
 			C.free(unsafe.Pointer(ch.out_ptr))
 			C.free(unsafe.Pointer(ch))
 		},
-		ops.StdLogPublisher(),
+		ops.StdLogger(),
 	)
 	if err != nil {
 		panic(err)

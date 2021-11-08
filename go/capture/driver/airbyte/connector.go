@@ -43,7 +43,7 @@ func RunConnector(
 	jsonFiles map[string]interface{},
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
-	logPublisher ops.LogPublisher,
+	logPublisher ops.Logger,
 ) error {
 	var imageArgs = []string{
 		"docker",
@@ -97,7 +97,7 @@ func runCommand(
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
-	logPublisher ops.LogPublisher,
+	logPublisher ops.Logger,
 ) error {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {

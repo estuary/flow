@@ -19,18 +19,18 @@ only the ops collections. So the goal is to make these collections maximally use
 
 - The `logrus` package should still be used for logging anything that isn't appropriate for users.
   Nothing you log there will be published to any collections.
-- The `ops.LogPublisher` interface is a logger for things that should be available to users. An
-  `ops.LogPublisher` should be passed around to any code that might produce logs that are
+- The `ops.Logger` interface is a logger for things that should be available to users. An
+  `ops.Logger` should be passed around to any code that might produce logs that are
   appropriate to show to the user.
-- A `runtime.LogPublisher` implements `ops.LogPublisher`, and publishes logs to the ops collections.
+- A `runtime.LogPublisher` implements `ops.Logger`, and publishes logs to the ops collections.
   These logs will also be output to the normal logrus logger, so they will be duplicated in both
   places. A publisher is already configured as part of the `runtime.taskTerm`, so you just need to
   pass it around to wherever you need it.
-- An `ops.StandardLogPublisher` is an `ops.LogPublisher` that just logs to stderr using `logrus`.
+- `ops.StdLogger()` returns an `ops.Logger` that just logs to stderr using `logrus`.
   This is used in contexts where it's not possible or practical to publish logs to an ops
   collection, such as during catalog builds.
 - An `ops.LogForwardWriter` can parse an arbitrary stream of bytes and forward log events to an
-  `ops.LogPublisher`. This is useful for collecting logs from child processes such as connectors.
+  `ops.Logger`. This is useful for collecting logs from child processes such as connectors.
 - The `flow/ops/testutil` package contains helpers for capturing logs and making assertions against
   them. It's a good idea to test error conditions by asserting that the error is logged.
 

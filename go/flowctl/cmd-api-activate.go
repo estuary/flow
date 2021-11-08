@@ -123,7 +123,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		}
 
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogPublisher())
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}

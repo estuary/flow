@@ -51,7 +51,7 @@ type Derive struct {
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
-func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops.LogPublisher) (*Derive, error) {
+func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops.Logger) (*Derive, error) {
 	var rocksEnv *gorocksdb.Env
 	if recorder != nil {
 		rocksEnv = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
@@ -308,7 +308,7 @@ func (d *Derive) Destroy() {
 	}
 }
 
-func newDeriveSvc(logger ops.LogPublisher) (*service, error) {
+func newDeriveSvc(logger ops.Logger) (*service, error) {
 	return newService(
 		"derive",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.derive_create(logFilter, logDest) },
