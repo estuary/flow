@@ -341,7 +341,7 @@ func (c *Capture) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
 }
 
 func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
-	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient(), c.host.Journals)
+	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
 	var msg = env.Message.(*captureMessage)
 
 	if msg.eof {
