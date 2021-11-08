@@ -54,8 +54,6 @@ type FlowConsumer struct {
 		Now *flow.Timepoint
 		Mu  sync.Mutex
 	}
-	// Allows publishing log events as documents in a Flow collection.
-	LogService *LogService
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -197,22 +195,8 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		}
 	}()
 
-	// Shared AppendService used for logs and also test ingestions (where enabled).
-	var ajc = client.NewAppendService(args.Context, args.Service.Journals)
-
-	f.LogService = &LogService{
-		ctx:      args.Context,
-		ajc:      ajc,
-		journals: journals,
-		// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
-		// UUID of log documents will always reflect the current wall-clock time, even when those
-		// log documents were produced during test runs, where `readDelay`s might normally cause
-		// time to skip forward. This probably only matters in extremely outlandish test scenarios,
-		// and so it doesn't seem worth the complexity to modify this timepoint during tests.
-		messagePublisher: message.NewPublisher(ajc, nil),
-	}
-
 	if config.Flow.TestAPIs {
+		var ajc = client.NewAppendService(args.Context, args.Service.Journals)
 		pf.RegisterTestingServer(args.Server.GRPCServer, NewFlowTesting(f, ajc))
 	}
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
