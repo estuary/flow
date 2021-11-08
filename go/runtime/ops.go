@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -61,14 +62,14 @@ func (e *LogEvent) NewAcknowledgement(pb.Journal) message.Message {
 	panic("not implemented")
 }
 
-// LogPublisher is an ops.Logger that is scoped to a particular task, and publishes log events
-// to a Flow collection.
+// LogPublisher is an ops.Logger that is scoped to a particular task shard,
+// and publishes its logged events to a Flow collection.
 type LogPublisher struct {
 	level         logrus.Level
 	opsCollection *pf.CollectionSpec
 	shard         ShardRef
 	governerCh    chan<- *client.AsyncAppend
-	mapper        *flow.Mapper
+	mapper        flow.Mapper
 	publisher     *message.Publisher
 	partitions    tuple.Tuple
 }
@@ -78,15 +79,15 @@ func logCollection(taskName string) pf.Collection {
 	return pf.Collection(fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0]))
 }
 
-// NewPublisher creates a new LogPublisher, which can be used to publish logs that are scoped to
-// the given task and appended as documents to the given |opsCollectionName|.
+// NewPublisher creates a new LogPublisher for the given task ShardLabeling,
+// which publishes to the given collection using the provided journal client
+// and Mapper.
 func NewLogPublisher(
-	ctx context.Context,
-	ajc client.AsyncJournalClient,
-	journals flow.Journals,
 	labeling labels.ShardLabeling,
 	collection *pf.CollectionSpec,
 	schemaIndex *bindings.SchemaIndex,
+	ajc client.AsyncJournalClient,
+	mapper flow.Mapper,
 ) (*LogPublisher, error) {
 	var level, err = logrus.ParseLevel(labeling.LogLevel)
 	if err != nil {
@@ -103,7 +104,6 @@ func NewLogPublisher(
 		shard.Kind,
 		shard.Name,
 	}
-	var mapper = flow.NewMapper(ctx, ajc, journals)
 
 	// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
 	// UUID of log documents will always reflect the current wall-clock time, even when those
@@ -141,7 +141,7 @@ func NewLogPublisher(
 		shard:         shard,
 		level:         level,
 		governerCh:    governerCh,
-		mapper:        &mapper,
+		mapper:        mapper,
 		publisher:     publisher,
 		partitions:    partitions,
 	}
@@ -210,7 +210,7 @@ func levelString(level log.Level) string {
 // `map[string]json.RawMessage` from a forwarded log event.
 func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
 	var err = p.tryLog(level, ts, fields, message)
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		logrus.WithFields(logrus.Fields{
 			"origMessage":   message,
 			"logPublishErr": err,
