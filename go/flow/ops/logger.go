@@ -8,10 +8,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// LogPublisher is an interface for publishing log messages that relate to a specific task.
+// Logger is an interface for publishing log messages that relate to a specific task.
 // This is used so that logs can be published to Flow ops collections at runtime, but can be
 // written to stderr at build/apply time.
-type LogPublisher interface {
+type Logger interface {
 	// Log writes a log event with the given parameters. The event may be filtered by a
 	// publisher (typically based on the |level|).
 	Log(level log.Level, fields log.Fields, message string) error
@@ -19,7 +19,7 @@ type LogPublisher interface {
 	// passed to this function are different from the fields passed to Log. This is to allow log
 	// forwarding to avoid deserializing and re-serializing all the fields of a JSON log event.
 	LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error
-	// Level returns the current configured level filter of the LogPublisher.
+	// Level returns the current configured level filter of the Logger.
 	Level() log.Level
 }
 
@@ -55,12 +55,12 @@ func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
 
 type stdLogAppender struct{}
 
-// Level implements ops.LogPublisher for stdLogAppender
+// Level implements ops.Logger for stdLogAppender
 func (stdLogAppender) Level() log.Level {
 	return log.GetLevel()
 }
 
-// Log implements ops.LogPublisher for stdLogAppender
+// Log implements ops.Logger for stdLogAppender
 func (l stdLogAppender) Log(level log.Level, fields log.Fields, message string) error {
 	if level > l.Level() {
 		return nil
@@ -69,7 +69,7 @@ func (l stdLogAppender) Log(level log.Level, fields log.Fields, message string) 
 	return nil
 }
 
-// LogForwarded implements ops.LogPublisher for stdLogAppender
+// LogForwarded implements ops.Logger for stdLogAppender
 func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
 	if level > l.Level() {
 		return nil
@@ -86,8 +86,8 @@ func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[s
 	return nil
 }
 
-// StdLogPublisher returns a LogPublisher that just forwards to the logrus package. This is used
+// StdLogger returns a Logger that just forwards to the logrus package. This is used
 // during operations that happen outside of the Flow runtime (such as flowctl build or apply).
-func StdLogPublisher() LogPublisher {
+func StdLogger() Logger {
 	return stdLogAppender{}
 }

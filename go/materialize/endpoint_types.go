@@ -18,7 +18,7 @@ func NewDriver(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	connectorNetwork string,
-	logPublisher ops.LogPublisher,
+	logPublisher ops.Logger,
 ) (pm.DriverClient, error) {
 
 	switch endpointType {

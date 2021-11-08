@@ -44,7 +44,7 @@ func newService(
 	invoke4 func(*C.Channel, C.In4),
 	invoke16 func(*C.Channel, C.In16),
 	drop func(*C.Channel),
-	logPublisher ops.LogPublisher,
+	logPublisher ops.Logger,
 ) (*service, error) {
 	// We use a direct syscall here instead of `os.Pipe` because we need to ensure that _only_ the
 	// Rust side closes the file. `os.Pipe` returns `os.File`s, which will always close themselves

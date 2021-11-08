@@ -48,6 +48,6 @@ func newSchemaService() (*service, error) {
 		func(ch *C.Channel, in C.In4) { C.schema_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.schema_invoke16(ch, in) },
 		func(ch *C.Channel) { C.schema_drop(ch) },
-		ops.StdLogPublisher(),
+		ops.StdLogger(),
 	)
 }

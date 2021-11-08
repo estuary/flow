@@ -20,7 +20,7 @@ import (
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
 func CatalogJSONSchema() string {
-	var svc, err = newBuildSvc(ops.StdLogPublisher())
+	var svc, err = newBuildSvc(ops.StdLogger())
 	if err != nil {
 		panic(err)
 	}
@@ -44,7 +44,7 @@ type CaptureDriverFn func(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	connectorNetwork string,
-	logger ops.LogPublisher,
+	logger ops.Logger,
 ) (pc.DriverClient, error)
 
 // MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
@@ -54,7 +54,7 @@ type MaterializeDriverFn func(
 	endpointType pf.EndpointType,
 	endpointSpec json.RawMessage,
 	connectorNetwork string,
-	logger ops.LogPublisher,
+	logger ops.Logger,
 ) (pm.DriverClient, error)
 
 // BuildArgs are arguments of the BuildCatalog function.
@@ -84,7 +84,7 @@ func BuildCatalog(args BuildArgs) error {
 		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	}
 
-	var svc, err = newBuildSvc(ops.StdLogPublisher())
+	var svc, err = newBuildSvc(ops.StdLogger())
 	if err != nil {
 		return fmt.Errorf("creating build service: %w", err)
 	}
@@ -139,7 +139,7 @@ func BuildCatalog(args BuildArgs) error {
 				log.WithField("request", request).Debug("capture validation requested")
 
 				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
+					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, ops.StdLogger())
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}
@@ -172,7 +172,7 @@ func BuildCatalog(args BuildArgs) error {
 				log.WithField("request", request).Debug("materialize validation requested")
 
 				var driver, err = args.MaterializeDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, ops.StdLogPublisher())
+					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, ops.StdLogger())
 				if err != nil {
 					return nil, fmt.Errorf("driver.NewDriver: %w", err)
 				}
@@ -242,7 +242,7 @@ func BuildCatalog(args BuildArgs) error {
 
 }
 
-func newBuildSvc(logger ops.LogPublisher) (*service, error) {
+func newBuildSvc(logger ops.Logger) (*service, error) {
 	return newService(
 		"build",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.build_create(logFilter, logDest) },

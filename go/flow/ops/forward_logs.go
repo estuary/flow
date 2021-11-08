@@ -31,7 +31,7 @@ const LogSourceField = "logSource"
 // `fields` of the event.
 // For an example of how to configure a `tracing_subscriber` in Rust so that
 // it's compatible with this format, check out: crates/bindings/src/logging.rs
-func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher LogPublisher) {
+func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher Logger) {
 	var reader = bufio.NewScanner(logSource)
 	defer logSource.Close()
 	var forwarder = newLogForwarder(sourceDesc, fallbackLevel, publisher)
@@ -45,7 +45,7 @@ func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCl
 // NewLogForwardWriter returns a new `io.WriteCloser` that forwards all data written to it as logs
 // to the given publisher. The data written will be treated in exactly the same way as it is for
 // `ForwardLogs`.
-func NewLogForwardWriter(sourceDesc string, fallbackLevel log.Level, publisher LogPublisher) *LogForwardWriter {
+func NewLogForwardWriter(sourceDesc string, fallbackLevel log.Level, publisher Logger) *LogForwardWriter {
 	return &LogForwardWriter{
 		logForwarder: newLogForwarder(sourceDesc, fallbackLevel, publisher),
 	}
@@ -129,10 +129,10 @@ type logForwarder struct {
 	sourceDesc string
 	// Pre-serialized source desc, so we can avoid allocating on every event.
 	sourceDescJsonString json.RawMessage
-	publisher            LogPublisher
+	publisher            Logger
 }
 
-func newLogForwarder(sourceDesc string, fallbackLevel log.Level, publisher LogPublisher) logForwarder {
+func newLogForwarder(sourceDesc string, fallbackLevel log.Level, publisher Logger) logForwarder {
 	var sourceDescJsonString, err = json.Marshal(sourceDesc)
 	if err != nil {
 		panic(fmt.Sprintf("serializing sourceDesc: %v", err))

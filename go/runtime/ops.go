@@ -61,7 +61,7 @@ func (e *LogEvent) NewAcknowledgement(pb.Journal) message.Message {
 	panic("not implemented")
 }
 
-// LogPublisher is an ops.LogPublisher that is scoped to a particular task, and publishes log events
+// LogPublisher is an ops.Logger that is scoped to a particular task, and publishes log events
 // to a Flow collection.
 type LogPublisher struct {
 	level         logrus.Level
@@ -122,7 +122,7 @@ func (r *LogService) NewPublisher(
 	go func(ch <-chan *client.AsyncAppend) {
 		for op := range ch {
 			if logErr := op.Err(); logErr != nil && logErr != context.Canceled {
-				ops.StdLogPublisher().Log(log.ErrorLevel, log.Fields{
+				ops.StdLogger().Log(log.ErrorLevel, log.Fields{
 					"shard": shard,
 					"error": logErr,
 				}, "failed to append to log collection")
@@ -153,12 +153,12 @@ func (r *LogService) NewPublisher(
 	return publisher, nil
 }
 
-// Level implements the ops.LogPublisher interface.
+// Level implements the ops.Logger interface.
 func (p *LogPublisher) Level() log.Level {
 	return p.level
 }
 
-// Log implements the ops.LogPublisher interface. It publishes log messages to the configured ops
+// Log implements the ops.Logger interface. It publishes log messages to the configured ops
 // collection, and also forwards them to the normal logger.
 func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message string) error {
 	if p.level < level {
@@ -166,12 +166,12 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 	}
 	var err = p.doLog(level, time.Now().UTC(), fields, message)
 	if err == nil && logrus.IsLevelEnabled(level) {
-		ops.StdLogPublisher().Log(level, fields, message)
+		ops.StdLogger().Log(level, fields, message)
 	}
 	return err
 }
 
-// LogForwarded implements the ops.LogPublisher interface. It publishes log messages to the
+// LogForwarded implements the ops.Logger interface. It publishes log messages to the
 // configured ops collection, and also forwards them to the normal logger.
 func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map[string]json.RawMessage, message string) error {
 	if p.level < level {
@@ -179,7 +179,7 @@ func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map
 	}
 	var err = p.doLog(level, time.Now().UTC(), fields, message)
 	if err == nil && logrus.IsLevelEnabled(level) {
-		ops.StdLogPublisher().LogForwarded(ts, level, fields, message)
+		ops.StdLogger().LogForwarded(ts, level, fields, message)
 	}
 	return err
 }
