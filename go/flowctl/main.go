@@ -53,16 +53,17 @@ specific build of Flow. This JSON schema can be used to enable IDE support
 and auto-completions.
 `, &cmdJSONSchema{})
 
-	addCmd(parser, "local-data-plane", "Run an ephemeral, local data plane", `
+	addCmd(parser, "temp-data-plane", "Run an ephemeral, temporary local data plane", `
 Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
 A local data plane is intended for local development and testing, and doesn't persist
 fragments to the configured storage mappings of collections and Flow tasks.
+Upon exit, all data is discarded.
 
 If you intend to use a local data plane with 'flowctl api await', then you must
 use the --poll flag, such that connectors poll their sources and then exit
 rather than tailing sources continuously. This is uncommon, and typically only
 used for integration testing workflows.
-`, &cmdLocalDataPlane{})
+`, &cmdTempDataPlane{})
 
 	addCmd(parser, "deploy", "Build a catalog and deploy it to a data plane", `
 Build a catalog from --source. Then, activate it into a data plane.
