@@ -244,9 +244,9 @@ func pingAndFetchConfig(ctx context.Context, sc pc.ShardClient, jc pb.JournalCli
 // If |allDerivations|, then all derivations are also loaded.
 // If |all|, then all entities are loaded.
 func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*pf.CollectionSpec, []pf.Task, error) {
-	var idx = make(map[string]struct{})
+	var idx = make(map[string]int)
 	for _, t := range names {
-		idx[t] = struct{}{}
+		idx[t] = 0
 	}
 
 	var collections []*pf.CollectionSpec
@@ -256,9 +256,11 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 		return nil, nil, err
 	} else {
 		for _, c := range loaded {
-			var _, ok = idx[c.Collection.String()]
+			var name = c.Collection.String()
+			var _, ok = idx[name]
 			if ok || all {
 				collections = append(collections, c)
+				idx[name] = idx[name] + 1
 			}
 		}
 	}
@@ -269,6 +271,7 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 			var _, ok = idx[t.TaskName()]
 			if ok || all {
 				tasks = append(tasks, t)
+				idx[t.TaskName()] = idx[t.TaskName()] + 1
 			}
 		}
 	}
@@ -279,6 +282,7 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 			var _, ok = idx[t.TaskName()]
 			if ok || all || allDerivations {
 				tasks = append(tasks, t)
+				idx[t.TaskName()] = idx[t.TaskName()] + 1
 			}
 		}
 	}
@@ -289,9 +293,18 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 			var _, ok = idx[t.TaskName()]
 			if ok || all {
 				tasks = append(tasks, t)
+				idx[t.TaskName()] = idx[t.TaskName()] + 1
 			}
 		}
 	}
+
+	// Require that all |names| were matched.
+	for n, c := range idx {
+		if c == 0 {
+			return nil, nil, fmt.Errorf("could not find %q in the build database", n)
+		}
+	}
+
 	return collections, tasks, nil
 }
 
@@ -303,6 +316,10 @@ func applyAllChanges(
 	journals []pb.ApplyRequest_Change,
 	dryRun bool,
 ) error {
+
+	if len(shards) == 0 && len(journals) == 0 {
+		return fmt.Errorf("there are no changes to apply")
+	}
 
 	// Stably sort journal changes so that deletions order last.
 	sort.SliceStable(journals, func(i int, j int) bool {
