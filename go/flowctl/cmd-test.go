@@ -54,8 +54,8 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	var ctx, cancel = signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Start a local data plane bound to our context.
-	var dataPlane = cmdLocalDataPlane{
+	// Start a temporary data plane bound to our context.
+	var dataPlane = cmdTempDataPlane{
 		BuildsRoot:  buildsRoot,
 		UnixSockets: true,
 		Log: mbp.LogConfig{
