@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/storage v1.18.2
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20211105170117-f515832123f0
+	github.com/estuary/protocols v0.0.0-20211116194311-423c193f38bd
 	github.com/evanphx/json-patch/v5 v5.5.0
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3

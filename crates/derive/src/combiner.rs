@@ -61,7 +61,7 @@ impl Combiner {
         assert!(!key.is_empty());
 
         Combiner {
-            schema: schema,
+            schema,
             entries: BTreeSet::new(),
             key,
         }
@@ -155,7 +155,7 @@ impl Combiner {
 
     // Drain all entries of the Combiner. If the UUID placeholder JSON pointer is non-empty,
     // then UUID_PLACEHOLDER is inserted into returned documents at the specified location.
-    // Iff the document shape is incompatible with the pointer, it's returned unmodified.
+    // If the document shape is incompatible with the pointer, it's returned unmodified.
     pub fn drain_entries(
         &mut self,
         uuid_placeholder_ptr: &str,

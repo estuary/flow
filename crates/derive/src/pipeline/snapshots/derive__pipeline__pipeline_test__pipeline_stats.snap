@@ -1,0 +1,51 @@
+---
+source: crates/derive/src/pipeline/pipeline_test.rs
+expression: stats
+
+---
+transforms:
+  - input:
+      docs: 2
+      bytes: 48
+    update:
+      output:
+        docs: 4
+        bytes: 94
+      total_seconds: time-redacted
+    publish:
+      output:
+        docs: 4
+        bytes: 94
+      total_seconds: time-redacted
+  - input:
+      docs: 2
+      bytes: 50
+    update:
+      output:
+        docs: 0
+        bytes: 0
+      total_seconds: time-redacted
+    publish:
+      output:
+        docs: 2
+        bytes: 52
+      total_seconds: time-redacted
+  - input:
+      docs: 3
+      bytes: 74
+    update:
+      output:
+        docs: 3
+        bytes: 75
+      total_seconds: time-redacted
+    publish:
+      output:
+        docs: 0
+        bytes: 0
+      total_seconds: time-redacted
+registers:
+  created: 3
+output:
+  docs: 2
+  bytes: 156
+

@@ -11,6 +11,7 @@ import (
 	pf "github.com/estuary/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	log "github.com/sirupsen/logrus"
 )
 
 // CombineCallback is the callback accepted by Combine.Finish and Derive.Finish.
@@ -133,10 +134,14 @@ func (c *Combine) Drain(cb CombineCallback) (err error) {
 			return
 		}
 	}
-	c.stats.drainDocs, c.stats.drainBytes, err = drainCombineToCallback(c.svc, &c.drained, cb)
+	var stats pf.CombineAPI_Stats
+	c.stats.drainDocs, c.stats.drainBytes, err = drainCombineToCallback(c.svc, &c.drained, cb, &stats)
 	if err == nil {
 		c.metrics.recordDrain(&c.stats)
 	}
+	// TODO: return stats instead of logging them
+	log.WithField("stats", stats).Trace("drained combiner")
+
 	return
 }
 
@@ -151,14 +156,22 @@ func (d *Combine) Destroy() {
 	}
 }
 
+type StatsMessage interface {
+	Unmarshal(b []byte) error
+}
+
+// drainCombineToCallback drains either a Combine or a Derive, passing each document to the
+// callback. The final stats will be unmarshaled into statsMessage, which will be either a
+// pf.CombineAPI_Stats or a pf.DeriveAPI_Stats.
 func drainCombineToCallback(
 	svc *service,
 	out *[]C.Out,
 	cb CombineCallback,
+	statsMessage StatsMessage,
 ) (nDocs, nBytes int, err error) {
-	// Sanity check we got triples of output frames.
-	if len(*out)%3 != 0 {
-		panic(fmt.Sprintf("wrong number of output frames (%d; should be %% 3)", len(*out)))
+	// Sanity check we got triples of output frames, plus one at the end for the stats.
+	if len(*out)%3 != 1 {
+		panic(fmt.Sprintf("wrong number of output frames (%d; should be %% 3, plus 1)", len(*out)))
 	}
 
 	for len(*out) >= 3 {
@@ -174,6 +187,14 @@ func drainCombineToCallback(
 			return
 		}
 		*out = (*out)[3:]
+	}
+
+	// Now consume the final Stats message from the combiner.
+	var statsOut = (*out)[len(*out)-1]
+	var statsSlice = svc.arenaSlice(statsOut)
+	if err = statsMessage.Unmarshal(statsSlice); err != nil {
+		err = fmt.Errorf("unmarshaling stats: %w", err)
+		return
 	}
 
 	return

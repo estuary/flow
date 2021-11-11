@@ -251,10 +251,14 @@ func (d *Derive) Drain(cb CombineCallback) error {
 				"tasks": d.runningTasks,
 			}).Trace("derive.Drain draining combiner")
 
-			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb)
+			var stats pf.DeriveAPI_Stats
+			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb, &stats)
 			if err == nil {
+				// TODO: return these stats instead of logging them
+				log.WithField("stats", stats).Trace("drained derive")
 				d.metrics.recordDrain(&d.stats)
 			}
+
 			return err
 		}
 

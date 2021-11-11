@@ -1,8 +1,9 @@
-use crate::DebugJson;
+use crate::{DebugJson, StatsAccumulator};
 
 use doc::{reduce, FailedValidation, Validation, Validator};
 use prost::Message;
 use protocol::consumer::Checkpoint;
+use protocol::flow::derive_api;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -28,7 +29,23 @@ pub enum Error {
     SchemaIndex(#[from] json::schema::index::Error),
 }
 
+#[derive(Default)]
+pub struct RegisterStats(derive_api::stats::RegisterStats);
+impl RegisterStats {
+    fn inc_created(&mut self) {
+        self.0.created += 1;
+    }
+}
+
+impl StatsAccumulator for RegisterStats {
+    type Stats = protocol::flow::derive_api::stats::RegisterStats;
+    fn drain(&mut self) -> Self::Stats {
+        std::mem::replace(&mut self.0, Default::default())
+    }
+}
+
 pub struct Registers {
+    pub stats: RegisterStats,
     // Backing database of all registers.
     rocks_db: rocksdb::DB,
     cache: HashMap<Box<[u8]>, Option<Value>>,
@@ -68,6 +85,7 @@ impl Registers {
         Ok(Registers {
             rocks_db,
             cache: HashMap::new(),
+            stats: RegisterStats::default(),
         })
     }
 
@@ -135,6 +153,7 @@ impl Registers {
 
         // If the register doesn't exist, initialize it now.
         if !matches!(lhs, Some(_)) {
+            self.stats.inc_created();
             *lhs = Some(initial.clone());
         }
 
@@ -224,6 +243,9 @@ mod test {
             reg.reduce(key, &schema, &initial, values, &mut validator)
                 .unwrap();
         }
+        assert_eq!(2, reg.stats.drain().created);
+        // Assert that the counter is reset after drain.
+        assert_eq!(0, reg.stats.drain().created);
 
         // Expect registers were updated to reflect reductions.
         assert_eq!(reg.read(b"foo", &initial), &json!({"min": 3, "max": 4.4}));
@@ -274,6 +296,8 @@ mod test {
 
         // However, we can still restore our persisted checkpoint (different column family).
         assert_eq!(reg.last_checkpoint().unwrap(), fixture);
+        // Assert that the created counter is still 0 since we've not added any _new_ keys.
+        assert_eq!(0, reg.stats.drain().created);
     }
 
     #[test]
