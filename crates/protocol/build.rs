@@ -20,6 +20,31 @@ struct TypeAttrs<'a> {
 /// https://docs.rs/prost-build/0.6.1/prost_build/struct.Config.html#arguments
 /// `field_attrs` holds tuples of field name to field attributes.
 static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
+    TypeAttrs {
+        path: "flow.DeriveAPI.Stats.TransformStats",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "flow.DeriveAPI.Stats.InvokeStats",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "flow.DeriveAPI.Stats.RegisterStats",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "flow.DeriveAPI.Stats",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
+    TypeAttrs {
+        path: "flow.DocsAndBytes",
+        type_attrs: SERDE_ATTR,
+        field_attrs: &[],
+    },
     // ContentType is a JSON-encoded column of models::tables::Resources.
     TypeAttrs {
         path: "flow.ContentType",

@@ -1,3 +1,4 @@
+use crate::{DocCounter, StatsAccumulator};
 use anyhow::Context;
 use bytes::BufMut;
 use futures::channel::oneshot;
@@ -8,6 +9,7 @@ use protocol::{
     flow::{self, derive_api},
 };
 use serde_json::Value;
+use std::time::{Duration, Instant};
 
 // Invocation of a lambda which is in the process of building built.
 #[derive(Clone)]
@@ -91,10 +93,16 @@ impl Invocation {
         self,
         tf_index: usize,
         trampoline: &cgo::Trampoline,
-    ) -> LocalBoxFuture<'a, Result<Vec<Vec<Value>>, anyhow::Error>> {
+    ) -> LocalBoxFuture<'a, Result<InvokeOutput, anyhow::Error>> {
         use Invocation::*;
         match self {
             Trampoline { sources, registers } if !sources.is_empty() => {
+                // Start measuring the time it takes to invoke the lambdas. Technically, this
+                // measurement can include some "extra" time, for example if the trampoline server
+                // delays the execution of the task. It is intended for this measurement to be
+                // inclusive of that type of thing, rather than try to narrow in on only the time
+                // spent executing the users' code.
+                let start = Instant::now();
                 let request = derive_api::Invoke {
                     transform_index: tf_index as u32,
                     sources_memptr: sources.as_ptr() as u64,
@@ -111,11 +119,21 @@ impl Invocation {
                     move |result: Result<&[u8], anyhow::Error>| {
                         // Move into closure to pin until the operation completes.
                         let (_, _) = (sources, registers);
-
+                        let total_duration = start.elapsed();
                         let result = result.and_then(|data| {
                             let parsed: Vec<Vec<Value>> = serde_json::from_slice(data)
                                 .context("failed to parse lambda invocation response")?;
-                            Ok(parsed)
+                            let stats = InvokeStats {
+                                output: DocCounter::new(
+                                    parsed.iter().map(Vec::len).sum::<usize>() as u64,
+                                    // TODO: _technically_ we _could_ subtract some bytes here to
+                                    // account for the square brackets used in array encoding. I'm
+                                    // not sure whether we should or not.
+                                    data.len() as u64,
+                                ),
+                                total_duration,
+                            };
+                            Ok(InvokeOutput { parsed, stats })
                         });
                         tx.send(result).unwrap();
                     },
@@ -123,18 +141,82 @@ impl Invocation {
                 rx.map(|r| r.unwrap()).boxed_local()
             }
 
-            Noop => async { Ok(Vec::new()) }.boxed_local(),
+            Noop => async { Ok(InvokeOutput::default()) }.boxed_local(),
             // Trampoline without any documents is treated as a no-op.
-            Trampoline { .. } => async { Ok(Vec::new()) }.boxed_local(),
+            Trampoline { .. } => async { Ok(InvokeOutput::default()) }.boxed_local(),
         }
     }
 }
 
+#[derive(Default, Debug, PartialEq)]
+pub struct InvokeStats {
+    pub output: DocCounter,
+    pub total_duration: Duration,
+}
+
+impl StatsAccumulator for InvokeStats {
+    type Stats = protocol::flow::derive_api::stats::InvokeStats;
+
+    fn drain(&mut self) -> Self::Stats {
+        let total_seconds = self.total_duration.as_secs_f64();
+        self.total_duration = Duration::default();
+        protocol::flow::derive_api::stats::InvokeStats {
+            output: Some(self.output.drain()),
+            total_seconds,
+        }
+    }
+}
+
+impl InvokeStats {
+    pub fn add(&mut self, other: &InvokeStats) {
+        self.output.add(&other.output);
+        self.total_duration += other.total_duration;
+    }
+}
+
+#[derive(Default, Debug, PartialEq)]
+pub struct InvokeOutput {
+    pub parsed: Vec<Vec<Value>>,
+    pub stats: InvokeStats,
+}
+
 #[cfg(test)]
 mod test {
-    use super::{cgo, derive_api, flow, Invocation};
+    use super::*;
+    use crate::DocCounter;
     use prost::Message;
-    use serde_json::{json, Value};
+    use protocol::flow::DocsAndBytes;
+    use serde_json::json;
+
+    #[test]
+    fn test_invoke_stats() {
+        let mut stats = InvokeStats::default();
+
+        stats.add(&InvokeStats {
+            output: DocCounter::new(3, 99),
+            total_duration: Duration::from_secs(3),
+        });
+        stats.add(&InvokeStats {
+            output: DocCounter::new(1, 51),
+            total_duration: Duration::from_secs(1),
+        });
+
+        let actual = stats.drain();
+        // I really just can't be bothered to add a library or write another approximate equality
+        // function, so we get this.
+        assert_eq!(4, actual.total_seconds.round() as i64);
+        assert_eq!(
+            Some(DocsAndBytes {
+                docs: 4,
+                bytes: 150,
+            }),
+            actual.output
+        );
+        // drain again and assert it's all zeroed
+        let actual = stats.drain();
+        assert_eq!(0f64, actual.total_seconds);
+        assert_eq!(Some(DocsAndBytes { docs: 0, bytes: 0 }), actual.output);
+    }
 
     #[test]
     fn test_trampoline() {
@@ -147,7 +229,7 @@ mod test {
         let trampoline = cgo::Trampoline::new();
         let fut = inv.clone().invoke(42, &trampoline);
         let result = futures::executor::block_on(fut);
-        assert_eq!(result.unwrap(), Vec::<Vec<Value>>::new());
+        assert_eq!(result.unwrap(), InvokeOutput::default());
 
         // Assemble the invocation body. Sources first, then registers.
         inv.add_source(json!({"a": "source"}).to_string().as_bytes());
@@ -181,7 +263,7 @@ mod test {
         trampoline.resolve_task(&data);
 
         let result = futures::executor::block_on(fut);
-        assert_eq!(result.unwrap(), vec![vec![json!("foobar")]]);
+        assert_eq!(result.unwrap().parsed, vec![vec![json!("foobar")]]);
 
         // Now try an error.
         let fut = inv.clone().invoke(42, &trampoline);
@@ -207,7 +289,7 @@ mod test {
         let trampoline = cgo::Trampoline::new();
         let fut = inv.clone().invoke(42, &trampoline);
         let result = futures::executor::block_on(fut);
-        assert_eq!(result.unwrap(), Vec::<Vec<Value>>::new());
+        assert_eq!(result.unwrap(), InvokeOutput::default());
     }
 }
 

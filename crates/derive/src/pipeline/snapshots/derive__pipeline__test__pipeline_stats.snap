@@ -1,0 +1,45 @@
+---
+source: crates/derive/src/pipeline/mod.rs
+expression: actual
+
+---
+- input:
+    docs: 0
+    bytes: 0
+  update:
+    output:
+      docs: 6
+      bytes: 1000
+    total_seconds: 3.0
+  publish:
+    output:
+      docs: 0
+      bytes: 0
+    total_seconds: 0.0
+- input:
+    docs: 0
+    bytes: 0
+  update:
+    output:
+      docs: 0
+      bytes: 0
+    total_seconds: 0.0
+  publish:
+    output:
+      docs: 0
+      bytes: 0
+    total_seconds: 0.0
+- input:
+    docs: 2
+    bytes: 84
+  update:
+    output:
+      docs: 0
+      bytes: 0
+    total_seconds: 0.0
+  publish:
+    output:
+      docs: 3
+      bytes: 8192
+    total_seconds: 3.0
+

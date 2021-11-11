@@ -1,8 +1,7 @@
-use super::invocation::Invocation;
+use super::invocation::{Invocation, InvokeOutput};
 
 use futures::{future::LocalBoxFuture, FutureExt};
 use protocol::cgo;
-use serde_json::Value;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -98,11 +97,11 @@ pub struct BlockInvoke {
     // We must use JoinAll, and not TryJoinAll, because trampoline semantics require that
     // task invocation memory remain pinned until each task has returned. Otherwise the
     // first returned error would cause us to drop memory still being read by another task.
-    join: futures::future::JoinAll<LocalBoxFuture<'static, Result<Vec<Vec<Value>>, anyhow::Error>>>,
+    join: futures::future::JoinAll<LocalBoxFuture<'static, Result<InvokeOutput, anyhow::Error>>>,
 }
 
 impl std::future::Future for BlockInvoke {
-    type Output = Result<(Block, Vec<Vec<Vec<Value>>>), anyhow::Error>;
+    type Output = Result<(Block, Vec<InvokeOutput>), anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.join.poll_unpin(cx) {
