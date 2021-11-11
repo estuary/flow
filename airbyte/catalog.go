@@ -219,11 +219,22 @@ func (s *State) UnmarshalJSON(b []byte) error {
 }
 
 type Spec struct {
-	DocumentationURL              string                `json:"documentationUrl,omitempty"`
-	ChangelogURL                  string                `json:"changelogUrl,omitempty"`
-	ConnectionSpecification       json.RawMessage       `json:"connectionSpecification"`
-	SupportsIncremental           bool                  `json:"supportsIncremental,omitempty"`
+	DocumentationURL        string          `json:"documentationUrl,omitempty"`
+	ChangelogURL            string          `json:"changelogUrl,omitempty"`
+	ConnectionSpecification json.RawMessage `json:"connectionSpecification"`
+	SupportsIncremental     bool            `json:"supportsIncremental,omitempty"`
+
+	// SupportedDestinationSyncModes is ignored by Flow
 	SupportedDestinationSyncModes []DestinationSyncMode `json:"supported_destination_sync_modes,omitempty"`
+	// SupportsNormalization is not currently used or supported by Flow or estuary-developed
+	// connectors
+	SupportsNormalization bool `json:"supportsNormalization,omitempty"`
+	// SupportsDBT is not currently used or supported by Flow or estuary-developed
+	// connectors
+	SupportsDBT bool `json:"supportsDBT,omitempty"`
+	// AuthSpecification is not currently used or supported by Flow or estuary-developed
+	// connectors
+	AuthSpecification json.RawMessage `json:"authSpecification,omitempty"`
 }
 
 type MessageType string
