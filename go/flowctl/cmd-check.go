@@ -12,11 +12,12 @@ import (
 )
 
 type cmdCheck struct {
-	Directory   string                `long:"directory" default:"." description:"Build directory"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
-	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
-	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+	Diagnostics    mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+	Directory      string                `long:"directory" default:"." description:"Build directory"`
+	Log            mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Network        string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to"`
+	PersistCatalog string                `long:"persist-catalog" description:"Write the catalog to the filesystem with the given name"`
+	Source         string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 }
 
 func (cmd cmdCheck) Execute(_ []string) error {
@@ -42,8 +43,14 @@ func (cmd cmdCheck) Execute(_ []string) error {
 		TSPackage:  false,
 	}.execute(context.Background())
 
-	// Cleanup output database.
-	defer func() { _ = os.Remove(filepath.Join(cmd.Directory, buildID)) }()
+	if cmd.PersistCatalog == "" {
+		// Cleanup output database.
+		defer func() { _ = os.Remove(filepath.Join(cmd.Directory, buildID)) }()
+	} else {
+		defer func() {
+			_ = os.Rename(filepath.Join(cmd.Directory, buildID), filepath.Join(cmd.Directory, cmd.PersistCatalog))
+		}()
+	}
 
 	return err
 }
