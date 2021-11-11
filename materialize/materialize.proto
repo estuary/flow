@@ -41,11 +41,13 @@ service Driver {
   // Spec returns the specification definition of this driver.
   // Notably this includes its endpoint and resource configuration JSON schema.
   rpc Spec(SpecRequest) returns (SpecResponse);
-  // Validate that a CollectionSpec is compatible with a materialization target,
-  // and return constraints over the projections of the collection.
+  // Validate that store resources and proposed collection bindings are
+  // compatible, and return constraints over the projections of each binding.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
-  // Apply a CollectionSpec and FieldSelections to a materialization target.
-  rpc Apply(ApplyRequest) returns (ApplyResponse);
+  // ApplyUpsert applies a new or updated materialization to the store.
+  rpc ApplyUpsert(ApplyRequest) returns (ApplyResponse);
+  // ApplyDelete deletes an existing materialization from the store.
+  rpc ApplyDelete(ApplyRequest) returns (ApplyResponse);
   // Transactions is a very long lived RPC through which the Flow runtime and a
   // Driver cooperatively execute an unbounded number of transactions.
   //
@@ -66,8 +68,9 @@ service Driver {
   // updates which reflect the combined roll-up of collection documents
   // processed only within this transaction.
   //
-  // To illustrate with a simple counter, without delta-updates Flow would reduce
-  // collection documents [-1, 3, 2] with an initial value `0`, and then store
+  // To illustrate with a simple counter, without delta-updates Flow would
+  // reduce collection documents [-1, 3, 2] with an initial value `0`, and then
+  // store
   // 4. Next transaction, 4 is loaded, reduced with [6, -7, -1], and 2 is
   // stored.
   //
@@ -233,8 +236,8 @@ service Driver {
   //    - The driver may send any number of TransactionResponse.Loaded in
   //      response.
   //    - If the driver will apply a staged update, it must await Acknowledge
-  //      and have applied the update to the store *before* evaluating any Loads,
-  //      to ensure correct read-committed behavior.
+  //      and have applied the update to the store *before* evaluating any
+  //      Loads, to ensure correct read-committed behavior.
   //    - The driver may defer responding with some or all loads until the
   //      prepare phase.
   // :TransactionResponse.Loaded:
@@ -396,7 +399,7 @@ message ValidateResponse {
   repeated Binding bindings = 1;
 }
 
-// ApplyRequest is the request type of the Apply RPC.
+// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
 message ApplyRequest {
   // Materialization to be applied.
   flow.MaterializationSpec materialization = 1;
@@ -407,7 +410,7 @@ message ApplyRequest {
   bool dry_run = 3;
 }
 
-// ApplyResponse is the response type of the Apply RPC.
+// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
 message ApplyResponse {
   // Human-readable description of the action that the Driver took (or, if
   // dry_run, would have taken). If empty, this Apply is to be considered a

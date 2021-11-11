@@ -20,9 +20,13 @@ service Driver {
   rpc Spec(SpecRequest) returns (SpecResponse);
   // Discover returns the set of resources available from this Driver.
   rpc Discover(DiscoverRequest) returns (DiscoverResponse);
-  // Validate that resources and bound CollectionSpecs are compatible with one
-  // another.
+  // Validate that store resources and proposed collection bindings are
+  // compatible.
   rpc Validate(ValidateRequest) returns (ValidateResponse);
+  // ApplyUpsert applies a new or updated capture to the store.
+  rpc ApplyUpsert(ApplyRequest) returns (ApplyResponse);
+  // ApplyDelete deletes an existing capture from the store.
+  rpc ApplyDelete(ApplyRequest) returns (ApplyResponse);
   // Pull is a very long lived RPC through which the Flow runtime and a
   // Driver cooperatively execute an unbounded number of transactions.
   //
@@ -228,6 +232,25 @@ message ValidateResponse {
     repeated string resource_path = 1;
   }
   repeated Binding bindings = 1;
+}
+
+// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
+message ApplyRequest {
+  // Capture to be applied.
+  flow.CaptureSpec capture = 1;
+  // Version of the CaptureSpec being applied.
+  string version = 2;
+  // Is this Apply a dry-run? If so, no action is undertaken and Apply will
+  // report only what would have happened.
+  bool dry_run = 3;
+}
+
+// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
+message ApplyResponse {
+  // Human-readable description of the action that the Driver took (or, if
+  // dry_run, would have taken). If empty, this Apply is to be considered a
+  // "no-op".
+  string action_description = 1;
 }
 
 // Documents is a set of documents drawn from a binding of the capture.
