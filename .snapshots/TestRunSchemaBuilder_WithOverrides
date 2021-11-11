@@ -1,0 +1,1 @@
+{"properties":{"arr":{"properties":{"one":{"type":"date","format":"test_format"},"two":{"type":"long"}}},"bit":{"type":"text","fields":{"keyword":{"type":"keyword","ignore_above":500}}},"int":{"type":"keyword","ignore_above":400},"len":{"type":"long"},"str":{"type":"keyword","ignore_above":256}}}
