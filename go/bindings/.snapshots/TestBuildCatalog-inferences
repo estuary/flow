@@ -1,4 +1,4 @@
-([]catalog.SchemaLocation) (len=42) {
+([]catalog.SchemaLocation) (len=33) {
   (catalog.SchemaLocation) {
     Schema: (string) (len=34) "builtin://flow/ops-log-schema.json",
     Location: (string) "",
@@ -56,98 +56,53 @@
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=8) "/combine",
-    Spec: (flow.Inference) types:"object" must_exist:true 
+    Location: (string) (len=8) "/capture",
+    Spec: (flow.Inference) types:"object" description:"A map of each binding target (collection name) to combiner stats for that binding" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=13) "/combine/left",
+    Location: (string) (len=7) "/derive",
     Spec: (flow.Inference) types:"object" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=25) "/combine/left/bytes_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of bytes processed from or into the given collection capture or materialization. Note that for \ncaptures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.\n" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=24) "/combine/left/docs_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of documents processed from or into the given collection capture or materialization" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=12) "/combine/out",
+    Location: (string) (len=11) "/derive/out",
     Spec: (flow.Inference) types:"object" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=24) "/combine/out/bytes_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of bytes processed from or into the given collection capture or materialization. Note that for \ncaptures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.\n" 
+    Location: (string) (len=22) "/derive/out/bytesTotal",
+    Spec: (flow.Inference) types:"integer" description:"Total number of bytes representing the JSON encoded documents" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=23) "/combine/out/docs_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of documents processed from or into the given collection capture or materialization" 
+    Location: (string) (len=21) "/derive/out/docsTotal",
+    Spec: (flow.Inference) types:"integer" description:"Total number of documents" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=14) "/combine/right",
+    Location: (string) (len=17) "/derive/registers",
     Spec: (flow.Inference) types:"object" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=26) "/combine/right/bytes_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of bytes processed from or into the given collection capture or materialization. Note that for \ncaptures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.\n" 
+    Location: (string) (len=30) "/derive/registers/createdTotal",
+    Spec: (flow.Inference) types:"integer" description:"The total number of new register keys that were created" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=25) "/combine/right/docs_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of documents processed from or into the given collection capture or materialization" 
+    Location: (string) (len=18) "/derive/transforms",
+    Spec: (flow.Inference) types:"object" description:"A map of each transform (transform name, not collection name) to stats for that transform" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=10) "/connector",
-    Spec: (flow.Inference) types:"object" 
+    Location: (string) (len=12) "/materialize",
+    Spec: (flow.Inference) types:"object" description:"A map of each binding source (collection name) to combiner stats for that binding" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=16) "/connector/start",
-    Spec: (flow.Inference) types:"integer" description:"Counter of connector invocations" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=7) "/lambda",
-    Spec: (flow.Inference) types:"object" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=15) "/lambda/publish",
-    Spec: (flow.Inference) types:"object" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=32) "/lambda/publish/duration_seconds",
-    Spec: (flow.Inference) types:"number" description:"The total number of seconds elapsed for all invocations." 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=33) "/lambda/publish/invocations_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of invocations during this transaction" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=14) "/lambda/update",
-    Spec: (flow.Inference) types:"object" 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=31) "/lambda/update/duration_seconds",
-    Spec: (flow.Inference) types:"number" description:"The total number of seconds elapsed for all invocations." 
-  },
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
-    Location: (string) (len=32) "/lambda/update/invocations_total",
-    Spec: (flow.Inference) types:"integer" description:"The number of invocations during this transaction" 
+    Location: (string) (len=17) "/openSecondsTotal",
+    Spec: (flow.Inference) types:"number" must_exist:true description:"Total time that the transaction was open before starting to commit" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",

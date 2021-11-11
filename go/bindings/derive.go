@@ -244,17 +244,29 @@ func (d *Derive) Drain(cb CombineCallback) error {
 		}).Trace("derive.Drain completed poll")
 
 		// Termination condition: we had no unresolved tasks prior to polling, and the output
-		// is either empty or represents a drained combined document.
-		if d.runningTasks == 0 && (len(out) == 0 || pf.DeriveAPI_Code(out[0].code) == pf.DeriveAPI_DRAINED_COMBINED_DOCUMENT) {
+		// starts with either a drained combined document or stats. If it starts with stats, that
+		// indicates that the drained output was empty.
+		var hasDrainResults = false
+		if len(out) > 0 {
+			if c := pf.DeriveAPI_Code(out[0].code); c == pf.DeriveAPI_DRAINED_COMBINED_DOCUMENT ||
+				c == pf.DeriveAPI_STATS {
+				hasDrainResults = true
+			}
+		}
+		if d.runningTasks == 0 && hasDrainResults {
 			log.WithFields(log.Fields{
 				"out":   len(out),
 				"tasks": d.runningTasks,
 			}).Trace("derive.Drain draining combiner")
 
-			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb)
+			var stats pf.DeriveAPI_Stats
+			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb, &stats)
 			if err == nil {
+				// TODO: return these stats instead of logging them
+				log.WithField("stats", stats).Trace("drained derive")
 				d.metrics.recordDrain(&d.stats)
 			}
+
 			return err
 		}
 

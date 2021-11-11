@@ -648,6 +648,16 @@ pub mod combine_api {
         #[prost(string, tag="5")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
     }
+    /// Stats holds statistics relating to one or more combiner transactions.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Stats {
+        #[prost(message, optional, tag="1")]
+        pub left: ::core::option::Option<super::DocsAndBytes>,
+        #[prost(message, optional, tag="2")]
+        pub right: ::core::option::Option<super::DocsAndBytes>,
+        #[prost(message, optional, tag="3")]
+        pub out: ::core::option::Option<super::DocsAndBytes>,
+    }
     /// Code labels message codes passed over the CGO bridge.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -671,6 +681,8 @@ pub mod combine_api {
         DrainedKey = 7,
         /// Next drained fields (follows key; Rust -> Go).
         DrainedFields = 8,
+        /// Drain stats, sent after all documents have been drained. (Rust -> Go)
+        Stats = 9,
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API
@@ -745,6 +757,58 @@ pub mod derive_api {
         #[prost(message, optional, tag="1")]
         pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
     }
+    /// Stats holds statistics relating to a single derive transaction.
+    #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Stats {
+        /// Array indexed by transform_index with stats per transform.
+        #[prost(message, repeated, tag="1")]
+        pub transforms: ::prost::alloc::vec::Vec<stats::TransformStats>,
+        #[prost(message, optional, tag="2")]
+        pub registers: ::core::option::Option<stats::RegisterStats>,
+        /// The documents drained from the derive pipeline's combiner. This is not necessarily the same
+        /// as the sum of all publish lambda outputs because those outputs may be further reduced.
+        #[prost(message, optional, tag="3")]
+        pub output: ::core::option::Option<super::DocsAndBytes>,
+    }
+    /// Nested message and enum types in `Stats`.
+    pub mod stats {
+        /// Stats about the invocation of update or publish lambdas.
+        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct InvokeStats {
+            /// The total number of documents and bytes that were output from the invocations.
+            #[prost(message, optional, tag="1")]
+            pub output: ::core::option::Option<super::super::DocsAndBytes>,
+            /// Sum total duration of all invocations, in seconds.
+            #[prost(double, tag="2")]
+            pub total_seconds: f64,
+        }
+        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct TransformStats {
+            /// The total inputs that were fed into this transform.
+            #[prost(message, optional, tag="1")]
+            pub input: ::core::option::Option<super::super::DocsAndBytes>,
+            /// Results of invoking the update lambda.
+            #[prost(message, optional, tag="2")]
+            pub update: ::core::option::Option<InvokeStats>,
+            /// Results of invoking the publish lambda.
+            #[prost(message, optional, tag="3")]
+            pub publish: ::core::option::Option<InvokeStats>,
+        }
+        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct RegisterStats {
+            /// The number of new register values that were created and added to the registers database.
+            /// In the future, it may be nice to also expose stats related to the size of documents stored
+            /// within registers, but it's not obvious how to count updates to existing values as a result of
+            /// reductions. So this lone field represents the cerservative subset of register stats that I
+            /// feel confident we can and should expose as part of the user-facing stats.
+            #[prost(uint64, tag="1")]
+            pub created: u64,
+        }
+    }
     /// Codes passed over the CGO bridge.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -784,6 +848,8 @@ pub mod derive_api {
         PrepareToCommit = 14,
         /// Clear registers values (test support only; Go -> Rust).
         ClearRegisters = 15,
+        /// Drain stats, sent after all documents have been drained. (Rust -> Go)
+        Stats = 16,
     }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API
@@ -877,7 +943,16 @@ pub struct AdvanceTimeRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AdvanceTimeResponse {
 }
-/// IngestRequest is the request of the Testing.Ingest RPC.
+/// DocsAndBytes represents a count of JSON documents, and their cumulative total size in bytes.
+/// This is used by the various Stats messages.
+#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DocsAndBytes {
+    #[prost(uint64, tag="1")]
+    pub docs: u64,
+    #[prost(uint64, tag="2")]
+    pub bytes: u64,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
     /// Name of the collection into which to ingest.
