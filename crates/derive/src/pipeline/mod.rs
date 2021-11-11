@@ -1,12 +1,15 @@
 use super::combiner;
 use super::registers;
+use crate::{DocCounter, StatsAccumulator};
 
 mod block;
 mod invocation;
+#[cfg(test)]
+mod pipeline_test;
 
 use block::{Block, BlockInvoke};
 use futures::{stream::FuturesOrdered, StreamExt};
-use invocation::Invocation;
+use invocation::{Invocation, InvokeOutput, InvokeStats};
 use itertools::Itertools;
 use protocol::{
     cgo, consumer,
@@ -92,6 +95,50 @@ pub struct Pipeline {
     partitions: Vec<doc::Pointer>,
     // Validator for register validations.
     validator: doc::Validator<'static>,
+    stats: PipelineStats,
+}
+
+/// Accumulates statistics about an individual transform within the pipeline.
+#[derive(Default)]
+struct TransformStats {
+    input: DocCounter,
+    update_lambda: InvokeStats,
+    publish_lambda: InvokeStats,
+}
+
+impl StatsAccumulator for TransformStats {
+    type Stats = derive_api::stats::TransformStats;
+
+    fn drain(&mut self) -> Self::Stats {
+        derive_api::stats::TransformStats {
+            input: Some(self.input.drain()),
+            update: Some(self.update_lambda.drain()),
+            publish: Some(self.publish_lambda.drain()),
+        }
+    }
+}
+
+/// Accumulates statistics about each transform in the pipeline.
+#[derive(Default)]
+struct PipelineStats {
+    transforms: Vec<TransformStats>,
+}
+
+impl StatsAccumulator for PipelineStats {
+    type Stats = Vec<derive_api::stats::TransformStats>;
+
+    fn drain(&mut self) -> Self::Stats {
+        self.transforms.iter_mut().map(|t| t.drain()).collect()
+    }
+}
+
+impl PipelineStats {
+    fn transform_stats_mut(&mut self, transform_index: usize) -> &mut TransformStats {
+        while self.transforms.len() <= transform_index {
+            self.transforms.push(TransformStats::default());
+        }
+        &mut self.transforms[transform_index]
+    }
 }
 
 impl Pipeline {
@@ -198,6 +245,7 @@ impl Pipeline {
             combiner,
             partitions,
             validator,
+            stats: PipelineStats::default(),
         })
     }
 
@@ -258,6 +306,10 @@ impl Pipeline {
             packed_key,
             transform_index,
         } = header;
+        self.stats
+            .transform_stats_mut(transform_index as usize)
+            .input
+            .increment(body.len() as u64);
 
         let uuid = uuid.unwrap_or_default();
         let flags = uuid.producer_and_flags & message_flags::MASK;
@@ -312,10 +364,16 @@ impl Pipeline {
                 Poll::Pending => break,
                 Poll::Ready(None) => break,
                 Poll::Ready(Some(result)) => {
-                    let (mut block, tf_register_deltas) =
+                    let (mut block, update_outputs) =
                         result.map_err(Error::UpdateInvocationError)?;
 
-                    self.update_registers(&mut block, tf_register_deltas)?;
+                    for (transform_index, result) in update_outputs.iter().enumerate() {
+                        self.stats
+                            .transform_stats_mut(transform_index)
+                            .update_lambda
+                            .add(&result.stats);
+                    }
+                    self.update_registers(&mut block, update_outputs)?;
 
                     tracing::debug!(?block, "completed register updates, starting publishes");
 
@@ -331,11 +389,17 @@ impl Pipeline {
                 Poll::Pending => break,
                 Poll::Ready(None) => break,
                 Poll::Ready(Some(result)) => {
-                    let (mut block, tf_derived_docs) =
+                    let (mut block, publish_outputs) =
                         result.map_err(Error::PublishInvocationError)?;
 
-                    self.combine_published(&mut block, tf_derived_docs)?;
+                    for (transform_index, result) in publish_outputs.iter().enumerate() {
+                        self.stats
+                            .transform_stats_mut(transform_index)
+                            .publish_lambda
+                            .add(&result.stats);
+                    }
 
+                    self.combine_published(&mut block, publish_outputs)?;
                     tracing::debug!(?block, "completed publishes");
                 }
             }
@@ -361,13 +425,21 @@ impl Pipeline {
         assert_eq!(self.next.num_bytes, 0);
         assert!(self.trampoline.is_empty());
 
-        crate::combine_api::drain_combiner(
+        let combine_out = crate::combine_api::drain_combiner(
             &mut self.combiner,
             &self.collection.uuid_ptr,
             &self.partitions,
             arena,
             out,
-        )
+        );
+
+        // Send a final message with the stats for this transaction.
+        let stats = derive_api::Stats {
+            output: Some(combine_out.into_stats()),
+            registers: Some(self.registers.stats.drain()),
+            transforms: self.stats.drain(),
+        };
+        cgo::send_message(derive_api::Code::Stats as u32, &stats, arena, out);
     }
 
     fn update_registers(
@@ -376,7 +448,7 @@ impl Pipeline {
         // tf_register_deltas is an array of reducible register deltas
         //  ... for each source document
         //  ... for each transform
-        tf_register_deltas: Vec<Vec<Vec<Value>>>,
+        tf_register_deltas: Vec<InvokeOutput>,
     ) -> Result<(), Error> {
         // Load all registers in |keys|, so that we may read them below.
         self.registers.load(block.keys.iter())?;
@@ -385,7 +457,7 @@ impl Pipeline {
         // Map into a vector of iterators over Vec<Value>.
         let mut tf_register_deltas = tf_register_deltas
             .into_iter()
-            .map(|u| u.into_iter())
+            .map(|u| u.parsed.into_iter())
             .collect_vec();
 
         // Process documents in sequence, reducing the register updates of each
@@ -439,12 +511,12 @@ impl Pipeline {
         // tf_derived_docs is an array of combined published documents
         //  ... for each source document
         //  ... for each transform
-        tf_derived_docs: Vec<Vec<Vec<Value>>>,
+        tf_derived_docs: Vec<InvokeOutput>,
     ) -> Result<(), Error> {
         // Map into a vector of iterators over Vec<Value>.
         let mut tf_derived_docs = tf_derived_docs
             .into_iter()
-            .map(|u| u.into_iter())
+            .map(|u| u.parsed.into_iter())
             .collect_vec();
 
         for tf_ind in &block.transforms {
@@ -479,3 +551,41 @@ impl Pipeline {
 
 const BLOCK_SIZE_TARGET: usize = 1 << 16;
 const BLOCK_CONCURRENCY_TARGET: usize = 3;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_pipeline_stats() {
+        let mut stats = PipelineStats::default();
+
+        stats.transform_stats_mut(2).input.increment(42);
+        stats.transform_stats_mut(2).input.increment(42);
+        stats
+            .transform_stats_mut(0)
+            .update_lambda
+            .add(&InvokeStats {
+                output: DocCounter::new(5, 999),
+                total_duration: Duration::from_secs(2),
+            });
+        stats
+            .transform_stats_mut(0)
+            .update_lambda
+            .add(&InvokeStats {
+                output: DocCounter::new(1, 1),
+                total_duration: Duration::from_secs(1),
+            });
+        stats
+            .transform_stats_mut(2)
+            .publish_lambda
+            .add(&InvokeStats {
+                output: DocCounter::new(3, 8192),
+                total_duration: Duration::from_secs(3),
+            });
+
+        let actual = stats.drain();
+        insta::assert_yaml_snapshot!(actual);
+    }
+}

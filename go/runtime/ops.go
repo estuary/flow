@@ -22,6 +22,8 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+// TODO: move ops collection structs to a separate file
+
 // ShardRef is a reference to a specific task shard that represents the source of logs and stats.
 // This struct definition matches the JSON schema for the ops collections at:
 // crates/build/src/ops/ops-task-schema.json
@@ -36,15 +38,76 @@ type Meta struct {
 	UUID string `json:"uuid"`
 }
 
+type DocsAndBytes struct {
+	Docs  uint64 `json:"docs"`
+	Bytes uint64 `json:"bytes"`
+}
+
+func docsAndBytesFromProto(proto *pf.DocsAndBytes) DocsAndBytes {
+	if proto == nil {
+		return DocsAndBytes{}
+	}
+	return DocsAndBytes{
+		Docs:  proto.Docs,
+		Bytes: proto.Bytes,
+	}
+}
+
+type CaptureBindingStats struct {
+	Right DocsAndBytes `json:"right"`
+	Out   DocsAndBytes `json:"out"`
+}
+
+type MaterializeBindingStats struct {
+	Left  DocsAndBytes `json:"left"`
+	Right DocsAndBytes `json:"right"`
+	Out   DocsAndBytes `json:"out"`
+}
+
+type InvokeStats struct {
+	Out          DocsAndBytes `json:"out"`
+	SecondsTotal float64      `json:"secondsTotal"`
+}
+
+type DeriveTransformStats struct {
+	Input   DocsAndBytes  `json:"input"`
+	Update  *InvokeStats  `json:"update,omitempty"`
+	Publish *DocsAndBytes `json:"publish,omitempty"`
+}
+
+type DeriveRegisterStats struct {
+	CreatedTotal uint64 `json:"createdTotal"`
+}
+
+type DeriveStats struct {
+	Transforms map[string]DeriveTransformStats `json:"transforms"`
+	Out        DocsAndBytes                    `json:"out"`
+	Registers  *DeriveRegisterStats            `json:"registers,omitempty"`
+}
+
+// StatsEvent is the Go struct corresponding to ops/<tenant>/stats collections. It must be
+// consistent with the JSON schema: crates/build/src/ops/ops-stats-schema.json
+type StatsEvent struct {
+	Meta             Meta                               `json:"_meta"`
+	Shard            *ShardRef                          `json:"shard"`
+	Timestamp        time.Time                          `json:"ts"`
+	OpenSecondsTotal float64                            `json:"openSecondsTotal"`
+	Capture          map[string]CaptureBindingStats     `json:"capture,omitempty"`
+	Materialize      map[string]MaterializeBindingStats `json:"materialize,omitempty"`
+	Derive           *DeriveStats                       `json:"derive,omitempty"`
+}
+
 // LogEvent is a Go struct definition that matches the log event documents defined by:
 // crates/build/src/ops/ops-log-schema.json
 type LogEvent struct {
-	Meta      Meta        `json:"_meta"`
-	Shard     *ShardRef   `json:"shard"`
-	Timestamp interface{} `json:"ts"`
-	Level     string      `json:"level"`
-	Message   string      `json:"message"`
-	Fields    interface{} `json:"fields,omitempty"`
+	Meta      Meta      `json:"_meta"`
+	Shard     *ShardRef `json:"shard"`
+	Timestamp time.Time `json:"ts"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	// Fields will be either a map[string]interface{} or a map[string]json.RawMessage, depending on
+	// whether this event was created by Log or LogForwarded.
+	Fields interface{} `json:"fields,omitempty"`
 }
 
 // SetUUID implements message.Message for LogEvent

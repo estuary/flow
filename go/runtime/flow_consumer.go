@@ -112,7 +112,8 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 func logTxnFinished(logger *LogPublisher, op consumer.OpFuture) {
 	go func() {
 		if err := op.Err(); err != nil {
-			logger.Log(log.ErrorLevel, log.Fields{"error": err}, "shard failed")
+			// TODO: log something different if err == context.Canceled
+			logger.Log(log.ErrorLevel, log.Fields{"error": err.Error()}, "shard failed")
 		}
 	}()
 }

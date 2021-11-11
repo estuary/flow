@@ -11,87 +11,130 @@
             "format": "date-time",
             "reduce": {"strategy": "maximize"}
         },
-        "combine": {
+        "openSecondsTotal": {
+            "description": "Total time that the transaction was open before starting to commit",
+            "type": "number",
+            "reduce": {"strategy": "sum"}
+        },
+        "capture": {
+            "description": "A map of each binding target (collection name) to combiner stats for that binding",
             "type": "object",
-            "properties": {
-                "left": {
-                    "$ref": "#/$defs/combineMetrics"
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "right": {
+                        "description": "Documents fed into the combiner from the source",
+                        "$ref": "#/$defs/docsAndBytes"
+                    },
+                    "out": {
+                        "$ref": "#/$defs/docsAndBytes"
+                    }
                 },
-                "right": {
-                    "$ref": "#/$defs/combineMetrics"
-                },
-                "out": {
-                    "$ref": "#/$defs/combineMetrics"
-                }
+                "reduce": {"strategy": "merge"}
             },
             "reduce": {"strategy": "merge"}
         },
-        "lambda": {
+        "materialize": {
+            "description": "A map of each binding source (collection name) to combiner stats for that binding",
             "type": "object",
-            "properties": {
-                "update": {
-                    "$ref": "#/$defs/lambdaMetrics"
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "left": { "$ref": "#/$defs/docsAndBytes" },
+                    "right": { "$ref": "#/$defs/docsAndBytes" },
+                    "out": { "$ref": "#/$defs/docsAndBytes" }
                 },
-                "publish": {
-                    "$ref": "#/$defs/lambdaMetrics"
-                }
+                "reduce": {"strategy": "merge"}
             },
             "reduce": {"strategy": "merge"}
         },
-        "connector": {
+        "derive": {
             "type": "object",
             "properties": {
-                "start": {
-                    "type": "integer",
-                    "description": "Counter of connector invocations",
-                    "reduce": {"strategy": "sum"}
-                }
+                "transforms": {
+                    "description": "A map of each transform (transform name, not collection name) to stats for that transform",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/$defs/transformStats"
+                    },
+                    "reduce": {"strategy": "merge"}
+                },
+                "registers": {"$ref": "#/$defs/registerStats"},
+                "out": { "$ref": "#/$defs/docsAndBytes" }
             },
+            "required": ["transforms", "out"],
             "reduce": {"strategy": "merge"}
         }
     },
     "reduce": {"strategy": "merge"},
-    "required": ["shard", "ts", "combine"],
+    "required": ["shard", "ts", "openSecondsTotal"],
+    "oneOf": [
+        {"required": ["capture"]},
+        {"required": ["derive"]},
+        {"required": ["materialize"]}
+    ],
     "$defs": {
-        "combineMetrics": {
+        "docsAndBytes": {
             "type": "object",
             "properties": {
-                "docs_total": {
-                    "description": "The number of documents processed from or into the given collection capture or materialization",
+                "docsTotal": {
+                    "description": "Total number of documents",
                     "type": "integer",
                     "reduce": {"strategy": "sum"}
                 },
-                "bytes_total": {
-                    "description": "The number of bytes processed from or into the given collection capture or materialization. Note that for \ncaptures and materializations this relates to the size of Flow JSON documents not the representation used by the external system.\n",
+                "bytesTotal": {
+                    "description": "Total number of bytes representing the JSON encoded documents",
                     "type": "integer",
                     "reduce": {"strategy": "sum"}
                 }
             },
             "reduce": {"strategy": "merge"},
-            "required": [
-                "docs_total",
-                "bytes_total"
-            ]
+            "required": [ "docsTotal", "bytesTotal" ]
         },
-        "lambdaMetrics": {
+        "registerStats": {
             "type": "object",
             "properties": {
-                "invocations_total": {
+                "createdTotal": {
+                    "description": "The total number of new register keys that were created",
                     "type": "integer",
-                    "description": "The number of invocations during this transaction",
-                    "reduce": {"strategy": "sum"}
-                },
-                "duration_seconds": {
-                    "type": "number",
-                    "description": "The total number of seconds elapsed for all invocations.",
                     "reduce": {"strategy": "sum"}
                 }
             },
-            "reduce": {"strategy": "merge"},
-            "required": [
-                "invocations_total",
-                "duration_seconds"
-            ]
+            "required": ["createdTotal"],
+            "reduce": {"strategy": "merge"}
+        },
+        "invokeStats": {
+            "type": "object",
+            "properties": {
+                "out": {"$ref": "#/$defs/docsAndBytes"},
+                "secondsTotal": {"type": "number"}
+            },
+            "required": ["out", "secondsTotal"],
+            "reduce": {"strategy": "merge"}
+        },
+        "transformStats": {
+            "description": "Stats for a specific transform of a derivation, which will have an update, publish, or both.",
+            "type": "object",
+            "properties": {
+                "input": {
+                    "description": "The input documents that were fed into this transform.",
+                    "$ref": "#/$defs/docsAndBytes"
+                },
+                "update": {
+                    "description": "The outputs from update lambda invocations, which were combined into registers.",
+                    "$ref": "#/$defs/invokeStats"
+                },
+                "publish": {
+                    "description": "The outputs from publish lambda invocations.",
+                    "$ref": "#/$defs/invokeStats"
+                }
+            },
+            "required": ["input"],
+            "anyOf": [
+                {"required": ["update"]},
+                {"required": ["publish"]}
+            ],
+            "reduce": {"strategy": "merge"}
         }
     }
 }
