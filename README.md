@@ -1,7 +1,11 @@
 [![CI](https://github.com/estuary/flow/workflows/CI/badge.svg)](https://github.com/estuary/flow/actions)
 [![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ)
 
-# Estuary Flow (Preview)
+<p align="center">
+    <img src ="https://github.com/estuary/flow/blob/master/images/Estuary%20Flow%20(Beta).gif"
+     width="300" 
+     height="300"/>
+         </p>
 
 Estuary Flow is a tool for integrating all of the systems you use to produce, process, and consume data.
 It unifies today's batch vs streaming paradigms
