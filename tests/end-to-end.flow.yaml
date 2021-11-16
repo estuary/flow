@@ -1,0 +1,7 @@
+import:
+  - ../examples/hello-world/flow.yaml
+  - ../examples/citi-bike/rides.flow.yaml
+  - ../examples/citi-bike/views.flow.yaml
+
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }

@@ -73,6 +73,7 @@ jobs:
       - run: make rust-test
       - run: make go-test-ci
       - run: make catalog-test
+      - run: make end-to-end-test
       - name: Tidy up, and ensure that generated files are unchanged.
         run: |
           # catalog-test dirties the branch by creating examples/examples.db.

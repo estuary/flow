@@ -140,6 +140,10 @@ go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd
 catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd
 	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
+.PHONY: end-to-end-test
+end-to-end-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd
+	PATH=${PATH}:${GOBIN} ./tests/run-end-to-end.sh
+
 .PHONY: package
 package: $(PACKAGE_TARGETS)
 
