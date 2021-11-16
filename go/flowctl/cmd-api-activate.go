@@ -117,7 +117,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}
 
-		response, err := driver.Apply(ctx, &pm.ApplyRequest{
+		response, err := driver.ApplyUpsert(ctx, &pm.ApplyRequest{
 			Materialization: spec,
 			Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			DryRun:          cmd.DryRun,
@@ -258,7 +258,7 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 		for _, c := range loaded {
 			var name = c.Collection.String()
 			var _, ok = idx[name]
-			if ok || all {
+			if ok || all || allDerivations {
 				collections = append(collections, c)
 				idx[name] = idx[name] + 1
 			}
