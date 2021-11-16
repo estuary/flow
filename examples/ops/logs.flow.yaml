@@ -2,7 +2,7 @@ materializations:
   examples/collection-stats:
     endpoint:
       sqlite:
-        path: ../ops-examples.db?_journal=WAL
+        path: ../examples.db?_journal=WAL
     bindings:
       - resource:
           table: logs
@@ -11,6 +11,4 @@ materializations:
           # We exclude the stats of this materialization, because otherwise we'd
           # create an infinite loop where we materialize our own stats.
           exclude:
-            name: ['examples/collection-stats']
-
-
+            name: ["examples/collection-stats"]

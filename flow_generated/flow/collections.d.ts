@@ -138,7 +138,7 @@ export type ExamplesCitiBikeLastSeen = {
     };
 };
 
-// Generated from https://raw.githubusercontent.com/estuary/docs/developer-docs/examples/citi-bike/ride.schema.yaml.
+// Generated from examples/citi-bike/ride.schema.yaml.
 // Referenced as schema of examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides.
 export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
     begin: /* Starting point of the trip */ /* Station and time at which a trip began or ended */ {
@@ -153,7 +153,7 @@ export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
         timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
     };
     bike_id: /* Unique identifier for this bike */ number;
-    birth_year?: /* Birth year of the rider */ number;
+    birth_year?: /* Birth year of the rider */ number | null;
     duration_seconds?: /* Duration of the trip, in seconds */ number;
     end: /* Ending point of the trip */ /* Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
@@ -167,7 +167,7 @@ export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
         timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ 'Customer' | 'Subscriber';
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | 'Customer' | 'Subscriber';
 };
 
 // Generated from examples/citi-bike/rides-and-relocations.flow.yaml?ptr=/collections/examples~1citi-bike~1rides-and-relocations/schema.
@@ -185,7 +185,7 @@ export type ExamplesCitiBikeRidesAndRelocations = /* Ride within the Citi Bike s
         timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
     };
     bike_id: /* Unique identifier for this bike */ number;
-    birth_year?: /* Birth year of the rider */ number;
+    birth_year?: /* Birth year of the rider */ number | null;
     duration_seconds?: /* Duration of the trip, in seconds */ number;
     end: /* Ending point of the trip */ /* Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
@@ -200,7 +200,7 @@ export type ExamplesCitiBikeRidesAndRelocations = /* Ride within the Citi Bike s
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
     relocation?: true;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ 'Customer' | 'Subscriber';
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | 'Customer' | 'Subscriber';
 };
 
 // Generated from examples/citi-bike/station.schema.yaml.
