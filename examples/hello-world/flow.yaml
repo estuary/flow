@@ -16,7 +16,7 @@ captures:
   examples/source-hello-world:
     endpoint:
       airbyteSource:
-        image: ghcr.io/estuary/source-hello-world:897f766-dirty
+        image: ghcr.io/estuary/source-hello-world:dev
         config:
           # Number of greeting documents to produce
           # [integer] (required)

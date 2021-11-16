@@ -1,7 +1,7 @@
 collections:
   examples/citi-bike/rides:
     key: [/bike_id, /begin/timestamp]
-    schema: https://raw.githubusercontent.com/estuary/docs/developer-docs/examples/citi-bike/ride.schema.yaml
+    schema: ride.schema.yaml
     # Define projections for each CSV header name used in the source dataset.
     projections:
       bikeid: /bike_id
@@ -15,7 +15,45 @@ collections:
       start station latitude: /begin/station/geo/latitude
       start station longitude: /begin/station/geo/longitude
       start station name: /begin/station/name
+      start time: /begin/timestamp
       starttime: /begin/timestamp
+      stop time: /end/timestamp
       stoptime: /end/timestamp
       tripduration: /duration_seconds
       usertype: /user_type
+
+captures:
+  examples/citi-bike/rides-from-s3:
+    endpoint:
+      airbyteSource:
+        image: ghcr.io/estuary/source-s3:dev
+        config:
+          ascendingKeys: false
+          # Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering.
+          # [boolean]
+          awsAccessKeyId: ""
+          # Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads.
+          # [string]
+          awsSecretAccessKey: ""
+          # Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads.
+          # [string]
+          bucket: tripdata
+          # Name of the S3 bucket
+          # [string] (required)
+          endpoint: ""
+          # The AWS endpoint URI to connect to, useful if you're capturing from a S3-compatible API that isn't provided by AWS
+          # [string]
+          matchKeys: ""
+          # Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use ".*\.json" to only capture json files.
+          # [string]
+          prefix: ""
+          # Prefix within the bucket to capture from.
+          # [string]
+          region: us-east-1
+          # The name of the AWS region where the S3 bucket is located. "us-east-1" is a popular default you can try, if you're unsure what to put here.
+          # [string] (required)
+    bindings:
+      - resource:
+          stream: tripdata/JC-201703
+          syncMode: incremental
+        target: examples/citi-bike/rides
