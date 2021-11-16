@@ -113,10 +113,10 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Delete derivations and collections from the local dataplane.
 	var delete = apiDelete{
-		BuildID:    buildID,
-		BuildsRoot: buildsRoot,
-		Network:    cmd.Network,
-		All:        true,
+		BuildID:        buildID,
+		BuildsRoot:     buildsRoot,
+		Network:        cmd.Network,
+		AllDerivations: true,
 	}
 	delete.Broker.Address = protocol.Endpoint(brokerAddr)
 	delete.Consumer.Address = protocol.Endpoint(consumerAddr)
