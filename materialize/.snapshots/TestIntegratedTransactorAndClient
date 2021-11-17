@@ -1,0 +1,84 @@
+COMBINER:
+(*flow.MockCombiner)({
+  Reduced: ([]json.RawMessage) (len=3) {
+    (json.RawMessage) (len=7) {
+      00000000  22 66 6f 75 6e 64 22                              |"found"|
+    },
+    (json.RawMessage) (len=12) {
+      00000000  22 61 6c 73 6f 2d 66 6f  75 6e 64 22              |"also-found"|
+    },
+    (json.RawMessage) (len=11) {
+      00000000  22 32 6e 64 2d 72 6f 75  6e 64 22                 |"2nd-round"|
+    }
+  },
+  Combined: ([]json.RawMessage) (len=4) {
+    (json.RawMessage) (len=5) {
+      00000000  22 6f 6e 65 22                                    |"one"|
+    },
+    (json.RawMessage) (len=1) {
+      00000000  32                                                |2|
+    },
+    (json.RawMessage) (len=1) {
+      00000000  33                                                |3|
+    },
+    (json.RawMessage) (len=6) {
+      00000000  22 66 6f 75 72 22                                 |"four"|
+    }
+  },
+  Destroyed: (bool) true,
+  drainFull: ([]bool) <nil>,
+  drainKeys: ([][]uint8) <nil>,
+  drainValues: ([][]uint8) <nil>,
+  drainDocs: ([]json.RawMessage) <nil>
+})
+TRANSACTOR:
+(*materialize.testTransactor)({
+  LoadBindings: ([]int) (len=4) {
+    (int) 0,
+    (int) 0,
+    (int) 0,
+    (int) 0
+  },
+  LoadKeys: ([]tuple.Tuple) (len=4) {
+    (tuple.Tuple) (len=1) (1),
+    (tuple.Tuple) (len=1) (2),
+    (tuple.Tuple) (len=1) ("three"),
+    (tuple.Tuple) (len=1) (4)
+  },
+  Loaded: (map[int][]interface {}) <nil>,
+  PrepareRx: (materialize.TransactionRequest_Prepare) flow_checkpoint:"\n\027\n\0202nd-flow-fixture\022\003\010\322\t" ,
+  PreparedTx: (flow.DriverCheckpoint) driver_checkpoint_json:"\"2nd-checkpoint\"" ,
+  StoreBindings: ([]int) (len=4) {
+    (int) 0,
+    (int) 0,
+    (int) 0,
+    (int) 0
+  },
+  StoreExists: ([]bool) <nil>,
+  StoreKeys: ([]tuple.Tuple) (len=4) {
+    (tuple.Tuple) (len=1) (1),
+    (tuple.Tuple) (len=1) (2),
+    (tuple.Tuple) (len=1) ("three"),
+    (tuple.Tuple) (len=1) (4)
+  },
+  StoreValues: ([]tuple.Tuple) (len=4) {
+    (tuple.Tuple) (len=2) ("val", 1),
+    (tuple.Tuple) (len=2) ("val", 2),
+    (tuple.Tuple) (len=2) ("val", 3),
+    (tuple.Tuple) (len=2) ("val", 4)
+  },
+  StoreDocs: ([]json.RawMessage) (len=4) {
+    (json.RawMessage) (len=5) {
+      00000000  22 6f 6e 65 22                                    |"one"|
+    },
+    (json.RawMessage) (len=1) {
+      00000000  32                                                |2|
+    },
+    (json.RawMessage) (len=1) {
+      00000000  33                                                |3|
+    },
+    (json.RawMessage) (len=6) {
+      00000000  22 66 6f 75 72 22                                 |"four"|
+    }
+  }
+})
