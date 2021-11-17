@@ -24,12 +24,14 @@ import (
 
 // Capture is a top-level Application which implements the capture workflow.
 type Capture struct {
+	// Client of the driver Pull RPC.
+	client *pc.PullClient
 	// FlowConsumer which owns this Capture shard.
 	host *FlowConsumer
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
-	// Active capture specification, updated in RestoreCheckpoint.
-	capture *pf.CaptureSpec
+	// Specification under which the capture is currently running.
+	spec pf.CaptureSpec
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -45,9 +47,11 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 	}
 
 	return &Capture{
+		client:   nil, // Initialized in RestoreCheckpoint.
 		host:     host,
 		store:    store,
-		taskTerm: taskTerm{},
+		spec:     pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
+		taskTerm: taskTerm{},       // Initialized in RestoreCheckpoint.
 	}, nil
 }
 
@@ -74,94 +78,87 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}()
 
+	if c.client == nil {
+		// First initialization.
+	} else if err := c.client.Close(); err != nil {
+		return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+	}
+
 	if err = c.build.Extract(func(db *sql.DB) error {
-		c.capture, err = catalog.LoadCapture(db, c.labels.TaskName)
-		return err
+		if s, err := catalog.LoadCapture(db, c.labels.TaskName); err != nil {
+			return err
+		} else {
+			c.spec = *s
+			return nil
+		}
 	}); err != nil {
 		return pf.Checkpoint{}, err
 	}
 
-	if cp, err = c.store.restoreCheckpoint(shard); err != nil {
-		return pf.Checkpoint{}, err
+	// Establish driver connection and start Pull RPC.
+	conn, err := capture.NewDriver(
+		shard.Context(),
+		c.spec.EndpointType,
+		c.spec.EndpointSpecJson,
+		c.host.Config.Flow.Network,
+		c.LogPublisher,
+	)
+	if err != nil {
+		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
 	}
 
-	// Captures don't have real journals. They synthesize pseudo-journals
-	// which are used for consumer transaction plumbing, and to support use
-	// with the Stat RPC (so we can Stat to block until a connector exits).
-	// Reset these source checkpoints.
-	cp.Sources = nil
-
-	return cp, nil
-}
-
-// StartReadingMessages opens a captures stream with the specification's
-// connector, and beings producing capture checkpoints into the
-func (c *Capture) StartReadingMessages(shard consumer.Shard, cp pf.Checkpoint,
-	tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
+	// Closure which builds a Combiner for a specified binding.
+	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
+		var combiner, err = bindings.NewCombine(c.LogPublisher)
+		if err != nil {
+			return nil, err
+		}
+		return combiner, combiner.Configure(
+			shard.FQN(),
+			c.schemaIndex,
+			binding.Collection.Collection,
+			binding.Collection.SchemaUri,
+			binding.Collection.UuidPtr,
+			binding.Collection.KeyPtrs,
+			flow.PartitionPointers(&binding.Collection),
+		)
+	}
 
 	// Build a context to capture under, and arrange for it to be cancelled
 	// if the shard specification is updated.
 	var ctx, cancel = context.WithCancel(shard.Context())
 	go signalOnSpecUpdate(c.host.Service.State.KS, shard, c.shardSpec, cancel)
 
-	var driverRx, err = c.openCapture(ctx)
-	if err != nil {
-		c.Log(log.ErrorLevel, log.Fields{"error": err.Error()}, "failed to open capture")
-		ch <- consumer.EnvelopeOrError{Error: err}
-		return
-	}
-
-	var interval = time.Duration(c.capture.IntervalSeconds) * time.Second
-	c.Log(log.DebugLevel, log.Fields{
-		"capture":  c.labels.TaskName,
-		"shard":    c.shardSpec.Id,
-		"build":    c.labels.Build,
-		"interval": interval,
-	}, "opened capture stream")
-	go c.serveDriverTransactions(ctx, shard.FQN(), time.NewTimer(interval).C, cp, driverRx, ch)
-}
-
-func (c *Capture) openCapture(ctx context.Context) (<-chan capture.CaptureResponse, error) {
-	conn, err := capture.NewDriver(ctx,
-		c.capture.EndpointType,
-		c.capture.EndpointSpecJson,
-		c.host.Config.Flow.Network,
-		c.LogPublisher,
+	// Open a Pull RPC stream for the capture under this context.
+	c.client, err = pc.OpenPull(
+		ctx,
+		conn,
+		c.store.driverCheckpoint(),
+		newCombinerFn,
+		c.labels.Range,
+		&c.spec,
+		c.labels.Build,
+		!c.host.Config.Flow.Poll,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("building endpoint driver: %w", err)
+		return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
 	}
 
-	driverStream, err := conn.Capture(ctx, &pc.CaptureRequest{
-		Capture:              c.capture,
-		KeyBegin:             c.labels.Range.KeyBegin,
-		KeyEnd:               c.labels.Range.KeyEnd,
-		DriverCheckpointJson: c.store.driverCheckpoint(),
-		Tail:                 !c.host.Config.Flow.Poll,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("driver.Capture: %w", err)
-	}
-	var driverRx = capture.CaptureResponseChannel(driverStream)
-
-	if opened, err := capture.Rx(driverRx, true); err != nil {
-		return nil, fmt.Errorf("reading Opened: %w", err)
-	} else if opened.Opened == nil {
-		return nil, fmt.Errorf("expected Opened, got %#v", opened.String())
+	if cp, err = c.store.restoreCheckpoint(shard); err != nil {
+		return pf.Checkpoint{}, err
 	}
 
-	return driverRx, nil
+	return cp, nil
 }
 
-func (c *Capture) serveDriverTransactions(
-	ctx context.Context,
-	fqn string,
-	pollCh <-chan time.Time,
+// StartReadingMessages starts a concurrent read of the pull RPC,
+// which notifies into the consumer channel as data becomes available.
+func (c *Capture) StartReadingMessages(
+	shard consumer.Shard,
 	cp pf.Checkpoint,
-	driverRx <-chan capture.CaptureResponse,
-	envelopeTx chan<- consumer.EnvelopeOrError,
+	_ *flow.Timepoint,
+	ch chan<- consumer.EnvelopeOrError,
 ) {
-	defer close(envelopeTx)
 
 	// A consumer.Envelope requires a JournalSpec, of which only the Name is actually
 	// used (for sequencing messages and producing checkpoints).
@@ -172,162 +169,100 @@ func (c *Capture) serveDriverTransactions(
 	// In the future, we *may* want to generalize the `consumer` package to decouple
 	// its current tight binding with JournalSpecs.
 
-	var txnJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/txn", c.capture.Capture))}
-	var eofJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/eof", c.capture.Capture))}
+	var txnJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/txn", c.spec.Capture))}
+	var eofJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/eof", c.spec.Capture))}
+
+	// Messages that a capture shard "reads" are really just notifications that
+	// data is ready, and that it should run a consumer transaction to publish
+	// the pre-combined documents and driver checkpoint.
+	//
+	// The concepts of a message.Clock and journal offset don't have much meaning,
+	// since there *is* no journal and we're not reading timestamped messages.
+	// So, use a single monotonic counter for both the message.Clock and pseudo-
+	// journal offsets that ticks upwards by one with each "read" message.
+	// The counter is persisted in checkpoints and recovered across restarts.
 
 	// Restore the largest Clock value previously recorded in the Checkpoint.
-	var clock message.Clock
+	var counter message.Clock
 	for _, n := range []pf.Journal{txnJournal.Name, eofJournal.Name} {
-		if c := message.Clock(cp.Sources[n].ReadThrough); c > clock {
-			clock = c
+		if c := message.Clock(cp.Sources[n].ReadThrough); c > counter {
+			counter = c
 		}
 	}
 
-	// Process transactions until the driver closes the stream,
-	// or an error is encountered.
-	for {
-		var combiners, commit, err = c.readTransaction(fqn, driverRx)
-		clock.Tick()
+	// Determine the minimum interval time of the connector.
+	var minInterval = time.Duration(c.spec.IntervalSeconds) * time.Second
+	var minTimer = time.NewTimer(minInterval)
 
-		if err != nil {
+	// startCommitFn is a closure which is called back when the client is ready
+	// to commit documents and a corresponding driver checkpoint.
+	var startCommitFn = func(err error) {
+		counter.Tick()
 
-			switch err {
-			case io.EOF, context.Canceled:
-				// No-op.
-			default:
-				// For now, we log these (only), and will retry the connector at its usual cadence.
-				c.Log(log.ErrorLevel, log.Fields{
-					"error": err.Error(),
-				}, "capture connector failed (will retry)")
+		if err == nil {
+			// Write one message which will start a Gazette consumer transaction.
+			// We'll see a future a call to ConsumeMessage and then StartCommit.
+			ch <- consumer.EnvelopeOrError{
+				Envelope: message.Envelope{
+					Journal: txnJournal,
+					Begin:   int64(counter),
+					End:     int64(counter + 1),
+					Message: &captureMessage{clock: counter},
+				},
 			}
+			return
+		}
 
-			// Emit a no-op message. Its purpose is only to update the tracked EOF offset,
-			// which may unblock an associated shard Stat RPC.
-			envelopeTx <- consumer.EnvelopeOrError{
+		// We've been notified of a terminal connector error.
+
+		switch err {
+		case io.EOF:
+			// This is a graceful close of the capture. Emit a no-op message,
+			// whose purpose is only to update the tracked EOF offset,
+			// which may in turn unblock an associated shard Stat RPC.
+			ch <- consumer.EnvelopeOrError{
 				Envelope: message.Envelope{
 					Journal: eofJournal,
-					Begin:   int64(clock),
-					End:     int64(clock + 1),
+					Begin:   int64(counter),
+					End:     int64(counter + 1),
 					Message: &captureMessage{
-						clock: clock,
+						clock: counter,
 						eof:   true,
 					},
 				},
 			}
 
-			// We have a deferred close of |envelopeTx|, and returning will drain
-			// the current task term and start another. That shouldn't happen until
-			// the configured polling interval is elapsed (or the context is cancelled).
-			select {
-			case <-pollCh:
-			case <-ctx.Done():
-			}
+		case context.Canceled:
+			// Don't log.
 
-			return
+		default:
+			// Remaining errors are logged but not otherwise acted upon.
+			// We'll retry the connector at its next configured poll interval.
+			c.Log(log.ErrorLevel, log.Fields{"error": err.Error()},
+				"capture connector failed (will retry)")
 		}
 
-		envelopeTx <- consumer.EnvelopeOrError{
-			Envelope: message.Envelope{
-				Journal: txnJournal,
-				Begin:   int64(clock),
-				End:     int64(clock + 1),
-				Message: &captureMessage{
-					clock:     clock,
-					combiners: combiners,
-					commit:    commit,
-				},
-			},
-		}
-	}
-}
-
-type captureMessage struct {
-	// Monotonic Clock counting capture transactions and exits.
-	clock message.Clock
-	// True if the connector exited gracefully, in which case combiners and checkpoint are nil.
-	eof bool
-	// Combined documents of this capture transaction.
-	combiners []*bindings.Combine
-	// Commit of this capture transaction.
-	commit *pc.CaptureResponse_Commit
-}
-
-func (m *captureMessage) GetUUID() message.UUID {
-	return message.BuildUUID(message.ProducerID{}, m.clock, message.Flag_OUTSIDE_TXN)
-}
-
-func (m *captureMessage) SetUUID(message.UUID) {
-	panic("must not be called")
-}
-func (m *captureMessage) NewAcknowledgement(pf.Journal) message.Message {
-	panic("must not be called")
-}
-
-func (c *Capture) readTransaction(fqn string, ch <-chan capture.CaptureResponse,
-) (_ []*bindings.Combine, _ *pc.CaptureResponse_Commit, err error) {
-
-	// TODO(johnny): More efficient use of Combines:
-	// * We ought to be re-using instances, which will matter more if Combines
-	//   have longer-lived disk scratch files, etc.
-	// * We could use consumer transaction back-pressure as a signal that there's
-	//   opportunity to collapse multiple capture checkpoints into a single Combine,
-	//   which may reduce produced data volumes.
-	var combiners = make([]*bindings.Combine, len(c.capture.Bindings))
-
-	// Ensure that partial combiners are destroyed if an error is returned.
-	defer func() {
-		if err == nil {
-			return
-		}
-		for _, c := range combiners {
-			if c != nil {
-				c.Destroy()
-			}
-		}
-	}()
-
-	for i, b := range c.capture.Bindings {
-		combiners[i], err = bindings.NewCombine(c.LogPublisher)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating combiner: %w", err)
+		// Close |ch| to signal completion of the stream, which will drain the
+		// current task term and start another. But, that shouldn't happen until
+		// the configured minimum polling interval elapses.
+		select {
+		case <-minTimer.C:
+		case <-shard.Context().Done():
+			ch <- consumer.EnvelopeOrError{Error: shard.Context().Err()}
 		}
 
-		if err := combiners[i].Configure(
-			fqn,
-			c.schemaIndex,
-			b.Collection.Collection,
-			b.Collection.SchemaUri,
-			b.Collection.UuidPtr,
-			b.Collection.KeyPtrs,
-			flow.PartitionPointers(&b.Collection),
-		); err != nil {
-			return nil, nil, fmt.Errorf("configuring combiner: %w", err)
-		}
+		close(ch)
+		return
 	}
 
-	for resp := range ch {
-		if resp.Error != nil {
-			return nil, nil, resp.Error
-		} else if resp.Commit != nil {
-			return combiners, resp.Commit, nil
-		} else if resp.Captured == nil {
-			return nil, nil, fmt.Errorf("expected Captured or Commit, got %#v", resp.String())
-		}
+	go c.client.Read(startCommitFn)
 
-		var b = int(resp.Captured.Binding)
-		if b >= len(combiners) {
-			return nil, nil, fmt.Errorf("driver error (binding %d out of range)", b)
-		}
-		var combiner = combiners[b]
-
-		// Feed documents into the combiner as combine-right operations.
-		for _, slice := range resp.Captured.DocsJson {
-			if err := combiner.CombineRight(resp.Captured.Arena.Bytes(slice)); err != nil {
-				return nil, nil, fmt.Errorf("combiner.CombineRight: %w", err)
-			}
-		}
-	}
-	return nil, nil, io.EOF
+	c.Log(log.DebugLevel, log.Fields{
+		"capture":  c.labels.TaskName,
+		"shard":    c.shardSpec.Id,
+		"build":    c.labels.Build,
+		"interval": minInterval,
+	}, "reading capture stream")
 }
 
 // ReplayRange is not valid for a Capture and must not be called.
@@ -341,18 +276,15 @@ func (c *Capture) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
 }
 
 func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
-	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
-	var msg = env.Message.(*captureMessage)
-
-	if msg.eof {
-		// The connector exited. This message is a no-op.
-		return nil
+	if env.Message.(*captureMessage).eof {
+		return nil // The connector exited; this is not a commit notification.
 	}
 
-	for b, combiner := range msg.combiners {
-		var binding = c.capture.Bindings[b]
+	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
+
+	for b, combiner := range c.client.Combiners() {
+		var binding = c.spec.Bindings[b]
 		_ = binding.Collection // Elide nil check.
-		defer combiner.Destroy()
 
 		var err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
@@ -380,9 +312,6 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
 	}
-	c.store.updateDriverCheckpoint(
-		msg.commit.DriverCheckpointJson,
-		msg.commit.Rfc7396MergePatch)
 
 	return nil
 }
@@ -398,7 +327,7 @@ func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
 	logTxnFinished(c.LogPublisher, op)
 }
 
-// Coordinator implements shuffle.Store.Coordinator
+// Coordinator panics if called.
 func (c *Capture) Coordinator() *shuffle.Coordinator {
 	panic("Coordinator is not valid for Capture runtime, and should never be called")
 }
@@ -411,11 +340,40 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 		"build":      c.labels.Build,
 		"checkpoint": cp,
 	}, "StartCommit")
-	return c.store.startCommit(shard, cp, waitFor)
+
+	var commitOp = c.store.startCommit(shard, cp, c.client.DriverCheckpoint(), waitFor)
+
+	// The client monitors |commitOp| to push acknowledgements to the connector,
+	// and to unblock the commit of a current transaction. It's expected that
+	// SetLogCommitOp will return EOF on a graceful server-initiated close of the
+	// RPC. We ignore other errors as well because they're reported to our
+	// startCommitFn callback.
+	_ = c.client.SetLogCommitOp(commitOp)
+
+	return commitOp
 }
 
 // Destroy implements consumer.Store.Destroy
 func (c *Capture) Destroy() {
+	if c.client != nil {
+		_ = c.client.Close()
+	}
 	c.taskTerm.destroy()
 	c.store.destroy()
+}
+
+type captureMessage struct {
+	clock message.Clock // Monotonic Clock counting capture transactions and exits.
+	eof   bool          // True if the connector exited.
+}
+
+func (m *captureMessage) GetUUID() message.UUID {
+	return message.BuildUUID(message.ProducerID{}, m.clock, message.Flag_OUTSIDE_TXN)
+}
+
+func (m *captureMessage) SetUUID(message.UUID) {
+	panic("must not be called")
+}
+func (m *captureMessage) NewAcknowledgement(pf.Journal) message.Message {
+	panic("must not be called")
 }

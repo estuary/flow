@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	pf "github.com/estuary/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
-	pgc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
 
@@ -17,11 +16,6 @@ import (
 // along with the usual Gazette checkpoint.
 type connectorStore struct {
 	delegate *consumer.JSONFileStore
-
-	// Pending patch not yet applied to the contained DriverCheckpoint.
-	patch json.RawMessage
-	// Deferred error encountered while patching a driver checkpoint.
-	err error
 }
 
 type storeState struct {
@@ -50,51 +44,27 @@ func (s *connectorStore) driverCheckpoint() json.RawMessage {
 	return []byte("{}")
 }
 
-func (s *connectorStore) restoreCheckpoint(shard consumer.Shard) (cp pgc.Checkpoint, err error) {
-	// Precondition: connectorStore is zero-valued.
-	if s.err != nil {
-		panic(s.err)
-	} else if len(s.patch) != 0 {
-		panic(s.patch)
-	}
+func (s *connectorStore) restoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err error) {
 	return s.delegate.RestoreCheckpoint(shard)
 }
 
-func (s *connectorStore) updateDriverCheckpoint(next json.RawMessage, patch bool) {
-	if len(next) == 0 {
-		// A nil RawMessage is encoded as JSON null, and a non-nil but empty RawMessage
-		// is an encoding error. Canonicalize to the former.
-		next = nil
+func (s *connectorStore) startCommit(
+	shard consumer.Shard,
+	flowCheckpoint pf.Checkpoint,
+	driverCheckpoint pf.DriverCheckpoint,
+	waitFor consumer.OpFutures,
+) consumer.OpFuture {
+
+	var reduced = pf.DriverCheckpoint{
+		DriverCheckpointJson: s.delegate.State.(*storeState).DriverCheckpoint,
+		Rfc7396MergePatch:    false,
+	}
+	if err := reduced.Reduce(driverCheckpoint); err != nil {
+		return client.FinishedOperation(fmt.Errorf("patching driver checkpoint: %w", err))
 	}
 
-	if s.err != nil {
-		return
-	} else if !patch {
-		s.patch = nil
-		s.delegate.State.(*storeState).DriverCheckpoint = next
-	} else if len(s.patch) == 0 {
-		s.patch = next
-	} else if s.patch, s.err = jsonpatch.MergeMergePatches(s.patch, next); s.err != nil {
-		s.err = fmt.Errorf("merging driver checkpoint patches: %w", s.err)
-	}
-}
-
-func (s *connectorStore) startCommit(shard consumer.Shard, checkpoint pgc.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	if s.err != nil {
-		// Fallthrough.
-	} else if len(s.patch) == 0 {
-		// No merge patch to apply.
-	} else if next, err := jsonpatch.MergePatch(s.driverCheckpoint(), s.patch); err != nil {
-		s.err = fmt.Errorf("patching driver checkpoint: %w", err)
-	} else {
-		s.delegate.State.(*storeState).DriverCheckpoint = next
-		s.patch = nil
-	}
-
-	if s.err != nil {
-		return client.FinishedOperation(s.err)
-	}
-	return s.delegate.StartCommit(shard, checkpoint, waitFor)
+	s.delegate.State.(*storeState).DriverCheckpoint = reduced.DriverCheckpointJson
+	return s.delegate.StartCommit(shard, flowCheckpoint, waitFor)
 }
 
 func (s *connectorStore) destroy() { s.delegate.Destroy() }
