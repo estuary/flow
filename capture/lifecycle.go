@@ -98,7 +98,7 @@ func WritePullCheckpoint(
 		Send(*PullResponse) error
 	},
 	response **PullResponse,
-	checkpoint *Checkpoint,
+	checkpoint pf.DriverCheckpoint,
 ) error {
 	// Flush partial Documents response, if required.
 	if *response != nil {
@@ -108,7 +108,7 @@ func WritePullCheckpoint(
 		*response = nil
 	}
 
-	if err := stream.Send(&PullResponse{Checkpoint: checkpoint}); err != nil {
+	if err := stream.Send(&PullResponse{Checkpoint: &checkpoint}); err != nil {
 		return fmt.Errorf("sending Checkpoint response: %w", err)
 	}
 
@@ -122,7 +122,7 @@ func WritePushCheckpoint(
 		Send(*PushRequest) error
 	},
 	request **PushRequest,
-	checkpoint *Checkpoint,
+	checkpoint *pf.DriverCheckpoint,
 ) error {
 	// Flush partial Documents request, if required.
 	if *request != nil {

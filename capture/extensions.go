@@ -104,14 +104,6 @@ func (m *Documents) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the Checkpoint isn't well-formed.
-func (m *Checkpoint) Validate() error {
-	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
-		return pb.NewValidationError("expected DriverCheckpointJson")
-	}
-	return nil
-}
-
 // Validate returns an error if the Acknowledge isn't well-formed.
 func (m *Acknowledge) Validate() error {
 	return nil // No-op.
