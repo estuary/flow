@@ -1,7 +1,8 @@
 package flow
 
 import (
-	fmt "fmt"
+	"fmt"
+	"math"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -41,6 +42,16 @@ func (m *JournalShuffle) Validate() error {
 	}
 
 	return nil
+}
+
+// NewFullRange returns a RangeSpec covering the full key and r-clock range.
+func NewFullRange() RangeSpec {
+	return RangeSpec{
+		KeyBegin:    0,
+		KeyEnd:      math.MaxUint32,
+		RClockBegin: 0,
+		RClockEnd:   math.MaxUint32,
+	}
 }
 
 // Validate returns a validation error of the RangeSpec.

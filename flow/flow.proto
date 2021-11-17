@@ -519,6 +519,22 @@ enum LogLevelFilter {
   TRACE = 5;
 };
 
+// DriverCheckpoint is a driver-originated checkpoint withn a capture or
+// materialization.
+message DriverCheckpoint {
+  // Optional driver checkpoint of this transaction, to be persisted
+  // by the Flow runtime and returned in a future transaction stream.
+  // If empty, then a previous checkpoint is cleared.
+  bytes driver_checkpoint_json = 1 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "driverCheckpoint"
+  ];
+  // If true, then the driver checkpoint must be non-empty and is
+  // applied as an RFC7396 Merge Patch atop the immediately preceeding
+  // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
+  bool rfc7396_merge_patch = 2;
+}
+
 message SchemaAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
