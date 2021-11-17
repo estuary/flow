@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	pf "github.com/estuary/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -27,33 +28,24 @@ func TestConnectorInitializationAndStateUpdates(t *testing.T) {
 		require.Empty(t, cp.Sources)
 
 		// Patch and commit the state.
-		cs.updateDriverCheckpoint([]byte(`{"k1":"v1","n":null}`), true)
-		require.NoError(t, cs.startCommit(nil, cp, nil).Err())
+		require.NoError(t, cs.startCommit(nil, cp, pf.DriverCheckpoint{
+			DriverCheckpointJson: []byte(`{"k1":"v1","n":null}`),
+			Rfc7396MergePatch:    true,
+		}, nil).Err())
 		require.Equal(t, `{"k1":"v1"}`, string(cs.driverCheckpoint()))
 
-		// Reduced using RFC7396 merge patch. We can stage multiple patches.
-		cs.updateDriverCheckpoint([]byte(`{"k1":null,"K2":"V2"}`), true)
-		cs.updateDriverCheckpoint([]byte(`{"K2":null,"K3":"V3"}`), true)
-
-		require.NoError(t, cs.startCommit(nil, cp, nil).Err())
-		require.Equal(t, `{"K3":"V3"}`, string(cs.driverCheckpoint()))
-		require.Nil(t, cs.patch)
-
 		// A non-merged patch replaces the current checkpoint.
-		cs.updateDriverCheckpoint([]byte(`{"this":"is dropped"}`), true)
-		cs.updateDriverCheckpoint([]byte(`{"k1":"v1v1"}`), false)
-
-		require.Equal(t, `{"k1":"v1v1"}`, string(cs.driverCheckpoint()))
-		require.Nil(t, cs.patch)
-
-		// Empty patch update and commit is a no-op.
-		cs.updateDriverCheckpoint([]byte(``), true)
-		require.NoError(t, cs.startCommit(nil, cp, nil).Err())
-		require.Equal(t, json.RawMessage(`{"k1":"v1v1"}`), cs.driverCheckpoint())
+		require.NoError(t, cs.startCommit(nil, cp, pf.DriverCheckpoint{
+			DriverCheckpointJson: []byte(`{"expect":"k1-is-dropped"}`),
+			Rfc7396MergePatch:    false,
+		}, nil).Err())
+		require.Equal(t, `{"expect":"k1-is-dropped"}`, string(cs.driverCheckpoint()))
 
 		// Empty non-patch update clears a current state.
-		cs.updateDriverCheckpoint([]byte(``), false)
-		require.NoError(t, cs.startCommit(nil, cp, nil).Err())
+		require.NoError(t, cs.startCommit(nil, cp, pf.DriverCheckpoint{
+			DriverCheckpointJson: nil,
+			Rfc7396MergePatch:    false,
+		}, nil).Err())
 		require.Equal(t, json.RawMessage(`{}`), cs.driverCheckpoint())
 	})
 }
