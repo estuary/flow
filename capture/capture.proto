@@ -126,7 +126,7 @@ service Runtime {
   //    - The Flow runtime tells the driver that its Checkpoint has committed.
   //    - The runtime sends one ordered Acknowledge for each Checkpoint.
   //
-  rpc Push(stream PushRequest) returns (PushResponse);
+  rpc Push(stream PushRequest) returns (stream PushResponse);
 }
 
 // SpecRequest is the request type of the Spec RPC.
