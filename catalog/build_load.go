@@ -25,7 +25,7 @@ func Extract(path string, fn func(db *sql.DB) error) error {
 }
 
 func extract(path string, fn func(db *sql.DB) error) error {
-	var db, err = sql.Open("sqlite3", fmt.Sprintf("file://%s?mode=ro", path))
+	var db, err = sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", path))
 	if err != nil {
 		return fmt.Errorf("opening DB: %w", err)
 	}
