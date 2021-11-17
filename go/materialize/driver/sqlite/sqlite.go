@@ -111,27 +111,26 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 		) (_ pm.Transactor, err error) {
 			var ep = epi.(*sqlDriver.StdEndpoint)
 			var d = &transactor{
-				ctx: ctx,
 				gen: ep.Generator(),
 			}
 			d.store.fence = fence.(*sqlDriver.StdFence)
 
 			// Establish connections.
-			if d.load.conn, err = ep.DB().Conn(d.ctx); err != nil {
+			if d.load.conn, err = ep.DB().Conn(ctx); err != nil {
 				return nil, fmt.Errorf("load DB.Conn: %w", err)
 			}
-			if d.store.conn, err = ep.DB().Conn(d.ctx); err != nil {
+			if d.store.conn, err = ep.DB().Conn(ctx); err != nil {
 				return nil, fmt.Errorf("store DB.Conn: %w", err)
 			}
 
 			// Attach temporary DB used for staging keys to load.
-			if _, err = d.load.conn.ExecContext(d.ctx, attachSQL); err != nil {
+			if _, err = d.load.conn.ExecContext(ctx, attachSQL); err != nil {
 				return nil, fmt.Errorf("Exec(%s): %w", attachSQL, err)
 			}
 
 			for _, spec := range spec.Bindings {
 				var target = sqlDriver.ResourcePath(spec.ResourcePath).Join()
-				if err = d.addBinding(target, spec); err != nil {
+				if err = d.addBinding(ctx, target, spec); err != nil {
 					return nil, fmt.Errorf("%s: %w", target, err)
 				}
 			}
@@ -143,7 +142,7 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 			}
 			var loadAllSQL = strings.Join(subqueries, "\nUNION ALL\n") + ";"
 
-			d.load.stmt, err = d.load.conn.PrepareContext(d.ctx, loadAllSQL)
+			d.load.stmt, err = d.load.conn.PrepareContext(ctx, loadAllSQL)
 			if err != nil {
 				return nil, fmt.Errorf("conn.PrepareContext(%s): %w", loadAllSQL, err)
 			}
@@ -154,7 +153,6 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 }
 
 type transactor struct {
-	ctx context.Context
 	gen *sqlDriver.Generator
 
 	// Variables exclusively used by Load.
@@ -203,7 +201,7 @@ type binding struct {
 	}
 }
 
-func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_Binding) error {
+func (t *transactor) addBinding(ctx context.Context, targetName string, spec *pf.MaterializationSpec_Binding) error {
 	var err error
 	var b = new(binding)
 	var target = sqlDriver.TableForMaterialization(targetName, "", t.gen.IdentifierRenderer, spec)
@@ -233,7 +231,7 @@ func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_
 	}
 
 	// Create a binding-scoped temporary table for staged keys to load.
-	if _, err = t.load.conn.ExecContext(t.ctx, keyCreateSQL); err != nil {
+	if _, err = t.load.conn.ExecContext(ctx, keyCreateSQL); err != nil {
 		return fmt.Errorf("Exec(%s): %w", keyCreateSQL, err)
 	}
 	// Prepare query statements.
@@ -248,7 +246,7 @@ func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_
 		{t.store.conn, b.store.insert.sql, &b.store.insert.stmt},
 		{t.store.conn, b.store.update.sql, &b.store.update.stmt},
 	} {
-		*s.stmt, err = s.conn.PrepareContext(t.ctx, s.sql)
+		*s.stmt, err = s.conn.PrepareContext(ctx, s.sql)
 		if err != nil {
 			return fmt.Errorf("conn.PrepareContext(%s): %w", s.sql, err)
 		}
@@ -258,7 +256,13 @@ func (t *transactor) addBinding(targetName string, spec *pf.MaterializationSpec_
 	return nil
 }
 
-func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(int, json.RawMessage) error) error {
+func (d *transactor) Load(
+	it *pm.LoadIterator,
+	// We ignore priorCommitCh and priorAcknowledgedCh because we stage the
+	// contents of the iterator, evaluating loads after it's fully drained.
+	_, _ <-chan struct{},
+	loaded func(int, json.RawMessage) error,
+) error {
 	// Remove rows left over from the last transaction.
 	for _, b := range d.bindings {
 		if _, err := b.load.truncate.stmt.Exec(); err != nil {
@@ -304,15 +308,15 @@ func (d *transactor) Load(it *pm.LoadIterator, _ <-chan struct{}, loaded func(in
 	return nil
 }
 
-func (d *transactor) Prepare(prepare *pm.TransactionRequest_Prepare) (*pm.TransactionResponse_Prepared, error) {
+func (d *transactor) Prepare(ctx context.Context, prepare pm.TransactionRequest_Prepare) (pf.DriverCheckpoint, error) {
 	d.store.fence.SetCheckpoint(prepare.FlowCheckpoint)
-	return &pm.TransactionResponse_Prepared{}, nil
+	return pf.DriverCheckpoint{}, nil
 }
 
 func (d *transactor) Store(it *pm.StoreIterator) error {
 	var err error
 
-	if d.store.txn, err = d.store.conn.BeginTx(d.ctx, nil); err != nil {
+	if d.store.txn, err = d.store.conn.BeginTx(it.Context(), nil); err != nil {
 		return fmt.Errorf("conn.BeginTx: %w", err)
 	}
 
@@ -350,17 +354,17 @@ func (d *transactor) Store(it *pm.StoreIterator) error {
 	return nil
 }
 
-func (d *transactor) Commit() error {
+func (d *transactor) Commit(ctx context.Context) error {
 	var err error
 
 	if d.store.txn == nil {
 		// If Store was skipped, we won't have begun a DB transaction yet.
-		if d.store.txn, err = d.store.conn.BeginTx(d.ctx, nil); err != nil {
+		if d.store.txn, err = d.store.conn.BeginTx(ctx, nil); err != nil {
 			return fmt.Errorf("conn.BeginTx: %w", err)
 		}
 	}
 
-	if err = d.store.fence.Update(d.ctx,
+	if err = d.store.fence.Update(ctx,
 		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			if result, err := d.store.txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
@@ -380,6 +384,9 @@ func (d *transactor) Commit() error {
 
 	return nil
 }
+
+// Acknowledge is a no-op since the SQLite database is authoritative.
+func (d *transactor) Acknowledge(context.Context) error { return nil }
 
 func (d *transactor) Destroy() {
 	if d.store.txn != nil {

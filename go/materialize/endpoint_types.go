@@ -23,9 +23,9 @@ func NewDriver(
 
 	switch endpointType {
 	case pf.EndpointType_SQLITE:
-		return AdaptServerToClient(sqlite.NewSQLiteDriver()), nil
+		return pm.AdaptServerToClient(sqlite.NewSQLiteDriver()), nil
 	case pf.EndpointType_FLOW_SINK:
-		return AdaptServerToClient(image.NewDriver(connectorNetwork, logPublisher)), nil
+		return pm.AdaptServerToClient(image.NewDriver(connectorNetwork, logPublisher)), nil
 	default:
 		return nil, fmt.Errorf("unknown endpoint %v", endpointType)
 	}

@@ -89,7 +89,7 @@ func TestSQLiteDriver(t *testing.T) {
 	log.SetLevel(log.DebugLevel)
 
 	var ctx = context.Background()
-	var driver = materialize.AdaptServerToClient(sqlite.NewSQLiteDriver())
+	var driver = pm.AdaptServerToClient(sqlite.NewSQLiteDriver())
 
 	var args = bindings.BuildArgs{
 		Context:  ctx,
@@ -172,15 +172,16 @@ func TestSQLiteDriver(t *testing.T) {
 			ShardTemplate:       model.ShardTemplate,
 			RecoveryLogTemplate: model.RecoveryLogTemplate,
 		},
-		DryRun: true,
+		Version: "the-version",
+		DryRun:  true,
 	}
 
-	applyResp, err := driver.Apply(ctx, &applyReq)
+	applyResp, err := driver.ApplyUpsert(ctx, &applyReq)
 	require.NoError(t, err)
 	require.NotEmpty(t, applyResp.ActionDescription)
 
 	applyReq.DryRun = false
-	applyResp, err = driver.Apply(ctx, &applyReq)
+	applyResp, err = driver.ApplyUpsert(ctx, &applyReq)
 	require.NoError(t, err)
 	require.NotEmpty(t, applyResp.ActionDescription)
 
@@ -234,6 +235,7 @@ func TestSQLiteDriver(t *testing.T) {
 	err = transaction.Send(&pm.TransactionRequest{
 		Open: &pm.TransactionRequest_Open{
 			Materialization:      applyReq.Materialization,
+			Version:              "the-version",
 			KeyBegin:             100,
 			KeyEnd:               200,
 			DriverCheckpointJson: nil,
@@ -261,6 +263,15 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Send & receive Acknowledge.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
+		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	}))
+	acknowledged, err := transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
+
+	// Send Prepare, which ends the Load phase.
 	var checkpoint1 = []byte("first checkpoint value")
 	err = transaction.Send(&pm.TransactionRequest{
 		Prepare: &pm.TransactionRequest_Prepare{
@@ -275,8 +286,7 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
 	require.Empty(t, prepared.Prepared.DriverCheckpointJson)
 
-	// Test Store to add those keys
-	require.NoError(t, err)
+	// Build and send Store requests with these documents.
 	var doc1 = `{ "theKey": "key1Value", "string": "foo", "bool": true, "int": 77, "number": 12.34 }`
 	var doc2 = `{ "theKey": "key2Value", "string": "bar", "bool": false, "int": 88, "number": 56.78 }`
 	var doc3 = `{ "theKey": "key3Value", "string": "baz", "bool": false, "int": 99, "number": 0 }`
@@ -306,6 +316,7 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Send Commit and receive DriverCommitted.
 	err = transaction.Send(&pm.TransactionRequest{
 		Commit: &pm.TransactionRequest_Commit{},
 	})
@@ -313,14 +324,23 @@ func TestSQLiteDriver(t *testing.T) {
 
 	committed, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.Committed)
+	require.NotNil(t, committed.DriverCommitted)
 
-	// Next transaction.
+	// Next transaction. Send some loads.
 	err = transaction.Send(&pm.TransactionRequest{
 		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack()),
 	})
 	require.NoError(t, err)
 
+	// Send & receive Acknowledge.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
+		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	}))
+	acknowledged, err = transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
+
+	// Send Prepare to drain the load phase.
 	var checkpoint2 = []byte("second checkpoint value")
 	err = transaction.Send(&pm.TransactionRequest{
 		Prepare: &pm.TransactionRequest_Prepare{
@@ -372,7 +392,7 @@ func TestSQLiteDriver(t *testing.T) {
 
 	committed, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.Committed)
+	require.NotNil(t, committed.DriverCommitted)
 
 	// One more transaction just to verify the updated documents
 	err = transaction.Send(&pm.TransactionRequest{
@@ -380,6 +400,15 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Send & receive Acknowledge.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
+		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	}))
+	acknowledged, err = transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
+
+	// Send Prepare.
 	var checkpoint3 = []byte("third checkpoint value")
 	err = transaction.Send(&pm.TransactionRequest{
 		Prepare: &pm.TransactionRequest_Prepare{
@@ -388,8 +417,7 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive LoadResponse, which is expected to contain 4 documents.
-
+	// Receive loads, and expect it contains 4 documents.
 	loaded, err = transaction.Recv()
 	require.NoError(t, err)
 	require.NotNil(t, loaded.Loaded)
@@ -405,22 +433,28 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
 
-	// Send and receive Commit / Committed.
-	err = transaction.Send(&pm.TransactionRequest{
+	// Send and receive Commit / DriverCommitted.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
 		Commit: &pm.TransactionRequest_Commit{},
-	})
-	require.NoError(t, err)
-
+	}))
 	committed, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.Committed)
+	require.NotNil(t, committed.DriverCommitted)
 
-	// Shut down stream.
+	// Send & receive a final Acknowledge.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
+		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	}))
+	acknowledged, err = transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
+
+	// Gracefully shut down the stream.
 	require.NoError(t, transaction.CloseSend())
 	_, err = transaction.Recv()
 	require.Equal(t, io.EOF, err)
 
-	// Last thing is to snapshot the database tables we care about.
+	// Snapshot database tables and verify them against our expectation.
 	var identifierRenderer = sqlDriver.NewRenderer(nil, sqlDriver.DoubleQuotesWrapper(), sqlDriver.DefaultUnwrappedIdentifiers)
 	var tab = sqlDriver.TableForMaterialization(
 		"test_target", // Matches fixture in testdata/driver-steps.yaml
@@ -432,6 +466,32 @@ func TestSQLiteDriver(t *testing.T) {
 	var dump = dumpTables(t, endpointConfig.Path, tab,
 		sqlDriver.FlowCheckpointsTable(sqlDriver.DefaultFlowCheckpoints))
 	cupaloy.SnapshotT(t, dump)
+
+	// Next we'll verify the deletion of connector table states.
+	var verifyTableStatus = func(expect error) {
+		db, err := sql.Open("sqlite3", endpointConfig.Path)
+		require.NoError(t, err)
+
+		require.Equal(t, expect, db.QueryRow(
+			fmt.Sprintf("SELECT 1 FROM %s;", sqlDriver.DefaultFlowCheckpoints)).Scan(new(int)))
+		require.Equal(t, expect, db.QueryRow(
+			fmt.Sprintf("SELECT 1 FROM %s;", sqlDriver.DefaultFlowMaterializations)).Scan(new(int)))
+		require.Equal(t, expect, db.QueryRow(
+			"SELECT 1 FROM sqlite_master WHERE type='table' AND tbl_name='test_target';").Scan(new(int)))
+
+		require.NoError(t, db.Close())
+	}
+
+	// Precondition: table states exist.
+	verifyTableStatus(nil)
+
+	// Apply a delete of the materialization.
+	applyResp, err = driver.ApplyDelete(ctx, &applyReq)
+	require.NoError(t, err)
+	require.NotEmpty(t, applyResp.ActionDescription)
+
+	// Postcondition: all tables cleaned up.
+	verifyTableStatus(sql.ErrNoRows)
 }
 
 func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {

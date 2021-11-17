@@ -48,7 +48,7 @@ func NewDriver(networkName string, logger ops.Logger) pm.DriverServer {
 	}
 }
 
-// Spec returns the specification of the connector.
+// Spec delegates to the `spec` command of the identified docker image.
 func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
@@ -82,7 +82,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 	return resp, err
 }
 
-// Validate validates the configuration.
+// Validate delegates to the `validate` command of the identified docker image.
 func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
@@ -116,8 +116,17 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 	return resp, err
 }
 
-// Apply applies the configuration.
-func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+// ApplyUpsert delegates to the `apply-upsert` command of the identified docker image.
+func (d driver) ApplyUpsert(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+	return d.apply(ctx, "apply-upsert", req)
+}
+
+// ApplyDelete delegates to the `apply-delete` command of the identified docker image.
+func (d driver) ApplyDelete(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+	return d.apply(ctx, "apply-delete", req)
+}
+
+func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest) (*pm.ApplyResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
@@ -130,7 +139,7 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 
 	var resp *pm.ApplyResponse
 	var err = airbyte.RunConnector(ctx, source.Image, d.networkName,
-		[]string{"apply"},
+		[]string{variant},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
 			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
@@ -151,7 +160,7 @@ func (d driver) Apply(ctx context.Context, req *pm.ApplyRequest) (*pm.ApplyRespo
 	return resp, err
 }
 
-// Transactions implements the DriverServer interface.
+// Transactions delegates to the `transactions` command of the identified docker image.
 func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	var open, err = stream.Recv()
 	if err != nil {
