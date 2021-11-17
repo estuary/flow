@@ -74,11 +74,12 @@ pub struct ValidateRequest {
 }
 /// Nested message and enum types in `ValidateRequest`.
 pub mod validate_request {
-    /// Bindings of endpoint resources and collections from which they would be materialized.
-    /// Bindings are ordered and unique on the bound collection name.
+    /// Bindings of endpoint resources and collections from which they would be
+    /// materialized. Bindings are ordered and unique on the bound collection name.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
-        /// JSON-encoded object which specifies the endpoint resource to be materialized.
+        /// JSON-encoded object which specifies the endpoint resource to be
+        /// materialized.
         #[prost(string, tag="1")]
         pub resource_spec_json: ::prost::alloc::string::String,
         /// Collection to be materialized.
@@ -98,8 +99,8 @@ pub struct ValidateResponse {
 }
 /// Nested message and enum types in `ValidateResponse`.
 pub mod validate_response {
-    /// Validation responses for each binding of the request,
-    /// and matching the request ordering.
+    /// Validation responses for each binding of the request, and matching the
+    /// request ordering. Each Binding must have a unique resource_path.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
         /// Constraints over collection projections imposed by the Driver,
@@ -133,7 +134,7 @@ pub mod validate_response {
         pub delta_updates: bool,
     }
 }
-/// ApplyRequest is the request type of the Apply RPC.
+/// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyRequest {
     /// Materialization to be applied.
@@ -147,7 +148,7 @@ pub struct ApplyRequest {
     #[prost(bool, tag="3")]
     pub dry_run: bool,
 }
-/// ApplyResponse is the response type of the Apply RPC.
+/// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApplyResponse {
     /// Human-readable description of the action that the Driver took (or, if
@@ -171,39 +172,45 @@ pub struct TransactionRequest {
     pub store: ::core::option::Option<transaction_request::Store>,
     #[prost(message, optional, tag="5")]
     pub commit: ::core::option::Option<transaction_request::Commit>,
+    #[prost(message, optional, tag="6")]
+    pub acknowledge: ::core::option::Option<transaction_request::Acknowledge>,
 }
 /// Nested message and enum types in `TransactionRequest`.
 pub mod transaction_request {
-    /// Open a transaction stream and, where supported, fence off other
-    /// streams of this materialization that overlap the provide
-    /// [key_begin, key_end) range, such that those streams cannot
-    /// issue further commits.
+    /// Open a transaction stream.
     ///
-    /// Fencing semantics are optional, but required for exactly-once semantics.
-    /// Non-transactional stores can ignore this aspect and achieve at-least-once.
+    /// If the Flow recovery log is authoritative:
+    /// The driver is given its last committed driver checkpoint in this request.
+    /// It MAY return a Flow checkpoint in its opened response -- perhaps an older
+    /// Flow checkpoint which was previously embedded within its driver checkpoint.
     ///
-    /// Where implemented, servers must guarantee that no other streams of this
-    /// materialization which overlap the provided [key_begin, key_end)
-    /// (now "zombie" streams) can commit transactions, and must then
-    /// return the final checkpoint committed by this stream in its response.
+    /// If the remote store is authoritative:
+    /// The driver MUST fence off other streams of this materialization that
+    /// overlap the provided [key_begin, key_end) range, such that those streams
+    /// cannot issue further commits. The driver MUST return its stored checkpoint
+    /// for this materialization and range [key_begin, key_end] in its Opened
+    /// response.
+    ///
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Materialization to be transacted, which is the MaterializationSpec
-        /// last provided to a successful Apply RPC.
+        /// Materialization to be transacted.
         #[prost(message, optional, tag="1")]
         pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
-        /// Version of the opened MaterializationSpec, which matches the version
-        /// last provided to a successful Apply RPC.
+        /// Version of the opened MaterializationSpec.
+        /// The driver may want to require that this match the version last
+        /// provided to a successful Apply RPC. It's possible that it won't,
+        /// due to expected propagation races in Flow's distributed runtime.
         #[prost(string, tag="2")]
         pub version: ::prost::alloc::string::String,
-        /// [begin, end] inclusive range of keys processed by this transaction stream.
-        /// Ranges are with respect to a 32-bit hash of a packed document key.
+        /// [begin, end] inclusive range of keys processed by this transaction
+        /// stream. Ranges are with respect to a 32-bit hash of a packed document
+        /// key.
         #[prost(fixed32, tag="3")]
         pub key_begin: u32,
         #[prost(fixed32, tag="4")]
         pub key_end: u32,
-        /// Last-persisted driver checkpoint from a previous transaction stream.
-        /// Or empty, if the driver has cleared or never set its checkpoint.
+        /// Last-persisted driver checkpoint committed in the Flow runtime recovery
+        /// log. Or empty, if the driver has cleared or never set its checkpoint.
         #[prost(bytes="vec", tag="5")]
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
@@ -251,9 +258,15 @@ pub mod transaction_request {
         #[prost(bool, repeated, tag="6")]
         pub exists: ::prost::alloc::vec::Vec<bool>,
     }
-    /// Commit the transaction.
+    /// Mark the end of the Store phase, and if the remote store is authoritative,
+    /// instruct it to commit its transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Commit {
+    }
+    /// Notify the driver that the previous transaction has committed to the Flow
+    /// runtime's recovery log.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Acknowledge {
     }
 }
 /// TransactionResponse is the response type of a Transaction RPC.
@@ -265,26 +278,27 @@ pub struct TransactionResponse {
     pub opened: ::core::option::Option<transaction_response::Opened>,
     #[prost(message, optional, tag="2")]
     pub loaded: ::core::option::Option<transaction_response::Loaded>,
+    /// Prepared responds to a TransactionRequest.Prepare of the client.
+    /// No further Loaded responses will be sent.
     #[prost(message, optional, tag="3")]
-    pub prepared: ::core::option::Option<transaction_response::Prepared>,
+    pub prepared: ::core::option::Option<super::flow::DriverCheckpoint>,
     #[prost(message, optional, tag="4")]
-    pub committed: ::core::option::Option<transaction_response::Committed>,
+    pub driver_committed: ::core::option::Option<transaction_response::DriverCommitted>,
+    #[prost(message, optional, tag="5")]
+    pub acknowledged: ::core::option::Option<transaction_response::Acknowledged>,
 }
 /// Nested message and enum types in `TransactionResponse`.
 pub mod transaction_response {
     /// Opened responds to TransactionRequest.Open of the client.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
-        /// Flow checkpoint which was previously committed with this |shard_fqn|.
-        /// May be nil if the Driver is not stateful, in which case the Flow runtime
-        /// will use its most-recent internal checkpoint. Note this internal
-        /// checkpoint is at-least-once (at most one following transaction may have
-        /// been partially or even fully committed since it was recorded).
+        /// Flow checkpoint to begin processing from.
+        /// If empty, the most recent checkpoint of the Flow recovery log is used.
         ///
-        /// A driver may also send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
-        /// to instruct the Flow runtime to disregard its internal checkpoint and
-        /// fully rebuild the materialization from scratch. This sentinel is a
-        /// trivial encoding of the max-value 2^29-1 protobuf tag with boolean true.
+        /// Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+        /// to explicitly begin processing from a zero-valued checkpoint, effectively
+        /// rebuilding the materialization from scratch. This sentinel is a trivial
+        /// encoding of the max-value 2^29-1 protobuf tag with boolean true.
         #[prost(bytes="vec", tag="1")]
         pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
@@ -305,23 +319,24 @@ pub mod transaction_response {
         #[prost(message, repeated, tag="3")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
-    /// Prepared responds to a TransactionRequest.Prepare of the client.
-    /// No further Loaded responses will be sent.
+    /// Mark the end of the Store phase, indicating that all documents have been
+    /// fully stored.
+    ///
+    /// If the remote store is authoritative, tell the Flow runtime that it has
+    /// committed.
+    ///
+    /// If the recovery log is authoritative, DriverCommitted is sent but no actual
+    /// transactional driver commit is performed.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Prepared {
-        /// Optional driver checkpoint of this transaction, to be persisted
-        /// by the Flow runtime and returned in a future TransactionRequest.Open.
-        /// If empty, then a previous checkpoint is cleared.
-        #[prost(bytes="vec", tag="1")]
-        pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
-        /// If true, then the driver checkpoint must be non-empty and is
-        /// applied as an RFC7396 Merge Patch atop the immediately preceeding
-        /// checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
-        #[prost(bool, tag="2")]
-        pub rfc7396_merge_patch: bool,
+    pub struct DriverCommitted {
     }
-    /// Acknowledge the transaction as committed.
+    /// Notify the Flow runtime of receipt of it's confirmation that the
+    /// Flow recovery log has committed.
+    ///
+    /// If the driver utilizes staged data which is idempotently applied,
+    /// it must apply staged data of the commit at this time, and respond
+    /// with Acknowledged only once that's completed.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Committed {
+    pub struct Acknowledged {
     }
 }
