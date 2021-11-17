@@ -543,20 +543,7 @@ message TransactionResponse {
 
   // Prepared responds to a TransactionRequest.Prepare of the client.
   // No further Loaded responses will be sent.
-  message Prepared {
-    // Optional driver checkpoint of this transaction, to be persisted
-    // by the Flow runtime and returned in a future TransactionRequest.Open.
-    // If empty, then a previous checkpoint is cleared.
-    bytes driver_checkpoint_json = 1 [
-      (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
-    ];
-    // If true, then the driver checkpoint must be non-empty and is
-    // applied as an RFC7396 Merge Patch atop the immediately preceeding
-    // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
-    bool rfc7396_merge_patch = 2;
-  }
-  Prepared prepared = 3;
+  flow.DriverCheckpoint prepared = 3;
 
   // Mark the end of the Store phase, indicating that all documents have been
   // fully stored.

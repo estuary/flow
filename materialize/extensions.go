@@ -307,14 +307,6 @@ func (m *TransactionResponse_Loaded) Validate() error {
 }
 
 // Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_Prepared) Validate() error {
-	if m.Rfc7396MergePatch && len(m.DriverCheckpointJson) == 0 {
-		return pb.NewValidationError("expected DriverCheckpointJson")
-	}
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_DriverCommitted) Validate() error {
 	return nil
 }
