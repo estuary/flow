@@ -22,7 +22,7 @@ func NewDriver(
 
 	switch endpointType {
 	case pf.EndpointType_AIRBYTE_SOURCE:
-		return AdaptServerToClient(airbyte.NewDriver(connectorNetwork, logger)), nil
+		return pc.AdaptServerToClient(airbyte.NewDriver(connectorNetwork, logger)), nil
 	default:
 		return nil, fmt.Errorf("unknown endpoint %v", endpointType)
 	}

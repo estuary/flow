@@ -74,6 +74,7 @@ func NewDriver(networkName string, logger ops.Logger) pc.DriverServer {
 	}
 }
 
+// Spec delegates to the `spec` command of the identified Airbyte image.
 func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
@@ -130,6 +131,7 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 	}, nil
 }
 
+// Discover delegates to the `discover` command of the identified Airbyte image.
 func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
@@ -216,6 +218,8 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	return resp, nil
 }
 
+// Validate delegates to the `check` command of the identified Airbyte image.
+// It does no actual validation unfortunately.
 func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.ValidateResponse, error) {
 	var source = new(EndpointSpec)
 	if err := req.Validate(); err != nil {
@@ -281,26 +285,45 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 	return resp, nil
 }
 
-func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) error {
+// ApplyUpsert is a no-op (not supported by Airbyte connectors).
+func (d driver) ApplyUpsert(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+	return new(pc.ApplyResponse), nil
+}
+
+// ApplyDelete is a no-op (not supported by Airbyte connectors).
+func (d driver) ApplyDelete(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+	return new(pc.ApplyResponse), nil
+}
+
+// Pull delegates to the `read` command of the identified Airbyte image.
+func (d driver) Pull(stream pc.Driver_PullServer) error {
 	var source = new(EndpointSpec)
-	if err := req.Validate(); err != nil {
-		return fmt.Errorf("validating request: %w", err)
-	} else if err := pf.UnmarshalStrict(req.Capture.EndpointSpecJson, source); err != nil {
+
+	// Read Open request.
+	var req, err = stream.Recv()
+	if err != nil {
+		return fmt.Errorf("reading open: %w", err)
+	} else if err = req.Validate(); err != nil {
+		return fmt.Errorf("open request: %w", err)
+	} else if req.Open == nil {
+		return fmt.Errorf("Open was expected but is empty")
+	} else if err := pf.UnmarshalStrict(req.Open.Capture.EndpointSpecJson, source); err != nil {
 		return fmt.Errorf("parsing connector configuration: %w", err)
 	}
 
+	var open = req.Open
 	var streamToBinding = make(map[string]int)
 
 	// Build configured Airbyte catalog.
 	var catalog = airbyte.ConfiguredCatalog{
 		Streams: nil,
-		Tail:    req.Tail,
+		Tail:    open.Tail,
 		Range: airbyte.Range{
-			Begin: req.KeyBegin,
-			End:   req.KeyEnd,
+			Begin: open.KeyBegin,
+			End:   open.KeyEnd,
 		},
 	}
-	for i, binding := range req.Capture.Bindings {
+	for i, binding := range open.Capture.Bindings {
 		var resource = new(ResourceSpec)
 		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, resource); err != nil {
 			return fmt.Errorf("parsing stream configuration: %w", err)
@@ -333,7 +356,7 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 		}
 
 		log.WithFields(log.Fields{
-			"capture": req.Capture.Capture,
+			"capture": open.Capture.Capture,
 			"catalog": string(catalogJSON),
 		}).Debug("using configured catalog")
 	}
@@ -350,16 +373,16 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 		"catalog.json": catalog,
 	}
 
-	if len(req.DriverCheckpointJson) != 0 {
+	if len(open.DriverCheckpointJson) != 0 {
 		invokeArgs = append(invokeArgs, "--state", "/tmp/state.json")
-		invokeFiles["state.json"] = req.DriverCheckpointJson
+		invokeFiles["state.json"] = open.DriverCheckpointJson
 	}
 
-	if err := stream.Send(&pc.CaptureResponse{Opened: &pc.CaptureResponse_Opened{}}); err != nil {
+	if err := stream.Send(&pc.PullResponse{Opened: &pc.PullResponse_Opened{}}); err != nil {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	var resp *pc.CaptureResponse
+	var resp *pc.PullResponse
 
 	// We'll re-use this fields map whenever we log connector output.
 	var logFields = log.Fields{
@@ -370,8 +393,22 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 	if err := RunConnector(stream.Context(), source.Image, d.networkName,
 		invokeArgs,
 		invokeFiles,
-		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
+		func(w io.Writer) error {
+			for {
+				var req, err = stream.Recv()
+				if err == io.EOF {
+					return nil
+				} else if err != nil {
+					return err
+				} else if err = req.Validate(); err != nil {
+					return err
+				}
+
+				if req.Acknowledge != nil {
+					// TODO(johnny): Pass as stdin to the connector.
+				}
+			}
+		},
 		// Expect to decode Airbyte messages.
 		NewConnectorJSONOutput(
 			func() interface{} { return new(airbyte.Message) },
@@ -379,14 +416,14 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 				if rec := i.(*airbyte.Message); rec.Log != nil {
 					d.logger.Log(airbyteToLogrusLevel(rec.Log.Level), logFields, rec.Log.Message)
 				} else if rec.State != nil {
-					return pc.WriteCommit(stream, &resp,
-						&pc.CaptureResponse_Commit{
+					return pc.WritePullCheckpoint(stream, &resp,
+						pf.DriverCheckpoint{
 							DriverCheckpointJson: rec.State.Data,
 							Rfc7396MergePatch:    rec.State.Merge,
 						})
 				} else if rec.Record != nil {
 					if b, ok := streamToBinding[rec.Record.Stream]; ok {
-						return pc.StageCaptured(stream, &resp, b, rec.Record.Data)
+						return pc.StagePullDocuments(stream, &resp, b, rec.Record.Data)
 					}
 					return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
 				} else {
@@ -410,8 +447,8 @@ func (d driver) Capture(req *pc.CaptureRequest, stream pc.Driver_CaptureServer) 
 	// writing a final state checkpoint. We generate a synthetic commit now,
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
-	return pc.WriteCommit(stream, &resp,
-		&pc.CaptureResponse_Commit{
+	return pc.WritePullCheckpoint(stream, &resp,
+		pf.DriverCheckpoint{
 			DriverCheckpointJson: nil,
 			Rfc7396MergePatch:    false,
 		})
