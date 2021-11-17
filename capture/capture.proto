@@ -264,21 +264,6 @@ message Documents {
   repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
 }
 
-// Checkpoint represents the driver's intention to commit.
-message Checkpoint {
-  // Optional driver checkpoint of this transaction, to be persisted
-  // by the Flow runtime and returned in a future PullRequest or PushResponse.
-  // If empty, then a previous checkpoint is cleared.
-  bytes driver_checkpoint_json = 1 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "driverCheckpoint"
-  ];
-  // If true, then the driver checkpoint must be non-empty and is
-  // applied as an RFC7396 Merge Patch atop the immediately preceeding
-  // checkpoint (or to an empty JSON object `{}` if there is no checkpoint).
-  bool rfc7396_merge_patch = 2;
-}
-
 // Acknowledge is a notification that a Checkpoint has committed to the
 // Flow runtime's recovery log.
 message Acknowledge {}
@@ -292,20 +277,25 @@ message PullRequest {
   message Open {
     // CaptureSpec to be pulled.
     flow.CaptureSpec capture = 1;
+    // Version of the opened CaptureSpec.
+    // The driver may want to require that this match the version last
+    // provided to a successful Apply RPC. It's possible that it won't,
+    // due to expected propagation races in Flow's distributed runtime.
+    string version = 2;
     // [key_begin, key_end] inclusive range of keys processed by this
     // transaction stream. Ranges reflect the disjoint chunks of ownership
     // specific to each instance of a scale-out capture implementation.
-    fixed32 key_begin = 2;
-    fixed32 key_end = 3;
+    fixed32 key_begin = 3;
+    fixed32 key_end = 4;
     // Last-persisted driver checkpoint from a previous capture stream.
     // Or empty, if the driver has cleared or never set its checkpoint.
-    bytes driver_checkpoint_json = 4 [
+    bytes driver_checkpoint_json = 5 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
     // If true, perform a blocking tail of the capture.
     // If false, produce all ready output and then close the stream.
-    bool tail = 5;
+    bool tail = 6;
   }
   Open open = 1;
 
@@ -326,7 +316,7 @@ message PullResponse {
   Documents documents = 2;
 
   // Checkpoint all preceeding Documents of this stream.
-  Checkpoint checkpoint = 3;
+  flow.DriverCheckpoint checkpoint = 3;
 }
 
 // PushRequest is the request message of the Runtime.Push RPC.
@@ -347,7 +337,7 @@ message PushRequest {
   Documents documents = 2;
 
   // Checkpoint all preceeding Documents of this stream.
-  Checkpoint checkpoint = 3;
+  flow.DriverCheckpoint checkpoint = 3;
 }
 
 // PushResponse is the response message of the Runtime.Push RPC.
@@ -361,14 +351,19 @@ message PushResponse {
     protocol.Header header = 2 [ (gogoproto.nullable) = false ];
     // CaptureSpec to be pushed.
     flow.CaptureSpec capture = 3;
+    // Version of the opened CaptureSpec.
+    // The driver may want to require that this match the version last
+    // provided to a successful Apply RPC. It's possible that it won't,
+    // due to expected propagation races in Flow's distributed runtime.
+    string version = 4;
     // [key_begin, key_end] inclusive range of keys processed by this
     // transaction stream. Ranges reflect the disjoint chunks of ownership
     // specific to each instance of a scale-out capture implementation.
-    fixed32 key_begin = 4;
-    fixed32 key_end = 5;
+    fixed32 key_begin = 5;
+    fixed32 key_end = 6;
     // Last-persisted driver checkpoint from a previous capture stream.
     // Or empty, if the driver has cleared or never set its checkpoint.
-    bytes driver_checkpoint_json = 6 [
+    bytes driver_checkpoint_json = 7 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
