@@ -1,0 +1,34 @@
+OPEN:
+(capture.PullRequest_Open) capture:<capture:"acmeCo/source-hello-world" endpoint_type:AIRBYTE_SOURCE endpoint_spec_json:"{\"config\":{\"greetings\":100},\"image\":\"ghcr.io/estuary/source-hello-world:dev\"}" bindings:<resource_spec_json:"{\"stream\":\"greetings\",\"syncMode\":\"incremental\"}" resource_path:"greetings" collection:<collection:"acmeCo/greetings" schema_uri:"file:///home/johnny/estuary/protocols/capture/testdata/flow.yaml?ptr=/collections/acmeCo~1greetings/schema" schema_json:"{\"$id\":\"file:///home/johnny/estuary/protocols/capture/testdata/flow.yaml?ptr=/collections/acmeCo~1greetings/schema\",\"properties\":{\"count\":{\"type\":\"integer\"},\"message\":{\"type\":\"string\"}},\"required\":[\"count\",\"message\"],\"type\":\"object\"}" key_ptrs:"/count" uuid_ptr:"/_meta/uuid" projections:<ptr:"/count" field:"count" is_primary_key:true inference:<types:"integer" must_exist:true > > projections:<field:"flow_document" inference:<types:"object" must_exist:true > > projections:<ptr:"/message" field:"message" inference:<types:"string" must_exist:true string:<> > > ack_json_template:"{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}" partition_template:<name:"acmeCo/greetings" replication:3 labels:<labels:<name:"app.gazette.dev/managed-by" value:"estuary.dev/flow" > labels:<name:"content-type" value:"application/x-ndjson" > labels:<name:"estuary.dev/build" value:"temp.db" > labels:<name:"estuary.dev/collection" value:"acmeCo/greetings" > > fragment:<length:536870912 compression_codec:GZIP stores:"s3://a-bucket/" refresh_interval:<seconds:300 > path_postfix_template:"utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}" > flags:4 max_append_rate:4194304 > > > interval_seconds:300 shard_template:<id:"capture/acmeCo/source-hello-world" recovery_log_prefix:"recovery" hint_prefix:"/estuary/flow/hints" hint_backups:2 max_txn_duration:<seconds:1 > labels:<labels:<name:"app.gazette.dev/managed-by" value:"estuary.dev/flow" > labels:<name:"estuary.dev/build" value:"temp.db" > labels:<name:"estuary.dev/log-level" value:"info" > labels:<name:"estuary.dev/task-name" value:"acmeCo/source-hello-world" > labels:<name:"estuary.dev/task-type" value:"capture" > > ring_buffer_size:65536 read_channel_size:131072 > recovery_log_template:<name:"recovery/capture/acmeCo/source-hello-world" replication:3 labels:<labels:<name:"app.gazette.dev/managed-by" value:"estuary.dev/flow" > labels:<name:"content-type" value:"application/x-gazette-recoverylog" > labels:<name:"estuary.dev/build" value:"temp.db" > labels:<name:"estuary.dev/task-name" value:"acmeCo/source-hello-world" > labels:<name:"estuary.dev/task-type" value:"capture" > > fragment:<length:268435456 compression_codec:SNAPPY stores:"s3://a-bucket/" refresh_interval:<seconds:300 > > flags:4 max_append_rate:4194304 > > version:"a-version" key_end:4294967295 driver_checkpoint_json:"{\"driver\":\"checkpoint\"}" tail:true 
+DRIVER CHECKPOINT:
+(flow.DriverCheckpoint) driver_checkpoint_json:"{\"a\":2,\"b\":2,\"c\":1}" 
+CAPTURED
+([]json.RawMessage) (len=9) {
+  (json.RawMessage) (len=5) {
+    00000000  22 6f 6e 65 22                                    |"one"|
+  },
+  (json.RawMessage) (len=5) {
+    00000000  22 74 77 6f 22                                    |"two"|
+  },
+  (json.RawMessage) (len=7) {
+    00000000  22 74 68 72 65 65 22                              |"three"|
+  },
+  (json.RawMessage) (len=6) {
+    00000000  22 66 6f 75 72 22                                 |"four"|
+  },
+  (json.RawMessage) (len=6) {
+    00000000  22 66 69 76 65 22                                 |"five"|
+  },
+  (json.RawMessage) (len=5) {
+    00000000  22 73 69 78 22                                    |"six"|
+  },
+  (json.RawMessage) (len=7) {
+    00000000  22 73 65 76 65 6e 22                              |"seven"|
+  },
+  (json.RawMessage) (len=7) {
+    00000000  22 65 69 67 68 74 22                              |"eight"|
+  },
+  (json.RawMessage) (len=6) {
+    00000000  22 6e 69 6e 65 22                                 |"nine"|
+  }
+}

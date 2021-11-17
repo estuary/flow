@@ -1,0 +1,31 @@
+collections:
+  acmeCo/greetings:
+    schema:
+      properties:
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+        - count
+        - message
+      type: object
+    key: [/count]
+
+captures:
+  acmeCo/source-hello-world:
+    endpoint:
+      airbyteSource:
+        image: ghcr.io/estuary/source-hello-world:dev
+        config:
+          greetings: 100
+          # Number of greeting documents to produce when running in non-tailing mode
+          # [integer] (required)
+    bindings:
+      - resource:
+          stream: greetings
+          syncMode: incremental
+        target: acmeCo/greetings
+
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
