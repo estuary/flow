@@ -78,12 +78,15 @@ impl CaptureBinding {
 pub enum CaptureEndpoint {
     /// # An Airbyte source connector.
     AirbyteSource(AirbyteSourceConfig),
+    /// # A push ingestion.
+    Ingest(IngestConfig),
 }
 
 impl CaptureEndpoint {
     pub fn endpoint_type(&self) -> EndpointType {
         match self {
             Self::AirbyteSource(_) => EndpointType::AirbyteSource,
+            Self::Ingest(_) => EndpointType::Ingest,
         }
     }
 }
@@ -96,3 +99,7 @@ pub struct AirbyteSourceConfig {
     /// # Configuration of the connector.
     pub config: Object,
 }
+
+/// Ingest source specification.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+pub struct IngestConfig {}

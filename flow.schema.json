@@ -328,6 +328,19 @@
             }
           },
           "additionalProperties": false
+        },
+        {
+          "title": "A push ingestion.",
+          "type": "object",
+          "required": [
+            "ingest"
+          ],
+          "properties": {
+            "ingest": {
+              "$ref": "#/definitions/IngestConfig"
+            }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -613,6 +626,10 @@
           "additionalProperties": false
         }
       ]
+    },
+    "IngestConfig": {
+      "description": "Ingest source specification.",
+      "type": "object"
     },
     "JournalTemplate": {
       "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
