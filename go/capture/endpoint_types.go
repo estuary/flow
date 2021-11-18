@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/capture/driver/airbyte"
+	"github.com/estuary/flow/go/capture/driver/ingest"
 	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/protocols/capture"
 	pf "github.com/estuary/protocols/flow"
@@ -23,6 +24,8 @@ func NewDriver(
 	switch endpointType {
 	case pf.EndpointType_AIRBYTE_SOURCE:
 		return pc.AdaptServerToClient(airbyte.NewDriver(connectorNetwork, logger)), nil
+	case pf.EndpointType_INGEST:
+		return pc.AdaptServerToClient(ingest.NewDriver(logger)), nil
 	default:
 		return nil, fmt.Errorf("unknown endpoint %v", endpointType)
 	}
