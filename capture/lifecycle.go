@@ -3,6 +3,7 @@ package capture
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 
 	pf "github.com/estuary/protocols/flow"
 )
@@ -98,7 +99,7 @@ func WritePullCheckpoint(
 		Send(*PullResponse) error
 	},
 	response **PullResponse,
-	checkpoint pf.DriverCheckpoint,
+	checkpoint *pf.DriverCheckpoint,
 ) error {
 	// Flush partial Documents response, if required.
 	if *response != nil {
@@ -108,7 +109,7 @@ func WritePullCheckpoint(
 		*response = nil
 	}
 
-	if err := stream.Send(&PullResponse{Checkpoint: &checkpoint}); err != nil {
+	if err := stream.Send(&PullResponse{Checkpoint: checkpoint}); err != nil {
 		return fmt.Errorf("sending Checkpoint response: %w", err)
 	}
 
@@ -137,6 +138,44 @@ func WritePushCheckpoint(
 	}
 
 	return nil
+}
+
+// ReadPushCheckpoint reads Documents from a Push RPC until a checkpoint
+// is countered. It errors if more than |maxBytes| of Document byte content
+// is read.
+func ReadPushCheckpoint(
+	stream interface {
+		Recv() (*PushRequest, error)
+	},
+	maxBytes int,
+) ([]Documents, pf.DriverCheckpoint, error) {
+
+	var n int
+	var docs []Documents
+
+	for n < maxBytes {
+		req, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF && len(docs) != 0 {
+				err = io.ErrUnexpectedEOF
+			}
+			return nil, pf.DriverCheckpoint{}, err
+		} else if err = req.Validate(); err != nil {
+			return nil, pf.DriverCheckpoint{}, err
+		}
+
+		switch {
+		case req.Documents != nil:
+			docs = append(docs, *req.Documents)
+			n += len(req.Documents.Arena)
+		case req.Checkpoint != nil:
+			return docs, *req.Checkpoint, nil
+		}
+	}
+
+	return nil, pf.DriverCheckpoint{}, fmt.Errorf(
+		"too many documents without a checkpoint (%d bytes vs max of %d)",
+		n, maxBytes)
 }
 
 const (
