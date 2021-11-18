@@ -78,6 +78,10 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 	// capture tasks as having a pending stat, which is recursively tracked
 	// through derivations and materializations of the catalog.
 	for _, capture := range captures {
+		if capture.EndpointType == pf.EndpointType_INGEST {
+			continue // Skip ingestions, which never EOF.
+		}
+
 		graph.CompletedIngest(
 			pf.Collection(capture.Capture),
 			&testing.Clock{

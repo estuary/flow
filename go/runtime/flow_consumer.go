@@ -11,6 +11,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/capture"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -200,7 +201,9 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		var ajc = client.NewAppendService(args.Context, args.Service.Journals)
 		pf.RegisterTestingServer(args.Server.GRPCServer, NewFlowTesting(f, ajc))
 	}
+
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	capture.RegisterRuntimeServer(args.Server.GRPCServer, f)
 
 	return nil
 }
