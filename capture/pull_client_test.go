@@ -56,9 +56,9 @@ func TestPullClientLifecycle(t *testing.T) {
 	}
 
 	var startCommitCh = make(chan error)
-	go rpc.Read(func(err error) { startCommitCh <- err })
+	go rpc.Serve(func(err error) { startCommitCh <- err })
 
-	server.sendDocs("one", "two")
+	server.sendDocs(0, "one", "two")
 	server.sendCheckpoint(map[string]int{"a": 1})
 
 	// Expect Read notified our callback.
@@ -74,9 +74,9 @@ func TestPullClientLifecycle(t *testing.T) {
 	// ordering between RPC reads and the commit being observed by Read().
 	// It doesn't matter, because the client will release documents only after a
 	// checkpoint is read, and only after |commitOp| is notified.
-	server.sendDocs("three")
+	server.sendDocs(0, "three")
 	commitOp.Resolve(nil)
-	server.sendDocs("four", "five")
+	server.sendDocs(0, "four", "five")
 	server.sendCheckpoint(map[string]int{"b": 1})
 
 	// Expect Acknowledge was sent to the RPC.
@@ -98,10 +98,10 @@ func TestPullClientLifecycle(t *testing.T) {
 	drain()
 
 	// While this commit runs, the server sends more documents and checkpoints.
-	server.sendDocs("six", "seven")
-	server.sendDocs("eight")
+	server.sendDocs(0, "six", "seven")
+	server.sendDocs(0, "eight")
 	server.sendCheckpoint(map[string]int{"c": 1})
-	server.sendDocs("nine")
+	server.sendDocs(0, "nine")
 	server.sendCheckpoint(map[string]int{"b": 2})
 	// Then it closes without waiting for our Acknowledge.
 	server.DoneOp.Resolve(nil)
@@ -115,12 +115,16 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, <-startCommitCh)
 	drain()
 
-	// A further attempt to set a LogCommitOp errors, since Read() is no longer listening.
-	require.Equal(t, io.EOF, rpc.SetLogCommitOp(client.NewAsyncOperation()))
+	commitOp = client.NewAsyncOperation()
+	require.NoError(t, rpc.SetLogCommitOp(commitOp))
+	commitOp.Resolve(nil)
+
 	// We're notified of the close.
 	require.Equal(t, io.EOF, <-startCommitCh)
 	// The client closes gracefully.
 	require.NoError(t, rpc.Close())
+	// A further attempt to set a LogCommitOp errors, since Read() is no longer listening.
+	require.Equal(t, io.EOF, rpc.SetLogCommitOp(client.NewAsyncOperation()))
 
 	// Snapshot the recorded observations of the Open and drains.
 	cupaloy.SnapshotT(t,
@@ -137,30 +141,36 @@ type testServer struct {
 	DoneOp   *client.AsyncOperation
 }
 
-func (t *testServer) sendDocs(docs ...interface{}) error {
-	var m = &Documents{Binding: 0}
+func makeDocs(binding uint32, docs ...interface{}) *Documents {
+	var m = &Documents{Binding: binding}
 
 	for _, d := range docs {
 		var b, err = json.Marshal(d)
 		if err != nil {
-			return err
+			panic(err)
 		}
 		m.DocsJson = append(m.DocsJson, m.Arena.Add(b))
 	}
-	return t.Stream.Send(&PullResponse{Documents: m})
+	return m
+}
+
+func (t *testServer) sendDocs(binding uint32, docs ...interface{}) error {
+	return t.Stream.Send(&PullResponse{Documents: makeDocs(binding, docs...)})
+}
+
+func makeCheckpoint(body interface{}) *pf.DriverCheckpoint {
+	var b, err = json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return &pf.DriverCheckpoint{
+		DriverCheckpointJson: b,
+		Rfc7396MergePatch:    true,
+	}
 }
 
 func (t *testServer) sendCheckpoint(body interface{}) error {
-	var b, err = json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	return t.Stream.Send(&PullResponse{
-		Checkpoint: &pf.DriverCheckpoint{
-			DriverCheckpointJson: b,
-			Rfc7396MergePatch:    true,
-		},
-	})
+	return t.Stream.Send(&PullResponse{Checkpoint: makeCheckpoint(body)})
 }
 
 func (t *testServer) recvAck() error {
