@@ -6,6 +6,13 @@ expression: tables
 Tables {
     capture_bindings: [
         CaptureBinding {
+            scope: test://example/catalog.yaml#/captures/capture~1ingest/bindings/0,
+            capture: capture/ingest,
+            capture_index: 0,
+            resource_spec: {},
+            collection: third/collection,
+        },
+        CaptureBinding {
             scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0,
             capture: capture/second,
             capture_index: 0,
@@ -28,6 +35,14 @@ Tables {
         },
     ],
     captures: [
+        Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1ingest,
+            capture: capture/ingest,
+            endpoint_type: "Ingest",
+            endpoint_spec: {},
+            interval_seconds: 300,
+            shards: {},
+        },
         Capture {
             scope: test://example/catalog.yaml#/captures/capture~1second,
             capture: capture/second,

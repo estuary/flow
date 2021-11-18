@@ -772,6 +772,7 @@ impl<F: Fetcher> Loader<F> {
         use models::CaptureEndpoint::*;
         match endpoint {
             AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Ingest(spec) => Some(serde_json::to_value(spec).unwrap()),
         }
     }
 

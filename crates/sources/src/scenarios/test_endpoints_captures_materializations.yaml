@@ -28,6 +28,13 @@ test://example/catalog.yaml:
         maxTxnDuration: 30s
         logLevel: debug
 
+    capture/ingest:
+      endpoint:
+        ingest: {}
+      bindings:
+        - target: third/collection
+          resource: {}
+
   materializations:
     a/materialization:
       endpoint:
