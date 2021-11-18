@@ -3,5 +3,16 @@ import:
   - ../examples/citi-bike/rides.flow.yaml
   - ../examples/citi-bike/views.flow.yaml
 
+captures:
+  # The purpose of this ingestion is currently only to exercise
+  # building and runtime initialization of push-based captures.
+  examples/an/ingestion:
+    endpoint:
+      ingest: {}
+    bindings:
+      - target: examples/greetings
+        resource:
+          name: greetings_v1
+
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }

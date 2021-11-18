@@ -17,6 +17,7 @@ import (
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/message"
@@ -24,10 +25,12 @@ import (
 
 // Capture is a top-level Application which implements the capture workflow.
 type Capture struct {
-	// Client of the driver Pull RPC.
-	client *pc.PullClient
 	// FlowConsumer which owns this Capture shard.
 	host *FlowConsumer
+	// delegate is a PullClient or a PushServer
+	delegate delegate
+	// delegateEOF is set after reading a delegate EOF.
+	delegateEOF bool
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
 	// Specification under which the capture is currently running.
@@ -47,8 +50,8 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 	}
 
 	return &Capture{
-		client:   nil, // Initialized in RestoreCheckpoint.
 		host:     host,
+		delegate: nil, // Initialized in RestoreCheckpoint.
 		store:    store,
 		spec:     pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
 		taskTerm: taskTerm{},       // Initialized in RestoreCheckpoint.
@@ -78,10 +81,10 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}()
 
-	if c.client == nil {
-		// First initialization.
-	} else if err := c.client.Close(); err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+	if c.delegate != nil {
+		if err := c.delegate.Close(); err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
+		}
 	}
 
 	if err = c.build.Extract(func(db *sql.DB) error {
@@ -93,18 +96,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}); err != nil {
 		return pf.Checkpoint{}, err
-	}
-
-	// Establish driver connection and start Pull RPC.
-	conn, err := capture.NewDriver(
-		shard.Context(),
-		c.spec.EndpointType,
-		c.spec.EndpointSpecJson,
-		c.host.Config.Flow.Network,
-		c.LogPublisher,
-	)
-	if err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
 	}
 
 	// Closure which builds a Combiner for a specified binding.
@@ -129,19 +120,40 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	var ctx, cancel = context.WithCancel(shard.Context())
 	go signalOnSpecUpdate(c.host.Service.State.KS, shard, c.shardSpec, cancel)
 
-	// Open a Pull RPC stream for the capture under this context.
-	c.client, err = pc.OpenPull(
-		ctx,
-		conn,
-		c.store.driverCheckpoint(),
-		newCombinerFn,
-		c.labels.Range,
-		&c.spec,
-		c.labels.Build,
-		!c.host.Config.Flow.Poll,
-	)
-	if err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
+	if c.spec.EndpointType == pf.EndpointType_INGEST {
+		// Create a PushServer for the specification.
+		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
+		if err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
+		}
+
+	} else {
+		// Establish driver connection and start Pull RPC.
+		conn, err := capture.NewDriver(
+			shard.Context(),
+			c.spec.EndpointType,
+			c.spec.EndpointSpecJson,
+			c.host.Config.Flow.Network,
+			c.LogPublisher,
+		)
+		if err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
+		}
+
+		// Open a Pull RPC stream for the capture under this context.
+		c.delegate, err = pc.OpenPull(
+			ctx,
+			conn,
+			c.store.driverCheckpoint(),
+			newCombinerFn,
+			c.labels.Range,
+			&c.spec,
+			c.labels.Build,
+			!c.host.Config.Flow.Poll,
+		)
+		if err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
+		}
 	}
 
 	if cp, err = c.store.restoreCheckpoint(shard); err != nil {
@@ -255,7 +267,7 @@ func (c *Capture) StartReadingMessages(
 		return
 	}
 
-	go c.client.Read(startCommitFn)
+	go c.delegate.Serve(startCommitFn)
 
 	c.Log(log.DebugLevel, log.Fields{
 		"capture":  c.labels.TaskName,
@@ -277,12 +289,14 @@ func (c *Capture) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
 
 func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
 	if env.Message.(*captureMessage).eof {
-		return nil // The connector exited; this is not a commit notification.
+		// The connector exited; this is not a commit notification.
+		c.delegateEOF = true // Mark for StartCommit.
+		return nil
 	}
 
 	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
 
-	for b, combiner := range c.client.Combiners() {
+	for b, combiner := range c.delegate.Combiners() {
 		var binding = c.spec.Bindings[b]
 		_ = binding.Collection // Elide nil check.
 
@@ -341,25 +355,39 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 		"checkpoint": cp,
 	}, "StartCommit")
 
-	var commitOp = c.store.startCommit(shard, cp, c.client.DriverCheckpoint(), waitFor)
+	var commitOp = c.store.startCommit(shard, cp, c.delegate.DriverCheckpoint(), waitFor)
 
-	// The client monitors |commitOp| to push acknowledgements to the connector,
-	// and to unblock the commit of a current transaction. It's expected that
-	// SetLogCommitOp will return EOF on a graceful server-initiated close of the
-	// RPC. We ignore other errors as well because they're reported to our
-	// startCommitFn callback.
-	_ = c.client.SetLogCommitOp(commitOp)
+	if c.delegateEOF {
+		// This "transaction" was caused by an EOF from the delegate,
+		// which was turned into a consumed message in order to update
+		// the EOF pseudo-journal offset. The delegate's Serve loop
+		// has already exited.
+		c.delegateEOF = false // Reset.
+	} else if err := c.delegate.SetLogCommitOp(commitOp); err != nil {
+		// The delegate monitors |commitOp| to push acknowledgements to the
+		// connector, and to unblock the commit of a current transaction.
+		return client.FinishedOperation(err)
+	}
 
 	return commitOp
 }
 
 // Destroy implements consumer.Store.Destroy
 func (c *Capture) Destroy() {
-	if c.client != nil {
-		_ = c.client.Close()
+	if c.delegate != nil {
+		_ = c.delegate.Close()
 	}
 	c.taskTerm.destroy()
 	c.store.destroy()
+}
+
+// delegate is the common interface of PullClient and PushServer that we use.
+type delegate interface {
+	Close() error
+	Combiners() []pf.Combiner
+	DriverCheckpoint() pf.DriverCheckpoint
+	Serve(startCommitFn func(error))
+	SetLogCommitOp(op client.OpFuture) error
 }
 
 type captureMessage struct {

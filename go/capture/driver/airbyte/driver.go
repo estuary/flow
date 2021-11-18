@@ -417,7 +417,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 					d.logger.Log(airbyteToLogrusLevel(rec.Log.Level), logFields, rec.Log.Message)
 				} else if rec.State != nil {
 					return pc.WritePullCheckpoint(stream, &resp,
-						pf.DriverCheckpoint{
+						&pf.DriverCheckpoint{
 							DriverCheckpointJson: rec.State.Data,
 							Rfc7396MergePatch:    rec.State.Merge,
 						})
@@ -448,7 +448,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
 	return pc.WritePullCheckpoint(stream, &resp,
-		pf.DriverCheckpoint{
+		&pf.DriverCheckpoint{
 			DriverCheckpointJson: nil,
 			Rfc7396MergePatch:    false,
 		})
