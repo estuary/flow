@@ -110,7 +110,7 @@ func (p *Persister) attemptPersist(spool Spool) {
 		log.WithFields(log.Fields{
 			"journal": spool.Journal,
 			"name":    spool.ContentName(),
-		}).Warn("dropping Spool (JournalSpec was removed)")
+		}).Info("dropping Spool (JournalSpec was removed)")
 
 		spoolPersistedTotal.Inc()
 		return
