@@ -1,5 +1,5 @@
 [![CI](https://github.com/estuary/flow/workflows/CI/badge.svg)](https://github.com/estuary/flow/actions)
-[![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ)
+[![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Testing setup](https://docs.estuary.dev/getting-started/installation)** | **[Data platform comparison reference](https://docs.estuary.dev/overview/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**   
 
 <p align="center">
     <img src ="https://github.com/estuary/flow/blob/master/images/Estuary%20Flow%20(Beta).gif"
@@ -7,32 +7,26 @@
      height="300"/>
          </p>
 
-Estuary Flow is a tool for integrating all of the systems you use to produce, process, and consume data.
-It unifies today's batch vs streaming paradigms
-so that your systems
-– current and future –
-are synchronized around the same data sets, updating in milliseconds.
-With Flow, you:
+### Build millisecond-latency, scalable, future-proof data pipelines in minutes.
+
+Estuary Flow is a DataOps platform that integrates all of the systems you use to produce, process, and consume data.
+
+Flow unifies today's batch and streaming paradigmsso that your systems
+– current and future – are synchronized around the same datasets, updating in milliseconds.
+
+With a Flow pipeline, you:
 
 -   📷 **Capture** data from your systems, services, and SaaS into _collections_:
     continuous datasets that are stored as regular files of your JSON data,
     right in your cloud storage bucket.
-    Collections plug into your existing tools:
-    Spark, Snowflake, BigQuery, and others, keeping your data portable, flexible, and... yours!
 
 -   🎯 **Materialize** a collection as a view within another system,
     such as a database, key/value store, Webhook API, or pub/sub service.
-    Flow back-fills from the collection's history
-    and then keeps your system fresh using precise, low-latency updates.
 
--   🌊 **Derive** new collections by transforming from other collections.
-    As with materializations, Flow back-fills an added derivation from the history
-    of its source collections, and thereafter keeps it up to date.
-
-    Transformations are uniquely powerful.
-    You can tackle the full gamut of stateful stream workflows,
-    including aggregations and non-temporal joins,
-    and Flow is able to scale to match your data volume without downtime.
+-   🌊 **Derive** new collections by transforming from other collections, using 
+    the full gamut of stateful stream workflow, joins, and agreggations.
+    
+❗️ Currently, Flow is a CLI-only platform. **Our UI is coming in Q1 of 2022**, and we will continue to grow both the CLI and UI. Flow is a tool meant for *all* stakeholders: engineers, analysts, and everyone in between.❗️
 
 ![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
 
@@ -44,113 +38,63 @@ With Flow, you:
 
 ## Just show me the code
 
-Write declarative YAML and [JSON Schema](https://json-schema.org/):
+This simple example shows a CDC **capture** from a [public S3 bucket](https://s3.amazonaws.com/tripdata/index.html). The resulting **collection** is then **materialized** to PostgreSQL. Flow integrates to these endpoints with two of Estuary's real-time [connectors](https://github.com/orgs/estuary/packages?repo_name=connectors), available as docker images.
+
+The spec for this **catalog** is written in declarative YAML and [JSON Schema](https://json-schema.org/):
 
 ```YAML
 collections:
-  # Collection of 💲 transfers between accounts:
-  #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
-  acmeBank/transfers:
+  acmeCo/tripdata:
     schema:
-      # JSON Schema of collection's documents.
-      type: object
       properties:
-        id: { type: integer }
-        sender: { type: string }
-        recipient: { type: string }
-        amount: { type: number }
-      required: [id, sender, recipient, amount]
-    key: [/id]
-
-  # Derived balances of each account:
-  #   {account: alice, amount: 67.35}
-  acmeBank/balances:
-    schema:
+        _meta:
+          properties:
+            file:
+              type: string
+            offset:
+              minimum: 0
+              type: integer
+          required:
+            - file
+            - offset
+          type: object
+      required:
+        - _meta
       type: object
-      properties:
-        account: { type: string }
-        amount:
-          # Flow extends JSON schema with "reduce" annotations.
-          # These tell Flow how to combine each document location.
-          reduce: { strategy: sum }
-          type: number
-      required: [account, amount]
-      reduce: { strategy: merge }
-    key: [/account]
-
-    derivation:
-      transform:
-        fromTransfers:
-          source: { name: acmeBank/transfers }
-          # Lambdas are functions that map input documents into output documents.
-          # Here we declare a lambda that will map a bank transfer document
-          # into a balance update.
-          # This declaration tells Flow to look for an associated TypeScript module.
-          publish: { lambda: typescript }
-
-materializations:
-  acmeBank/database:
+    key: [/_meta/file, /_meta/offset]
+    
+captures:
+  acmeCo/source-s3:
     endpoint:
-      flowSink:
-        # Use a Docker connector to materialize into a PostgreSQL database.
-        # Connectors encapsulate the details of how to update a remote system,
-        # whether it's a database, a key/value store, pub/sub, or a SaaS API.
-        image: ghcr.io/estuary/materialize-postgres:f6f197d
+      airbyteSource:
+        image: ghcr.io/estuary/source-s3:0a4373e
         config:
-          # Try this by standing up a local PostgreSQL database.
-          # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
-          # (Use host: host.docker.internal when running Docker for Windows/Mac).
-          host: localhost
-          password: password
-          database: postgres
-          user: postgres
-          port: 5432
+          ascendingKeys: false
+          awsAccessKeyId: ""
+          awsSecretAccessKey: ""
+          bucket: "tripdata"
+          endpoint: ""
+          matchKeys: "202106-citibike-tripdata.csv.zip"
+          prefix: ""
+          region: "us-east-1"
     bindings:
-      # Create and materialize into table `account_balances`.
       - resource:
-          table: account_balances
-        source: acmeBank/balances
+          stream: tripdata/
+          syncMode: incremental
+        target: acmeCo/tripdata
+        
+materializations: 
+  acmeCo/postgres: 
+    bindings: 
+      - source: acmeCo/tripdata 
+        resource: 
+          table: trips 
+    endpoint:
+      postgres: 
+        host: localhost 
+        password: flow 
+        user: flow
 
-tests:
-  Balances reflect transfers:
-    - ingest:
-        collection: acmeBank/transfers
-        documents:
-          - { id: 1, sender: alice, recipient: bob, amount: 32.50 }
-          - { id: 2, sender: bob, recipient: carly, amount: 10.75 }
-    - verify:
-        collection: acmeBank/balances
-        documents:
-          - { account: alice, amount: -32.50 }
-          - { account: bob, amount: 21.75 }
-          - { account: carly, amount: 10.75 }
-```
-
-This file `acmeBank.flow.yaml` declares a `{ lambda: typescript }`, so Flow expects a
-corresponding TypeScript module `acmeBank.flow.ts` that export its lambda definition:
-
-```TypeScript
-import { collections, interfaces, registers } from 'flow/modules';
-
-// TypeScript types in `flow/modules` are generated from your catalog,
-// and Flow will create this file with an implementation stub if it
-// doesn't exist: all you have to write is the function body.
-
-export class AcmeBankBalances implements interfaces.AcmeBankBalances {
-    fromTransfersPublish(
-        source: collections.AcmeBankTransfers,
-        // Registers enable stateful workflows, and are part of
-        // the interface Flow expects, but aren't used here.
-        _register: registers.AcmeBankBalances,
-        _previous: registers.AcmeBankBalances,
-    ): collections.AcmeBankBalances[] {
-        return [
-            // A transfer removes from the sender and adds to the recipient.
-            { account: source.sender, amount: -source.amount },
-            { account: source.recipient, amount: source.amount },
-        ];
-    }
-}
 ```
 
 Today Flow supports TypeScript modules, which Flow runs on your behalf,
@@ -159,9 +103,9 @@ In the future we'll add support for WebAssembly and OpenAPI.
 
 ## How does it work?
 
-Flow builds upon [Gazette](https://gazette.dev) and is by the Gazette authors.
+Flow builds on [Gazette](https://gazette.dev), a streaming broker created by the same founding team. 
 Collections have logical and physical partitions
-which are implemented as Gazette journals.
+which are implemented as Gazette **journals**.
 Derivations and materializations leverage the Gazette consumer framework,
 which provide durable state management, exactly-once semantics,
 high availability, and dynamic scale-out.
@@ -178,10 +122,9 @@ Gazette, on which Flow is built, has been operating at large scale (GB/s)
 for many years now and is very stable.
 
 Flow itself is winding down from an intense period of research and development.
-Estuary is running production pilots now, but it's early. You should expect that Flow
-may fail in ways that halt execution of derivations or materializations. There may
-be cases where derivations or materialization must be rebuilt due to bugs within Flow.
-Loss of ingested source data, however, is very unlikely.
+Estuary is running production pilots now, for a select group of beta customers (you can [reach out](https://www.estuary.dev/#get-in-touch) for a free consult with the team). 
+For now, we encourage you to use Flow in a testing environment, but you might see unexpected behaviors
+or failures simply due to the pace of development.
 
 ## How fast is it?
 
