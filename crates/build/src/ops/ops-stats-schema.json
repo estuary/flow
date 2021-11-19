@@ -8,12 +8,16 @@
         "ts": {
             "description": "Timestamp corresponding to the start of the transaction",
             "type": "string",
-            "format": "date-time",
-            "reduce": {"strategy": "maximize"}
+            "format": "date-time"
         },
         "openSecondsTotal": {
             "description": "Total time that the transaction was open before starting to commit",
             "type": "number",
+            "reduce": {"strategy": "sum"}
+        },
+        "txnCount": {
+            "description": "Total number of transactions represented by this stats document",
+            "type": "integer",
             "reduce": {"strategy": "sum"}
         },
         "capture": {
@@ -67,7 +71,7 @@
         }
     },
     "reduce": {"strategy": "merge"},
-    "required": ["shard", "ts", "openSecondsTotal"],
+    "required": ["shard", "ts", "txnCount", "openSecondsTotal"],
     "oneOf": [
         {"required": ["capture"]},
         {"required": ["derive"]},

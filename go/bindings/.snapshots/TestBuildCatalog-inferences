@@ -1,4 +1,4 @@
-([]catalog.SchemaLocation) (len=33) {
+([]catalog.SchemaLocation) (len=34) {
   (catalog.SchemaLocation) {
     Schema: (string) (len=34) "builtin://flow/ops-log-schema.json",
     Location: (string) "",
@@ -133,6 +133,11 @@
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
     Location: (string) (len=3) "/ts",
     Spec: (flow.Inference) types:"string" must_exist:true string:<format:"date-time" > description:"Timestamp corresponding to the start of the transaction" 
+  },
+  (catalog.SchemaLocation) {
+    Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
+    Location: (string) (len=9) "/txnCount",
+    Spec: (flow.Inference) types:"integer" must_exist:true description:"Total number of transactions represented by this stats document" 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=61) "file:///build.flow.yaml?ptr=/collections/a~1collection/schema",
