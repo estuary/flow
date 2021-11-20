@@ -11,6 +11,7 @@ require (
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.2
+	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/jackc/pgx/v4 v4.10.1
 	github.com/jessevdk/go-flags v1.5.0

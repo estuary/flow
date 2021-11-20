@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
+	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
@@ -156,10 +157,6 @@ func (d *Combine) Destroy() {
 	}
 }
 
-type StatsMessage interface {
-	Unmarshal(b []byte) error
-}
-
 // drainCombineToCallback drains either a Combine or a Derive, passing each document to the
 // callback. The final stats will be unmarshaled into statsMessage, which will be either a
 // pf.CombineAPI_Stats or a pf.DeriveAPI_Stats.
@@ -167,7 +164,7 @@ func drainCombineToCallback(
 	svc *service,
 	out *[]C.Out,
 	cb CombineCallback,
-	statsMessage StatsMessage,
+	statsMessage proto.Unmarshaler,
 ) (nDocs, nBytes int, err error) {
 	// Sanity check we got triples of output frames, plus one at the end for the stats.
 	if len(*out)%3 != 1 {
