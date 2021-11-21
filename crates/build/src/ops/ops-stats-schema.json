@@ -21,7 +21,7 @@
             "reduce": {"strategy": "sum"}
         },
         "capture": {
-            "description": "A map of each binding target (collection name) to combiner stats for that binding",
+            "description": "Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection.",
             "type": "object",
             "additionalProperties": {
                 "type": "object",
