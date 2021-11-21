@@ -57,7 +57,7 @@
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
     Location: (string) (len=8) "/capture",
-    Spec: (flow.Inference) types:"object" description:"A map of each binding target (collection name) to combiner stats for that binding" 
+    Spec: (flow.Inference) types:"object" description:"Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection." 
   },
   (catalog.SchemaLocation) {
     Schema: (string) (len=36) "builtin://flow/ops-stats-schema.json",
