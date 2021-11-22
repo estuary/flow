@@ -19,3 +19,9 @@ serde_json = "*"
 
 [build-dependencies]
 prost-build = "*"
+
+[features]
+default = []
+# The test-support feature enables additional functionality for use during tests. This feature is
+# intended to only be used from "dev-dependencies"
+test-support = []

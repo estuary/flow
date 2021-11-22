@@ -33,3 +33,4 @@ url = "*"
 insta = "*"
 lazy_static = "*"
 serde_yaml = "*"
+protocol = { path = "../protocol", features = ["test-support"] }
