@@ -758,7 +758,7 @@ pub mod derive_api {
         pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
     }
     /// Stats holds statistics relating to a single derive transaction.
-    #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+    #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Stats {
         /// Array indexed by transform_index with stats per transform.
@@ -774,7 +774,7 @@ pub mod derive_api {
     /// Nested message and enum types in `Stats`.
     pub mod stats {
         /// Stats about the invocation of update or publish lambdas.
-        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct InvokeStats {
             /// The total number of documents and bytes that were output from the invocations.
@@ -784,7 +784,7 @@ pub mod derive_api {
             #[prost(double, tag="2")]
             pub total_seconds: f64,
         }
-        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct TransformStats {
             /// The total inputs that were fed into this transform.
@@ -797,7 +797,7 @@ pub mod derive_api {
             #[prost(message, optional, tag="3")]
             pub publish: ::core::option::Option<InvokeStats>,
         }
-        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
+        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct RegisterStats {
             /// The number of new register values that were created and added to the registers database.
