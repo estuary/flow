@@ -1027,4 +1027,5 @@ pub enum ContentType {
     JsonSchema = 1,
     TypescriptModule = 2,
     NpmPackage = 3,
+    Config = 4,
 }

@@ -33,7 +33,7 @@ expression: "&schema"
             ],
             "endpoint": {
               "airbyteSource": {
-                "config": {},
+                "config": "connector-config.yaml",
                 "image": "connector/image:tag"
               }
             },
@@ -107,7 +107,7 @@ expression: "&schema"
             ],
             "endpoint": {
               "flowSink": {
-                "config": {},
+                "config": "connector-config.yaml",
                 "image": "connector/image:tag"
               }
             },
@@ -215,25 +215,6 @@ expression: "&schema"
   },
   "additionalProperties": false,
   "definitions": {
-    "AirbyteSourceConfig": {
-      "description": "Airbyte source connector specification.",
-      "type": "object",
-      "required": [
-        "config",
-        "image"
-      ],
-      "properties": {
-        "config": {
-          "title": "Configuration of the connector.",
-          "type": "object",
-          "additionalProperties": true
-        },
-        "image": {
-          "title": "Image of the connector.",
-          "type": "string"
-        }
-      }
-    },
     "BucketType": {
       "description": "BucketType is a provider of object storage buckets, which are used to durably storage journal fragments.",
       "examples": [
@@ -329,7 +310,7 @@ expression: "&schema"
           ],
           "properties": {
             "airbyteSource": {
-              "$ref": "#/definitions/AirbyteSourceConfig"
+              "$ref": "#/definitions/ConnectorConfig"
             }
           },
           "additionalProperties": false
@@ -456,6 +437,45 @@ expression: "&schema"
         "GZIP_OFFLOAD_DECOMPRESSION"
       ]
     },
+    "Config": {
+      "description": "A configuration which is either defined inline, or is a relative or absolute URI to a configuration file.",
+      "examples": [
+        "http://example/config",
+        "../path/to/config.yaml",
+        {
+          "config_key": "value"
+        }
+      ],
+      "anyOf": [
+        {
+          "description": "Relative URL to a configuration file.",
+          "$ref": "#/definitions/RelativeUrl"
+        },
+        {
+          "description": "Inline configuration.",
+          "type": "object",
+          "additionalProperties": true
+        }
+      ]
+    },
+    "ConnectorConfig": {
+      "description": "Connector image and configuration specification.",
+      "type": "object",
+      "required": [
+        "config",
+        "image"
+      ],
+      "properties": {
+        "config": {
+          "title": "Configuration of the connector.",
+          "$ref": "#/definitions/Config"
+        },
+        "image": {
+          "title": "Image of the connector.",
+          "type": "string"
+        }
+      }
+    },
     "ContentType": {
       "description": "ContentType is the type of an imported resource's content.",
       "examples": [
@@ -465,7 +485,8 @@ expression: "&schema"
       "enum": [
         "CATALOG",
         "JSON_SCHEMA",
-        "TYPESCRIPT_MODULE"
+        "TYPESCRIPT_MODULE",
+        "CONFIG"
       ]
     },
     "Derivation": {
@@ -526,25 +547,6 @@ expression: "&schema"
       ],
       "type": "string",
       "pattern": "^([^/~]|(~[01]))+(/([^/~]|(~[01]))+)*$"
-    },
-    "FlowSinkConfig": {
-      "description": "Flow sink connector specification.",
-      "type": "object",
-      "required": [
-        "config",
-        "image"
-      ],
-      "properties": {
-        "config": {
-          "title": "Configuration of the connector.",
-          "type": "object",
-          "additionalProperties": true
-        },
-        "image": {
-          "title": "Image of the connector.",
-          "type": "string"
-        }
-      }
     },
     "FragmentTemplate": {
       "description": "A FragmentTemplate configures how journal fragment files are produced as part of a collection.",
@@ -808,7 +810,7 @@ expression: "&schema"
           ],
           "properties": {
             "flowSink": {
-              "$ref": "#/definitions/FlowSinkConfig"
+              "$ref": "#/definitions/ConnectorConfig"
             }
           },
           "additionalProperties": false
@@ -1177,7 +1179,7 @@ expression: "&schema"
       "properties": {
         "path": {
           "title": "Path of the database, relative to this catalog source.",
-          "description": "The path may include query arguements. See: https://github.com/mattn/go-sqlite3#connection-string",
+          "description": "The path may include query arguments. See: https://github.com/mattn/go-sqlite3#connection-string",
           "$ref": "#/definitions/RelativeUrl"
         }
       }
