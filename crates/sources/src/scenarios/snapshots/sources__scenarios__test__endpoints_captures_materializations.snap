@@ -36,6 +36,22 @@ Tables {
     ],
     captures: [
         Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+            capture: capture/config-missing,
+            endpoint_type: "AirbyteSource",
+            endpoint_spec: null,
+            interval_seconds: 300,
+            shards: {},
+        },
+        Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1config-parse-error,
+            capture: capture/config-parse-error,
+            endpoint_type: "AirbyteSource",
+            endpoint_spec: null,
+            interval_seconds: 300,
+            shards: {},
+        },
+        Capture {
             scope: test://example/catalog.yaml#/captures/capture~1ingest,
             capture: capture/ingest,
             endpoint_type: "Ingest",
@@ -47,7 +63,7 @@ Tables {
             scope: test://example/catalog.yaml#/captures/capture~1second,
             capture: capture/second,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: {"config":{"more":"config"},"image":"another/image"},
+            endpoint_spec: {"config":{"referenced":"config"},"image":"another/image"},
             interval_seconds: 180,
             shards: {"maxTxnDuration":"30s","logLevel":"debug"},
         },
@@ -62,7 +78,30 @@ Tables {
     ],
     collections: [],
     derivations: [],
-    errors: [],
+    errors: [
+        Error {
+            scope: test://example/malformed-config.yaml,
+            error: failed to parse YAML (location None)
+            
+            Caused by:
+                0: invalid utf-8 sequence of 1 bytes from index 1
+                1: invalid utf-8 sequence of 1 bytes from index 1,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment
+            
+            Caused by:
+                resources cannot have fragments,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+            error: failed to fetch resource test://example/config/not/found.yaml
+            
+            Caused by:
+                fixture not found,
+        },
+    ],
     fetches: [
         Fetch {
             depth: 1,
@@ -72,12 +111,54 @@ Tables {
             depth: 2,
             resource: test://example/catalog.ts,
         },
+        Fetch {
+            depth: 2,
+            resource: test://example/config/not/found.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/malformed-config.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/referenced/config.yaml,
+        },
     ],
     imports: [
         Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-parse-error,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/malformed-config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/referenced/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1second,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/referenced/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/referenced/config.yaml#/bad/fragment,
         },
     ],
     materialization_bindings: [
@@ -124,6 +205,27 @@ Tables {
             shards: {},
         },
         Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
+            materialization: materialization/missing-config,
+            endpoint_type: "FlowSink",
+            endpoint_spec: null,
+            shards: {},
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
+            materialization: materialization/with-config,
+            endpoint_type: "FlowSink",
+            endpoint_spec: {"config":{"referenced":"config"},"image":"materialization/another:image"},
+            shards: {},
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+            materialization: materialization/with-config-fragment,
+            endpoint_type: "FlowSink",
+            endpoint_spec: null,
+            shards: {},
+        },
+        Materialization {
             scope: test://example/catalog.yaml#/materializations/to~1sqlite,
             materialization: to/sqlite,
             endpoint_type: "Sqlite",
@@ -138,6 +240,16 @@ Tables {
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/malformed-config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/referenced/config.yaml,
+            content_type: "CONFIG",
             content: ".. binary ..",
         },
     ],

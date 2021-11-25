@@ -61,9 +61,7 @@ test://example/int-string-captures:
       endpoint:
         airbyteSource:
           image: database
-          config:
-            host: a.host.name
-            user: a-user
+          config: cdc-config.yaml
       bindings:
         - target: testing/int-string
           resource:
@@ -71,6 +69,10 @@ test://example/int-string-captures:
             namespace: and namespace
       shards:
         hotStandbys: 1
+
+test://example/cdc-config.yaml:
+  host: a.host.name
+  user: a-user
 
 test://example/webhook-deliveries:
   import:
@@ -81,8 +83,7 @@ test://example/webhook-deliveries:
       endpoint:
         flowSink:
           image: webhook/connector
-          config:
-            address: http://example/webhook
+          config: webhook-config.yaml
       bindings:
         - source: testing/int-string
           partitions:
@@ -101,6 +102,9 @@ test://example/webhook-deliveries:
             include:
               Len: {}
             recommended: false
+
+test://example/webhook-config.yaml:
+  address: http://example/webhook
 
 test://example/db-views:
   import:

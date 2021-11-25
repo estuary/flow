@@ -93,7 +93,63 @@ impl<F: Fetcher> Loader<F> {
     }
 
     pub fn into_tables(self) -> Tables {
-        self.tables.into_inner()
+        let mut tables = self.tables.into_inner();
+
+        let Tables {
+            captures,
+            materializations,
+            resources,
+            ..
+        } = &mut tables;
+
+        // At this point we know that no more fetches will complete.
+        // Re-write capture and materialization configurations to their inline form.
+
+        let to_inline = |endpoint_spec: &mut serde_json::Value| {
+            let taken = serde_json::from_value(std::mem::take(endpoint_spec))
+                .expect("endpoint spec must be a ConnectorConfig");
+
+            *endpoint_spec = match taken {
+                // Map a URL ConnectorConfig to its inline form.
+                models::ConnectorConfig {
+                    image,
+                    config: models::Config::Url(resource_url),
+                } => resources
+                    // Note we've already reported a fetch or parsing error.
+                    .binary_search_by_key(&resource_url.as_str(), |r| r.resource.as_str())
+                    .ok()
+                    .and_then(|ind| resources.get(ind))
+                    .and_then(|r| serde_yaml::from_slice(&r.content).ok())
+                    .map(|config| {
+                        serde_json::to_value(models::ConnectorConfig {
+                            image,
+                            config: models::Config::Inline(config),
+                        })
+                        .unwrap()
+                    }),
+                // Pass through the ConnectorConfig as-is.
+                spec @ _ => Some(serde_json::to_value(spec).unwrap()),
+            }
+            .unwrap_or_default();
+        };
+
+        let taken = std::mem::take(captures);
+        captures.extend(taken.into_iter().map(|mut m| {
+            if m.endpoint_type == protocol::flow::EndpointType::AirbyteSource {
+                to_inline(&mut m.endpoint_spec);
+            }
+            m
+        }));
+
+        let taken = std::mem::take(materializations);
+        materializations.extend(taken.into_iter().map(|mut m| {
+            if m.endpoint_type == protocol::flow::EndpointType::FlowSink {
+                to_inline(&mut m.endpoint_spec);
+            }
+            m
+        }));
+
+        tables
     }
 
     /// Load (or re-load) a resource of the given ContentType.
@@ -177,6 +233,10 @@ impl<F: Fetcher> Loader<F> {
                 models::ContentType::JsonSchema => {
                     self.load_schema_document(scope, content.as_ref()).await
                 }
+                // Require that the config parses as a YAML or JSON document.
+                models::ContentType::Config => self
+                    .fallible(scope, serde_yaml::from_slice(&content))
+                    .map(|_dom: models::Object| ()),
                 _ => None,
             };
             ()
@@ -347,7 +407,7 @@ impl<F: Fetcher> Loader<F> {
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
         let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
-        // We allow and support YAML aliases in catalog documents.
+        // We allow and support YAML merge keys in catalog documents.
         let dom: serde_yaml::Value =
             self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
 
@@ -442,8 +502,8 @@ impl<F: Fetcher> Loader<F> {
             });
         let collections = futures::future::join_all(collections);
 
-        // Collect captures.
-        for (name, capture) in captures {
+        // Task which loads all captures.
+        let captures = captures.into_iter().map(|(name, capture)| async move {
             let scope = scope.push_prop("captures");
             let scope = scope.push_prop(&name);
             let models::CaptureDef {
@@ -454,7 +514,7 @@ impl<F: Fetcher> Loader<F> {
             } = capture;
             let endpoint_type = endpoint.endpoint_type();
 
-            if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint) {
+            if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint).await {
                 self.tables.borrow_mut().captures.insert_row(
                     scope.flatten(),
                     &name,
@@ -478,61 +538,68 @@ impl<F: Fetcher> Loader<F> {
                     target,
                 );
             }
-        }
+        });
+        let captures = futures::future::join_all(captures);
 
-        // Collect materializations.
-        for (name, materialization) in materializations {
-            let scope = scope.push_prop("materializations");
-            let scope = scope.push_prop(&name);
-            let models::MaterializationDef {
-                endpoint,
-                bindings,
-                shards,
-            } = materialization;
-            let endpoint_type = endpoint.endpoint_type();
+        // Task which loads all materializations.
+        let materializations =
+            materializations
+                .into_iter()
+                .map(|(name, materialization)| async move {
+                    let scope = scope.push_prop("materializations");
+                    let scope = scope.push_prop(&name);
+                    let models::MaterializationDef {
+                        endpoint,
+                        bindings,
+                        shards,
+                    } = materialization;
+                    let endpoint_type = endpoint.endpoint_type();
 
-            if let Some(endpoint_spec) = self.load_materialization_endpoint(scope, endpoint) {
-                self.tables.borrow_mut().materializations.insert_row(
-                    scope.flatten(),
-                    &name,
-                    endpoint_type,
-                    endpoint_spec,
-                    shards,
-                );
-            }
+                    if let Some(endpoint_spec) =
+                        self.load_materialization_endpoint(scope, endpoint).await
+                    {
+                        self.tables.borrow_mut().materializations.insert_row(
+                            scope.flatten(),
+                            &name,
+                            endpoint_type,
+                            endpoint_spec,
+                            shards,
+                        );
+                    }
 
-            for (index, binding) in bindings.into_iter().enumerate() {
-                let scope = scope.push_prop("bindings");
-                let scope = scope.push_item(index);
+                    for (index, binding) in bindings.into_iter().enumerate() {
+                        let scope = scope.push_prop("bindings");
+                        let scope = scope.push_item(index);
 
-                let models::MaterializationBinding {
-                    resource,
-                    source,
-                    partitions,
-                    fields:
-                        models::MaterializationFields {
-                            include: fields_include,
-                            exclude: fields_exclude,
-                            recommended: fields_recommended,
-                        },
-                } = binding;
+                        let models::MaterializationBinding {
+                            resource,
+                            source,
+                            partitions,
+                            fields:
+                                models::MaterializationFields {
+                                    include: fields_include,
+                                    exclude: fields_exclude,
+                                    recommended: fields_recommended,
+                                },
+                        } = binding;
 
-                self.tables
-                    .borrow_mut()
-                    .materialization_bindings
-                    .insert_row(
-                        scope.flatten(),
-                        &name,
-                        index as u32,
-                        serde_json::Value::Object(resource),
-                        source,
-                        fields_exclude,
-                        fields_include,
-                        fields_recommended,
-                        partitions,
-                    );
-            }
-        }
+                        self.tables
+                            .borrow_mut()
+                            .materialization_bindings
+                            .insert_row(
+                                scope.flatten(),
+                                &name,
+                                index as u32,
+                                serde_json::Value::Object(resource),
+                                source,
+                                fields_exclude,
+                                fields_include,
+                                fields_recommended,
+                                partitions,
+                            );
+                    }
+                });
+        let materializations = futures::future::join_all(materializations);
 
         // Collect tests.
         for (test, step_specs) in tests {
@@ -584,8 +651,13 @@ impl<F: Fetcher> Loader<F> {
             }
         }
 
-        let (_, _, _): (Vec<()>, (), Vec<()>) =
-            futures::join!(import, typescript_module, collections);
+        let (_, _, _, _, _): (Vec<()>, (), Vec<()>, Vec<()>, Vec<()>) = futures::join!(
+            import,
+            typescript_module,
+            collections,
+            captures,
+            materializations
+        );
         Some(())
     }
 
@@ -764,24 +836,58 @@ impl<F: Fetcher> Loader<F> {
         );
     }
 
-    fn load_capture_endpoint<'s>(
+    async fn load_capture_endpoint<'s>(
         &'s self,
-        _scope: Scope<'s>,
-        endpoint: models::CaptureEndpoint,
+        scope: Scope<'s>,
+        mut endpoint: models::CaptureEndpoint,
     ) -> Option<serde_json::Value> {
         use models::CaptureEndpoint::*;
+
+        // Map a URL reference into its absolute form, and load it.
+        if let AirbyteSource(models::ConnectorConfig {
+            image,
+            config: models::Config::Url(relative),
+        }) = endpoint
+        {
+            let absolute = self.fallible(scope, scope.resource().join(&relative))?;
+            self.load_import(scope, &absolute, models::ContentType::Config)
+                .await;
+
+            endpoint = AirbyteSource(models::ConnectorConfig {
+                image,
+                config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
+            });
+        }
+
         match endpoint {
             AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
             Ingest(spec) => Some(serde_json::to_value(spec).unwrap()),
         }
     }
 
-    fn load_materialization_endpoint<'s>(
+    async fn load_materialization_endpoint<'s>(
         &'s self,
         scope: Scope<'s>,
-        endpoint: models::MaterializationEndpoint,
+        mut endpoint: models::MaterializationEndpoint,
     ) -> Option<serde_json::Value> {
         use models::MaterializationEndpoint::*;
+
+        // Map a URL reference into its absolute form, and ensure that it's loaded.
+        if let FlowSink(models::ConnectorConfig {
+            image,
+            config: models::Config::Url(relative),
+        }) = endpoint
+        {
+            let absolute = self.fallible(scope, scope.resource().join(&relative))?;
+            self.load_import(scope, &absolute, models::ContentType::Config)
+                .await;
+
+            endpoint = FlowSink(models::ConnectorConfig {
+                image,
+                config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
+            });
+        }
+
         match endpoint {
             FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
             Sqlite(mut spec) => {

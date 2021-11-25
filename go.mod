@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/storage v1.18.2
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
-	github.com/estuary/protocols v0.0.0-20211118044829-3daa24144046
+	github.com/estuary/protocols v0.0.0-20211128205011-68ad1553e6a5
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.2
@@ -24,8 +24,9 @@ require (
 	github.com/stretchr/testify v1.7.0
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.89.1-0.20211102012207-3059932fee87
+	go.gazette.dev/core v0.89.1-0.20211118163301-f0ff6cd8fce4
 	golang.org/x/net v0.0.0-20210825183410-e898025ed96a
+	golang.org/x/sys v0.0.0-20211124211545-fe61309f8881
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/api v0.60.0
 	google.golang.org/grpc v1.40.0

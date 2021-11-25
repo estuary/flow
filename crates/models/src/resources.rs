@@ -73,6 +73,8 @@ pub enum ContentType {
     JsonSchema,
     /// Resource is a TypeScript module file.
     TypescriptModule,
+    /// Configuration file.
+    Config,
     /// Resource is a compiled NPM package.
     #[schemars(skip)]
     NpmPackage,
@@ -91,6 +93,7 @@ impl From<ProtoContentType> for ContentType {
             ProtoContentType::JsonSchema => Self::JsonSchema,
             ProtoContentType::TypescriptModule => Self::TypescriptModule,
             ProtoContentType::NpmPackage => Self::NpmPackage,
+            ProtoContentType::Config => Self::Config,
         }
     }
 }
@@ -101,6 +104,7 @@ impl Into<ProtoContentType> for ContentType {
             Self::JsonSchema => ProtoContentType::JsonSchema,
             Self::TypescriptModule => ProtoContentType::TypescriptModule,
             Self::NpmPackage => ProtoContentType::NpmPackage,
+            Self::Config => ProtoContentType::Config,
         }
     }
 }

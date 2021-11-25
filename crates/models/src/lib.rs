@@ -6,6 +6,7 @@ pub mod tables;
 mod captures;
 mod catalogs;
 mod collections;
+mod config;
 mod derivations;
 mod journals;
 mod labels;
@@ -17,16 +18,17 @@ mod shards;
 mod shuffles;
 mod tests;
 
-pub use captures::{AirbyteSourceConfig, CaptureBinding, CaptureDef, CaptureEndpoint};
+pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
+pub use config::{Config, ConnectorConfig};
 pub use derivations::{Derivation, Publish, Register, TransformDef, TransformSource, Update};
 pub use journals::{
     BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageDef, Store,
 };
 pub use materializations::{
-    FlowSinkConfig, MaterializationBinding, MaterializationDef, MaterializationEndpoint,
-    MaterializationFields, SqliteConfig,
+    MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
+    SqliteConfig,
 };
 pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,

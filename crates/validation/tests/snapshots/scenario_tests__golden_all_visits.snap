@@ -4024,6 +4024,10 @@ All {
         },
         Fetch {
             depth: 3,
+            resource: test://example/cdc-config.yaml,
+        },
+        Fetch {
+            depth: 3,
             resource: test://example/db-views.ts,
         },
         Fetch {
@@ -4057,6 +4061,10 @@ All {
         Fetch {
             depth: 3,
             resource: test://example/int-string.ts,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/webhook-config.yaml,
         },
         Fetch {
             depth: 3,
@@ -4225,6 +4233,11 @@ All {
             to_resource: test://example/int-string.ts,
         },
         Import {
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            from_resource: test://example/int-string-captures,
+            to_resource: test://example/cdc-config.yaml,
+        },
+        Import {
             scope: test://example/int-string-captures#/import/0,
             from_resource: test://example/int-string-captures,
             to_resource: test://example/int-string,
@@ -4263,6 +4276,11 @@ All {
             scope: test://example/webhook-deliveries#/import/0,
             from_resource: test://example/webhook-deliveries,
             to_resource: test://example/int-string,
+        },
+        Import {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            from_resource: test://example/webhook-deliveries,
+            to_resource: test://example/webhook-config.yaml,
         },
         Import {
             scope: test://example/webhook-deliveries,
@@ -5111,6 +5129,11 @@ All {
             content: ".. binary ..",
         },
         Resource {
+            resource: test://example/cdc-config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+        },
+        Resource {
             resource: test://example/db-views,
             content_type: "CATALOG",
             content: ".. binary ..",
@@ -5188,6 +5211,11 @@ All {
         Resource {
             resource: test://example/int-string.schema,
             content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/webhook-config.yaml,
+            content_type: "CONFIG",
             content: ".. binary ..",
         },
         Resource {

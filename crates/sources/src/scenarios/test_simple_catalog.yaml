@@ -1,6 +1,7 @@
 test://example/catalog.yaml:
     import:
         - sibling
+        - sibling#/bad/fragment
         - test://not/found
     npmDependencies:
         package-one: "v0.1.2"
