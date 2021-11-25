@@ -1,4 +1,9 @@
 test://example/catalog.yaml:
+  resources:
+    test://example/malformed-config.yaml:
+      content: abcd1234
+      contentType: CONFIG
+
   captures:
     first/capture:
       endpoint:
@@ -18,8 +23,7 @@ test://example/catalog.yaml:
       endpoint:
         airbyteSource:
           image: another/image
-          config:
-            more: config
+          config: referenced/config.yaml
       interval: 3m
       bindings:
         - target: third/collection
@@ -34,6 +38,20 @@ test://example/catalog.yaml:
       bindings:
         - target: third/collection
           resource: {}
+
+    capture/config-missing:
+      endpoint:
+        airbyteSource:
+          image: another/image
+          config: config/not/found.yaml
+      bindings: []
+
+    capture/config-parse-error:
+      endpoint:
+        airbyteSource:
+          image: another/image
+          config: malformed-config.yaml
+      bindings: []
 
   materializations:
     a/materialization:
@@ -58,6 +76,27 @@ test://example/catalog.yaml:
             exclude: [del]
             recommended: true
 
+    materialization/with-config:
+      endpoint:
+        flowSink:
+          image: materialization/another:image
+          config: referenced/config.yaml
+      bindings: []
+
+    materialization/with-config-fragment:
+      endpoint:
+        flowSink:
+          image: materialization/another:image
+          config: referenced/config.yaml#/bad/fragment
+      bindings: []
+
+    materialization/missing-config:
+      endpoint:
+        flowSink:
+          image: materialization/image
+          config: config/not/found.yaml
+      bindings: []
+
     to/sqlite:
       endpoint:
         sqlite:
@@ -67,3 +106,6 @@ test://example/catalog.yaml:
           resource: { table: "table_three" }
       shards:
         ringBufferSize: 12345
+
+test://example/referenced/config.yaml:
+  referenced: config

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
 
-use super::{Collection, Field, Object, PartitionSelector, RelativeUrl, ShardTemplate};
+use super::{
+    Collection, ConnectorConfig, Field, Object, PartitionSelector, RelativeUrl, ShardTemplate,
+};
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
@@ -23,10 +25,7 @@ pub struct MaterializationDef {
 impl MaterializationDef {
     pub fn example() -> Self {
         Self {
-            endpoint: MaterializationEndpoint::FlowSink(FlowSinkConfig {
-                image: "connector/image:tag".to_string(),
-                config: Object::new(),
-            }),
+            endpoint: MaterializationEndpoint::FlowSink(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
         }
@@ -109,7 +108,7 @@ impl Default for MaterializationFields {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationEndpoint {
     /// # A Flow sink.
-    FlowSink(FlowSinkConfig),
+    FlowSink(ConnectorConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
 }
@@ -123,20 +122,11 @@ impl MaterializationEndpoint {
     }
 }
 
-/// Flow sink connector specification.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct FlowSinkConfig {
-    /// # Image of the connector.
-    pub image: String,
-    /// # Configuration of the connector.
-    pub config: Object,
-}
-
 /// Sqlite endpoint configuration.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct SqliteConfig {
     /// # Path of the database, relative to this catalog source.
-    /// The path may include query arguements. See:
+    /// The path may include query arguments. See:
     /// https://github.com/mattn/go-sqlite3#connection-string
     pub path: RelativeUrl,
 }

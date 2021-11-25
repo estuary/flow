@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
-use super::{Collection, Object, ShardTemplate};
+use super::{Collection, ConnectorConfig, Object, ShardTemplate};
 
 /// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
 /// from which data should be continuously captured, with a Flow collection into that captured
@@ -42,10 +42,7 @@ impl CaptureDef {
 
     pub fn example() -> Self {
         Self {
-            endpoint: CaptureEndpoint::AirbyteSource(AirbyteSourceConfig {
-                image: "connector/image:tag".to_string(),
-                config: Object::new(),
-            }),
+            endpoint: CaptureEndpoint::AirbyteSource(ConnectorConfig::example()),
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),
@@ -77,7 +74,7 @@ impl CaptureBinding {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum CaptureEndpoint {
     /// # An Airbyte source connector.
-    AirbyteSource(AirbyteSourceConfig),
+    AirbyteSource(ConnectorConfig),
     /// # A push ingestion.
     Ingest(IngestConfig),
 }
@@ -89,15 +86,6 @@ impl CaptureEndpoint {
             Self::Ingest(_) => EndpointType::Ingest,
         }
     }
-}
-
-/// Airbyte source connector specification.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-pub struct AirbyteSourceConfig {
-    /// # Image of the connector.
-    pub image: String,
-    /// # Configuration of the connector.
-    pub config: Object,
 }
 
 /// Ingest source specification.
