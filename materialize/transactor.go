@@ -192,7 +192,7 @@ func RunTransactions(
 		}
 
 		if err := transactor.Acknowledge(ctx); err != nil {
-			return fmt.Errorf("Acknowledge: %w", err)
+			return fmt.Errorf("transactor.Acknowledge: %w", err)
 		}
 
 		// Writing Acknowledged may race writes of Loaded responses.
@@ -231,15 +231,23 @@ func RunTransactions(
 			close(loadCh)
 		}()
 
-		// Process all Load requests until Prepare is read.
-		var loadErr = transactor.Load(it, commitCh, ackCh, func(binding int, doc json.RawMessage) error {
-			loaded++
+		var loadErr error
 
-			tx.Lock()
-			defer tx.Unlock()
+		// Poll the LoadIterator to determine if there are any Load requests (vs
+		// reading only Acknowledge and Prepare). If there aren't, we skip calling
+		// the delegate's Load -- some drivers have panic implementations of Load
+		// when the driver supports only delta-updates mode.
+		if it.poll() {
+			// Process all Load requests until Prepare is read.
+			loadErr = transactor.Load(it, commitCh, ackCh, func(binding int, doc json.RawMessage) error {
+				loaded++
 
-			return StageLoaded(stream, &tx.response, binding, doc)
-		})
+				tx.Lock()
+				defer tx.Unlock()
+
+				return StageLoaded(stream, &tx.response, binding, doc)
+			})
+		}
 
 		// Prefer the iterator's error over |loadErr|, as it's earlier in the chain
 		// of dependency and is likely causal of (or equal to) |loadErr|.
@@ -280,7 +288,7 @@ func RunTransactions(
 			case <-loadCh:
 				if loadErr != nil && loadErr != io.EOF {
 					// Bail out to cancel ongoing Commit & Acknowledge.
-					return fmt.Errorf("Load: %w", loadErr)
+					return fmt.Errorf("transactor.Load: %w", loadErr)
 				}
 				loadCh = nil
 			}
