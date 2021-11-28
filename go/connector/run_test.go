@@ -1,16 +1,22 @@
-package airbyte
+package connector
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/estuary/protocols/flow"
 	"github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestJSONRecordBreaks(t *testing.T) {
@@ -113,7 +119,7 @@ func TestProtoRecordBreaks(t *testing.T) {
 	// copies of our fixture, and counts its number of invocations.
 	var verifyCount int
 	var verifyEmptyCount int
-	var s = NewConnectorProtoOutput(
+	var s = NewProtoOutput(
 		func() proto.Message { return new(flow.CollectionSpec) },
 		func(m proto.Message) error {
 			if m.String() != "" {
@@ -192,4 +198,44 @@ func TestProtoRecordBreaks(t *testing.T) {
 	var n, err = s.Write([]byte{0xff, 0xff, 0xff, 0xff})
 	require.EqualError(t, err, "message is too large: 4294967295")
 	require.Equal(t, 0, n)
+}
+
+func TestFIFOFiles(t *testing.T) {
+	// Verify the garden path of a ready reader.
+	var path = filepath.Join(t.TempDir(), "test-fifo")
+	require.NoError(t, unix.Mkfifo(path, 0644))
+
+	var wg sync.WaitGroup
+	var recovered string
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		var f, err = os.OpenFile(path, os.O_RDONLY, os.ModeNamedPipe)
+		require.NoError(t, err)
+
+		b, err := ioutil.ReadAll(f)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		recovered = string(b)
+	}()
+
+	var input = []byte("hello")
+	require.NoError(t, fifoSend(path, input, time.Minute))
+	wg.Wait()
+	require.Equal(t, "hello", recovered)
+
+	// Expect input was zeroed.
+	require.Equal(t, []byte{0, 0, 0, 0, 0}, input)
+
+	// Again, but this time there is no reader.
+	// Expect fifoSend doesn't block and returns an error.
+	input = []byte("world")
+	require.Regexp(t, "writing to FIFO: write .*: i\\/o timeout",
+		fifoSend(path, input, time.Millisecond).Error())
+
+	// Input was zeroed on error as well.
+	require.Equal(t, []byte{0, 0, 0, 0, 0}, input)
 }

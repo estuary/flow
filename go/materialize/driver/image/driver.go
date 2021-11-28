@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/estuary/flow/go/capture/driver/airbyte"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
@@ -56,18 +56,25 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
-	// Unwrap layer of proxied configuration.
-	req.EndpointSpecJson = source.Config
+
+	// Unwrap layer of decrypted, proxied configuration.
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted)
+	req.EndpointSpecJson = decrypted
 
 	var resp *pm.SpecResponse
-	var err = airbyte.RunConnector(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{"spec"},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
 			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
 				WriteMsg(req)
 		},
-		airbyte.NewConnectorProtoOutput(
+		connector.NewProtoOutput(
 			func() proto.Message { return new(pm.SpecResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
@@ -90,18 +97,25 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
-	// Unwrap layer of proxied configuration.
-	req.EndpointSpecJson = source.Config
+
+	// Unwrap layer of decrypted, proxied configuration.
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted)
+	req.EndpointSpecJson = decrypted
 
 	var resp *pm.ValidateResponse
-	var err = airbyte.RunConnector(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{"validate"},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
 			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
 				WriteMsg(req)
 		},
-		airbyte.NewConnectorProtoOutput(
+		connector.NewProtoOutput(
 			func() proto.Message { return new(pm.ValidateResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
@@ -133,19 +147,26 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 	} else if err = pf.UnmarshalStrict(req.Materialization.EndpointSpecJson, source); err != nil {
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
-	// Unwrap layer of proxied configuration.
+
+	// Unwrap layer of decrypted, proxied configuration.
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted)
 	req.Materialization = proto.Clone(req.Materialization).(*pf.MaterializationSpec)
-	req.Materialization.EndpointSpecJson = source.Config
+	req.Materialization.EndpointSpecJson = decrypted
 
 	var resp *pm.ApplyResponse
-	var err = airbyte.RunConnector(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{variant},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
 			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
 				WriteMsg(req)
 		},
-		airbyte.NewConnectorProtoOutput(
+		connector.NewProtoOutput(
 			func() proto.Message { return new(pm.ApplyResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
@@ -173,18 +194,24 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	} else if err = pf.UnmarshalStrict(open.Open.Materialization.EndpointSpecJson, source); err != nil {
 		return fmt.Errorf("parsing connector configuration: %w", err)
 	}
-	// Unwrap layer of proxied configuration.
-	open.Open.Materialization = proto.Clone(open.Open.Materialization).(*pf.MaterializationSpec)
-	open.Open.Materialization.EndpointSpecJson = source.Config
 
-	return airbyte.RunConnector(
+	// Unwrap layer of decrypted, proxied configuration.
+	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
+	if err != nil {
+		return err
+	}
+	defer connector.ZeroBytes(decrypted)
+	open.Open.Materialization = proto.Clone(open.Open.Materialization).(*pf.MaterializationSpec)
+	open.Open.Materialization.EndpointSpecJson = decrypted
+
+	return connector.Run(
 		stream.Context(),
 		source.Image,
 		d.networkName,
 		[]string{"transactions"},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error { return protoWriteLoop(stream, open, w) },
-		airbyte.NewConnectorProtoOutput(
+		connector.NewProtoOutput(
 			func() proto.Message { return new(pm.TransactionResponse) },
 			func(m proto.Message) error { return stream.Send(m.(*pm.TransactionResponse)) },
 		),
@@ -200,6 +227,7 @@ func protoWriteLoop(
 ) error {
 	var enc = protoio.NewUint32DelimitedWriter(w, binary.LittleEndian)
 	var err = enc.WriteMsg(req)
+	connector.ZeroBytes(req.Open.Materialization.EndpointSpecJson) // No longer needed.
 
 	if err != nil {
 		return fmt.Errorf("proxying Open: %w", err)
