@@ -98,6 +98,9 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		return pf.Checkpoint{}, err
 	}
 
+	c.Log(log.DebugLevel, log.Fields{"spec": c.spec.String(), "build": c.labels.Build},
+		"loaded specification")
+
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
 		var combiner, err = bindings.NewCombine(c.LogPublisher)

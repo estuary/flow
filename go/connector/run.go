@@ -1,4 +1,4 @@
-package airbyte
+package connector
 
 import (
 	"bytes"
@@ -13,15 +13,24 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/gogo/protobuf/proto"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
-// RunConnector runs the specific Docker |image| with |args|.
-// Any |jsonFiles| are written as temporary files which are mounted into the
-// container under "/tmp".
+// Run the given Docker |image| with |args|.
+//
+// Any |jsonFiles| are mounted into the container under "/tmp".
+// Files often contain credentials: rather than using regular files,
+// which persist and may be accessed throughout the life of the invocation,
+// RunConnector uses named FIFOs which may be read just once.
+// Callers must also be aware that the bytes referenced by |jsonFiles| are
+// zero'd as soon as they're written into the pipe. This prevents copies of
+// credentials from unnecessarily lingering in the current process heap while
+// the connector invocation runs.
 //
 // |writeLoop| is called with a Writer that's connected to the container's stdin.
 // The callback should produce input into the Writer, and then return when all
@@ -35,15 +44,15 @@ import (
 //
 // If the container exits with a non-zero status, an error is returned containing
 // a bounded prefix of the container's stderr output.
-func RunConnector(
+func Run(
 	ctx context.Context,
 	image string,
 	networkName string,
 	args []string,
-	jsonFiles map[string]interface{},
+	jsonFiles map[string]json.RawMessage,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
-	logPublisher ops.Logger,
+	logger ops.Logger,
 ) error {
 	var imageArgs = []string{
 		"docker",
@@ -56,33 +65,78 @@ func RunConnector(
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
 	}
 
-	for name, m := range jsonFiles {
+	var tempdir, err = ioutil.TempDir("", "connector-files")
+	if err != nil {
+		return fmt.Errorf("creating tempdir: %w", err)
+	}
+	defer os.RemoveAll(tempdir)
 
-		// Staging location for file mounted into the container.
-		var tempfile, err = ioutil.TempFile("", "connector-file")
-		if err != nil {
-			return fmt.Errorf("creating tempfile: %w", err)
-		}
-
-		var hostPath = tempfile.Name()
+	for name, data := range jsonFiles {
+		var hostPath = filepath.Join(tempdir, name)
 		var containerPath = filepath.Join("/tmp", name)
-		defer os.RemoveAll(hostPath)
 
-		if err := json.NewEncoder(tempfile).Encode(m); err != nil {
-			return fmt.Errorf("encoding json file %q content: %w", name, err)
-		} else if err = tempfile.Close(); err != nil {
-			return err
-		} else if err = os.Chmod(hostPath, 0644); err != nil {
-			return err
-		} else {
-			imageArgs = append(imageArgs,
-				"--mount",
-				fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
+		if err := unix.Mkfifo(hostPath, 0644); err != nil {
+			return fmt.Errorf("creating fifo %s: %w", hostPath, err)
 		}
+		imageArgs = append(imageArgs,
+			"--mount",
+			fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
+
+		// |timeout| must account for startup delays due to image pulls.
+		// TODO(johnny): run `docker pull` first if this is a problem.
+		go func(hostPath string, data []byte) {
+			if err := fifoSend(hostPath, data, time.Minute); err != nil {
+				logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err, "hostPath": hostPath},
+					"failed to send connector input")
+			}
+		}(hostPath, data)
 	}
 	args = append(append(imageArgs, image), args...)
 
-	return runCommand(ctx, args, writeLoop, output, logPublisher)
+	return runCommand(ctx, args, writeLoop, output, logger)
+}
+
+// fifoSend writes |data| into a named FIFO at |path| with a |timeout|.
+// |data| is zeroed once it's fully written or an error occurs.
+func fifoSend(path string, data []byte, timeout time.Duration) error {
+
+	// A badly-behaved connector can naively cause us to block indefinitely:
+	// * If the connector never opens the file then OpenFile will hang.
+	// * If the connector opens but doesn't read the file then Write will hang.
+	//
+	// We guard against the first by opening the file for reading ourselves after
+	// |timeout|, to ensure the pipe is matched and the call is unblocked.
+	// We guard guard against the latter by using SetWriteDeadline.
+	//
+	// See: https://github.com/golang/go/issues/33050
+
+	var timer = time.AfterFunc(timeout, func() {
+		if f, err := os.OpenFile(path, os.O_RDONLY, os.ModeNamedPipe); err == nil {
+			f.Close()
+		}
+	})
+	var deadline = time.Now().Add(timeout)
+
+	defer func() {
+		timer.Stop()
+		ZeroBytes(data)
+	}()
+
+	var w, err = os.OpenFile(path, os.O_WRONLY, os.ModeNamedPipe)
+	if err != nil {
+		return fmt.Errorf("opening FIFO for writing: %w", err)
+	}
+	defer w.Close()
+
+	if err = w.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("setting FIFO write deadline: %w", err)
+	} else if _, err = w.Write(data); err != nil {
+		return fmt.Errorf("writing to FIFO: %w", err)
+	} else if err = w.Close(); err != nil {
+		return fmt.Errorf("closing FIFO: %w", err)
+	}
+
+	return nil
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -134,10 +188,10 @@ func runCommand(
 			return err
 		},
 	}
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", log.InfoLevel, logPublisher)
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logPublisher)
 	cmd.Stderr = stderrForwarder
 
-	log.WithField("args", args).Info("invoking connector")
+	logrus.WithField("args", args).Info("invoking connector")
 	if err := cmd.Start(); err != nil {
 		fe.onError(fmt.Errorf("starting connector: %w", err))
 	}
@@ -165,7 +219,7 @@ func runCommand(
 		fe.onError(ctx.Err())
 	}
 
-	log.WithFields(log.Fields{
+	logrus.WithFields(logrus.Fields{
 		"err":       fe.unwrap(),
 		"cancelled": ctx.Err() != nil,
 	}).Info("connector exited")
@@ -193,11 +247,11 @@ func (w *writeErrInterceptor) Close() error {
 	return nil
 }
 
-// NewConnectorProtoOutput returns an io.WriteCloser for use as
+// NewProtoOutput returns an io.WriteCloser for use as
 // the stdout handler of a connector. Its Write function parses
 // connector output as uint32-delimited protobuf records using
 // the provided new message and post-decoding callbacks.
-func NewConnectorProtoOutput(
+func NewProtoOutput(
 	newRecord func() proto.Message,
 	onDecode func(proto.Message) error,
 ) io.WriteCloser {
@@ -300,14 +354,14 @@ func (o *protoOutput) decode(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-// NewConnectorJSONOutput returns an io.WriterCloser for use as
+// NewJSONOutput returns an io.WriterCloser for use as
 // the stdout handler of a connector. Its Write function parses
 // connector output as newline-delimited JSON records using the
 // provided initialization and post-decoding callbacks. If the
 // json decoding returns an error, then `onDecodeError` will be
 // invoked with the entire line and the error that was returned
 // by the decoder. If it returns nil, then processing will continue.
-func NewConnectorJSONOutput(
+func NewJSONOutput(
 	newRecord func() interface{},
 	onDecode func(interface{}) error,
 	onDecodeError func([]byte, error) error,

@@ -13,7 +13,7 @@ func TestOnStdoutDecodeError(t *testing.T) {
 	var publisher = testutil.NewTestLogPublisher(log.DebugLevel)
 
 	var subject = driver{
-		logger: publisher,
+		Logger: publisher,
 	}
 	var err = fmt.Errorf("only a test")
 
