@@ -106,6 +106,38 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 	}
 	require.NoError(t, rpc.StartCommit(ops))
 
+	// Clear the key cache, and switch to delta-updates mode.
+	// Then pipeline the next delta-updates transaction.
+	rpc.shared.flighted[0] = make(map[string]json.RawMessage)
+	rpc.spec.Bindings[0].DeltaUpdates = true
+	transactor.loadNotExpected = true
+
+	// We do NOT expect to see Load requests for these documents in the snapshot.
+	require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"five"}.Pack(), json.RawMessage(`5`)))
+	require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"six"}.Pack(), json.RawMessage(`"six"`)))
+
+	require.NoError(t, ops.DriverCommitted.Err())
+	logCommittedOp.Resolve(nil)
+	require.NoError(t, ops.Acknowledged.Err())
+
+	transactor.PreparedTx.DriverCheckpointJson = json.RawMessage(`"3rd-checkpoint"`)
+	prepared, err = rpc.Prepare(pf.Checkpoint{
+		Sources: map[pf.Journal]pc.Checkpoint_Source{"3rd-flow-fixture": {ReadThrough: 5678}}})
+	require.NoError(t, err)
+	require.Equal(t, `"3rd-checkpoint"`, string(prepared.DriverCheckpointJson))
+
+	combiner.AddDrainFixture(true, "five", tuple.Tuple{"five"}, tuple.Tuple{"val", 5})
+	combiner.AddDrainFixture(true, "six", tuple.Tuple{"six"}, tuple.Tuple{"val", 6})
+
+	// Final transaction starts to commit, then commits.
+	logCommittedOp = client.NewAsyncOperation()
+	ops = CommitOps{
+		DriverCommitted: client.NewAsyncOperation(),
+		LogCommitted:    logCommittedOp,
+		Acknowledged:    client.NewAsyncOperation(),
+	}
+	require.NoError(t, rpc.StartCommit(ops))
+
 	require.NoError(t, ops.DriverCommitted.Err())
 	logCommittedOp.Resolve(nil)
 	require.NoError(t, ops.Acknowledged.Err())
@@ -161,6 +193,8 @@ func (t *testServer) Transactions(stream Driver_TransactionsServer) error {
 
 // testTransactor implements Transactor.
 type testTransactor struct {
+	loadNotExpected bool
+
 	LoadBindings []int
 	LoadKeys     []tuple.Tuple
 	Loaded       map[int][]interface{}
@@ -181,6 +215,9 @@ func (t *testTransactor) Load(
 	priorAcknowledgedCh <-chan struct{},
 	loaded func(binding int, doc json.RawMessage) error,
 ) error {
+	if t.loadNotExpected {
+		panic("Load not expected")
+	}
 	<-priorCommittedCh
 
 	for it.Next() {
