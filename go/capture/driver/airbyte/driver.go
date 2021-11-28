@@ -8,12 +8,13 @@ import (
 	"strings"
 
 	"github.com/alecthomas/jsonschema"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/protocols/airbyte"
 	pc "github.com/estuary/protocols/capture"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/go-openapi/jsonpointer"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 // EndpointSpec is the configuration for Airbyte source connectors.
@@ -29,6 +30,10 @@ func (c EndpointSpec) Validate() error {
 		return fmt.Errorf("expected `image`")
 	}
 	return nil
+}
+
+func (c EndpointSpec) fields() logrus.Fields {
+	return logrus.Fields{ops.LogSourceField: c.Image}
 }
 
 // ResourceSpec is the configuration for Airbyte source streams.
@@ -63,14 +68,14 @@ func (c ResourceSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
-	logger      ops.Logger
+	ops.Logger
 }
 
 // NewDriver returns a new JSON docker image driver.
 func NewDriver(networkName string, logger ops.Logger) pc.DriverServer {
 	return driver{
 		networkName: networkName,
-		logger:      logger,
+		Logger:      logger,
 	}
 }
 
@@ -84,20 +89,18 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 	}
 
 	var spec *airbyte.Spec
-	var err = RunConnector(ctx, source.Image, d.networkName,
+	var err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
-		NewConnectorJSONOutput(
+		connector.NewJSONOutput(
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					log.StandardLogger().WithFields(log.Fields{
-						"image": source.Image,
-					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
 				} else if rec.Spec != nil {
 					spec = rec.Spec
 				} else {
@@ -107,7 +110,7 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 			},
 			d.onStdoutDecodeError,
 		),
-		d.logger,
+		d.Logger,
 	)
 
 	// Expect connector spit out a successful ConnectorSpecification.
@@ -140,25 +143,29 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
 
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+
 	var catalog *airbyte.Catalog
-	var err = RunConnector(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{
 			"discover",
 			"--config",
 			"/tmp/config.json",
 		},
 		// Write configuration JSON to connector input.
-		map[string]interface{}{"config.json": source.Config},
+		map[string]json.RawMessage{"config.json": decrypted},
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		NewConnectorJSONOutput(
+		connector.NewJSONOutput(
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					log.StandardLogger().WithFields(log.Fields{
-						"image": source.Image,
-					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
 				} else if rec.Catalog != nil {
 					catalog = rec.Catalog
 				} else {
@@ -168,7 +175,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 			},
 			d.onStdoutDecodeError,
 		),
-		d.logger,
+		d.Logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -228,27 +235,29 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
 
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted) // RunConnector will also ZeroBytes().
+
 	var status *airbyte.ConnectionStatus
-	var err = RunConnector(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, d.networkName,
 		[]string{
 			"check",
 			"--config",
 			"/tmp/config.json",
 		},
 		// Write configuration JSON to connector input.
-		map[string]interface{}{"config.json": source.Config},
+		map[string]json.RawMessage{"config.json": decrypted},
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		NewConnectorJSONOutput(
+		connector.NewJSONOutput(
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					// TODO - send these back through the Flow capture protocol ?
-					log.StandardLogger().WithFields(log.Fields{
-						"image":   source.Image,
-						"capture": req.Capture,
-					}).Log(airbyteToLogrusLevel(rec.Log.Level), rec.Log.Message)
+					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
 				} else if rec.ConnectionStatus != nil {
 					status = rec.ConnectionStatus
 				} else {
@@ -258,7 +267,7 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 			},
 			d.onStdoutDecodeError,
 		),
-		d.logger,
+		d.Logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -349,17 +358,20 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		streamToBinding[resource.Stream] = i
 	}
 
-	if log.GetLevel() >= log.DebugLevel {
-		var catalogJSON, err = json.Marshal(&catalog)
-		if err != nil {
-			return fmt.Errorf("encoding catalog: %w", err)
-		}
-
-		log.WithFields(log.Fields{
-			"capture": open.Capture.Capture,
-			"catalog": string(catalogJSON),
-		}).Debug("using configured catalog")
+	catalogJSON, err := json.Marshal(&catalog)
+	if err != nil {
+		return fmt.Errorf("encoding catalog: %w", err)
 	}
+	d.Log(logrus.DebugLevel, logrus.Fields{
+		"capture": open.Capture.Capture,
+		"catalog": string(catalogJSON),
+	}, "using configured catalog")
+
+	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
+	if err != nil {
+		return err
+	}
+	defer connector.ZeroBytes(decrypted) // RunConnector will also ZeroBytes().
 
 	var invokeArgs = []string{
 		"read",
@@ -368,14 +380,16 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		"--catalog",
 		"/tmp/catalog.json",
 	}
-	var invokeFiles = map[string]interface{}{
-		"config.json":  source.Config,
-		"catalog.json": catalog,
+	var invokeFiles = map[string]json.RawMessage{
+		"config.json":  decrypted,
+		"catalog.json": catalogJSON,
 	}
 
 	if len(open.DriverCheckpointJson) != 0 {
 		invokeArgs = append(invokeArgs, "--state", "/tmp/state.json")
-		invokeFiles["state.json"] = open.DriverCheckpointJson
+		// Copy because RunConnector will ZeroBytes() once sent and,
+		// as noted in driver{}, we don't own this memory.
+		invokeFiles["state.json"] = append([]byte(nil), open.DriverCheckpointJson...)
 	}
 
 	if err := stream.Send(&pc.PullResponse{Opened: &pc.PullResponse_Opened{}}); err != nil {
@@ -384,13 +398,8 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 
 	var resp *pc.PullResponse
 
-	// We'll re-use this fields map whenever we log connector output.
-	var logFields = log.Fields{
-		ops.LogSourceField: source.Image,
-	}
-
 	// Invoke the connector for reading.
-	if err := RunConnector(stream.Context(), source.Image, d.networkName,
+	if err := connector.Run(stream.Context(), source.Image, d.networkName,
 		invokeArgs,
 		invokeFiles,
 		func(w io.Writer) error {
@@ -410,11 +419,11 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 			}
 		},
 		// Expect to decode Airbyte messages.
-		NewConnectorJSONOutput(
+		connector.NewJSONOutput(
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					d.logger.Log(airbyteToLogrusLevel(rec.Log.Level), logFields, rec.Log.Message)
+					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
 				} else if rec.State != nil {
 					return pc.WritePullCheckpoint(stream, &resp,
 						&pf.DriverCheckpoint{
@@ -433,7 +442,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 			},
 			d.onStdoutDecodeError,
 		),
-		d.logger,
+		d.Logger,
 	); err != nil {
 		return err
 	}
@@ -461,13 +470,13 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 // ignored. This is because such a line most likely represents some non-JSON output from a println
 // in the connector code, which is, unfortunately, common among airbyte connectors.
 func (d driver) onStdoutDecodeError(naughtyLine []byte, decodeError error) error {
-	var obj map[string]json.RawMessage
+	var obj json.RawMessage
 	if err := json.Unmarshal(naughtyLine, &obj); err == nil {
 		// This was a naughty JSON object
 		return decodeError
 	} else {
 		// We can't parse this as an object, so we'll just log it as plain text
-		d.logger.Log(log.InfoLevel, log.Fields{
+		d.Log(logrus.InfoLevel, logrus.Fields{
 			ops.LogSourceField: "ignored invalid output from connector stdout",
 		}, strings.TrimSpace(string(naughtyLine))) // naughtyLine ends with a newline, so trim
 		return nil
@@ -475,17 +484,17 @@ func (d driver) onStdoutDecodeError(naughtyLine []byte, decodeError error) error
 }
 
 // LogrusLevel returns an appropriate logrus.Level for the connector LogLevel.
-func airbyteToLogrusLevel(l airbyte.LogLevel) log.Level {
+func airbyteToLogrusLevel(l airbyte.LogLevel) logrus.Level {
 	switch l {
 	case airbyte.LogLevelTrace:
-		return log.TraceLevel
+		return logrus.TraceLevel
 	case airbyte.LogLevelDebug:
-		return log.DebugLevel
+		return logrus.DebugLevel
 	case airbyte.LogLevelInfo:
-		return log.InfoLevel
+		return logrus.InfoLevel
 	case airbyte.LogLevelWarn:
-		return log.WarnLevel
+		return logrus.WarnLevel
 	default: // Includes LogLevelError, LogLevelFatal.
-		return log.ErrorLevel
+		return logrus.ErrorLevel
 	}
 }

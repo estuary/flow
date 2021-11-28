@@ -20,29 +20,19 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
-
-      # We require a minimal Go version of 1.16.
-      # TODO(johnny): Temporarily downgrade from 1.16.7 => 1.16.6 (issue #191).
+      # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.16.6"
+          go-version: "1.17.3"
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@master
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
-
-      # TODO(johnny): This works well, but published docker images have the visibility
-      # of the associated repository, and there's no way to change this without making
-      # the repo itself public. Which we may well do, so leaving commented out for now.
-      #
-      #- name: Login to GitHub package docker registry
-      #  run: |
-      #    echo "${{ secrets.GITHUB_TOKEN }}" | \
-      #      docker login --username ${{ github.actor }} --password-stdin docker.pkg.github.com
-
-      - name: Login to quay.io container registry
-        run: |
-          echo "${{ secrets.QUAY_TOKEN }}" | \
-            docker login --username ${{ secrets.QUAY_USERNAME }} --password-stdin quay.io
 
       - name: Login to GitHub container registry
         run: |
@@ -67,6 +57,7 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
+      # Build and test all the things.
       - run: make install-tools
       - run: go mod download
       - run: make rust-build
@@ -74,6 +65,7 @@ jobs:
       - run: make go-test-ci
       - run: make catalog-test
       - run: make end-to-end-test
+
       - name: Tidy up, and ensure that generated files are unchanged.
         run: |
           # catalog-test dirties the branch by creating examples/examples.db.
@@ -81,10 +73,14 @@ jobs:
           git diff
           [[ -z "$(git status --porcelain)" ]] || exit 1
         shell: bash
+
+      # Package and push images.
       - run: make package
       - run: make docker-image
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
+
+      # Cleanup in preparation for populating the build cache.
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
       - run: cargo-cache

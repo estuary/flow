@@ -99,6 +99,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		return pf.Checkpoint{}, err
 	}
 
+	m.Log(log.DebugLevel, log.Fields{"spec": m.spec.String(), "build": m.labels.Build},
+		"loaded specification")
+
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
 		return pf.Checkpoint{}, err
 	}

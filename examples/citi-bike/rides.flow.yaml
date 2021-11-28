@@ -27,31 +27,7 @@ captures:
     endpoint:
       airbyteSource:
         image: ghcr.io/estuary/source-s3:dev
-        config:
-          ascendingKeys: false
-          # Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering.
-          # [boolean]
-          awsAccessKeyId: ""
-          # Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads.
-          # [string]
-          awsSecretAccessKey: ""
-          # Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads.
-          # [string]
-          bucket: tripdata
-          # Name of the S3 bucket
-          # [string] (required)
-          endpoint: ""
-          # The AWS endpoint URI to connect to, useful if you're capturing from a S3-compatible API that isn't provided by AWS
-          # [string]
-          matchKeys: ""
-          # Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use ".*\.json" to only capture json files.
-          # [string]
-          prefix: ""
-          # Prefix within the bucket to capture from.
-          # [string]
-          region: us-east-1
-          # The name of the AWS region where the S3 bucket is located. "us-east-1" is a popular default you can try, if you're unsure what to put here.
-          # [string] (required)
+        config: rides.config.yaml
     bindings:
       - resource:
           stream: tripdata/JC-201703
