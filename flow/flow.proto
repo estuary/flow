@@ -724,6 +724,7 @@ enum ContentType {
   JSON_SCHEMA = 1;
   TYPESCRIPT_MODULE = 2;
   NPM_PACKAGE = 3;
+  CONFIG = 4;
 }
 
 // BuildAPI is a meta-message which name spaces messages of the Build API
