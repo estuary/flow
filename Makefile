@@ -60,6 +60,7 @@ ${GOBIN}/etcd:
 		&& tar --extract \
 			--file /tmp/etcd.tgz \
 			--directory /tmp/ \
+		&& mkdir -p ${GOBIN}/ \
 		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${GOBIN}/ \
 		&& chown ${UID}:${UID} ${GOBIN}/etcd ${GOBIN}/etcdctl \
 		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
@@ -112,16 +113,18 @@ extra-ci-runner-setup:
 .PHONY: print-versions
 print-versions:
 	echo "Resolved repository version: ${VERSION}" \
+		&& /usr/bin/ld.lld --version \
 		&& cargo version --verbose \
-		&& rustc --version \
-		&& npm --version \
-		&& node --version \
-		&& go version \
 		&& docker --version \
-		&& /usr/bin/ld.lld --version
+		&& gcloud info \
+		&& go version \
+		&& jq --version \
+		&& node --version \
+		&& npm --version \
+		&& rustc --version \
 
 .PHONY: install-tools
-install-tools: ${GOBIN}/etcd
+install-tools: ${GOBIN}/etcd ${GOBIN}/sops
 
 .PHONY: rust-build
 rust-build:
