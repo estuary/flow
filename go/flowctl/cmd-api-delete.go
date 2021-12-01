@@ -21,7 +21,7 @@ import (
 
 type apiDelete struct {
 	All            bool                  `long:"all" description:"Delete all tasks and collections"`
-	AllDerivations bool                  `long:"all-derivations" description:"Activate all derivations"`
+	AllDerivations bool                  `long:"all-derivations" description:"Delete all derivations"`
 	Broker         mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID        string                `long:"build-id" required:"true" description:"ID of this build"`
 	BuildsRoot     string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
