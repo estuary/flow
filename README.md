@@ -1,9 +1,9 @@
 [![CI](https://github.com/estuary/flow/workflows/CI/badge.svg)](https://github.com/estuary/flow/actions)
-[![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Testing setup](https://docs.estuary.dev/getting-started/installation)** | **[Data platform comparison reference](https://docs.estuary.dev/overview/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**   
+[![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Testing setup](https://docs.estuary.dev/getting-started/installation)** | **[Data platform comparison reference](https://docs.estuary.dev/overview/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**
 
 <p align="center">
     <img src ="https://github.com/estuary/flow/blob/master/images/Estuary%20Flow%20(Beta).gif"
-     width="300" 
+     width="300"
      height="300"/>
          </p>
 
@@ -11,21 +11,21 @@
 
 Estuary Flow is a DataOps platform that integrates all of the systems you use to produce, process, and consume data.
 
-Flow unifies today's batch and streaming paradigmsso that your systems
+Flow unifies today's batch and streaming paradigms so that your systems
 – current and future – are synchronized around the same datasets, updating in milliseconds.
 
 With a Flow pipeline, you:
 
 -   📷 **Capture** data from your systems, services, and SaaS into _collections_:
-    continuous datasets that are stored as regular files of your JSON data,
+    millisecond-latency datasets that are stored as regular files of JSON data,
     right in your cloud storage bucket.
 
 -   🎯 **Materialize** a collection as a view within another system,
     such as a database, key/value store, Webhook API, or pub/sub service.
 
--   🌊 **Derive** new collections by transforming from other collections, using 
-    the full gamut of stateful stream workflow, joins, and agreggations.
-    
+-   🌊 **Derive** new collections by transforming from other collections, using
+    the full gamut of stateful stream workflow, joins, and aggregations.
+
 ❗️ Currently, Flow is a CLI-only platform. **Our UI is coming in Q1 of 2022**, and we will continue to grow both the CLI and UI. Flow is a tool meant for *all* stakeholders: engineers, analysts, and everyone in between.❗️
 
 ![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
@@ -38,72 +38,125 @@ With a Flow pipeline, you:
 
 ## Just show me the code
 
-This simple example shows a CDC **capture** from a [public S3 bucket](https://s3.amazonaws.com/tripdata/index.html). The resulting **collection** is then **materialized** to PostgreSQL. Flow integrates to these endpoints with two of Estuary's real-time [connectors](https://github.com/orgs/estuary/packages?repo_name=connectors), available as docker images.
-
-The spec for this **catalog** is written in declarative YAML and [JSON Schema](https://json-schema.org/):
+Flow works with **catalog** specifications, written in declarative YAML and [JSON Schema](https://json-schema.org/):
 
 ```YAML
-collections:
-  acmeCo/tripdata:
-    schema:
-      properties:
-        _meta:
-          properties:
-            file:
-              type: string
-            offset:
-              minimum: 0
-              type: integer
-          required:
-            - file
-            - offset
-          type: object
-      required:
-        - _meta
-      type: object
-    key: [/_meta/file, /_meta/offset]
-    
 captures:
-  acmeCo/source-s3:
+  # Capture Citi Bike's public system ride data.
+  examples/citi-bike/rides-from-s3:
     endpoint:
       airbyteSource:
-        image: ghcr.io/estuary/source-s3:0a4373e
+        # Docker image which implements a capture from S3.
+        image: ghcr.io/estuary/source-s3:dev
+        # Configuration for the S3 connector.
+        # This can alternatively be provided as a file, and Flow integrates with
+        # https://github.com/mozilla/sops for protecting credentials at rest.
         config:
-          ascendingKeys: false
+          # The dataset is public and doesn't require credentials.
           awsAccessKeyId: ""
           awsSecretAccessKey: ""
-          bucket: "tripdata"
-          endpoint: ""
-          matchKeys: "202106-citibike-tripdata.csv.zip"
-          prefix: ""
           region: "us-east-1"
     bindings:
+      # Bind files starting with s3://tripdata/JC-201703 into a collection.
       - resource:
-          stream: tripdata/
+          stream: tripdata/JC-201703
           syncMode: incremental
-        target: acmeCo/tripdata
-        
-materializations: 
-  acmeCo/postgres: 
-    bindings: 
-      - source: acmeCo/tripdata 
-        resource: 
-          table: trips 
-    endpoint:
-      postgres: 
-        host: localhost 
-        password: flow 
-        user: flow
+        target: examples/citi-bike/rides
 
+collections:
+  # A collection of Citi Bike trips.
+  examples/citi-bike/rides:
+    key: [/bike_id, /begin/timestamp]
+    # JSON schema against which all trips must validate.
+    schema: https://raw.githubusercontent.com/estuary/flow/master/examples/citi-bike/ride.schema.yaml
+    # Projections relate a tabular structure (like SQL, or the CSV in the "tripdata" bucket)
+    # with a hierarchical document like JSON. Here we define projections for the various
+    # column headers that Citi Bike uses in their published CSV data. For example some
+    # files use "Start Time", and others "starttime": both map to /begin/timestamp
+    projections:
+      bikeid: /bike_id
+      birth year: /birth_year
+      end station id: /end/station/id
+      end station latitude: /end/station/geo/latitude
+      end station longitude: /end/station/geo/longitude
+      end station name: /end/station/name
+      start station id: /begin/station/id
+      start station latitude: /begin/station/geo/latitude
+      start station longitude: /begin/station/geo/longitude
+      start station name: /begin/station/name
+      start time: /begin/timestamp
+      starttime: /begin/timestamp
+      stop time: /end/timestamp
+      stoptime: /end/timestamp
+      tripduration: /duration_seconds
+      usertype: /user_type
+
+materializations:
+  # Materialize rides into a PostgreSQL database.
+  examples/citi-bike/to-postgres:
+    endpoint:
+      flowSink:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config:
+          # Try this by standing up a local PostgreSQL database.
+          # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+          # (Use host: host.docker.internal when running Docker for Windows/Mac).
+          host: localhost
+          password: password
+          database: postgres
+          user: postgres
+          port: 5432
+    bindings:
+      # Flow creates a 'citi_rides' table for us and keeps it up to date.
+      - source: examples/citi-bike/rides
+        resource:
+          table: citi_rides
+
+storageMappings:
+  # Flow builds out data lakes for your collections in your cloud storage buckets.
+  # A storage mapping relates a prefix, like examples/citi-bike/, to a storage location.
+  # Here we tell Flow to store everything in one bucket.
+  "": { stores: [{ provider: S3, bucket: my-storage-bucket }] }
 ```
 
-Today Flow supports TypeScript modules, which Flow runs on your behalf,
-or a JSON HTTP endpoint (such as AWS λ) that you supply.
-In the future we'll add support for WebAssembly and OpenAPI.
+### Run It
+
+❗ These workflows are under active development and may change.
+Note that Flow doesn't work yet on Apple M1.
+For now, we recommend CodeSpaces or a separate Linux server.
+
+Start a PostgreSQL server on your machine:
+```console
+$ docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+```
+
+Start a Flow data plane on your machine:
+```console
+$ flowctl temp-data-plane --builds-root file://$(pwd)/
+export BROKER_ADDRESS=http://localhost:8080
+export CONSUMER_ADDRESS=http://localhost:9000
+```
+
+In another tab, apply the exported `BROKER_ADDRESS` and `CONSUMER_ADDRESS`,
+and save the example to `flow.yaml`. Then apply it to the data plane:
+
+```console
+$ flowctl deploy --source flow.yaml
+```
+
+You'll see a table created and loaded within your PostgreSQL server.
+
+### Connectors
+
+Captures and materializations use connectors:
+plug-able Docker images which implement connectivity to a specific external system.
+Estuary is [implementing connectors](https://github.com/orgs/estuary/packages?repo_name=connectors)
+on an ongoing basis.
+Flow can also run any connector implemented to the AirByte specification.
 
 ## How does it work?
 
-Flow builds on [Gazette](https://gazette.dev), a streaming broker created by the same founding team. 
+Flow builds on [Gazette](https://gazette.dev), a streaming broker created by the same founding team.
 Collections have logical and physical partitions
 which are implemented as Gazette **journals**.
 Derivations and materializations leverage the Gazette consumer framework,
@@ -122,7 +175,7 @@ Gazette, on which Flow is built, has been operating at large scale (GB/s)
 for many years now and is very stable.
 
 Flow itself is winding down from an intense period of research and development.
-Estuary is running production pilots now, for a select group of beta customers (you can [reach out](https://www.estuary.dev/#get-in-touch) for a free consult with the team). 
+Estuary is running production pilots now, for a select group of beta customers (you can [reach out](https://www.estuary.dev/#get-in-touch) for a free consult with the team).
 For now, we encourage you to use Flow in a testing environment, but you might see unexpected behaviors
 or failures simply due to the pace of development.
 
