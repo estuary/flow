@@ -10,7 +10,6 @@ collections:
       end station latitude: /end/station/geo/latitude
       end station longitude: /end/station/geo/longitude
       end station name: /end/station/name
-      gender: /gender
       start station id: /begin/station/id
       start station latitude: /begin/station/geo/latitude
       start station longitude: /begin/station/geo/longitude
