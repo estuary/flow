@@ -137,6 +137,9 @@ func (p *TestLogPublisher) Level() log.Level {
 }
 
 func (p *TestLogPublisher) Log(level log.Level, fields log.Fields, message string) error {
+	if level > p.level {
+		return nil
+	}
 	var event = TestLogEvent{
 		Timestamp: time.Now().UTC(),
 		Level:     level,
@@ -152,6 +155,9 @@ func (p *TestLogPublisher) Log(level log.Level, fields log.Fields, message strin
 }
 
 func (p *TestLogPublisher) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+	if level > p.level {
+		return nil
+	}
 	var event = TestLogEvent{
 		Timestamp: ts,
 		Level:     level,

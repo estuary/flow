@@ -68,14 +68,14 @@ func (c ResourceSpec) Validate() error {
 // proto.Clone() shared state before mutating it.
 type driver struct {
 	networkName string
-	ops.Logger
+	logger      ops.Logger
 }
 
 // NewDriver returns a new JSON docker image driver.
 func NewDriver(networkName string, logger ops.Logger) pc.DriverServer {
 	return driver{
 		networkName: networkName,
-		Logger:      logger,
+		logger:      logger,
 	}
 }
 
@@ -87,6 +87,10 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "spec",
+	})
 
 	var spec *airbyte.Spec
 	var err = connector.Run(ctx, source.Image, d.networkName,
@@ -100,7 +104,7 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
+					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
 				} else if rec.Spec != nil {
 					spec = rec.Spec
 				} else {
@@ -108,9 +112,9 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 				}
 				return nil
 			},
-			d.onStdoutDecodeError,
+			onStdoutDecodeError(logger),
 		),
-		d.Logger,
+		logger,
 	)
 
 	// Expect connector spit out a successful ConnectorSpecification.
@@ -142,6 +146,10 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
 		return nil, fmt.Errorf("parsing connector configuration: %w", err)
 	}
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "discover",
+	})
 
 	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
 	if err != nil {
@@ -165,7 +173,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
+					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
 				} else if rec.Catalog != nil {
 					catalog = rec.Catalog
 				} else {
@@ -173,9 +181,9 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 				}
 				return nil
 			},
-			d.onStdoutDecodeError,
+			onStdoutDecodeError(logger),
 		),
-		d.Logger,
+		logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -240,6 +248,10 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		return nil, err
 	}
 	defer connector.ZeroBytes(decrypted) // RunConnector will also ZeroBytes().
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "validate",
+	})
 
 	var status *airbyte.ConnectionStatus
 	err = connector.Run(ctx, source.Image, d.networkName,
@@ -257,7 +269,7 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
+					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
 				} else if rec.ConnectionStatus != nil {
 					status = rec.ConnectionStatus
 				} else {
@@ -265,9 +277,9 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 				}
 				return nil
 			},
-			d.onStdoutDecodeError,
+			onStdoutDecodeError(logger),
 		),
-		d.Logger,
+		logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
@@ -322,6 +334,10 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 
 	var open = req.Open
 	var streamToBinding = make(map[string]int)
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "read",
+	})
 
 	// Build configured Airbyte catalog.
 	var catalog = airbyte.ConfiguredCatalog{
@@ -362,9 +378,8 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	if err != nil {
 		return fmt.Errorf("encoding catalog: %w", err)
 	}
-	d.Log(logrus.DebugLevel, logrus.Fields{
-		"capture": open.Capture.Capture,
-		"catalog": string(catalogJSON),
+	logger.Log(logrus.DebugLevel, logrus.Fields{
+		"catalog": &catalog,
 	}, "using configured catalog")
 
 	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
@@ -423,7 +438,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 			func() interface{} { return new(airbyte.Message) },
 			func(i interface{}) error {
 				if rec := i.(*airbyte.Message); rec.Log != nil {
-					d.Log(airbyteToLogrusLevel(rec.Log.Level), source.fields(), rec.Log.Message)
+					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
 				} else if rec.State != nil {
 					return pc.WritePullCheckpoint(stream, &resp,
 						&pf.DriverCheckpoint{
@@ -440,9 +455,9 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 				}
 				return nil
 			},
-			d.onStdoutDecodeError,
+			onStdoutDecodeError(logger),
 		),
-		d.Logger,
+		logger,
 	); err != nil {
 		return err
 	}
@@ -463,23 +478,27 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		})
 }
 
-// onStdoutDecodeError is invoked whenever there's an error parsing a line into an airbyte JSON message.
-// If the line can be parsed as a JSON object, then we'll treat it as an error since it could
-// represent an airbyte message with an unknown or incompatible field.
-// If the line cannot be parsed into a JSON object, then the line will be logged and the error
-// ignored. This is because such a line most likely represents some non-JSON output from a println
-// in the connector code, which is, unfortunately, common among airbyte connectors.
-func (d driver) onStdoutDecodeError(naughtyLine []byte, decodeError error) error {
-	var obj json.RawMessage
-	if err := json.Unmarshal(naughtyLine, &obj); err == nil {
-		// This was a naughty JSON object
-		return decodeError
-	} else {
-		// We can't parse this as an object, so we'll just log it as plain text
-		d.Log(logrus.InfoLevel, logrus.Fields{
-			ops.LogSourceField: "ignored invalid output from connector stdout",
-		}, strings.TrimSpace(string(naughtyLine))) // naughtyLine ends with a newline, so trim
-		return nil
+// onStdoutDecodeError returns a function that is invoked whenever there's an error parsing a line
+// into an airbyte JSON message. If the line can be parsed as a JSON object, then we'll treat it as
+// an error since it could represent an airbyte message with an unknown or incompatible field. If
+// the line cannot be parsed into a JSON object, then the line will be logged and the error ignored.
+// This is because such a line most likely represents some non-JSON output from a println in the
+// connector code, which is, unfortunately, common among airbyte connectors.
+func onStdoutDecodeError(logger ops.Logger) func([]byte, error) error {
+	return func(naughtyLine []byte, decodeError error) error {
+		var obj json.RawMessage
+		if err := json.Unmarshal(naughtyLine, &obj); err == nil {
+			// This was a naughty JSON object
+			return decodeError
+		} else {
+			// We can't parse this as an object, so we'll just log it as plain text
+			logger.Log(logrus.InfoLevel, logrus.Fields{
+				// The `logSource` will already be set to the image name, so we use "sourceDesc"
+				// here so that the log will include both fields.
+				"sourceDesc": "ignored non-json output from connector stdout",
+			}, strings.TrimSpace(string(naughtyLine))) // naughtyLine ends with a newline, so trim
+			return nil
+		}
 	}
 }
 

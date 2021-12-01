@@ -2,6 +2,7 @@ package ops
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	pf "github.com/estuary/protocols/flow"
@@ -51,6 +52,72 @@ func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
 	default:
 		return pf.LogLevelFilter_ERROR
 	}
+}
+
+// NewLoggerWithFields wraps `delegate` and returns a new `Logger` that will add the given
+// fields to each log event.
+func NewLoggerWithFields(delegate Logger, add log.Fields) Logger {
+	// Pre-serialize the `add` fields to their JSON forms, so that we don't have to re-do it on
+	// every forwarded event.
+	var addJson = make(map[string]json.RawMessage, len(add))
+	for k, v := range add {
+		var encoded, err = json.Marshal(v)
+		if err != nil {
+			panic(fmt.Sprintf("encoding of log field failed: %v, value: %v", err.Error(), v))
+		}
+		addJson[k] = encoded
+	}
+	return &withFieldsLogger{
+		delegate: delegate,
+		add:      add,
+		addJson:  addJson,
+	}
+}
+
+type withFieldsLogger struct {
+	delegate Logger
+	add      log.Fields
+	addJson  map[string]json.RawMessage
+}
+
+func (l *withFieldsLogger) Level() log.Level {
+	return l.delegate.Level()
+}
+
+func (l *withFieldsLogger) Log(level log.Level, fields log.Fields, message string) error {
+	var finalFields log.Fields
+	// Don't bother copying the map if no additional fields were given, or if we're not going to log
+	// this event anyway due to the verbosity.
+	if len(fields) > 0 && level <= l.delegate.Level() {
+		finalFields = log.Fields{}
+		for k, v := range l.add {
+			finalFields[k] = v
+		}
+		for k, v := range fields {
+			finalFields[k] = v
+		}
+	} else {
+		finalFields = l.add
+	}
+	return l.delegate.Log(level, finalFields, message)
+}
+
+func (l *withFieldsLogger) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+	var finalFields map[string]json.RawMessage
+	// Don't bother copying the map if no additional fields were given, or if we're not going to log
+	// this event anyway due to the verbosity.
+	if len(fields) > 0 && level <= l.delegate.Level() {
+		finalFields = make(map[string]json.RawMessage, len(fields)+len(l.addJson))
+		for k, v := range l.addJson {
+			finalFields[k] = v
+		}
+		for k, v := range fields {
+			finalFields[k] = v
+		}
+	} else {
+		finalFields = l.addJson
+	}
+	return l.delegate.LogForwarded(ts, level, finalFields, message)
 }
 
 type stdLogAppender struct{}
