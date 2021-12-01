@@ -88,13 +88,16 @@ func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		ZeroBytes(stdout.Bytes())
-		return nil, fmt.Errorf("%w: %s", err, stderr.String())
-	}
+	var err = cmd.Run()
 
 	if stdout.Len() > len(input) {
 		panic("decrypted output overflows pre-allocated buffer")
 	}
+
+	if err != nil {
+		ZeroBytes(stdout.Bytes())
+		return nil, fmt.Errorf("%w: %s", err, stderr.String())
+	}
+
 	return stdout.Bytes(), nil
 }
