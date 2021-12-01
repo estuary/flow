@@ -13,6 +13,7 @@ import (
 	pm "github.com/estuary/protocols/materialize"
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
+	"github.com/sirupsen/logrus"
 )
 
 // EndpointSpec is the configuration for Flow sink connectors.
@@ -64,6 +65,10 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 	}
 	defer connector.ZeroBytes(decrypted)
 	req.EndpointSpecJson = decrypted
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "spec",
+	})
 
 	var resp *pm.SpecResponse
 	err = connector.Run(ctx, source.Image, d.networkName,
@@ -84,7 +89,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 				return nil
 			},
 		),
-		d.logger,
+		logger,
 	)
 	return resp, err
 }
@@ -105,6 +110,10 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 	}
 	defer connector.ZeroBytes(decrypted)
 	req.EndpointSpecJson = decrypted
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "validate",
+	})
 
 	var resp *pm.ValidateResponse
 	err = connector.Run(ctx, source.Image, d.networkName,
@@ -125,7 +134,7 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 				return nil
 			},
 		),
-		d.logger,
+		logger,
 	)
 	return resp, err
 }
@@ -156,6 +165,10 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 	defer connector.ZeroBytes(decrypted)
 	req.Materialization = proto.Clone(req.Materialization).(*pf.MaterializationSpec)
 	req.Materialization.EndpointSpecJson = decrypted
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "apply",
+	})
 
 	var resp *pm.ApplyResponse
 	err = connector.Run(ctx, source.Image, d.networkName,
@@ -176,7 +189,7 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 				return nil
 			},
 		),
-		d.logger,
+		logger,
 	)
 	return resp, err
 }
@@ -204,6 +217,11 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	open.Open.Materialization = proto.Clone(open.Open.Materialization).(*pf.MaterializationSpec)
 	open.Open.Materialization.EndpointSpecJson = decrypted
 
+	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
+		ops.LogSourceField: source.Image,
+		"operation":        "transactions",
+	})
+
 	return connector.Run(
 		stream.Context(),
 		source.Image,
@@ -215,7 +233,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 			func() proto.Message { return new(pm.TransactionResponse) },
 			func(m proto.Message) error { return stream.Send(m.(*pm.TransactionResponse)) },
 		),
-		d.logger,
+		logger,
 	)
 }
 

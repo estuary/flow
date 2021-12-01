@@ -239,3 +239,16 @@ func TestFIFOFiles(t *testing.T) {
 	// Input was zeroed on error as well.
 	require.Equal(t, []byte{0, 0, 0, 0, 0}, input)
 }
+
+func TestStderrCapture(t *testing.T) {
+	var s = connectorStderr{delegate: ioutil.Discard}
+
+	var n, err = s.Write([]byte("whoops"))
+	require.Equal(t, 6, n)
+	require.NoError(t, err)
+	require.Equal(t, "whoops", s.buffer.String())
+
+	// Expect it caps the amount of output collected.
+	s.Write(bytes.Repeat([]byte("x"), maxStderrBytes))
+	require.Equal(t, maxStderrBytes, s.buffer.Len())
+}

@@ -151,7 +151,7 @@ func runCommand(
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
-	logPublisher ops.Logger,
+	logger ops.Logger,
 ) error {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {
@@ -188,10 +188,14 @@ func runCommand(
 			return err
 		},
 	}
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logPublisher)
-	cmd.Stderr = stderrForwarder
+	logger.Log(logrus.InfoLevel, logrus.Fields{
+		"args": args,
+	}, "invoking connector")
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
+	cmd.Stderr = &connectorStderr{
+		delegate: stderrForwarder,
+	}
 
-	logrus.WithField("args", args).Info("invoking connector")
 	if err := cmd.Start(); err != nil {
 		fe.onError(fmt.Errorf("starting connector: %w", err))
 	}
@@ -214,15 +218,20 @@ func runCommand(
 		fe.onError(closeErr)
 	} else if ctx.Err() == nil {
 		// Expect a clean exit if the context wasn't cancelled.
-		fe.onError(fmt.Errorf("connector failed: %w", err))
+		// Log the raw error, since we've already logged everything that was printed to stderr.
+		logger.Log(logrus.ErrorLevel, logrus.Fields{
+			"error": err,
+		}, "running connector failed")
+		fe.onError(fmt.Errorf("%w with stderr:\n\n%s",
+			err, cmd.Stderr.(*connectorStderr).buffer.String()))
 	} else {
 		fe.onError(ctx.Err())
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"err":       fe.unwrap(),
+	logger.Log(logrus.InfoLevel, logrus.Fields{
+		"error":     fe.unwrap(),
 		"cancelled": ctx.Err() != nil,
-	}).Info("connector exited")
+	}, "connector exited")
 
 	return fe.unwrap()
 }
@@ -245,6 +254,23 @@ func (w *writeErrInterceptor) Close() error {
 		return w.onError(err)
 	}
 	return nil
+}
+
+// connectorStderr retains a prefix of stderr output to use for creating error messages when
+// connectors exit abnormally. All output is forwarded to the delegate.
+type connectorStderr struct {
+	delegate io.Writer
+	buffer   bytes.Buffer
+}
+
+func (s *connectorStderr) Write(p []byte) (int, error) {
+	var rem = maxStderrBytes - s.buffer.Len()
+	if rem > len(p) {
+		rem = len(p)
+	}
+	s.buffer.Write(p[:rem])
+
+	return s.delegate.Write(p)
 }
 
 // NewProtoOutput returns an io.WriteCloser for use as
@@ -460,4 +486,5 @@ func (fe *firstError) unwrap() error {
 	return fe.err
 }
 
+const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
