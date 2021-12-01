@@ -49,7 +49,7 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v2
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
