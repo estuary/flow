@@ -113,7 +113,10 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 // Rust-held RocksDB and its files.
 func (d *Derive) Destroy() {
 	d.taskTerm.destroy()
-	d.binding.Destroy()
+	// binding could be nil if there was a failure during initialization
+	if d.binding != nil {
+		d.binding.Destroy()
+	}
 }
 
 // BeginTxn begins a derive transaction.

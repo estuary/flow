@@ -49,8 +49,11 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		// Re-use this build.
 	} else {
 		if t.build != nil {
-			// Cleanup a previous build.
-			if err = t.build.Close(); err != nil {
+			// Cleanup a previous build. We must ensure that we don't use a build after calling
+			// Close, so set it to nil.
+			var lastBuild = t.build
+			t.build = nil
+			if err = lastBuild.Close(); err != nil {
 				return err
 			}
 		}
@@ -89,8 +92,11 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 }
 
 func (t *taskTerm) destroy() {
-	if err := t.build.Close(); err != nil {
-		log.WithError(err).Error("failed to close build")
+	if t.build != nil {
+		if err := t.build.Close(); err != nil {
+			log.WithError(err).Error("failed to close build")
+		}
+		t.build = nil
 	}
 }
 
