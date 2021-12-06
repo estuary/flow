@@ -35,14 +35,14 @@ type TextSpec struct {
 
 // ElasticFieldType specifies the type to override the field with.
 type ElasticFieldType struct {
-	// A snake_case string corresponding to a enum type of ESBasicType
-	// defined in src/elastic_search_data_types.rs
+	// The elastic search field data types.
+	// Supported types include: boolean, date, double, geo_point, geo_shape, keyword, long, null, text
 	FieldType string `json:"field_type"`
-	// Effective if FieldType is "date"
+	// Spec of the date field, effective if field_type is "date"
 	DateSpec DateSpec `json:"date_spec,omitempty"`
-	// Effective if FieldType is "keyword"
+	// Spec of the keyword field, effective if field_type if "keyword"
 	KeywordSpec KeywordSpec `json:"keyword_spec,omitempty"`
-	// Effective if FieldType is "text"
+	// Spec of the text field, effective if FieldType is "text"
 	TextSpec TextSpec `json:"text_spec,omitempty"`
 }
 
@@ -90,12 +90,16 @@ type Input struct {
 
 // MarshalJSON provides customized marshalJSON of Input
 func (s Input) MarshalJSON() ([]byte, error) {
+	var overrides = s.overrides
+	if overrides == nil {
+		overrides = []FieldOverride{}
+	}
 	var output = struct {
 		SchemaJSONBase64 string          `json:"schema_json_base64"`
 		Overrides        []FieldOverride `json:"overrides"`
 	}{
 		SchemaJSONBase64: base64.StdEncoding.EncodeToString(s.SchemaJSON),
-		Overrides:        s.overrides,
+		Overrides:        overrides,
 	}
 	return json.Marshal(output)
 }
