@@ -19,6 +19,15 @@ function bail() {
 # and stage temporary data plane files.
 TESTDIR="$(mktemp -d -t flow-end-to-end-XXXXXXXXXX)"
 
+function cleanupDataIfPassed() {
+    if [[ -z "$TESTS_PASSED" ]]; then
+        echo "Tests failed, retaining data dir: $TESTDIR"
+    else
+        echo "Tests passed, deleting data dir: $TESTDIR"
+        rm -r "$TESTDIR"
+    fi
+}
+
 # SQLite database into which the catalog materializes.
 OUTPUT_DB="${ROOTDIR}/examples/examples.db"
 # Actual materialization output scraped from ${OUTPUT_DB}.
@@ -47,7 +56,7 @@ flowctl temp-data-plane \
     &
 DATA_PLANE_PID=$!
 # Arrange to stop the data plane on exit and remove the temporary directory.
-trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && rm -r ${TESTDIR}" EXIT
+trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && cleanupDataIfPassed" EXIT
 
 BUILD_ID=run-end-to-end
 
@@ -76,4 +85,5 @@ flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."
 # Verify actual vs expected results. `diff` will exit 1 if files are different
 diff --suppress-common-lines ${ACTUAL} ${EXPECTED} || bail "Test Failed"
 
-echo "Test Passed"
+# Setting this to true will cause TESTDIR to be cleaned up on exit
+TESTS_PASSED=true
