@@ -12,7 +12,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/protocol"
-	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -34,7 +33,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
-	pb.RegisterGRPCDispatcher("local")
+	protocol.RegisterGRPCDispatcher("local")
 
 	var err error
 	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
@@ -95,7 +94,10 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	activate.Broker.Address = protocol.Endpoint(brokerAddr)
 	activate.Consumer.Address = protocol.Endpoint(consumerAddr)
 
-	if err = activate.execute(ctx); err != nil {
+	if err = activate.execute(ctx); err == errNoChangesToApply {
+		// This is allow-able, if the catalog tests only collections
+		// and has no derivations.
+	} else if err != nil {
 		return err
 	}
 

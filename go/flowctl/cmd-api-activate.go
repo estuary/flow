@@ -13,6 +13,7 @@ import (
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize"
+	pfc "github.com/estuary/protocols/capture"
 	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
@@ -77,30 +78,27 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			continue
 		}
 
-		_, err := capture.NewDriver(ctx,
+		driver, err := capture.NewDriver(ctx,
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
 		if err != nil {
 			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
 		}
 
-		// TODO(johnny): This requires supporting protocol changes to enable.
-		/*
-			response, err := driver.Apply(ctx, &pfc.ApplyRequest{
-				Capture: spec,
-				Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
-				DryRun:  cmd.DryRun,
-			})
-			if err != nil {
-				return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
-			}
+		response, err := driver.ApplyUpsert(ctx, &pfc.ApplyRequest{
+			Capture: spec,
+			Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			DryRun:  cmd.DryRun,
+		})
+		if err != nil {
+			return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
+		}
 
-			if response.ActionDescription != "" {
-				fmt.Println("Applying capture ", spec.Capture, ":")
-				fmt.Println(response.ActionDescription)
-			}
-			log.WithFields(log.Fields{"name": spec.Capture}).
-				Info("applied capture to endpoint")
-		*/
+		if response.ActionDescription != "" {
+			fmt.Println("Applying capture ", spec.Capture, ":")
+			fmt.Println(response.ActionDescription)
+		}
+		log.WithFields(log.Fields{"name": spec.Capture}).
+			Info("applied capture to endpoint")
 	}
 
 	// As with captures, apply materializations before we create or update the
@@ -318,7 +316,7 @@ func applyAllChanges(
 ) error {
 
 	if len(shards) == 0 && len(journals) == 0 {
-		return fmt.Errorf("there are no changes to apply")
+		return errNoChangesToApply
 	}
 
 	// Stably sort journal changes so that deletions order last.
@@ -384,3 +382,5 @@ func applyAllChanges(
 }
 
 const maxEtcdTxnSize = 127
+
+var errNoChangesToApply = fmt.Errorf("there are no changes to apply")
