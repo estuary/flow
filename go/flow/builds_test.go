@@ -108,8 +108,20 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, err, b2.tsErr)
 
+	// Close both builds, dropping the reference count to zero.
 	require.NoError(t, b1.Close())
 	require.NoError(t, b2.Close())
+
+	// Open the database again, raising the count from zero -> one.
+	var b3 = builds.Open(args.BuildId)
+	defer b3.Close()
+
+	// Ensure we can load the collection.
+	require.NoError(t, b3.Extract(func(db *sql.DB) (err error) {
+		collection, err = catalog.LoadCollection(db, "example/collection")
+		return err
+	}))
+	require.Equal(t, "example/collection", collection.Collection.String())
 }
 
 func TestInitOfMissingBuild(t *testing.T) {
