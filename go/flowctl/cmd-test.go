@@ -94,10 +94,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	activate.Broker.Address = protocol.Endpoint(brokerAddr)
 	activate.Consumer.Address = protocol.Endpoint(consumerAddr)
 
-	if err = activate.execute(ctx); err == errNoChangesToApply {
-		// This is allow-able, if the catalog tests only collections
-		// and has no derivations.
-	} else if err != nil {
+	if err = activate.execute(ctx); err != nil && err != errNoChangesToApply {
 		return err
 	}
 
@@ -123,7 +120,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	delete.Broker.Address = protocol.Endpoint(brokerAddr)
 	delete.Consumer.Address = protocol.Endpoint(consumerAddr)
 
-	if err = delete.execute(ctx); err != nil {
+	if err = delete.execute(ctx); err != nil && err != errNoChangesToApply {
 		return err
 	}
 
