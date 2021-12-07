@@ -149,6 +149,9 @@ func (b *Build) Close() error {
 	shared.svc.mu.Lock()
 	shared.references--
 	var done = shared.references == 0
+	if done {
+		delete(shared.svc.builds, shared.buildID)
+	}
 	shared.svc.mu.Unlock()
 
 	runtime.SetFinalizer(b, nil) // Clear finalizer.
