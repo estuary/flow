@@ -22,6 +22,7 @@ import (
 
 type cmdCombine struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Collection  string                `long:"collection" required:"true" description:"The name of the collection from which to take the schema and key"`
 	MaxDocs     uint64                `long:"max-docs" default:"0" description:"Maximum number of documents to add to the combiner before draining it. If 0, then there is no maximum"`
@@ -47,10 +48,11 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	var ctx = context.Background()
 
 	var config = pf.BuildAPI_Config{
-		BuildId:    newBuildID(),
-		Directory:  cmd.Directory,
-		Source:     cmd.Source,
-		SourceType: pf.ContentType_CATALOG_SPEC,
+		BuildId:          newBuildID(),
+		Directory:        cmd.Directory,
+		Source:           cmd.Source,
+		SourceType:       pf.ContentType_CATALOG_SPEC,
+		ConnectorNetwork: cmd.Network,
 	}
 	// Cleanup output database.
 	defer func() { _ = os.Remove(config.OutputPath()) }()
