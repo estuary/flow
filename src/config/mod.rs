@@ -106,6 +106,8 @@ pub enum Format {
     /// A W3C Extended Log file, as defined by the working group draft at:
     /// https://www.w3.org/TR/WD-logfile.html
     W3cExtendedLog,
+    /// Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)
+    Avro,
 }
 
 impl std::convert::TryFrom<String> for Format {
@@ -144,6 +146,7 @@ impl Format {
             Format::Csv => "csv",
             Format::Tsv => "tsv",
             Format::W3cExtendedLog => "w3cExtendedLog",
+            Format::Avro => "avro",
         }
     }
 
@@ -153,6 +156,7 @@ impl Format {
             Format::Csv,
             Format::Tsv,
             Format::W3cExtendedLog,
+            Format::Avro,
         ]
     }
 }
@@ -512,6 +516,7 @@ fn default_file_extension_mappings() -> BTreeMap<String, Format> {
         ("json", Format::Json),
         ("csv", Format::Csv),
         ("tsv", Format::Tsv),
+        ("avro", Format::Avro),
     ])
         .iter()
         .map(|(k, v)| (k.to_string(), *v))

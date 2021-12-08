@@ -229,7 +229,8 @@ expression: schema
         "json",
         "csv",
         "tsv",
-        "w3cExtendedLog"
+        "w3cExtendedLog",
+        "avro"
       ]
     }
   }

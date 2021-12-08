@@ -57,8 +57,8 @@ pub struct AddFieldError {
     document: Value,
 }
 
-// TODO: move this impl into the doc crate
-fn display_ptr(ptr: &Pointer) -> String {
+// TODO: move this impl into the doc crate. For real next time ;)
+pub fn display_ptr(ptr: &Pointer) -> String {
     use std::fmt::Write;
     let mut buf = String::new();
     for token in ptr.iter() {

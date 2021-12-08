@@ -1,3 +1,4 @@
+mod avro;
 mod character_separated;
 mod json;
 mod projection;
@@ -111,6 +112,7 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::Csv => character_separated::new_csv_parser(),
         Format::Tsv => character_separated::new_tsv_parser(),
         Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
+        Format::Avro => avro::new_parser(),
     }
 }
 
@@ -153,7 +155,7 @@ fn format_output(
 
         decorator.add_fields(record_count, &mut value)?;
         serde_json::to_writer(&mut buffer, &value)?;
-        buffer.write(&[b'\n'])?;
+        buffer.write_all(&[b'\n'])?;
         record_count += 1;
     }
     buffer.flush()?;
