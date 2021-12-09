@@ -32,7 +32,8 @@ ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
 PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
-	${PKGDIR}/bin/gazette
+	${PKGDIR}/bin/gazette \
+	${PKGDIR}/bin/sops
 
 ##########################################################################
 # Configure Go build & test behaviors.
@@ -95,6 +96,8 @@ ${PKGDIR}:
 	mkdir ${PKGDIR}/lib
 ${PKGDIR}/bin/etcd: ${PKGDIR} ${GOBIN}/etcd
 	cp ${GOBIN}/etcd $@
+${PKGDIR}/bin/sops: ${PKGDIR} ${GOBIN}/sops
+	cp ${GOBIN}/sops $@
 ${PKGDIR}/bin/flowctl:     ${PKGDIR} ${GOBIN}/flowctl
 	cp ${GOBIN}/flowctl $@
 ${PKGDIR}/bin/gazctl: ${PKGDIR} ${GOBIN}/gazctl
@@ -135,16 +138,16 @@ rust-test:
 	FLOW_VERSION=${VERSION} cargo test --release --locked
 
 .PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd
+go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd
+go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
 	GORACE="halt_on_error=1" \
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd
+catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops
 	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
