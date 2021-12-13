@@ -68,7 +68,7 @@ pub enum Error {
         type_: types::Set,
         schema: Url,
     },
-    #[error("location {ptr} accepts {type_:?} in schema {schema}, but {disallowed:?} is disallowed in locations used as keys")]
+    #[error("location {ptr} accepts {type_:?} in schema {schema}, but {disallowed:?} is disallowed in locations used as keys (https://go.estuary.dev/CigSvN)")]
     KeyWrongType {
         ptr: String,
         type_: types::Set,

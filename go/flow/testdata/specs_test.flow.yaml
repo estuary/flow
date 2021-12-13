@@ -4,9 +4,9 @@ collections:
       type: object
       properties:
         a_key: { type: string }
-        a_val: { type: integer }
+        a_val: { type: [integer, "null"] }
         a_bool: { type: boolean }
-        a_str: { type: [string, "null"] }
+        a_str: { type: string }
       required: [a_key, a_bool, a_str]
     key: [/a_key]
     projections:
