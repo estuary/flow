@@ -14,7 +14,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
@@ -34,7 +34,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
@@ -46,6 +46,6 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
-        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "object" is disallowed in locations used as keys,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
 ]

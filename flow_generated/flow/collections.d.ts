@@ -23,7 +23,7 @@ export type AcmeBankTransfers = {
 // Generated from examples/reduction-types/append.flow.yaml?ptr=/collections/example~1reductions~1append/schema.
 // Referenced as schema of examples/reduction-types/append.flow.yaml#/collections/example~1reductions~1append.
 export type ExampleReductionsAppend = {
-    key: string;
+    key: number | string;
     value?: unknown[];
 };
 

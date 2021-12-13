@@ -347,7 +347,7 @@ pub fn walk_keyed_location(
     }
 
     // Prohibit types not suited to being keys.
-    let disallowed = shape.type_ & (types::OBJECT | types::ARRAY | types::FRACTIONAL);
+    let disallowed = shape.type_ & (types::OBJECT | types::ARRAY | types::FRACTIONAL | types::NULL);
 
     if disallowed != types::INVALID {
         Error::KeyWrongType {
