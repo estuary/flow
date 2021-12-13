@@ -771,6 +771,7 @@ enum ContentType {
   TYPESCRIPT_MODULE = 2;
   NPM_PACKAGE = 3;
   CONFIG = 4;
+  DOCUMENTS_FIXTURE = 5;
 }
 
 // BuildAPI is a meta-message which name spaces messages of the Build API
