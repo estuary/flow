@@ -4268,6 +4268,16 @@ All {
             to_resource: test://example/int-string-tests.ts,
         },
         Import {
+            scope: test://example/int-string-tests#/tests/testing~1test/0,
+            from_resource: test://example/int-string-tests,
+            to_resource: test://example/int-string-tests?ptr=/tests/testing~1test/0,
+        },
+        Import {
+            scope: test://example/int-string-tests#/tests/testing~1test/1,
+            from_resource: test://example/int-string-tests,
+            to_resource: test://example/int-string-tests?ptr=/tests/testing~1test/1,
+        },
+        Import {
             scope: test://example/webhook-deliveries#/import/1,
             from_resource: test://example/webhook-deliveries,
             to_resource: test://example/int-halve,
@@ -5209,6 +5219,16 @@ All {
             content: ".. binary ..",
         },
         Resource {
+            resource: test://example/int-string-tests?ptr=/tests/testing~1test/0,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/int-string-tests?ptr=/tests/testing~1test/1,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
             resource: test://example/int-string.schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
@@ -5281,7 +5301,7 @@ All {
             test: testing/test,
             description: ,
             collection: testing/int-string,
-            documents: [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}],
+            documents: test://example/int-string-tests?ptr=/tests/testing~1test/0,
             partitions: NULL,
             step_index: 0,
             step_type: "Ingest",
@@ -5291,7 +5311,7 @@ All {
             test: testing/test,
             description: expect stuff happens,
             collection: testing/int-string,
-            documents: [{"str":"string A"},{"str":"string B"}],
+            documents: test://example/int-string-tests?ptr=/tests/testing~1test/1,
             partitions: {"include":{"bit":[true]},"exclude":{}},
             step_index: 1,
             step_type: "Verify",

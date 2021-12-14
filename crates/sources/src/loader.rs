@@ -19,6 +19,12 @@ pub enum LoadError {
         #[source]
         detail: anyhow::Error,
     },
+    #[error(
+        "failed to parse configuration document (location {:?}) (https://go.estuary.dev/qpSUoq)", .0.location()
+    )]
+    ConfigParseErr(#[source] serde_yaml::Error),
+    #[error("failed to parse JSON document fixtures (https://go.estuary.dev/NGT3es)")]
+    DocumentFixturesParseErr(#[source] serde_json::Error),
     #[error("failed to parse YAML (location {:?})", .0.location())]
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to merge YAML alias nodes")]
@@ -233,10 +239,24 @@ impl<F: Fetcher> Loader<F> {
                 models::ContentType::JsonSchema => {
                     self.load_schema_document(scope, content.as_ref()).await
                 }
-                // Require that the config parses as a YAML or JSON document.
+
+                // Require that the config parses as a YAML or JSON object.
                 models::ContentType::Config => self
-                    .fallible(scope, serde_yaml::from_slice(&content))
+                    .fallible(
+                        scope,
+                        serde_yaml::from_slice(&content).map_err(|e| LoadError::ConfigParseErr(e)),
+                    )
                     .map(|_dom: models::Object| ()),
+
+                // Require that the document fixtures parse as a JSON array of objects.
+                models::ContentType::DocumentsFixture => self
+                    .fallible(
+                        scope,
+                        serde_json::from_slice::<Vec<models::Object>>(&content)
+                            .map_err(|e| LoadError::DocumentFixturesParseErr(e)),
+                    )
+                    .map(|_dom: Vec<models::Object>| ()),
+
                 _ => None,
             };
             ()
@@ -359,25 +379,63 @@ impl<F: Fetcher> Loader<F> {
             import.set_fragment(fragment.as_deref());
             Some(import)
         } else {
-            // Schema is in-line. Create a synthetic resource URL by extending the parent
-            // with a `ptr` query parameter, encoding the json pointer path of the schema.
-            let mut import = scope.resource().clone();
-            import.set_query(Some(&format!("ptr={}", scope.location.url_escaped())));
-
-            self.load_resource_content(
-                scope,
-                &import,
-                serde_json::to_vec(&schema).unwrap().into(),
-                models::ContentType::JsonSchema,
+            Some(
+                self.load_synthetic_resource(scope, &schema, models::ContentType::JsonSchema)
+                    .await,
             )
-            .await;
-
-            self.tables
-                .borrow_mut()
-                .imports
-                .insert_row(scope.flatten(), scope.resource(), &import);
-            Some(import)
         }
+    }
+
+    /// Load a test documents reference, which may be in an inline form.
+    async fn load_test_documents<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        documents: models::TestDocuments,
+    ) -> Option<Url> {
+        if let models::TestDocuments::Url(import) = documents {
+            let import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
+            self.load_import(scope, &import, models::ContentType::DocumentsFixture)
+                .await;
+            Some(import)
+        } else {
+            Some(
+                self.load_synthetic_resource(
+                    scope,
+                    &documents,
+                    models::ContentType::DocumentsFixture,
+                )
+                .await,
+            )
+        }
+    }
+
+    async fn load_synthetic_resource<'s, Ser: serde::Serialize>(
+        &'s self,
+        scope: Scope<'s>,
+        resource: Ser,
+        content_type: models::ContentType,
+    ) -> Url {
+        // Create a synthetic resource URL by extending the parent scope with a `ptr` query parameter,
+        // encoding the json pointer path of the schema.
+        let mut import = scope.resource().clone();
+        import.set_query(Some(&format!("ptr={}", scope.location.url_escaped())));
+
+        self.load_resource_content(
+            scope,
+            &import,
+            serde_json::to_vec(&resource)
+                .expect("resource must serialize")
+                .into(),
+            content_type,
+        )
+        .await;
+
+        self.tables
+            .borrow_mut()
+            .imports
+            .insert_row(scope.flatten(), scope.resource(), &import);
+
+        import
     }
 
     // Load an import to another resource, recursively fetching if not yet visited.
@@ -601,62 +659,72 @@ impl<F: Fetcher> Loader<F> {
                 });
         let materializations = futures::future::join_all(materializations);
 
-        // Collect tests.
-        for (test, step_specs) in tests {
-            for (step_index, spec) in step_specs.into_iter().enumerate() {
-                let scope = scope
-                    .push_prop("tests")
-                    .push_prop(&test)
-                    .push_item(step_index)
-                    .flatten();
-                let test = test.clone();
+        // Task which loads all tests.
+        let tests = tests.into_iter().map(|(test, step_specs)| async move {
+            let test = &test; // Capture shared reference, rather than the variable itself.
+            let scope = scope.push_prop("tests");
+            let scope = scope.push_prop(test);
 
-                let (collection, documents, partitions, description, step_type) = match spec {
-                    models::TestStep::Ingest(models::TestStepIngest {
-                        collection,
-                        documents,
-                        description,
-                    }) => (
-                        collection,
-                        documents,
-                        None,
-                        description,
-                        TestStepType::Ingest,
-                    ),
+            // Task which loads all steps of this test.
+            let step_specs =
+                step_specs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(step_index, spec)| async move {
+                        let scope = scope.push_item(step_index);
 
-                    models::TestStep::Verify(models::TestStepVerify {
-                        collection,
-                        documents,
-                        partitions,
-                        description,
-                    }) => (
-                        collection,
-                        documents,
-                        partitions,
-                        description,
-                        TestStepType::Verify,
-                    ),
-                };
+                        let (collection, documents, partitions, description, step_type) = match spec
+                        {
+                            models::TestStep::Ingest(models::TestStepIngest {
+                                collection,
+                                documents,
+                                description,
+                            }) => (
+                                collection,
+                                documents,
+                                None,
+                                description,
+                                TestStepType::Ingest,
+                            ),
 
-                self.tables.borrow_mut().test_steps.insert_row(
-                    scope,
-                    test,
-                    description,
-                    collection,
-                    documents,
-                    partitions,
-                    step_index as u32,
-                    step_type,
-                );
-            }
-        }
+                            models::TestStep::Verify(models::TestStepVerify {
+                                collection,
+                                documents,
+                                partitions,
+                                description,
+                            }) => (
+                                collection,
+                                documents,
+                                partitions,
+                                description,
+                                TestStepType::Verify,
+                            ),
+                        };
 
-        let (_, _, _, _, _): (Vec<()>, (), Vec<()>, Vec<()>, Vec<()>) = futures::join!(
+                        if let Some(documents) = self.load_test_documents(scope, documents).await {
+                            self.tables.borrow_mut().test_steps.insert_row(
+                                scope.flatten(),
+                                test.clone(),
+                                description,
+                                collection,
+                                documents,
+                                partitions,
+                                step_index as u32,
+                                step_type,
+                            );
+                        }
+                    });
+            futures::future::join_all(step_specs).await;
+        });
+        let tests = futures::future::join_all(tests);
+
+        let (_, _, _, _, _, _): (Vec<()>, (), Vec<()>, Vec<()>, Vec<()>, Vec<()>) = futures::join!(
             import,
             typescript_module,
             collections,
             captures,
-            materializations
+            materializations,
+            tests,
         );
         Some(())
     }

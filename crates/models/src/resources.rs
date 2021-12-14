@@ -75,6 +75,8 @@ pub enum ContentType {
     TypescriptModule,
     /// Configuration file.
     Config,
+    /// Fixture of documents.
+    DocumentsFixture,
     /// Resource is a compiled NPM package.
     #[schemars(skip)]
     NpmPackage,
@@ -94,6 +96,7 @@ impl From<ProtoContentType> for ContentType {
             ProtoContentType::TypescriptModule => Self::TypescriptModule,
             ProtoContentType::NpmPackage => Self::NpmPackage,
             ProtoContentType::Config => Self::Config,
+            ProtoContentType::DocumentsFixture => Self::DocumentsFixture,
         }
     }
 }
@@ -105,6 +108,7 @@ impl Into<ProtoContentType> for ContentType {
             Self::TypescriptModule => ProtoContentType::TypescriptModule,
             Self::NpmPackage => ProtoContentType::NpmPackage,
             Self::Config => ProtoContentType::Config,
+            Self::DocumentsFixture => ProtoContentType::DocumentsFixture,
         }
     }
 }

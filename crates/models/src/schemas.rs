@@ -21,8 +21,11 @@ use super::{Object, RelativeUrl};
 #[schemars(example = "Schema::example_inline_basic")]
 #[schemars(example = "Schema::example_inline_counter")]
 pub enum Schema {
+    /// Relative URL to a schema file.
     Url(RelativeUrl),
+    /// Inline schema document.
     Object(Object),
+    /// Inline schema document (alternate boolean form).
     Bool(bool),
 }
 

@@ -1,19 +1,61 @@
 test://example/catalog.yaml:
+  import:
+    - catalog-err-not-an-array.yaml
+    - catalog-err-not-an-object.yaml
+
   tests:
     acmeCo/widgest/test:
       - ingest:
           description: Import some foos
           collection: test/collection
-          documents: [{ "ingest": 1 }, true]
+          documents: [{ "ingest": 1 }, { "next": "ingest" }]
       # No selector.
       - verify:
           description: Verify without a selector.
           collection: test/collection
-          documents: [{ "verify": 2 }, false]
+          documents: [{ "verify": 2 }, { "next": false }]
       # With selector.
       - verify:
           collection: test/collection
           partitions:
             include: { "a_field": ["some-val"] }
             exclude: {}
-          documents: [{ "verify": 3 }, "fin"]
+          documents: [{ "verify": 3 }, { "fin": null }]
+      - ingest:
+          description: Import more foos via file fixture.
+          collection: test/collection
+          documents: ./snapshots/ingest.json
+      - verify:
+          description: Verify via file fixture.
+          collection: test/collection
+          documents: ./snapshots/verify.json
+
+    acmeCo/errors/test:
+      - ingest:
+          description: This isn't an array.
+          collection: test/collection
+          documents: ./not-an-array.json
+      - verify:
+          description: This is missing.
+          collection: test/collection
+          documents: ./not-found.json
+
+test://example/snapshots/ingest.json: [{ an: ingest }]
+
+test://example/snapshots/verify.json: [{ a: verify }]
+
+test://example/not-an-array.json: { whoops: true }
+
+test://example/catalog-err-not-an-array.yaml:
+  tests:
+    acmeCo/parse/failure:
+      - ingest:
+          collection: test/collection
+          documents: { "not": "an array" }
+
+test://example/catalog-err-not-an-object.yaml:
+  tests:
+    acmeCo/parse/failure:
+      - ingest:
+          collection: test/collection
+          documents: ["not-an-object"]
