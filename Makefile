@@ -147,12 +147,15 @@ go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops
+catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops flow.schema.json
 	${GOBIN}/flowctl test --source ${ROOTDIR}/examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
 end-to-end-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops
 	PATH="${PATH}:${GOBIN}" ./tests/run-end-to-end.sh
+
+flow.schema.json: ${GOBIN}/flowctl
+	${GOBIN}/flowctl json-schema > $@
 
 .PHONY: package
 package: $(PACKAGE_TARGETS)
