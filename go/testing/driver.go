@@ -204,10 +204,15 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	// mathematical operations on floats, which can result in some loss of precision. Additionally,
 	// we want to accept cases like `1.0` and `1` by treating them as equal.
 	diffOptions.CompareNumbers = compareNumbers
-	var index int
-	var failures testFailures
+
+	var out = FailedVerifies{
+		Test:     test,
+		TestStep: testStep,
+		Actuals:  actual,
+	}
 
 	// Compare matched |expected| and |actual| documents.
+	var index int
 	for index = 0; index != len(expected) && index != len(actual); index++ {
 		var mode, diffs = jsondiff.Compare(actual[index], []byte(expected[index]), &diffOptions)
 
@@ -215,9 +220,9 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 		case jsondiff.FullMatch, jsondiff.SupersetMatch:
 			// Pass.
 		default:
-			failures = append(failures, failure{
-				docIndex: index,
-				diff:     diffs,
+			out.Failures = append(out.Failures, FailedVerify{
+				DocIndex: index,
+				Diff:     diffs,
 			})
 		}
 	}
@@ -227,21 +232,21 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	prettyEnc.SetIndent("", "    ")
 
 	for ; index < len(expected); index++ {
-		failures = append(failures, failure{
-			docIndex: index,
-			expected: json.RawMessage(expected[index]),
+		out.Failures = append(out.Failures, FailedVerify{
+			DocIndex:        index,
+			MissingExpected: json.RawMessage(expected[index]),
 		})
 	}
 
 	for ; index < len(actual); index++ {
-		failures = append(failures, failure{
-			docIndex: index,
-			actual:   json.RawMessage(actual[index]),
+		out.Failures = append(out.Failures, FailedVerify{
+			DocIndex:         index,
+			UnexpectedActual: json.RawMessage(actual[index]),
 		})
 	}
 
-	if failures != nil {
-		return failures
+	if out.Failures != nil {
+		return out
 	}
 
 	log.WithFields(log.Fields{
@@ -280,34 +285,40 @@ func compareNumbers(a, b json.Number) bool {
 	return math.Abs(aFloat-bFloat) < scaledEpsilon
 }
 
-type testFailures []failure
-
-type failure struct {
-	docIndex int
-	actual   json.RawMessage
-	expected json.RawMessage
-	diff     string
+// FailedVerify is details of a failed test verification.
+type FailedVerify struct {
+	DocIndex         int             // Index of the document which failed.
+	UnexpectedActual json.RawMessage // If set, an unexpected document was seen at DocIndex.
+	MissingExpected  json.RawMessage // If set, an expected document was not seen at DocIndex.
+	Diff             string          // If set, expected and actual documents at DocIndex differed.
 }
 
-func (f failure) describe(b *strings.Builder) {
+type FailedVerifies struct {
+	Test     *pf.TestSpec      // Test which failed.
+	TestStep int               // Index of the test verification which failed.
+	Actuals  []json.RawMessage // Actual documents of the verification step.
+	Failures []FailedVerify    // All verification failures.
+}
+
+func (f FailedVerify) describe(b *strings.Builder) {
 	var encoder = json.NewEncoder(b)
 	encoder.SetIndent("", "    ")
-	if len(f.actual) > 0 {
+	if len(f.UnexpectedActual) > 0 {
 		b.WriteString("Unexpected actual document:\n")
-		encoder.Encode(f.actual)
-	} else if len(f.expected) > 0 {
-		fmt.Fprintf(b, "Missing expected document at index %d:\n", f.docIndex)
-		encoder.Encode(f.expected)
+		encoder.Encode(f.UnexpectedActual)
+	} else if len(f.MissingExpected) > 0 {
+		fmt.Fprintf(b, "Missing expected document at index %d:\n", f.DocIndex)
+		encoder.Encode(f.MissingExpected)
 	} else {
-		fmt.Fprintf(b, "mismatched document at index %d:\n", f.docIndex)
-		b.WriteString(f.diff)
+		fmt.Fprintf(b, "mismatched document at index %d:\n", f.DocIndex)
+		b.WriteString(f.Diff)
 	}
 }
 
-func (r testFailures) Error() string {
+func (r FailedVerifies) Error() string {
 	var b strings.Builder
 	b.WriteString("actual and expected document(s) did not match:\n")
-	for _, f := range r {
+	for _, f := range r.Failures {
 		f.describe(&b)
 		b.WriteRune('\n')
 	}
@@ -359,7 +370,7 @@ func CombineDocuments(
 	collection *pf.CollectionSpec,
 	schemas *bindings.SchemaIndex,
 	documents [][]byte,
-) ([][]byte, error) {
+) ([]json.RawMessage, error) {
 	// Feed documents into an extractor, to extract UUIDs.
 	var extractor, err = bindings.NewExtractor()
 	if err != nil {
@@ -383,7 +394,7 @@ func CombineDocuments(
 		schemas,
 		collection.Collection,
 		collection.SchemaUri,
-		"", // Don't populate UUID placeholder.
+		collection.UuidPtr,
 		collection.KeyPtrs,
 		nil, // Don't extract additional fields.
 	); err != nil {
@@ -402,8 +413,10 @@ func CombineDocuments(
 	}
 
 	// Drain actual documents from the combiner.
-	var actual [][]byte
+	var actual []json.RawMessage
 	err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
+		// Replace document UUID placeholder with a more friendly value.
+		doc = bytes.Replace(doc, pf.DocumentUUIDPlaceholder, []byte("flow-uuid"), -1)
 		actual = append(actual, doc)
 		return nil
 	})

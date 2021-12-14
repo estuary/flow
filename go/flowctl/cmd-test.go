@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/protocol"
@@ -19,7 +18,7 @@ type cmdTest struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	Timeout     time.Duration         `long:"timeout" default:"10m" description:"Maximum time for a test invocation"`
+	Snapshot    string                `long:"snapshot" description:"When set, failed test verifications produce snapshots into the given base directory"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -102,6 +101,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	var test = apiTest{
 		BuildID:    buildID,
 		BuildsRoot: buildsRoot,
+		Snapshot:   cmd.Snapshot,
 	}
 	test.Broker.Address = protocol.Endpoint(brokerAddr)
 	test.Consumer.Address = protocol.Endpoint(consumerAddr)
