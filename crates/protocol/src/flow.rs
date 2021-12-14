@@ -1028,4 +1028,5 @@ pub enum ContentType {
     TypescriptModule = 2,
     NpmPackage = 3,
     Config = 4,
+    DocumentsFixture = 5,
 }

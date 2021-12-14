@@ -38,7 +38,7 @@ pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use shuffles::{Lambda, PartitionSelector, Shuffle};
-pub use tests::{TestStep, TestStepIngest, TestStepVerify};
+pub use tests::{TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
 /// Object is an alias for a JSON object.
 pub type Object = serde_json::Map<String, serde_json::Value>;

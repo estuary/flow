@@ -189,7 +189,7 @@ tables!(
         // Collection ingested or verified by this step.
         collection: models::Collection,
         // Documents ingested or verified by this step.
-        documents: Vec<serde_json::Value>,
+        documents: url::Url,
         // When verifying, selector over logical partitions of the collection.
         partitions: Option<models::PartitionSelector>,
         // Enumerated index of this test step.

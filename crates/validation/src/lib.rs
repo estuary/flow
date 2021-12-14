@@ -192,6 +192,7 @@ pub async fn validate<D: Drivers>(
         collections,
         imports,
         projections,
+        resources,
         &schema_index,
         &schema_shapes,
         test_steps,
