@@ -4,8 +4,8 @@
 #
 # Don't install anything in this Dockerfile which isn't also present in that environment!
 # Instead, further packages must be installed through explicit build steps.
-# This practice keeps builds within docker environments (i.e. codespaces) in lock-step
-# with what GitHub Actions CI produces.
+# This practice keeps builds within devcontainer environments (i.e. codespaces) in lock-step
+# with what works in GitHub Actions CI.
 FROM ubuntu:20.04
 
 ## Set a configured locale.
@@ -13,18 +13,21 @@ ARG LOCALE=en_US.UTF-8
 
 # See the package list in the GitHub reference link above, at the very bottom,
 # which lists installed apt packages.
-RUN apt-get update -y \
- && apt-get upgrade -y \
- && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+RUN apt update -y \
+ && apt upgrade -y \
+ && DEBIAN_FRONTEND=noninteractive apt install --no-install-recommends -y \
       bash-completion \
       build-essential \
       ca-certificates \
       clang-12 \
       curl \
+      docker-compose \
+      docker.io \
       git \
       gnupg2 \
       iproute2 \
       jq \
+      less \
       libclang-12-dev \
       libncurses5-dev \
       libreadline-dev \
@@ -33,7 +36,6 @@ RUN apt-get update -y \
       locales \
       net-tools \
       netcat \
-      nodejs \
       npm \
       openssh-client  \
       pkg-config \
@@ -44,16 +46,31 @@ RUN apt-get update -y \
       sudo \
       tcpdump \
       unzip \
+      vim-tiny \
       wget \
       zip
 
-## Install Rust. This is pasted from:
-## https://github.com/rust-lang/docker-rust/blob/master/1.51.0/bullseye/Dockerfile
+# Install package sources for google-cloud-sdk repository.
+# Run `gcloud auth application-default login` to enable key management with the `sops` tool.
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+# Install package source for more recent Nodejs packages.
+RUN echo "Add NodeSource keyring for more recent nodejs packages" \
+ && export NODE_KEYRING=/usr/share/keyrings/nodesource.gpg \
+ && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee "$NODE_KEYRING" >/dev/null \
+ && gpg --no-default-keyring --keyring "$NODE_KEYRING" --list-keys \
+ && echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_14.x bullseye main" | tee /etc/apt/sources.list.d/nodesource.list
+# Install google-cloud-sdk and nodejs.
+RUN apt update -y \
+    && apt install google-cloud-sdk nodejs --no-install-recommends -y \
+    && apt auto-remove -y
 
+## Install Rust. This is pasted from:
+## https://github.com/rust-lang/docker-rust/blob/master/1.57.0/bullseye/Dockerfile
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.54.0
+    RUST_VERSION=1.57.0
 
 RUN set -eux; \
     dpkgArch="$(dpkg --print-architecture)"; \
@@ -82,9 +99,9 @@ RUN rustup set profile default \
  && rustup component add clippy rustfmt rust-docs
 
 ## Install Go.
-## TODO(johnny): Downgrade from 1.16.7 => 1.16.6 (#191)
-ARG GOLANG_VERSION=1.16.6
-ARG GOLANG_SHA256=be333ef18b3016e9d7cb7b1ff1fdb0cac800ca0be4cf2290fe613b3d069dfe0d
+## See releases and SHAs at: https://go.dev/dl/
+ARG GOLANG_VERSION=1.17.5
+ARG GOLANG_SHA256=bd78114b0d441b029c8fe0341f4910370925a4d270a6a590668840675b0c653e
 ENV PATH=/usr/local/go/bin:$PATH
 
 RUN curl -L -o /tmp/golang.tgz \
@@ -96,25 +113,14 @@ RUN curl -L -o /tmp/golang.tgz \
  && rm /tmp/golang.tgz \
  && go version
 
-## Install Docker.
-ARG DOCKER_VERSION=19.03.13
-ARG DOCKER_SHA256=ddb13aff1fcdcceb710bf71a210169b9c1abfd7420eeaf42cf7975f8fae2fcc8
-
-RUN curl -L -o /tmp/docker.tgz \
-      https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz \
- && echo "${DOCKER_SHA256} /tmp/docker.tgz" | sha256sum -c - \
- && tar --extract \
-      --file /tmp/docker.tgz \
-      --strip-components 1 \
-      --directory /usr/local/bin/ \
- && rm /tmp/docker.tgz \
- && docker --version
-
 RUN locale-gen ${LOCALE}
 
+# Allow `flow` user to sudo within the container.
 RUN useradd flow --create-home --shell /usr/sbin/nologin \
     && echo flow ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/flow \
     && chmod 0440 /etc/sudoers.d/flow
+# Go binaries built by `flow` should be on the PATH.
+ENV PATH=/home/flow/go/bin:$PATH
 
 # Adapted from: https://github.com/microsoft/vscode-dev-containers/tree/main/containers/docker-from-docker#adding-the-user-to-a-docker-group
 COPY docker-debian.sh /tmp
