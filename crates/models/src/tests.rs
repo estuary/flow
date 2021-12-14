@@ -1,8 +1,34 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{from_value, json};
 
-use super::{Collection, PartitionSelector};
+use super::{Collection, Object, PartitionSelector, RelativeUrl};
+
+/// A test step describes either an "ingest" of document fixtures into a
+/// collection, or a "verify" of expected document fixtures from a collection.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(untagged)]
+#[schemars(example = "TestDocuments::example_relative")]
+#[schemars(example = "TestDocuments::example_inline")]
+pub enum TestDocuments {
+    /// Relative URL to a file of documents.
+    Url(RelativeUrl),
+    /// An inline array of documents.
+    Inline(Vec<Object>),
+}
+
+impl TestDocuments {
+    pub fn example_relative() -> Self {
+        from_value(json!("../path/to/test-documents.json")).unwrap()
+    }
+    pub fn example_inline() -> Self {
+        from_value(json!([
+            {"a": "document"},
+            {"another": "document"},
+        ]))
+        .unwrap()
+    }
+}
 
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
@@ -39,7 +65,7 @@ pub struct TestStepIngest {
     pub collection: Collection,
     /// # Documents to ingest.
     /// Each document must conform to the collection's schema.
-    pub documents: Vec<Value>,
+    pub documents: TestDocuments,
 }
 
 impl TestStepIngest {
@@ -47,10 +73,7 @@ impl TestStepIngest {
         Self {
             description: "Description of the ingestion.".to_string(),
             collection: Collection::example(),
-            documents: vec![
-                json!({"example": "document"}),
-                json!({"another": "document"}),
-            ],
+            documents: TestDocuments::example_inline(),
         }
     }
 }
@@ -72,7 +95,7 @@ pub struct TestStepVerify {
     /// properties, and any properties present in the actual document but
     /// not in this document fixture are ignored. All other values must
     /// match or the test will fail.
-    pub documents: Vec<Value>,
+    pub documents: TestDocuments,
     /// # Selector over partitions to verify.
     #[serde(default)]
     #[schemars(default = "PartitionSelector::example")]
@@ -84,7 +107,7 @@ impl TestStepVerify {
         Self {
             description: "Description of the verification.".to_string(),
             collection: Collection::example(),
-            documents: vec![json!({"expected": "document"})],
+            documents: TestDocuments::example_inline(),
             partitions: None,
         }
     }

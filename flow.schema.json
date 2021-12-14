@@ -173,7 +173,7 @@
                 "description": "Description of the ingestion.",
                 "documents": [
                   {
-                    "example": "document"
+                    "a": "document"
                   },
                   {
                     "another": "document"
@@ -187,7 +187,10 @@
                 "description": "Description of the verification.",
                 "documents": [
                   {
-                    "expected": "document"
+                    "a": "document"
+                  },
+                  {
+                    "another": "document"
                   }
                 ],
                 "partitions": null
@@ -481,7 +484,8 @@
         "CATALOG",
         "JSON_SCHEMA",
         "TYPESCRIPT_MODULE",
-        "CONFIG"
+        "CONFIG",
+        "DOCUMENTS_FIXTURE"
       ]
     },
     "Derivation": {
@@ -1043,13 +1047,16 @@
       ],
       "anyOf": [
         {
+          "description": "Relative URL to a schema file.",
           "$ref": "#/definitions/RelativeUrl"
         },
         {
+          "description": "Inline schema document.",
           "type": "object",
           "additionalProperties": true
         },
         {
+          "description": "Inline schema document (alternate boolean form).",
           "type": "boolean"
         }
       ]
@@ -1242,6 +1249,34 @@
       "type": "string",
       "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
+    "TestDocuments": {
+      "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",
+      "examples": [
+        "../path/to/test-documents.json",
+        [
+          {
+            "a": "document"
+          },
+          {
+            "another": "document"
+          }
+        ]
+      ],
+      "anyOf": [
+        {
+          "description": "Relative URL to a file of documents.",
+          "$ref": "#/definitions/RelativeUrl"
+        },
+        {
+          "description": "An inline array of documents.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      ]
+    },
     "TestStep": {
       "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",
       "examples": [
@@ -1251,7 +1286,7 @@
             "description": "Description of the ingestion.",
             "documents": [
               {
-                "example": "document"
+                "a": "document"
               },
               {
                 "another": "document"
@@ -1265,7 +1300,10 @@
             "description": "Description of the verification.",
             "documents": [
               {
-                "expected": "document"
+                "a": "document"
+              },
+              {
+                "another": "document"
               }
             ],
             "partitions": null
@@ -1309,7 +1347,7 @@
           "description": "Description of the ingestion.",
           "documents": [
             {
-              "example": "document"
+              "a": "document"
             },
             {
               "another": "document"
@@ -1335,8 +1373,7 @@
         "documents": {
           "title": "Documents to ingest.",
           "description": "Each document must conform to the collection's schema.",
-          "type": "array",
-          "items": true
+          "$ref": "#/definitions/TestDocuments"
         }
       },
       "additionalProperties": false
@@ -1349,7 +1386,10 @@
           "description": "Description of the verification.",
           "documents": [
             {
-              "expected": "document"
+              "a": "document"
+            },
+            {
+              "another": "document"
             }
           ],
           "partitions": null
@@ -1373,8 +1413,7 @@
         "documents": {
           "title": "Documents to verify.",
           "description": "Each document may contain only a portion of the matched document's properties, and any properties present in the actual document but not in this document fixture are ignored. All other values must match or the test will fail.",
-          "type": "array",
-          "items": true
+          "$ref": "#/definitions/TestDocuments"
         },
         "partitions": {
           "title": "Selector over partitions to verify.",

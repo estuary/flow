@@ -2,11 +2,13 @@ use super::{collection, errors::Error, indexed, reference, schema};
 use itertools::Itertools;
 use models::tables;
 use protocol::flow::{self, test_spec::step::Type as TestStepType};
+use superslice::Ext;
 
 pub fn walk_all_test_steps(
     collections: &[tables::Collection],
     imports: &[tables::Import],
     projections: &[tables::Projection],
+    resources: &[tables::Resource],
     schema_index: &doc::SchemaIndex<'_>,
     schemas: &[schema::Shape],
     test_steps: &[tables::TestStep],
@@ -21,6 +23,7 @@ pub fn walk_all_test_steps(
                     collections,
                     imports,
                     projections,
+                    resources,
                     schema_index,
                     schemas,
                     test_step,
@@ -55,6 +58,7 @@ pub fn walk_test_step(
     collections: &[tables::Collection],
     imports: &[tables::Import],
     projections: &[tables::Projection],
+    resources: &[tables::Resource],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     test_step: &tables::TestStep,
@@ -70,6 +74,18 @@ pub fn walk_test_step(
         test,
         description: _,
     } = test_step;
+
+    let documents = &resources[resources.equal_range_by_key(&documents, |r| &r.resource)];
+    let documents: Vec<serde_json::Value> = match documents.first() {
+        Some(tables::Resource {
+            content_type: models::ContentType::DocumentsFixture,
+            content,
+            ..
+        }) => serde_json::from_slice(&content).expect(
+            "a DocumentsFixture resource is verified to be an array of objects during load",
+        ),
+        _ => Vec::new(),
+    };
 
     // Map to slices of documents which are ingested or verified by this step.
     let (ingest, verify) = match step_type {
@@ -131,5 +147,5 @@ pub fn walk_test_step(
         );
     }
 
-    Some(models::build::test_step_spec(test_step))
+    Some(models::build::test_step_spec(test_step, &documents))
 }

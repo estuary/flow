@@ -8,7 +8,36 @@ Tables {
     captures: [],
     collections: [],
     derivations: [],
-    errors: [],
+    errors: [
+        Error {
+            scope: test://example/catalog-err-not-an-array.yaml,
+            error: failed to parse YAML (location None)
+            
+            Caused by:
+                data did not match any variant of untagged enum TestDocuments,
+        },
+        Error {
+            scope: test://example/catalog-err-not-an-object.yaml,
+            error: failed to parse YAML (location None)
+            
+            Caused by:
+                data did not match any variant of untagged enum TestDocuments,
+        },
+        Error {
+            scope: test://example/not-an-array.json,
+            error: failed to parse JSON document fixtures (https://go.estuary.dev/NGT3es)
+            
+            Caused by:
+                invalid type: map, expected a sequence at line 1 column 0,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
+            error: failed to fetch resource test://example/not-found.json
+            
+            Caused by:
+                fixture not found,
+        },
+    ],
     fetches: [
         Fetch {
             depth: 1,
@@ -16,14 +45,83 @@ Tables {
         },
         Fetch {
             depth: 2,
+            resource: test://example/catalog-err-not-an-array.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/catalog-err-not-an-object.yaml,
+        },
+        Fetch {
+            depth: 2,
             resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/not-an-array.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/not-found.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/snapshots/ingest.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/snapshots/verify.json,
         },
     ],
     imports: [
         Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog-err-not-an-array.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog-err-not-an-object.yaml,
+        },
+        Import {
             scope: test://example/catalog.yaml,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/2,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/not-an-array.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/not-found.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/snapshots/ingest.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/snapshots/verify.json,
         },
     ],
     materialization_bindings: [],
@@ -33,8 +131,48 @@ Tables {
     projections: [],
     resources: [
         Resource {
+            resource: test://example/catalog-err-not-an-array.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog-err-not-an-object.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/not-an-array.json,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/snapshots/ingest.json,
+            content_type: "DOCUMENTS_FIXTURE",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/snapshots/verify.json,
+            content_type: "DOCUMENTS_FIXTURE",
             content: ".. binary ..",
         },
     ],
@@ -42,11 +180,31 @@ Tables {
     storage_mappings: [],
     test_steps: [
         TestStep {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0,
+            test: acmeCo/errors/test,
+            description: This isn't an array.,
+            collection: test/collection,
+            documents: test://example/not-an-array.json,
+            partitions: NULL,
+            step_index: 0,
+            step_type: "Ingest",
+        },
+        TestStep {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
+            test: acmeCo/errors/test,
+            description: This is missing.,
+            collection: test/collection,
+            documents: test://example/not-found.json,
+            partitions: NULL,
+            step_index: 1,
+            step_type: "Verify",
+        },
+        TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/0,
             test: acmeCo/widgest/test,
             description: Import some foos,
             collection: test/collection,
-            documents: [{"ingest":1},true],
+            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
             partitions: NULL,
             step_index: 0,
             step_type: "Ingest",
@@ -56,7 +214,7 @@ Tables {
             test: acmeCo/widgest/test,
             description: Verify without a selector.,
             collection: test/collection,
-            documents: [{"verify":2},false],
+            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
             partitions: NULL,
             step_index: 1,
             step_type: "Verify",
@@ -66,9 +224,29 @@ Tables {
             test: acmeCo/widgest/test,
             description: ,
             collection: test/collection,
-            documents: [{"verify":3},"fin"],
+            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
             partitions: {"include":{"a_field":["some-val"]},"exclude":{}},
             step_index: 2,
+            step_type: "Verify",
+        },
+        TestStep {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3,
+            test: acmeCo/widgest/test,
+            description: Import more foos via file fixture.,
+            collection: test/collection,
+            documents: test://example/snapshots/ingest.json,
+            partitions: NULL,
+            step_index: 3,
+            step_type: "Ingest",
+        },
+        TestStep {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4,
+            test: acmeCo/widgest/test,
+            description: Verify via file fixture.,
+            collection: test/collection,
+            documents: test://example/snapshots/verify.json,
+            partitions: NULL,
+            step_index: 4,
             step_type: "Verify",
         },
     ],

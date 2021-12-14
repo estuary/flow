@@ -598,13 +598,16 @@ pub fn materialization_shuffle(
     }
 }
 
-pub fn test_step_spec(test_step: &tables::TestStep) -> flow::test_spec::Step {
+pub fn test_step_spec(
+    test_step: &tables::TestStep,
+    documents: &Vec<Value>,
+) -> flow::test_spec::Step {
     let tables::TestStep {
         scope,
         test: _,
         description,
         collection,
-        documents,
+        documents: _,
         partitions,
         step_index,
         step_type,
@@ -617,7 +620,7 @@ pub fn test_step_spec(test_step: &tables::TestStep) -> flow::test_spec::Step {
         collection: collection.to_string(),
         docs_json_lines: documents
             .iter()
-            .map(|d| d.to_string())
+            .map(|d| serde_json::to_string(d).expect("object cannot fail to serialize"))
             .collect::<Vec<_>>()
             .join("\n"),
         partitions: Some(journal_selector(collection, partitions)),

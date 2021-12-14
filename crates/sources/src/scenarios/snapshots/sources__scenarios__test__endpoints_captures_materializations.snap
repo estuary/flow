@@ -81,7 +81,7 @@ Tables {
     errors: [
         Error {
             scope: test://example/malformed-config.yaml,
-            error: failed to parse YAML (location None)
+            error: failed to parse configuration document (location None) (https://go.estuary.dev/qpSUoq)
             
             Caused by:
                 0: invalid utf-8 sequence of 1 bytes from index 1
