@@ -3,9 +3,9 @@
 	"dockerComposeFile": "docker-compose.yaml",
 	"service": "develop",
 	"workspaceFolder": "/workspace",
-	// Set *default* container specific settings.json values on container create.
+	// Set default container specific settings.json values on container create.
 	"settings": {
-		"terminal.integrated.shell.linux": "/bin/bash",
+		// Integrate the empty docker-compose database into VSCode.
 		"sqltools.connections": [
 			{
 				"name": "Container database",
@@ -18,6 +18,27 @@
 				"password": "flow"
 			}
 		],
+		// Add extra CGO configuration required for the vscode-go extension to build
+		// the project through IDE-driven interactions, like running tests and analysis.
+		// Yes, these `testEnvVars` vs `toolsEnvVars` blocks are identical.
+		"go.testEnvVars": {
+			"CGO_LDFLAGS": "-L /workspaces/flow/target/release -L /workspaces/flow/target/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
+			"CGO_CFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include",
+			"CGO_CPPFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include"
+		},
+		"go.toolsEnvVars": {
+			"CGO_LDFLAGS": "-L /workspaces/flow/target/release -L /workspaces/flow/target/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
+			"CGO_CFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include",
+			"CGO_CPPFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include"
+		},
+		// Set a default terminal to use.
+		"terminal.integrated.profiles.linux": {
+			"bash": {
+				"path": "bash",
+				"icon": "terminal-bash"
+			},
+		},
+		"terminal.integrated.defaultProfile.linux": "bash",
 	},
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
@@ -52,7 +73,7 @@
 	// Run extra environment setup required to build & test Flow.
 	// We're using a base image which is compatible with our CI runner,
 	// and thus use the same make target.
-	"postCreateCommand": "make extra-ci-runner-setup && make package",
+	"postCreateCommand": "make extra-ci-runner-setup && go mod download && make package",
 	// This user matches the user that's created inside the flow image
 	"remoteUser": "flow",
 	"overrideCommand": false
