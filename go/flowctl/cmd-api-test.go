@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -21,6 +25,7 @@ type apiTest struct {
 	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
 	BuildsRoot  string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+	Snapshot    string                `long:"snapshot" description:"When set, failed test verifications produce snapshots into the given base directory"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
@@ -105,6 +110,13 @@ func (cmd apiTest) execute(ctx context.Context) error {
 			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
 			fmt.Println(err)
 			failed = append(failed, testCase.Test)
+
+			var verify testing.FailedVerifies
+			if errors.As(err, &verify) {
+				if err := cmd.snapshot(verify); err != nil {
+					return fmt.Errorf("creating snapshot: %w", err)
+				}
+			}
 		} else {
 			var path, _ = scopeToPathAndPtr(config.Directory, testCase.Steps[0].StepScope)
 			fmt.Println("✔️", path, "::", green(testCase.Test))
@@ -136,4 +148,32 @@ func (cmd apiTest) Execute(_ []string) error {
 	pb.RegisterGRPCDispatcher("local")
 
 	return cmd.execute(context.Background())
+}
+
+func (cmd apiTest) snapshot(verify testing.FailedVerifies) error {
+	if cmd.Snapshot == "" {
+		return nil
+	}
+
+	var dir = filepath.Join(cmd.Snapshot, verify.Test.Test)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	var filename = filepath.Join(dir, fmt.Sprintf("verify-%d.json", verify.TestStep))
+	var snap, err = os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer snap.Close()
+
+	var enc = json.NewEncoder(snap)
+	enc.SetIndent("", "  ")
+
+	if err := enc.Encode(verify.Actuals); err != nil {
+		return err
+	}
+
+	log.WithField("path", filename).Warn("wrote snapshot")
+	return nil
 }
