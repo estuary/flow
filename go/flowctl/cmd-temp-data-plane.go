@@ -17,7 +17,6 @@ import (
 
 type cmdTempDataPlane struct {
 	BrokerPort   uint16                `long:"broker-port" default:"8080" description:"Port bound by Gazette broker"`
-	BuildsRoot   string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	ConsumerPort uint16                `long:"consumer-port" default:"9000" description:"Port bound by Flow consumer"`
 	Network      string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Poll         bool                  `long:"poll" description:"Poll connectors, rather than running them continuously. Required in order to use 'flowctl api poll'"`
@@ -83,6 +82,12 @@ func (cmd cmdTempDataPlane) Execute(_ []string) error {
 }
 
 func (cmd *cmdTempDataPlane) start(ctx context.Context, tempdir string) (etcdAddr, brokerAddr, consumerAddr string, _ error) {
+	var buildsRoot = filepath.Join(tempdir, "builds")
+	if err := os.Mkdir(buildsRoot, 0700); err != nil {
+		return "", "", "", fmt.Errorf("creating builds dir: %w", err)
+	}
+	buildsRoot = "file://" + buildsRoot + "/"
+
 	var execDir, err = os.Executable()
 	if err != nil {
 		return "", "", "", fmt.Errorf("getting path of current executable: %w", err)
@@ -92,7 +97,7 @@ func (cmd *cmdTempDataPlane) start(ctx context.Context, tempdir string) (etcdAdd
 	// Shell out to start etcd, gazette, and the flow consumer.
 	cmd.etcd, etcdAddr = cmd.etcdCmd(ctx, execDir, tempdir)
 	cmd.gazette, brokerAddr = cmd.gazetteCmd(ctx, execDir, tempdir, etcdAddr)
-	cmd.consumer, consumerAddr = cmd.consumerCmd(ctx, execDir, tempdir, cmd.BuildsRoot, etcdAddr, brokerAddr)
+	cmd.consumer, consumerAddr = cmd.consumerCmd(ctx, execDir, tempdir, buildsRoot, etcdAddr, brokerAddr)
 
 	for _, cmd := range []*exec.Cmd{cmd.etcd, cmd.gazette, cmd.consumer} {
 		// Deliver a SIGTERM to the process if this thread should die uncleanly.

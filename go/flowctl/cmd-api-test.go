@@ -23,7 +23,6 @@ import (
 type apiTest struct {
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
-	BuildsRoot  string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	Snapshot    string                `long:"snapshot" description:"When set, failed test verifications produce snapshots into the given base directory"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
@@ -31,21 +30,25 @@ type apiTest struct {
 }
 
 func (cmd apiTest) execute(ctx context.Context) error {
-	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
-	if err != nil {
-		return err
-	}
-
 	ctx = pb.WithDispatchDefault(ctx)
-	var sc = cmd.Consumer.MustShardClient(ctx)
-	var tc = pf.NewTestingClient(cmd.Consumer.MustDial(ctx))
-	var rjc = cmd.Broker.MustRoutedJournalClient(ctx)
 
-	// Fetch configuration from the data plane.
-	_, err = pingAndFetchConfig(ctx, sc, rjc)
+	rjc, _, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
+	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	builds, err := flow.NewBuildService(buildsRoot.String())
+	if err != nil {
+		return err
+	}
+	var tc = pf.NewTestingClient(cmd.Consumer.MustDial(ctx))
 
 	var build = builds.Open(cmd.BuildID)
 	defer build.Close()

@@ -132,7 +132,7 @@ $ docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_sta
 
 Start a Flow data plane on your machine:
 ```console
-$ flowctl temp-data-plane --builds-root file://$(pwd)/
+$ flowctl temp-data-plane
 export BROKER_ADDRESS=http://localhost:8080
 export CONSUMER_ADDRESS=http://localhost:9000
 ```
