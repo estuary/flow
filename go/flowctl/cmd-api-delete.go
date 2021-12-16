@@ -24,7 +24,6 @@ type apiDelete struct {
 	AllDerivations bool                  `long:"all-derivations" description:"Delete all derivations"`
 	Broker         mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID        string                `long:"build-id" required:"true" description:"ID of this build"`
-	BuildsRoot     string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer       mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	DryRun         bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	Names          []string              `long:"name" description:"Name of task or collection to activate. May be repeated many times"`
@@ -34,17 +33,21 @@ type apiDelete struct {
 }
 
 func (cmd apiDelete) execute(ctx context.Context) error {
-	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
+	ctx = pb.WithDispatchDefault(ctx)
+
+	rjc, _, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
-
-	ctx = pb.WithDispatchDefault(ctx)
-	var sc = cmd.Consumer.MustShardClient(ctx)
-	var jc = cmd.Broker.MustJournalClient(ctx)
-
-	// Fetch configuration from the data plane.
-	_, err = pingAndFetchConfig(ctx, sc, jc)
+	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	builds, err := flow.NewBuildService(buildsRoot.String())
 	if err != nil {
 		return err
 	}
@@ -63,11 +66,11 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
 
-	shards, journals, err := flow.DeletionChanges(ctx, jc, sc, collections, tasks, cmd.BuildID)
+	shards, journals, err := flow.DeletionChanges(ctx, rjc, sc, collections, tasks, cmd.BuildID)
 	if err != nil {
 		return err
 	}
-	if err = applyAllChanges(ctx, sc, jc, shards, journals, cmd.DryRun); err != nil {
+	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err != nil {
 		return err
 	}
 

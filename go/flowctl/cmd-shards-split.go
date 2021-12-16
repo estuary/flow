@@ -21,7 +21,6 @@ import (
 // This command will be under the shards command which leverages the gazctlcmd.ShardsCfg config.
 type cmdSplit struct {
 	Broker        mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
-	BuildsRoot    string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer      mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	DryRun        bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	Shard         string                `long:"shard" required:"true" description:"Shard to split"`
@@ -37,17 +36,21 @@ Split a Flow processing shard into two, either on shuffled key or rotated clock.
 }
 
 func (cmd cmdSplit) execute(ctx context.Context) error {
-	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
+	ctx = pb.WithDispatchDefault(ctx)
+
+	rjc, _, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
-
-	ctx = pb.WithDispatchDefault(ctx)
-	var sc = cmd.Consumer.MustShardClient(ctx)
-	var jc = cmd.Broker.MustJournalClient(ctx)
-
-	// Fetch configuration from the data plane.
-	_, err = pingAndFetchConfig(ctx, sc, jc)
+	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	builds, err := flow.NewBuildService(buildsRoot.String())
 	if err != nil {
 		return err
 	}
@@ -64,7 +67,7 @@ func (cmd cmdSplit) execute(ctx context.Context) error {
 	var shardSpec = shardsList.Shards[0].Spec
 
 	// List the shard's recovery log.
-	logsList, err := client.ListAllJournals(ctx, jc, pb.ListRequest{
+	logsList, err := client.ListAllJournals(ctx, rjc, pb.ListRequest{
 		Selector: pf.LabelSelector{Include: pb.MustLabelSet("name", shardSpec.RecoveryLog().String())},
 	})
 	if err != nil {
@@ -110,7 +113,7 @@ func (cmd cmdSplit) execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = applyAllChanges(ctx, sc, jc, shards, journals, cmd.DryRun); err != nil {
+	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err != nil {
 		return err
 	}
 

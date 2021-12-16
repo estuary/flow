@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"sort"
 	"time"
 
@@ -30,7 +33,6 @@ type apiActivate struct {
 	AllDerivations bool                  `long:"all-derivations" description:"Activate all derivations"`
 	Broker         mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID        string                `long:"build-id" required:"true" description:"ID of this build"`
-	BuildsRoot     string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer       mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	DryRun         bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	InitialSplits  int                   `long:"initial-splits" default:"1" description:"When creating new tasks, the number of initial key splits to use"`
@@ -41,17 +43,21 @@ type apiActivate struct {
 }
 
 func (cmd apiActivate) execute(ctx context.Context) error {
-	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
+	ctx = pb.WithDispatchDefault(ctx)
+
+	rjc, _, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
-
-	ctx = pb.WithDispatchDefault(ctx)
-	var sc = cmd.Consumer.MustShardClient(ctx)
-	var jc = cmd.Broker.MustJournalClient(ctx)
-
-	// Fetch configuration from the data plane.
-	_, err = pingAndFetchConfig(ctx, sc, jc)
+	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	builds, err := flow.NewBuildService(buildsRoot.String())
 	if err != nil {
 		return err
 	}
@@ -132,18 +138,23 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			Info("applied materialization to endpoint")
 	}
 
-	shards, journals, err := flow.ActivationChanges(ctx, jc, sc, collections, tasks, cmd.InitialSplits)
+	shards, journals, err := flow.ActivationChanges(ctx, rjc, sc, collections, tasks, cmd.InitialSplits)
 	if err != nil {
 		return err
 	}
-	if err = applyAllChanges(ctx, sc, jc, shards, journals, cmd.DryRun); err != nil {
+	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err != nil {
 		return err
 	}
 
 	// Poll task shards, waiting for them to become ready.
 	for _, task := range tasks {
-		var ready bool
 
+		if task.TaskShardTemplate().Disable {
+			log.WithField("task", task.TaskName()).Warn("task is disabled")
+			continue
+		}
+
+		var ready bool
 		for attempt := 0; !ready; attempt++ {
 			// Poll task shards with a back-off.
 			switch attempt {
@@ -205,37 +216,85 @@ func (cmd apiActivate) Execute(_ []string) error {
 	return cmd.execute(context.Background())
 }
 
-// fakeConfig is a placeholder for a future protocol configuration
-// returned by the Flow consumer.
-type fakeConfig struct {
-	JournalsEtcd pb.Header_Etcd
-	ShardsEtcd   pb.Header_Etcd
-}
-
-// TODO(johnny): In the future this should fetch a configuration response from
-// the flow consumer, which includes its journals Etcd header and build ID.
-func pingAndFetchConfig(ctx context.Context, sc pc.ShardClient, jc pb.JournalClient) (fakeConfig, error) {
+func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJournalClient, *pb.Header_Etcd, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
-	shardResp, err := sc.List(ctx, &pc.ListRequest{
-		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", "this/shard/does/not/exist")},
-	})
-	if err != nil {
-		return fakeConfig{}, fmt.Errorf("pinging shard client: %w", err)
-	}
+	var jc = broker.MustRoutedJournalClient(ctx)
 
-	journalsResp, err := jc.List(ctx, &pb.ListRequest{
+	resp, err := jc.List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "this/collection/does/not/exist")},
 	})
 	if err != nil {
-		return fakeConfig{}, fmt.Errorf("pinging journal client: %w", err)
+		return nil, nil, fmt.Errorf("pinging journal client: %w", err)
+	}
+	return jc, &resp.Header.Etcd, nil
+}
+
+func newShardClient(ctx context.Context, consumer mbp.ClientConfig) (pc.ShardClient, *pb.Header_Etcd, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+
+	var sc = consumer.MustShardClient(ctx)
+
+	resp, err := sc.List(ctx, &pc.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", "this/shard/does/not/exist")},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("pinging shard client: %w", err)
 	}
 
-	return fakeConfig{
-		JournalsEtcd: journalsResp.Header.Etcd,
-		ShardsEtcd:   shardResp.Header.Etcd,
-	}, nil
+	return sc, &resp.Header.Etcd, nil
+}
+
+func getBuildsRoot(ctx context.Context, consumer mbp.ClientConfig) (*url.URL, error) {
+	var resource = consumer.Address.URL()
+	var client = http.DefaultClient
+
+	if resource.Scheme == "unix" {
+		var socketPath = resource.Path
+
+		client = &http.Client{
+			Transport: &http.Transport{
+				DialTLSContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", socketPath)
+				},
+			},
+		}
+		resource.Scheme = "https"
+	}
+
+	// We can determine the configured --flow.builds-root of the data plane consumer
+	// by asking a random member through the /debug/vars interface.
+	// This is a little gross, but... shrug.
+	var vars struct {
+		Cmdline []string
+	}
+	resource.Path = "/debug/vars"
+
+	resp, err := client.Get(resource.String())
+	if err != nil {
+		return nil, fmt.Errorf("fetching consumer vars: %w", err)
+	} else if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("fetching consumer vars: %s", resp.Status)
+	}
+	defer resp.Body.Close()
+
+	if err = json.NewDecoder(resp.Body).Decode(&vars); err != nil {
+		return nil, fmt.Errorf("decoding consumer vars: %w", err)
+	}
+
+	var s string
+	for i := range vars.Cmdline {
+		if i > 0 && vars.Cmdline[i-1] == "--flow.builds-root" {
+			s = vars.Cmdline[i]
+		}
+	}
+	if s == "" {
+		return nil, fmt.Errorf("empty builds root (consumer cmdline: %v)", vars.Cmdline)
+	}
+
+	return url.Parse(s)
 }
 
 // loadFromCatalog loads collections and tasks in |names| from the catalog.
