@@ -17,24 +17,27 @@ import (
 type apiAwait struct {
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
-	BuildsRoot  string                `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
 func (cmd apiAwait) execute(ctx context.Context) error {
-	var builds, err = flow.NewBuildService(cmd.BuildsRoot)
+	ctx = pb.WithDispatchDefault(ctx)
+
+	rjc, brokerHeader, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
-
-	ctx = pb.WithDispatchDefault(ctx)
-	var sc = cmd.Consumer.MustShardClient(ctx)
-	var rjc = cmd.Broker.MustRoutedJournalClient(ctx)
-
-	// Fetch configuration from the data plane.
-	config, err := pingAndFetchConfig(ctx, sc, rjc)
+	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	if err != nil {
+		return err
+	}
+	builds, err := flow.NewBuildService(buildsRoot.String())
 	if err != nil {
 		return err
 	}
@@ -85,7 +88,7 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 		graph.CompletedIngest(
 			pf.Collection(capture.Capture),
 			&testing.Clock{
-				Etcd:    config.JournalsEtcd,
+				Etcd:    *brokerHeader,
 				Offsets: pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Capture)): 1},
 			},
 		)

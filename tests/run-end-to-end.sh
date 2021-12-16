@@ -35,9 +35,6 @@ ACTUAL="${TESTDIR}/actual_test_results.txt"
 # Expected materialization output.
 EXPECTED="${ROOTDIR}/tests/end-to-end.expected"
 
-# `flowctl` commands look for a BUILDS_ROOT environment variable which roots
-# build databases known to the data plane.
-export BUILDS_ROOT="file://${TESTDIR}/build/"
 # `flowctl` commands which interact with the data plane look for *_ADDRESS
 # variables, which are used by the temp-data-plane we're about to start.
 export BROKER_ADDRESS=unix://localhost${TESTDIR}/gazette.sock
@@ -55,13 +52,25 @@ flowctl temp-data-plane \
     --unix-sockets \
     &
 DATA_PLANE_PID=$!
+
+# `flowctl temp-data-plane` always uses ./builds/ of --tempdir as its --flow.builds-root.
+# See cmd-temp-data-plane.go.
+export BUILDS_ROOT=${TESTDIR}/builds
+
 # Arrange to stop the data plane on exit and remove the temporary directory.
 trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && cleanupDataIfPassed" EXIT
 
 BUILD_ID=run-end-to-end
 
 # Build the catalog. Arrange for it to be removed on exit.
-flowctl api build --directory ${TESTDIR}/build --build-id ${BUILD_ID} --source ${ROOTDIR}/tests/end-to-end.flow.yaml --ts-package || bail "Build failed."
+flowctl api build \
+    --directory ${TESTDIR}/catalog-build \
+    --build-id ${BUILD_ID} \
+    --source ${ROOTDIR}/tests/end-to-end.flow.yaml \
+    --ts-package \
+    || bail "Catalog build failed."
+# Move the built database to the data plane's builds root.
+mv ${TESTDIR}/catalog-build/${BUILD_ID} ${BUILDS_ROOT}/
 # Activate the catalog.
 flowctl api activate --build-id ${BUILD_ID} --all || bail "Activate failed."
 # Wait for polling pass to finish.

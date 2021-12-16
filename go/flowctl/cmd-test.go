@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -38,7 +39,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
 		return fmt.Errorf("filepath.Abs: %w", err)
 	}
-	var buildsRoot = "file://" + cmd.Directory + "/"
 
 	// Create a temporary directory which will contain the Etcd database
 	// and various unix:// sockets.
@@ -54,7 +54,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Start a temporary data plane bound to our context.
 	var dataPlane = cmdTempDataPlane{
-		BuildsRoot:  buildsRoot,
 		UnixSockets: true,
 		Log: mbp.LogConfig{
 			Level:  "warn",
@@ -82,10 +81,18 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return err
 	}
 
+	// Move the build database into the data plane temp directory.
+	// Shell to `mv` (vs os.Rename) for it's proper handling of cross-volume moves.
+	if err := exec.Command("mv",
+		filepath.Join(cmd.Directory, buildID),
+		filepath.Join(tempdir, "builds", buildID),
+	).Run(); err != nil {
+		return fmt.Errorf("moving build to local data plane builds root: %w", err)
+	}
+
 	// Activate derivations of the built database into the local dataplane.
 	var activate = apiActivate{
 		BuildID:        buildID,
-		BuildsRoot:     buildsRoot,
 		Network:        cmd.Network,
 		InitialSplits:  1,
 		AllDerivations: true,
@@ -99,9 +106,8 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Test the built database against the local dataplane.
 	var test = apiTest{
-		BuildID:    buildID,
-		BuildsRoot: buildsRoot,
-		Snapshot:   cmd.Snapshot,
+		BuildID:  buildID,
+		Snapshot: cmd.Snapshot,
 	}
 	test.Broker.Address = protocol.Endpoint(brokerAddr)
 	test.Consumer.Address = protocol.Endpoint(consumerAddr)
@@ -113,7 +119,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	// Delete derivations and collections from the local dataplane.
 	var delete = apiDelete{
 		BuildID:        buildID,
-		BuildsRoot:     buildsRoot,
 		Network:        cmd.Network,
 		AllDerivations: true,
 	}
