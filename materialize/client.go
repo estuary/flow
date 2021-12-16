@@ -311,12 +311,12 @@ func (f *TxnClient) Prepare(flowCheckpoint pf.Checkpoint) (pf.DriverCheckpoint, 
 // StartCommit of the prepared transaction. The CommitOps must be initialized by the caller.
 // The caller must arrange for LogCommitted to be resolved appropriately, after DriverCommitted.
 // The *TxnClient will resolve DriverCommitted & Acknowledged.
-func (f *TxnClient) StartCommit(ops CommitOps) error {
+func (f *TxnClient) StartCommit(ops CommitOps) ([]*pf.CombineAPI_Stats, error) {
 	f.tx.Lock()
 	defer f.tx.Unlock()
 
 	if f.tx.state != txPrepare {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"client protocol error: StartCommit is invalid in state %v", f.tx.state)
 	}
 
@@ -339,9 +339,10 @@ func (f *TxnClient) StartCommit(ops CommitOps) error {
 		}
 	}
 
+	var allStats = make([]*pf.CombineAPI_Stats, 0, len(f.shared.combiners))
 	// Drain each binding.
 	for i, combiner := range f.shared.combiners {
-		if err := drainBinding(
+		if stats, err := drainBinding(
 			f.shared.flighted[i],
 			combiner,
 			f.spec.Bindings[i].DeltaUpdates,
@@ -349,7 +350,9 @@ func (f *TxnClient) StartCommit(ops CommitOps) error {
 			&f.tx.staged,
 			i,
 		); err != nil {
-			return err
+			return nil, err
+		} else {
+			allStats = append(allStats, stats)
 		}
 	}
 
@@ -357,16 +360,16 @@ func (f *TxnClient) StartCommit(ops CommitOps) error {
 	select {
 	case f.tx.commitOpsCh <- ops:
 	case <-f.rx.loopOp.Done():
-		return f.rx.loopOp.Err()
+		return nil, f.rx.loopOp.Err()
 	}
 
 	// Tell the driver to commit.
 	if err := WriteCommit(f.tx.client, &f.tx.staged); err != nil {
-		return err
+		return nil, err
 	}
 
 	f.tx.state = txLoadCommit
-	return nil
+	return allStats, nil
 }
 
 func (f *TxnClient) onLogCommitted() error {
@@ -556,12 +559,12 @@ func drainBinding(
 	driverTx Driver_TransactionsClient,
 	request **TransactionRequest,
 	binding int,
-) error {
+) (*pf.CombineAPI_Stats, error) {
 	// Precondition: |flighted| contains the precise set of keys for this binding in this transaction.
 	var remaining = len(flighted)
 
 	// Drain the combiner into materialization Store requests.
-	if err := combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
+	var stats, err = combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
 		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
 		if _, ok := flighted[string(packedKey)]; !ok {
 			var key, _ = tuple.Unpack(packedKey)
@@ -601,8 +604,9 @@ func drainBinding(
 		remaining--
 		return nil
 
-	}); err != nil {
-		return fmt.Errorf("combine.Finish: %w", err)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("combine.Finish: %w", err)
 	}
 
 	// We should have seen 1:1 combined documents for each flighted key.
@@ -613,7 +617,7 @@ func drainBinding(
 		}).Panic("combiner drained, but expected documents remainder != 0")
 	}
 
-	return nil
+	return stats, nil
 }
 
 // TODO(johnny): This is an interesting knob we may want expose.

@@ -70,7 +70,9 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		LogCommitted:    logCommittedOp,
 		Acknowledged:    client.NewAsyncOperation(),
 	}
-	require.NoError(t, rpc.StartCommit(ops))
+	stats, err := rpc.StartCommit(ops)
+	require.NoError(t, err)
+	require.NotNil(t, stats[0])
 
 	// Pipeline the next transaction.
 	// Reset Loaded fixture, and load some documents.
@@ -104,7 +106,9 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		LogCommitted:    logCommittedOp,
 		Acknowledged:    client.NewAsyncOperation(),
 	}
-	require.NoError(t, rpc.StartCommit(ops))
+	stats, err = rpc.StartCommit(ops)
+	require.NoError(t, err)
+	require.NotNil(t, stats[0])
 
 	// Clear the key cache, and switch to delta-updates mode.
 	// Then pipeline the next delta-updates transaction.
@@ -136,7 +140,9 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		LogCommitted:    logCommittedOp,
 		Acknowledged:    client.NewAsyncOperation(),
 	}
-	require.NoError(t, rpc.StartCommit(ops))
+	stats, err = rpc.StartCommit(ops)
+	require.NoError(t, err)
+	require.NotNil(t, stats[0])
 
 	require.NoError(t, ops.DriverCommitted.Err())
 	logCommittedOp.Resolve(nil)
