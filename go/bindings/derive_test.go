@@ -117,7 +117,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 			}
 		}
 		// Drain transaction, and look for expected roll-ups.
-		expectCombineFixture(t, derive.Drain)
+		expectDeriveFixture(t, derive.Drain)
 
 		require.NoError(t, derive.PrepareCommit(protocol.Checkpoint{}))
 	}
@@ -125,6 +125,28 @@ func TestDeriveWithIntStrings(t *testing.T) {
 	// Safe to call Destroy multiple times.
 	derive.Destroy()
 	derive.Destroy()
+}
+
+func expectDeriveFixture(t *testing.T, finish func(CombineCallback) (*pf.DeriveAPI_Stats, error)) {
+	var stats, err = finish(expectCombineCallback(t))
+	require.NoError(t, err)
+	t.Log(stats)
+	require.Equal(t, 1, len(stats.Transforms))
+	// The expected inputs and outputs of the transform will vary depending on which iteration of
+	// the loop we're in, so we just ensure that these are non-zero. The stats assertions here are
+	// more to ensure that we're actually reading the stats from the output, rather than asserting
+	// the correctness of the numbers themselves. Correctness of the numbers is instead tested on
+	// the rust side.
+	require.Greater(t, stats.Transforms[0].Input.Docs, uint64(0))
+	require.Greater(t, stats.Transforms[0].Input.Bytes, uint64(0))
+	require.Greater(t, stats.Transforms[0].Publish.Output.Docs, uint64(0))
+	require.Greater(t, stats.Transforms[0].Publish.Output.Bytes, uint64(0))
+
+	// Extra sanity check for the output, since these should be the same for all iterations.
+	require.Equal(t, uint64(2), stats.Output.Docs)
+	require.Equal(t, uint64(167), stats.Output.Bytes)
+	require.Equal(t, uint64(0), stats.Registers.Created)
+	require.Equal(t, uint64(0), stats.Transforms[0].Update.Output.Docs)
 }
 
 func TestDeriveWithIncResetPublish(t *testing.T) {
@@ -250,7 +272,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 
 	var drainOK = func(t *testing.T, d *Derive) []string {
 		var drained []string
-		require.NoError(t, d.Drain(
+		var stats, err = d.Drain(
 			func(reduced bool, raw json.RawMessage, packedKey, packedFields []byte) error {
 				key, err := tuple.Unpack(packedKey)
 				require.NoError(t, err)
@@ -260,16 +282,19 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 				drained = append(drained,
 					fmt.Sprintf("reduced %v raw %s key %v fields %v", reduced, string(raw), key, fields))
 				return nil
-			}))
+			})
+		require.NoError(t, err)
+		require.NotNil(t, stats)
 		return drained
 	}
 
 	var drainError = func(t *testing.T, d *Derive) string {
-		var err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
+		var stats, err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
 			t.Error("not called")
 			return nil
 		})
 		require.Error(t, err)
+		require.Nil(t, stats)
 		return err.Error()
 	}
 
