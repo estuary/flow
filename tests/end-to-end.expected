@@ -1,3 +1,4 @@
+greetings:
 0|Hello #0
 1|Hello #1
 2|Hello #2
@@ -98,6 +99,7 @@
 97|Hello #97
 98|Hello #98
 99|Hello #99
+citi_stations:
 152|Warren St & Church St|11|
 267|Broadway & W 36 St|2|
 3183|Exchange Place|949|920
@@ -152,6 +154,7 @@
 3281|Leonard Gordon Park|37|44
 3426|JCBS Depot|3|
 3442|Indiana|1|
+citi_last_seen:
 15084|Grove St PATH|2017-03-28 10:00:32
 20366|Van Vorst Park|2017-03-20 17:46:24
 24377|Marin Light Rail|2017-03-31 16:33:23
@@ -607,3 +610,22 @@
 29286|Jersey & 3rd|2017-03-31 19:47:02
 29295|Central Ave|2017-03-31 17:32:42
 29296|Astor Place|2017-03-31 17:30:16
+flow_logs:
+examples/an/ingestion
+examples/citi-bike/last-seen
+examples/citi-bike/rides-and-relocations
+examples/citi-bike/rides-from-s3
+examples/citi-bike/stations
+examples/citi-bike/views
+examples/hello-world/views
+examples/source-hello-world
+flow_stats:
+capture|examples/citi-bike/rides-from-s3
+capture|examples/source-hello-world
+derivation|examples/citi-bike/last-seen
+derivation|examples/citi-bike/rides-and-relocations
+derivation|examples/citi-bike/stations
+materialization|examples/citi-bike/views
+materialization|examples/hello-world/views
+flow_stats (greetings docsTotal):
+100|100

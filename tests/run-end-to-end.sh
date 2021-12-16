@@ -72,9 +72,38 @@ flowctl api await --build-id ${BUILD_ID} || bail "Await failed."
 # TODO(johnny): relocation-related statistics are not stable due to
 # mis-orderings of the source ride data, which cause allowable variations
 # depending on how the capture is chunked up into transactions.
+echo 'greetings:' >> ${ACTUAL}
 sqlite3 ${OUTPUT_DB} 'SELECT count, message FROM greetings ORDER BY count;' >> ${ACTUAL}
+echo 'citi_stations:' >> ${ACTUAL}
 sqlite3 ${OUTPUT_DB} 'SELECT id, name, "arrival/ride", "departure/ride" FROM citi_stations;' >> ${ACTUAL}
+echo 'citi_last_seen:' >> ${ACTUAL}
 sqlite3 ${OUTPUT_DB} 'SELECT bike_id, "last/station/name", "last/timestamp" FROM citi_last_seen;' >> ${ACTUAL}
+# Assert that each task produced at least one log message, which was able to be materialized.
+echo 'flow_logs:' >> ${ACTUAL}
+sqlite3 ${OUTPUT_DB} 'SELECT DISTINCT name FROM flow_logs;' | sort >> ${ACTUAL}
+# We can't really make precise assertions on the stats that have been materialized because they
+# vary from run to run. So this is basically asserting that we've materialized some stats on at
+# least one transaction for each expected task.
+echo 'flow_stats:' >> ${ACTUAL}
+sqlite3 ${OUTPUT_DB}\
+    'SELECT distinct kind, name FROM flow_stats where txnCount >= 1 AND openSecondsTotal > 0;'\
+    | sort >> ${ACTUAL}
+# We _can_ make a precise assertion on the number of documents output from the hello-world capture
+# because it's configured to output a specific number of documents. So this value should match the
+# `greetings` config in that capture.
+echo 'flow_stats (greetings docsTotal):' >> ${ACTUAL}
+sqlite3 ${OUTPUT_DB} >> ${ACTUAL} <<EOF
+    select
+        sum(json_extract(flow_document,
+            '$.capture.examples/greetings.right.docsTotal'
+        )) as right_docs_total,
+        sum(json_extract(flow_document,
+            '$.capture.examples/greetings.out.docsTotal'
+        )) as out_docs_total
+        from flow_stats
+    where
+        name = 'examples/source-hello-world'
+EOF
 
 # Clean up the activated catalog.
 flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."

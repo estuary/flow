@@ -1,14 +1,13 @@
 package runtime
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/shuffle"
-	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -29,7 +28,10 @@ type Derive struct {
 	// Instrumented RocksDB recorder.
 	recorder *recoverylog.Recorder
 	// Active derivation specification, updated in RestoreCheckpoint.
+	// This is duplicated from the task term to avoid needing type assertions on each usage.
 	derivation *pf.DerivationSpec
+	// Timestamp corresponding to the beginning of the current transaction
+	txnOpened time.Time
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -62,6 +64,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err = d.initTerm(shard, d.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
+	d.derivation = d.taskTerm.task.(*pf.DerivationSpec)
 
 	defer func() {
 		if err == nil {
@@ -79,12 +82,6 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 		}
 	}()
 
-	if err = d.build.Extract(func(db *sql.DB) error {
-		d.derivation, err = catalog.LoadDerivation(db, d.labels.TaskName)
-		return err
-	}); err != nil {
-		return pf.Checkpoint{}, err
-	}
 	if err = d.initReader(&d.taskTerm, shard, d.derivation.TaskShuffles(), d.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -121,6 +118,7 @@ func (d *Derive) Destroy() {
 
 // BeginTxn begins a derive transaction.
 func (d *Derive) BeginTxn(shard consumer.Shard) error {
+	d.txnOpened = time.Now().UTC()
 	d.binding.BeginTxn()
 	return nil
 }
@@ -150,7 +148,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	var mapper = flow.NewMapper(shard.Context(), d.host.Service.Etcd, d.host.Journals, shard.FQN())
 	var collection = &d.derivation.Collection
 
-	return d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	var stats, err = d.binding.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("derivation produces only partially combined documents")
 		}
@@ -167,6 +165,13 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 		})
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	if _, err := pub.PublishUncommitted(mapper.Map, d.DeriveTxnStats(d.txnOpened, stats)); err != nil {
+		return fmt.Errorf("publishing stats document: %w", err)
+	}
+	return nil
 }
 
 // StartCommit implements the Store interface, and writes the current transaction
