@@ -14,5 +14,28 @@ captures:
         resource:
           name: greetings_v1
 
+materializations:
+  # Materialize logs and stats in order to assert that they're working end to end.
+  # This ensures that the documents we publish all validate against the schemas,
+  # since these don't get validated at the time of publishing.
+  examples/stats:
+    endpoint:
+      sqlite:
+        path: ../examples/examples.db?_journal=WAL
+    bindings:
+      - resource:
+          table: flow_logs
+        source: ops/examples/logs
+        partitions:
+          # Exclude our own logs so we don't create an infinite loop.
+          exclude: { "name": ["examples/stats"] }
+      - resource:
+          table: flow_stats
+        source: ops/examples/stats
+        partitions:
+          # Exclude our own stats so we don't create an infinite loop.
+          exclude: { "name": ["examples/stats"] }
+
+
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }

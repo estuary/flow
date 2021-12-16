@@ -414,7 +414,7 @@ func CombineDocuments(
 
 	// Drain actual documents from the combiner.
 	var actual []json.RawMessage
-	err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
+	_, err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
 		// Replace document UUID placeholder with a more friendly value.
 		doc = bytes.Replace(doc, pf.DocumentUUIDPlaceholder, []byte("flow-uuid"), -1)
 		actual = append(actual, doc)

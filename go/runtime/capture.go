@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/shuffle"
 	pc "github.com/estuary/protocols/capture"
-	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -34,7 +32,10 @@ type Capture struct {
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
 	// Specification under which the capture is currently running.
-	spec pf.CaptureSpec
+	// This is duplicated from the task term to avoid needing type assertions on each usage.
+	spec *pf.CaptureSpec
+	// Timestamp at which the current transaction was begun
+	txnOpened time.Time
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -53,8 +54,8 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 		host:     host,
 		delegate: nil, // Initialized in RestoreCheckpoint.
 		store:    store,
-		spec:     pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
-		taskTerm: taskTerm{},       // Initialized in RestoreCheckpoint.
+		spec:     nil,        // Initialized in RestoreCheckpoint.
+		taskTerm: taskTerm{}, // Initialized in RestoreCheckpoint.
 	}, nil
 }
 
@@ -64,6 +65,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err = c.initTerm(shard, c.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
+	c.spec = c.taskTerm.task.(*pf.CaptureSpec)
 
 	defer func() {
 		if err == nil {
@@ -85,17 +87,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		if err := c.delegate.Close(); err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
 		}
-	}
-
-	if err = c.build.Extract(func(db *sql.DB) error {
-		if s, err := catalog.LoadCapture(db, c.labels.TaskName); err != nil {
-			return err
-		} else {
-			c.spec = *s
-			return nil
-		}
-	}); err != nil {
-		return pf.Checkpoint{}, err
 	}
 
 	c.Log(log.DebugLevel, log.Fields{"spec": c.spec.String(), "build": c.labels.Build},
@@ -125,7 +116,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 
 	if c.spec.EndpointType == pf.EndpointType_INGEST {
 		// Create a PushServer for the specification.
-		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
+		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, c.spec, c.labels.Build)
 		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
 		}
@@ -150,7 +141,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 			c.store.driverCheckpoint(),
 			newCombinerFn,
 			c.labels.Range,
-			&c.spec,
+			c.spec,
 			c.labels.Build,
 			!c.host.Config.Flow.Poll,
 		)
@@ -299,11 +290,12 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 
 	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
 
+	var statsPerBinding = make([]*pf.CombineAPI_Stats, 0, len(c.delegate.Combiners()))
 	for b, combiner := range c.delegate.Combiners() {
 		var binding = c.spec.Bindings[b]
 		_ = binding.Collection // Elide nil check.
 
-		var err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+		var stats, err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
 				panic("capture produces only partially combined documents")
 			}
@@ -328,13 +320,23 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		if err != nil {
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
+		statsPerBinding = append(statsPerBinding, stats)
+	}
+
+	// Publish a final message with statistics about the capture transaction we'll soon finish
+	var statsMessage = c.CaptureTxnStats(c.txnOpened, statsPerBinding)
+	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
+		return fmt.Errorf("publishing stats document: %w", err)
 	}
 
 	return nil
 }
 
 // BeginTxn is a no-op.
-func (c *Capture) BeginTxn(consumer.Shard) error { return nil }
+func (c *Capture) BeginTxn(consumer.Shard) error {
+	c.txnOpened = time.Now().UTC()
+	return nil
+}
 
 // FinalizeTxn is a no-op.
 func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return nil }

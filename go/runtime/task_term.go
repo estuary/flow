@@ -33,6 +33,7 @@ type taskTerm struct {
 	// Logger used to publish logs that are scoped to this task.
 	// It is embedded to allow directly calling .Log on a taskTerm.
 	*LogPublisher
+	*StatsFormatter
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -60,10 +61,22 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	var logsCollection *pf.CollectionSpec
+	var taskSpec pf.Task
+	var statsCollectionSpec *pf.CollectionSpec
+	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
-		logsCollection, err = catalog.LoadCollection(db, logCollection(t.labels.TaskName).String())
-		return err
+		if logsCollectionSpec, err = catalog.LoadCollection(db, logCollection(t.labels.TaskName).String()); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		}
+		if statsCollectionSpec, err = catalog.LoadCollection(db, statsCollection(t.labels.TaskName).String()); err != nil {
+			return fmt.Errorf("loading stats collection: %w", err)
+		}
+
+		if taskSpec, err = loadTask(db, t.labels.TaskType, t.labels.TaskName); err != nil {
+			return fmt.Errorf("loading task spec: %w", err)
+		}
+
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -71,7 +84,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	// TODO(johnny): close old LogPublisher here, and in destroy() ?
 	if t.LogPublisher, err = NewLogPublisher(
 		t.labels,
-		logsCollection,
+		logsCollectionSpec,
 		t.schemaIndex,
 		shard.JournalClient(),
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
@@ -79,10 +92,22 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return fmt.Errorf("creating log publisher: %w", err)
 	}
 
-	t.Log(log.InfoLevel, log.Fields{
+	if t.StatsFormatter, err = NewStatsFormatter(
+		t.labels,
+		statsCollectionSpec,
+		taskSpec,
+	); err != nil {
+		return err
+	}
+
+	var logFields = log.Fields{
 		"labels":     t.labels,
 		"lastLabels": lastLabels,
-	}, "initialized catalog task term")
+	}
+	if t.LogPublisher.Level() >= log.DebugLevel {
+		logFields["taskSpec"] = taskSpec
+	}
+	t.Log(log.InfoLevel, logFields, "initialized catalog task term")
 
 	return nil
 }
@@ -185,4 +210,18 @@ func signalOnSpecUpdate(ks *keyspace.KeySpace, shard consumer.Shard, spec *pf.Sh
 			return
 		}
 	}
+}
+
+func loadTask(db *sql.DB, taskType string, taskName string) (task pf.Task, err error) {
+	switch taskType {
+	case labels.TaskTypeCapture:
+		task, err = catalog.LoadCapture(db, taskName)
+	case labels.TaskTypeDerivation:
+		task, err = catalog.LoadDerivation(db, taskName)
+	case labels.TaskTypeMaterialization:
+		task, err = catalog.LoadMaterialization(db, taskName)
+	default:
+		err = fmt.Errorf("invalid task type '%s' for task: '%s'", taskType, taskName)
+	}
+	return
 }
