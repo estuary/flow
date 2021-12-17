@@ -1,12 +1,6 @@
 [![CI](https://github.com/estuary/flow/workflows/CI/badge.svg)](https://github.com/estuary/flow/actions)
 [![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Testing setup](https://docs.estuary.dev/getting-started/installation)** | **[Data platform comparison reference](https://docs.estuary.dev/overview/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**
 
-<p align="center">
-    <img src ="https://github.com/estuary/flow/blob/master/images/Estuary%20Flow%20(Beta).gif"
-     width="300"
-     height="300"/>
-         </p>
-
 ### Build millisecond-latency, scalable, future-proof data pipelines in minutes.
 
 Estuary Flow is a DataOps platform that integrates all of the systems you use to produce, process, and consume data.
@@ -28,7 +22,7 @@ With a Flow pipeline, you:
 
 ❗️ Currently, Flow is a CLI-only platform. **Our UI is coming in Q1 of 2022**, and we will continue to grow both the CLI and UI. Flow is a tool meant for *all* stakeholders: engineers, analysts, and everyone in between.❗️
 
-![Workflow Overview](https://github.com/estuary/flow/blob/master/images/estuaryOverview.png?raw=true)
+![Workflow Overview](site/docs/concepts/architecture.png)
 
 ## Documentation
 

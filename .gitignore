@@ -7,11 +7,6 @@ target/
 /dist
 /node_modules
 
-# We'd like to not ignore flowctl_develop at all, to make it clear when
-# the working directory is dirty, but node_modules has so many files that
-# VSCode can't track it.
-/flowctl_develop/node_modules
-
 # Ordinarily one *would* version package-lock.json.
 # In our case, though, we want early warning if dependencies of the
 # vanilla package.json produce broken builds.
