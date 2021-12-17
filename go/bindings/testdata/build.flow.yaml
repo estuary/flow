@@ -47,7 +47,7 @@ materializations:
         resource: { table: a_table }
 
 tests:
-  "Example of a test":
+  example/test:
     - ingest:
         collection: a/collection
         documents:

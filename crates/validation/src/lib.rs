@@ -137,9 +137,21 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
+    let built_tests = test_step::walk_all_test_steps(
+        collections,
+        imports,
+        projections,
+        resources,
+        &schema_index,
+        &schema_shapes,
+        test_steps,
+        &mut errors,
+    );
+
     // Look for name collisions among all top-level catalog entities.
     // This is deliberately but arbitrarily ordered after granular
-    // validations of collections, but before captures and materializations.
+    // validations of collections, but before captures and materializations,
+    // as a heuristic to report more useful errors before less useful errors.
     let collections_it = collections
         .iter()
         .map(|c| ("collection", c.collection.as_str(), &c.scope));
@@ -149,9 +161,15 @@ pub async fn validate<D: Drivers>(
     let materializations_it = materializations
         .iter()
         .map(|m| ("materialization", m.materialization.as_str(), &m.scope));
+    let tests_it = test_steps
+        .iter()
+        .filter_map(|t| (t.step_index == 0).then(|| ("test", t.test.as_str(), &t.scope)));
 
     indexed::walk_duplicates(
-        captures_it.chain(collections_it).chain(materializations_it),
+        captures_it
+            .chain(collections_it)
+            .chain(materializations_it)
+            .chain(tests_it),
         &mut errors,
     );
 
@@ -187,17 +205,6 @@ pub async fn validate<D: Drivers>(
     let (built_captures, built_materializations) =
         futures::future::join(built_captures, built_materializations).await;
     errors.extend(tmp_errors.into_iter());
-
-    let built_tests = test_step::walk_all_test_steps(
-        collections,
-        imports,
-        projections,
-        resources,
-        &schema_index,
-        &schema_shapes,
-        test_steps,
-        &mut errors,
-    );
 
     Tables {
         built_captures,
