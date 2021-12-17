@@ -19,6 +19,16 @@ pub fn walk_all_test_steps(
     for (test, steps) in &test_steps.iter().group_by(|s| &s.test) {
         let steps: Vec<_> = steps
             .map(|test_step| {
+                if test_step.step_index == 0 {
+                    indexed::walk_name(
+                        &test_step.scope,
+                        "test",
+                        test,
+                        models::Test::regex(),
+                        errors,
+                    );
+                }
+
                 walk_test_step(
                     collections,
                     imports,

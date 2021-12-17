@@ -29,6 +29,14 @@ expression: errors
         error: materialization testing/b/3 is a prohibited prefix of collection testing/b/3/suffix, defined at test://example/catalog.yaml#/collections/testing~1b~13~1suffix,
     },
     Error {
+        scope: test://example/catalog.yaml#/materializations/testing~1b~14,
+        error: materialization testing/b/4 is a prohibited prefix of test testing/b/4/suffix, defined at test://example/catalog.yaml#/tests/testing~1b~14~1suffix/0,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/tests/testing~1b~15/0,
+        error: test testing/b/5 is a prohibited prefix of capture testing/b/5/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
+    },
+    Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~11,
         error: driver error while validating capture testing/b/1
         
@@ -50,6 +58,13 @@ expression: errors
             driver fixture not found: testing/b/3,
     },
     Error {
+        scope: test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
+        error: driver error while validating capture testing/b/5/suffix
+        
+        Caused by:
+            driver fixture not found: testing/b/5/suffix,
+    },
+    Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~11~1suffix,
         error: driver error while validating materialization testing/b/1/suffix
         
@@ -69,5 +84,12 @@ expression: errors
         
         Caused by:
             driver fixture not found: testing/b/3,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/testing~1b~14,
+        error: driver error while validating materialization testing/b/4
+        
+        Caused by:
+            driver fixture not found: testing/b/4,
     },
 ]
