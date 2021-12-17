@@ -214,6 +214,36 @@ test://example/materializations:
 }
 
 #[test]
+fn test_invalid_test_names_and_duplicates() {
+    run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/catalog.yaml:
+  tests:
+    testing/good: &spec
+      - verify:
+          collection: testing/int-string
+          documents: []
+
+    "": *spec
+    testing/bad name: *spec
+    testing/bad!name: *spec
+
+    # We require a sequence of non-empty tokens, separated by exactly one '/'.
+    testing/bad//name: *spec
+    testing/bad/name/: *spec
+    /testing/bad/name: *spec
+
+    # Invalid prefix of testing/test & others.
+    testing: *spec
+
+    # Illegal duplicate under naming collation.
+    testing/TeSt: *spec
+"#,
+    );
+}
+
+#[test]
 fn test_cross_entity_name_prefixes_and_duplicates() {
     run_test_errors(
         &GOLDEN,
@@ -238,6 +268,7 @@ test://example/catalog.yaml:
 
     testing/b/1/suffix: *materialization_spec
     testing/b/3: *materialization_spec
+    testing/b/4: *materialization_spec
 
   captures:
     testing/b/3: &capture_spec
@@ -249,6 +280,15 @@ test://example/catalog.yaml:
 
     testing/b/1: *capture_spec
     testing/b/2/suffix: *capture_spec
+    testing/b/5/suffix: *capture_spec
+
+  tests:
+    testing/b/5: &test_spec
+      - verify:
+          collection: testing/int-string
+          documents: []
+
+    testing/b/4/suffix: *test_spec
 "#,
     );
 }
