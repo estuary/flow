@@ -93,8 +93,3 @@ animals/sightings/genus=Elephas/species=maximus/pivot=00/utc_date=2021-03-22/utc
 Fragments will automatically be stored under separate prefixes for `pivot`, `utc_date`, and `utc_hour`. The `utc_date|hour` prefixes separate documents by the time that they were written. The `pivot` prefix separates fragments that were written by different [shards](scaling.md#processing-with-shards).
 
 In addition to optimizing storage, partitions can also help optimize processing resources. See [Catalog tasks and shards](scaling.md#logical-partitions) to learn more.
-
-### Collection storage for local development
-
-When you test locally using `flowctl develop`, Flow never uses cloud storage. Data from all collections is instead stored under the `flowctl develop` directory on the local machine. Thus you can always run `flowctl develop` without fear of modifying production data in your cloud storage. Note that materializations can still reference production systems, so you still need to take care when running `flowctl develop` with a `--source` that may include materializations.
-

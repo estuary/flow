@@ -4,7 +4,7 @@ description: How Flow adapts to process data at any scale.
 
 # Task processing
 
-The Flow runtime uses a stateful _consumer framework,_ which divides tasks across shards to manage resources. This allows it to scale from a single process all the way to large distributed deployments that can handle massive amounts of data. You can start small and scale up gradually, without complicated migrations.&#x20;
+The Flow runtime uses a stateful _consumer framework,_ which divides tasks across shards to manage resources. This allows it to scale from a single process all the way to large distributed deployments that can handle massive amounts of data. You can start small and scale up gradually, without complicated migrations.
 
 ### Processing with shards
 
@@ -14,10 +14,6 @@ The number of shards corresponds to the amount of parallelism for each task. Eac
 
 In future releases of Flow, you'll be able to directly control the number of shards for each task. By splitting the keyspace each shard handles, you will be able to increase the number of shards for a given task. This will allow processes to quickly and easily scale large enough to handle any data volume.
 
-#### Flow ingester
-
-If you're using [`flow-ingester`](../reference/pushing-data-into-flow/) instead of captures to ingest data into Flow, it won't use shards, but it is still a scalable service. This binary handles the ingestion of collection data via REST or Websockets. It's a small stateless service that can also be independently scaled without downtime and without any sort of coupling to your catalogs or tasks. `flow-ingester` is shared amongst all non-capture ingestion processes. Unlike with shards, scaling with `flow-ingester` can be an infrastructure concern. For this and other reasons, captures are the preferred method for data ingestion in Flow.
-
 ### Optimizing processing with partitions
 
 Logical [partitioning](../concepts/catalog-entities/other-entities.md#logical-partitions) can optimize catalog tasks by only reading from the desired partitions and filtering out unneeded data. Leveraging partitions is an easy way to improve performance.
@@ -26,7 +22,7 @@ Let's say you have a collection of animal sightings partitioned on `family`, `ge
 
 ```yaml
 # within a derivation
-    source: 
+    source:
       name: animals/sightings
       partitions:
         include:
