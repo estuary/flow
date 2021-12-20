@@ -5,46 +5,25 @@ description: Get set up to run Flow for local development.
 
 # Setting up a development environment
 
-There are currently two ways to set up a local development environment for Flow: using a Docker image, and using VS Code devcontainers.&#x20;
+Flow includes a [**devcontainer**](https://code.visualstudio.com/docs/remote/containers), which provides a nice development experience using a self-contained Docker-based environment. This is an easy way to get a great development experience using Flow, with auto-completion and an ideal setup for your catalog. There are currently two ways to set this up: virtually, using GitHub Codespaces, and locally, using VS Code and Docker on your machine.
 
-Both methods require Docker. [Install Docker now](https://www.docker.com/get-started) if you don't have it already.
+## Using GitHub Codespaces
 
-## Using a Docker image
+[GitHub codespaces](https://github.com/features/codespaces) provides VM-backed, portable development environments that are ideal for getting started with Flow in minutes. Currently, Codespaces is available to GitHub Teams and Enterprise customers, as well as individuals enrolled in the beta. If you have access, this is the preferred method — setting up a devcontainer in Codespaces is much quicker than doing so locally.
 
-Estuary provides a script that installs all the dependencies of Flow for you. It uses a Docker image to wrap Flow's multi-call binary, which allows you to work with Flow in your preferred development tool or directly from the command line.&#x20;
+Visit the [Flow Template repository](https://github.com/estuary/flow-template), click **Code**, and choose **New Codespace**.
 
-{% hint style="warning" %}
-Due to third-party software issues, **** [**Apple silicon**](https://developer.apple.com/documentation/apple-silicon) **(M1) hardware is not fully supported for this setup method.** For now, if you are using an Apple silicon machine, we recommend the [devcontainer method](installation.md#using-visual-studio-code-devcontainers).
+The VM spins up within a minute or two, and you can immediately begin developing and testing. The template includes a PostgreSQL database for this purpose.
 
-Flow's runtime is provided as an x86 Docker image. Docker for Mac has [known issues](https://github.com/docker/for-mac/issues/5123) running this in emulation on Apple silicon. As a result, you may experience occasional crashes, which usually present as segmentation faults.
-{% endhint %}
+## Using Visual Studio Code locally
 
-{% hint style="info" %}
-The tutorials in the documentation are written and tested with VS Code. You may need to adapt the instructions slightly using other tools.
-{% endhint %}
+If you don't have access to Codespaces, or prefer local development, use this method to create a local environment.
 
-#### Install the script
-
-Run the following command to put the script in your PATH. The following example uses the location `/usr/local/bin`, but you may modify as needed.
-
-```
-curl -OL https://raw.githubusercontent.com/estuary/flow/master/scripts/flowctl.sh
-chmod 755 flowctl.sh
-sudo mv flowctl.sh /usr/local/bin/flowctl.sh
-sudo ln -s flowctl.sh /usr/local/bin/flowctl
-```
-
-For more technical details and caveats about the script, see its [documentation on GitHub](https://github.com/estuary/flow/blob/master/scripts/flowctl.sh.md).&#x20;
-
-## Using Visual Studio Code devcontainers
-
-Flow includes a **devcontainer**, which provides a nice development experience using a self-contained Docker-based environment. This is an easy way to get a great development experience using Flow, with auto-completion set up for your Flow catalog.&#x20;
-
-Make sure that all of the following components are downloaded and installed:
+Download and install the following prerequisites:
 
 * [Docker](https://www.docker.com/get-started)
 * [VS Code](https://code.visualstudio.com)
-* VS Code [Remote Containers extension](https://code.visualstudio.com/docs/remote/containers)&#x20;
+* VS Code [Remote Containers extension](https://code.visualstudio.com/docs/remote/containers)
 
 #### Create a Git repository from the Flow Template <a href="#create-a-git-repository-from-the-flow-template" id="create-a-git-repository-from-the-flow-template"></a>
 
@@ -52,12 +31,14 @@ Visit the [Flow template repository](https://github.com/estuary/flow-template) o
 
 #### Open in VS Code <a href="#open-in-vs-code" id="open-in-vs-code"></a>
 
-Clone your repository locally and open it in VS Code. You should see a popup in the lower right corner asking if you'd like to re-open the repository in a container. Click **Re-open in container**. This may take a minute or two the first time you do this, as it downloads everything and builds the container.
+Clone your repository locally and open it in VS Code. You'll see a popup in the lower right corner asking if you'd like to re-open the repository in a container. Click **Re-open in container**. It may take several minutes to download components and build the container.
 
-#### Verify everything works <a href="#verify-everything-works" id="verify-everything-works"></a>
+## Test your environment
 
-This repository contains a "hello world" Flow project. To verify that everything is working correctly, open the terminal in VS Code and run `flowctl test --source hello-world.flow.yaml`. This command will exit successfully, meaning that the test passed.
+Regardless of the method you used, first test everything is working as expected. The repository contains a sample project, which includes a test. (It also serves as a quick tutorial, which we recommend as a next step).
 
-## Next Steps
+In a terminal window, run: `$ flowctl test --source word-counts.flow.yaml`. Verify that it returns `Ran 1 tests, 1 passed, 0 failed`.
 
-You're now ready to start using Flow! If you're new to Flow, then we recommend going through the [Flow Introductory Tutorial](flow-tutorials/hello-flow.md).
+You're now ready to start using Flow!
+
+[Proceed to the Flow introductory tutorial](flow-tutorials/hello-flow.md).
