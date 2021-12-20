@@ -48,7 +48,7 @@ collections:
         # See below for details.
         # Optional, type: object
         derivation:
-        
+
 ```
 
 ### Projections
@@ -59,22 +59,23 @@ Projections are named locations within a collection document that may be used fo
     a_field: "/json/ptr"
     # JSON Pointer that identifies a location in a document.
     # string, pattern: ^(/[^/]+)*
-    a_partition: 
+    a_partition:
     # type: object
-    
+
     # Entity that defines a partition.
         location: "/json/ptr"
         # type: string, pattern: ^(/[^/]+)*
-        
+
         # Location of this projection
         partition: true
         # type: boolean
-        
-        # Is this projection a logical partition?     
-    
+
+        # Is this projection a logical partition?
+
 ```
 
-You can learn more about projections in their [conceptual documentation](../../concepts/catalog-entities/other-entities.md).
+You can learn more about projections in their
+[conceptual documentation](../../concepts/catalog-entities/projections.md).
 
 Details on the following sub-entities can be found on their pages:
 
@@ -84,15 +85,15 @@ Details on the following sub-entities can be found on their pages:
 The below is a simple example collection that can be defined in Flow. To show the complete example, the schema is shown inline, although in practice it is recommended to store schemas separately and use a URI.&#x20;
 
 ```yaml
-collections: 
-  examples/citi-bike/last-seen: 
-  key: [/bike_id] 
-  schema: 
-    type: object 
-    properties: 
+collections:
+  examples/citi-bike/last-seen:
+  key: [/bike_id]
+  schema:
+    type: object
+    properties:
       bike_id:
         type: integer
-      last: 
+      last:
         type: string
     required: [bike_id, last]
 ```

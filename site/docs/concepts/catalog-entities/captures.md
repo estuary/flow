@@ -4,20 +4,54 @@ description: How Flow uses captures to pull data from external sources
 
 # Captures
 
-Every Flow pipeline needs to access external data. A **capture** is a binding between an external endpoint and a [collection](collections.md), which continuously pulls data from the endpoint to the collection. This means that once you initially define the capture in the catalog spec, you don't need to write any code or manage any extra tasks to continue ingesting data.
+A **capture** is a catalog task which connects to an endpoint
+and binds one or more of its resources, such as a database tables,
+to Flow collections.
+As documents become available for any of the bindings,
+Flow validates their schema and adds them to their bound collection.
 
 ![](<captures.svg>)
 
-Any collection that is bound in this way is referred to as a **captured collection**_,_ which means the data is pulled from some external source.&#x20;
+## Pull Captures
 
-### Endpoints
+Pull captures pull documents from an endpoint using a [connector](../#connectors):
 
-Endpoints are the systems that Flow can materialize data into or capture data from. Each capture and materialization contains information required to log in, pull from, and update the target system. You can declare all kinds of systems as endpoints, including databases, key/value stores, streaming pub/sub, Webhook APIs, and cloud storage locations.
+```yaml
+captures:
+  acmeCo/example/source-s3:
+    endpoint:
+      connector:
+        # Docker image which implements the capture connector.
+        image: ghcr.io/estuary/source-s3:dev
+        config: path/to/connector-config.yaml
+    bindings:
+      - resource:
+          stream: a-bucket/and-prefix
+          syncMode: incremental
+        target: acmeCo/example/collection
+      - resource:
+          stream: a-bucket/another-prefix
+          syncMode: incremental
+        target: acmeCo/example/another-collection
 
-Each capture requires an [endpoint configuration](../../reference/catalog-reference/captures/endpoint-configurations.md), which leverages a specific connector for the type of endpoint being used.&#x20;
+```
 
-### Other ingestion methods
+## Push Captures
 
-Data can also be pushed into collections via [REST or Websocket endpoints](../../reference/pushing-data-into-flow/). This is useful for integrating with applications as a webhook, for ingesting large files from the command line, testing, or for any other process that you want to manage outside of Flow.
+Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol:
 
-Regardless of the ingestion method, Flow adds data to collections in transactions. For example, you can use the JSON REST API to ingest multiple documents to multiple collections within a single transaction. If a fault occurs, or a document fails to validate against its collection schema, the transaction is rolled back in its entirety. This means simple retries upon error can ensure Flow has an entirely correct worldview.&#x20;
+```yaml
+captures:
+  acmeCo/example/webhook-ingest:
+    endpoint:
+      ingest: {}
+    bindings:
+      - resource:
+          name: webhooks
+        target: acmeCo/example/webhooks
+```
+
+:::caution
+Push captures are under development.
+Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections. Specification details are likely to exist.
+:::

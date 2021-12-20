@@ -1,23 +1,4 @@
-# Catalog specification
-
-The central YAML file(s) that define and describe the components of the catalog are known as the **catalog specification** (or "catalog spec").&#x20;
-
-In addition, Flow relies on several source files to build out a catalog. Other source files can be of various types including YAML, JSON, and Typescript. Files can have many different sections, and a directory of files can be of multiple types. Ultimately, this makes Flow catalogs highly customizable.
-
-The most common catalog spec sections you'll see and use are:
-
-* `import`
-* `collections`
-* `materializations`
-* `captures`
-* `tests`
-
-Other catalog elements that you'll work with directly but are not defined in the main catalog spec are:
-
-* Schemas: stored in a separate YAML as a best practice to allow re-use
-* Lambdas: stored in a separate Typescript file
-
-### Organizing the Flow catalog spec
+# Organizing a Flow Catalog
 
 It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files which can be managed independently. You may want to do so if:
 
@@ -105,7 +86,7 @@ Our configuration for our development environment will look like:
   - customers/flow.yaml
   - products/flow.yaml
   - sales/flow.yaml
-  
+
   ourMaterializationEndpoint:
     # dev.flow.yaml
     sqlite:
