@@ -24,6 +24,8 @@ Persisted files integrate with your existing batch tools, like Spark and MapRedu
 They use Hive-compatible partitioning, which systems like BigQuery and Snowflake use
 to read only the subset of files that match the `WHERE` clause of your ad-hoc query (known as _predicate push-down_).
 
+Learn more about how Flow stores data in the [architecture documentation](../../architecture/storage.md).
+
 ## Schemas
 
 Every Flow collection must declare a JSON schema.
