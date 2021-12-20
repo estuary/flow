@@ -35,7 +35,7 @@ Flow integrates with Mozilla’s [sops](https://github.com/mozilla/sops) tool to
 
 ### Available connectors
 
-The following Estuary connectors are available. Each connector has a unique configuration you must follow in your [catalog specification](concepts/catalog-entities/catalog-spec.md); these will be linked below the connector name.&#x20;
+The following Estuary connectors are available. Each connector has a unique configuration you must follow in your [catalog specification](concepts/catalog-entities/README.md); these will be linked below the connector name.
 
 :::warning
 Beta note: configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information.&#x20;

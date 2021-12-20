@@ -240,6 +240,7 @@ Logical partitions are defined in terms of a [JSON-Pointer](https://tools.ietf.o
 
 Documents are segregated by partition values, and are organized within cloud storage using a Hive-compatible layout. Partitioned collections are directly interpretable as external tables by tools that understand Hive partitioning and predicate push-down, like Snowflake, BigQuery, and Hive itself.
 
-Each logical partition will have one or more _physical_ partitions, backed by a corresponding Gazette journal. Physical partitions are largely transparent to users, but enable Flow to scale out processing as the data rate increases, and may be added at any time.  More information on logical partitions can be found [here](other-entities.md#logical-partitions).
+Each logical partition will have one or more _physical_ partitions, backed by a corresponding Gazette journal.
+Physical partitions are largely transparent to users, but enable Flow to scale out processing as the data rate increases, and may be added at any time.
 
-To learn more about collection options and programming elements, see the [collections reference documentation](../../reference/catalog-reference/collections.md).
+Learn more about [logical partitions](projections.md#logical-partitions).

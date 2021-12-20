@@ -8,10 +8,6 @@ description: >-
 
 A [capture](../../../concepts/catalog-entities/captures.md) binds a Flow collection to an external data source, such as a cloud storage bucket or a real-time data stream, from which the collection is continuously populated. Captures are defined in the catalog spec.
 
-{% hint style="info" %}
-Although captures are the preferred way to ingest data into Flow and the focus of future development in this area, other methods exist. [Learn more](../../pushing-data-into-flow/).&#x20;
-{% endhint %}
-
 Captures are objects utilizing the following entities:
 
 ```yaml
