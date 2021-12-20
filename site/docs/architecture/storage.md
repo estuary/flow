@@ -54,7 +54,8 @@ Using brokers to move data into and out of your cloud storage bucket provides st
 
 ### Storage of partitioned collections
 
-[Logically partitioned](../concepts/catalog-entities/other-entities.md#logical-partitions) collections share a single storage mapping prefix, but they add additional, separate prefixes for each distinct partition. Flow translates the partition keys and values into a storage location based on the broadly adopted convention established by Hive. This allows Hive and other tools that use the same convention to "just work" when you want to import or query data from your collection's cloud storage. For example, in Hive this convention is used to support predicate pushdowns, which makes queries against specific partitions much faster.
+[Logically partitioned](../concepts/catalog-entities/projections.md#logical-partitions)
+collections share a single storage mapping prefix, but they add additional, separate prefixes for each distinct partition. Flow translates the partition keys and values into a storage location based on the broadly adopted convention established by Hive. This allows Hive and other tools that use the same convention to "just work" when you want to import or query data from your collection's cloud storage. For example, in Hive this convention is used to support predicate pushdowns, which makes queries against specific partitions much faster.
 
 To illustrate this, let's look at an example collection of animal sightings that's partitioned on `genus` and`species`.
 
@@ -93,8 +94,3 @@ animals/sightings/genus=Elephas/species=maximus/pivot=00/utc_date=2021-03-22/utc
 Fragments will automatically be stored under separate prefixes for `pivot`, `utc_date`, and `utc_hour`. The `utc_date|hour` prefixes separate documents by the time that they were written. The `pivot` prefix separates fragments that were written by different [shards](scaling.md#processing-with-shards).
 
 In addition to optimizing storage, partitions can also help optimize processing resources. See [Catalog tasks and shards](scaling.md#logical-partitions) to learn more.
-
-### Collection storage for local development
-
-When you test locally using `flowctl develop`, Flow never uses cloud storage. Data from all collections is instead stored under the `flowctl develop` directory on the local machine. Thus you can always run `flowctl develop` without fear of modifying production data in your cloud storage. Note that materializations can still reference production systems, so you still need to take care when running `flowctl develop` with a `--source` that may include materializations.
-

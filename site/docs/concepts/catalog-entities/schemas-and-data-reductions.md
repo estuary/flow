@@ -49,9 +49,12 @@ To fix the above schema, change `required` to `[id, value]`.
 
 A central design tenant of Flow is that users need only provide a model of their data _one time_, as a JSON schema. Having done that, Flow leverages static inference over the schema to provide translations into other schema flavors:
 
-* Most [**projections**](other-entities.md) of a collection are automatically inferred from its schema, and inference is used to map to appropriate SQL types and constraints.
-* Inference powers many of the error checks Flow performs, such as ensuring that the collection key must exist and is of an appropriate type.
-* Flow generates TypeScript definitions from schemas to provide compile-time type checks of user lambda functions. These checks are immensely helpful for surfacing mismatched expectations around, for example, whether a field must exist, which otherwise usually cause issues in production.
+* Most [projections](projections.md) of a collection are automatically inferred from its schema,
+  and inference is used to map to appropriate SQL types and constraints.
+* Inference powers many of the error checks Flow performs,
+  such as ensuring that the collection key must exist and is of an appropriate type.
+* Flow generates TypeScript definitions from schemas to provide compile-time type checks of user lambda functions.
+  These checks are immensely helpful for surfacing mismatched expectations around, for example, whether a field must exist, which otherwise usually cause issues in production.
 
 ### Reduction annotations
 

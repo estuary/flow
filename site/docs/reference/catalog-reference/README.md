@@ -16,9 +16,9 @@ You can either create the catalog spec manually in the Flow devcontainer environ
 
 Within the catalog spec, you work in several sections to define and reference various types of top-level Flow entities. Each section is explained in depth below. For a conceptual overview of the catalog entity types, see the [Catalogs ](../../concepts/catalog-entities/)concept page.&#x20;
 
-{% hint style="info" %}
+:::info
 You can use the command `flowctl json-schema`to get a complete view of Flow entities including requirements and options. However, it provides a lot of output including some internal entities, and this reference section provides the same information in a more digestible format.
-{% endhint %}
+:::
 
 ### Using `flowctl discover`
 
