@@ -1,106 +1,135 @@
 ---
 sidebar_position: 1
-description: Create your first end-to-end data flow using flowctl discover.
+description: Create your first end-to-end data flow.
 ---
 
-# Hello Flow
+# Your first data flow
 
-{% hint style="warning" %}
-This tutorial is currently under construction due to ongoing changes to Flow's CLI.
+You can find a more succinct version of this tutorial in the [Flow Template repository](https://github.com/estuary/flow-template).
 
-**At this time, an up-to-date introductory tutorial can be found** [**on GitHub**](https://github.com/estuary/flow-template).&#x20;
-{% endhint %}
+## Word count in a continuous PostgreSQL materialized view
 
-### Introduction
+PostgreSQL is a great open-source database that supports materialized views, but it doesn't offer *continuous* materialized views. In this tutorial, you'll build one with Flow.
 
-In this tutorial, we’ll walk through a simple end-to-end data flow on your local machine. We’ll **capture** data from an outside source and **materialize** it into a database for viewing, showing a simple real-time ELT use case. This provides a quick foundation from which we can begin to refine our pipeline.
+How many times have you managed text documents in PostgreSQL and thought to yourself:
 
-Before you begin, make sure you’ve [set up a development environment](../installation.md). We'll briefly introduce concepts as we go, but if you'd like, you can reference the [high-level concepts](../../concepts/README.md) page for more detailed explanations.
+> "Gee-whiz, self, I wish I had a table of word counts that was always up-to-date!"
 
-We’ll work with data published by [CitiBike](https://www.citibikenyc.com/system-data), which details trips taken by thousands of rental bikes throughout New York City. The data is in an [Amazon S3 bucket](https://s3.amazonaws.com/tripdata/index.html).&#x20;
+... basically never, right? Well, it's a simple way to get familiar with a powerful concept, so let's do it anyway!
 
-To start building our pipeline, we need a **catalog spec**: a YAML file that defines our **catalog:** the connected components that will comprise our pipeline. These entities include:
+Our data flow will:
 
-* **Captures**: the processes that ingest data from an external source: in this case, the S3 bucket
-* **Collections**: how datasets are kept in intermediate stages within Flow: in this case, our captured Citibike data.
-* **Materializations**: The processes that push data out of Flow to a storage destination: in this case, a PostgreSQL database.
+* **Capture** data from a `documents` table in the PostgreSQL database.
+* Use a **derivation** to compute word and document frequency updates.
+* **Materialize** the results back into the table in a a `word_counts` table.
 
-We don’t need to write the whole thing manually — we can use the  `flowctl discover` command to automate much of the process. From there, we’ll refine the catalog spec further.&#x20;
+These three processes — captures, derivations, and materializations — comprise the possible **tasks** in any data flow. They're configured in YAML files known as a **catalog specification**. For this example, they've been configured for you. If you'd like, you can check out `flow.yaml` and `word-counts.flow.yaml` to get oriented.
 
-Here’s an outline of our workflow:
+## Set up
+These instructions assume you've [set up a development environment](../installation.md) either using Codespaces or on your local machine. Go back and do that first, if necessaary.
 
-* Run `flowctl discover` the first time to generate a config file.
-* Fill out the config with the necessary parameters.
-* Run `flowctl discover` again to generate the catalog spec from the config.
-* Add a materialization to the catalog spec, to write the data to a PostgreSQL database.
-* Run `flowctl develop` to start the data flow locally and examine the output.
+## Verify tests
 
-![](helloflowdiagram.png)
+All cutting-edge word count projects should have tests.
+Let's make sure the words are, um, counted. Run the following:
+```console
+$ flowctl test --source word-counts.flow.yaml
+```
+Wait until you see:
+```console
+Running  1  tests...
+✔️ word-counts.flow.yaml :: acmeCo/tests/word-counts-from-documents
 
-### **Generating the catalog spec**
+Ran 1 tests, 1 passed, 0 failed
+```
+Your test performed as expected; now you can deploy the catalog.
 
-Flow includes several [endpoint configurations](../../reference/catalog-reference/captures/endpoint-configurations.md) that allow you to use open-source connectors to connect to specific types of systems. In this case, we need to run `discover` using the S3 configuration.
+## Run It Locally
 
-Open the [S3 configuration](https://github.com/estuary/connectors/pkgs/container/source-s3) package source in GitHub. Copy the most recent link to the docker package (it's included in the box titled **Install from the command line**, and begins with `ghcr.io`).&#x20;
-
-Open a terminal window in VS Code. Run the command,  but use the most recent docker image link:
-
-`flowctl discover --image=ghcr.io/estuary/source-s3:be66f08`
-
-The terminal output notifies you that the config file that was created, with the name `/workspace/discover-source-s3.config.yaml` or similar. Open that file, and note that the required values for S3 buckets are listed. Fill in the following:
-
-* `bucket: “tripdata”`
-* `matchKeys: “202106-citibike-tripdata.csv.zip”`&#x20;
-  * Or pick any other file from the bucket with the .csv.zip extension.
-* `region: “us-east-1”`&#x20;
-  * Where the data is stored in AWS, as chosen by the data owner.&#x20;
-
-Save the file and run the command again, eg:
-
-`flowctl discover --image=ghcr.io/estuary/source-s3:be66f08`
-
-The output notifies you that the catalog spec has been created, with a file name of `/discover-source-s3.flow.yaml` or similar. Open the file and note that two sections were created automatically: captures and collections. The **captures** section includes the information we supplied in the config, and the **collections** section describes the collection created by the capture.
-
-### **Customizing the catalog spec**
-
-Now, we’ll perpetuate the contents of the collection to a database. To do so, we’ll add a [materializations](../../reference/catalog-reference/materialization/) section to the catalog spec. Our materialization will include the PostgreSQL endpoint configuration because we're materializing to this database type. You can learn about other endpoint configurations [here](../../reference/catalog-reference/materialization/endpoints.md).
-
-At the bottom of catalog spec, add the following:
-
-```yaml
-materializations:
-  # Materialization names can be anything, but be mindful of the global namespace and include
-  # the organization name - acmeCo, in this case.
-  acmeCo/postgres:
-    # Bindings are how you specify the collections the materialization will use. In this case, there's just one.
-    bindings:
-      # The name of the collection, from the Collections section of the catalog.
-      - source: acmeCo/tripdata
-        # The target for this binding to be created in the endpoint.
-        # For databases, the resource is a table, but this varies.
-        resource:
-          #Provide a unique table name to be created within the database.
-          table: trips1
-    endpoint:
-      # Specify the type of endpoint. Required fields appear below.
-      postgres:
-        # This template includes a pre-configured database but you can use your own.
-        host: localhost
-        password: flow
-        user: flow
+Start a local, temporary Flow data plane:
+```console
+$ flowctl temp-data-plane --builds-root file://$(pwd)/
 ```
 
-Save the catalog spec and run the following command:
+A data plane is a long-lived, multi-tenant, scale-out component that
+usually runs in a data center.
+Fortunately it also shrinks down to your laptop.
 
-`flowctl develop --source=/discover-source-s3.flow.yaml`
+This returns a couple exported addresses, which you'll need in a moment:
+```console
+export BROKER_ADDRESS=http://localhost:8080
+export CONSUMER_ADDRESS=http://localhost:9000
+```
 
-Once the terminal output indicates that Flow is listening on port 8080, we can check our table for the materialized output. Click the **SQLTools** side tab, and then **Container databases > flow > Schemas > public > Tables**. Click the **Show Table Records** button (magnifying glass).&#x20;
+Now, deploy the catalog to your data plane:
+```console
+$ export BROKER_ADDRESS=http://localhost:8080
+$ export CONSUMER_ADDRESS=http://localhost:9000
+$ flowctl deploy --wait-and-cleanup --source flow.yaml
+```
 
-The data is in the raw state from the CitiBike source. (Note that Flow is designed to ingest continuous streaming data, but to keep this tutorial straightforward, we’ve used static csv data here, so we won’t see any updates.)
+After a moment, you'll see:
+```console
+Deployment done. Waiting for Ctrl-C to clean up and exit.
+```
 
-Now that we’ve seen the data, we can begin to refine the data flow.&#x20;
+Flow is now watching the `documents` table, and materializing to `word_counts`.
+Start a new terminal window to begin working with the database.
 
-* We may want to query it or bring it to an external system, but the current format is not really queryable. To resolve this, we could add a [projection](https://app.gitbook.com/@estuary/s/flow/concepts/catalog-entities/other-entities) to our catalog spec.&#x20;
-* We could add a [derivation](https://app.gitbook.com/@estuary/s/flow/concepts/catalog-entities/derivations) to the catalog spec to perform a transform within the data flow itself, and materialize the already-transformed data to the database.&#x20;
+```console
+$ psql --host localhost
+psql (13.5 (Debian 13.5-0+deb11u1), server 13.2 (Debian 13.2-1.pgdg100+1))
+Type "help" for help.
+```
+The `documents` table is still empty, so you'll populate it with a few phrases:
 
-Using `flowctl discover` has helped us quickly create the backbone of our catalog and set us up to refine our workflow.\
+```console
+flow=# insert into documents (body) values ('The cat in the hat.'), ('hat Cat CAT!');
+INSERT 0 2
+```
+Now, you'll take a look at `word_counts` to see the results:
+
+```console
+flow=# select word, count, doc_count from word_counts;
+ word | count | doc_count
+------+-------+-----------
+ cat  |     3 |         2
+ hat  |     2 |         2
+ in   |     1 |         1
+ the  |     2 |         1
+(4 rows)
+```
+Say you made a typo in that second value. You can immediately update it:
+```console
+flow=# update documents set body = 'cat Cat CAT!' where id = 2;
+UPDATE 1
+flow=# select word, count, doc_count from word_counts order by word;
+ word | count | doc_count
+------+-------+-----------
+ cat  |     4 |         2
+ hat  |     1 |         1
+ in   |     1 |         1
+ the  |     2 |         1
+(4 rows)
+```
+Now, let's clean up the table:
+```console
+flow=# delete from documents ;
+DELETE 2
+flow=# select word, count, doc_count from word_counts order by word;
+ word | count | doc_count
+------+-------+-----------
+ cat  |     0 |         0
+ hat  |     0 |         0
+ in   |     0 |         0
+ the  |     0 |         0
+(4 rows)
+```
+The updates you push to `documents` are materialized to `word_counts` with millisecond latency. In effect, you've added a new, powerful capability to PostgreSQL that has a multitude
+of real-world and business applications (far beyond counting cats and hats).
+
+When you're done with your testing, exit the data flow by returning to your first console window and pressing **Ctrl-C**.
+
+## Learn more
+* For a broader conceptual overview, start [here](../../concepts/README.md).
+* For details on how to write your own catalog, go [here](../../reference/catalog-reference/README.md).
