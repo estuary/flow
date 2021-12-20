@@ -54,7 +54,8 @@ Using brokers to move data into and out of your cloud storage bucket provides st
 
 ### Storage of partitioned collections
 
-[Logically partitioned](../concepts/catalog-entities/other-entities.md#logical-partitions) collections share a single storage mapping prefix, but they add additional, separate prefixes for each distinct partition. Flow translates the partition keys and values into a storage location based on the broadly adopted convention established by Hive. This allows Hive and other tools that use the same convention to "just work" when you want to import or query data from your collection's cloud storage. For example, in Hive this convention is used to support predicate pushdowns, which makes queries against specific partitions much faster.
+[Logically partitioned](../concepts/catalog-entities/projections.md#logical-partitions)
+collections share a single storage mapping prefix, but they add additional, separate prefixes for each distinct partition. Flow translates the partition keys and values into a storage location based on the broadly adopted convention established by Hive. This allows Hive and other tools that use the same convention to "just work" when you want to import or query data from your collection's cloud storage. For example, in Hive this convention is used to support predicate pushdowns, which makes queries against specific partitions much faster.
 
 To illustrate this, let's look at an example collection of animal sightings that's partitioned on `genus` and`species`.
 
