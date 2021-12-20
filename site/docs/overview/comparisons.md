@@ -86,7 +86,7 @@ In terms of technical capabilities, Flow can do everything that these tools can 
 
 _Some materialization endpoints can only make at-least-once guarantees._
 
-### dbt
+## dbt
 
 dbt is a tool that enables data analysts and engineers to transform data in their warehouses more effectively.
 
@@ -100,13 +100,13 @@ Put another way, Flow is a complete ELT platform, but you might choose to perfor
 
 Modern real-time databases like Materialize, Rockset, and ksqlDB consume streams of data, oftentimes from Kafka brokers, and can keep SQL views up to date in real time.&#x20;
 
-### Materialize, Rockset, ksqlDB, and other real-time databases
+## Materialize, Rockset, ksqlDB, and other real-time databases
 
 These real-time databases have a lot of conceptual overlap with Flow. The biggest difference is that Flow can materialize this same type of incrementally updated view into any database, regardless of whether that database has real-time capabilities or not.&#x20;
 
 However, this doesn't mean that Flow should always _replace_ these systems in your stack. In fact, it can be optimal to use Flow to feed data into them. Doing so allows you to transactionally capture data from a variety of sources and transform it along the way. For further explanation, read the section below on OLAP databases.
 
-### Snowflake, BigQuery, and other OLAP databases
+## Snowflake, BigQuery, and other OLAP databases
 
 Flow differs from OLAP databases mainly in that it's not a database. Flow has no query interface, and no plans to add one. Instead, Flow allows you to use the query interfaces of any database by **materializing** views into it.
 
