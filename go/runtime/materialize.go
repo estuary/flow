@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	pm "github.com/estuary/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -34,8 +36,6 @@ type Materialize struct {
 	// because materializations don't have stats available until after the transaction starts to
 	// commit. See comment below in StartCommit.
 	statsPublisher *message.Publisher
-	// Timestamp marking the beginning of the current transaction, used for stats publishing.
-	txnOpened time.Time
 	// Embedded task reader scoped to current task version.
 	// Initialized in RestoreCheckpoint.
 	taskReader
@@ -76,12 +76,18 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err = m.initTerm(shard, m.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	m.spec = m.taskTerm.task.(*pf.MaterializationSpec)
+	err = m.build.Extract(func(db *sql.DB) error {
+		m.spec, err = catalog.LoadMaterialization(db, m.labels.TaskName)
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
 
 	defer func() {
 		if err == nil {
 			m.Log(log.DebugLevel, log.Fields{
-				"materialization": m.labels.TaskName,
+				"materialization": m.spec,
 				"shard":           m.shardSpec.Id,
 				"build":           m.labels.Build,
 				"checkpoint":      cp,
@@ -201,7 +207,8 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// but actually publish the stats message here using that sequencing info. This would
 	// theoretically allow materialization stats to be published transactionally, but requires
 	// exposing new functionality in the Publisher, so it is being left for a future improvement.
-	m.statsPublisher.PublishCommitted(mapper.Map, m.MaterializeTxnStats(m.txnOpened, stats))
+	var statsEvent = m.materializationStats(stats)
+	m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
 
 	// Wait for any |waitFor| operations. In practice this is always empty.
 	// It would contain pending journal writes, but materializations don't issue any.
@@ -214,6 +221,26 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// Return Acknowledged as the StartCommit future, which requires that it
 	// resolve before the next transaction may begin to close.
 	return commitOps.Acknowledged
+}
+
+func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var stats = make(map[string]MaterializeBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		if bindingStats != nil { // Skip bindings that didn't participate
+			var name = m.spec.Bindings[i].Collection.Collection.String()
+			// It's possible for multiple bindings to use the same collection, in which case the
+			// stats should be summed.
+			var prevStats = stats[name]
+			stats[name] = MaterializeBindingStats{
+				Left:  prevStats.Left.with(bindingStats.Left),
+				Right: prevStats.Right.with(bindingStats.Right),
+				Out:   prevStats.Out.with(bindingStats.Out),
+			}
+		}
+	}
+	var event = m.NewStatsEvent()
+	event.Materialize = stats
+	return event
 }
 
 // Destroy implements consumer.Store.Destroy
@@ -238,7 +265,7 @@ var _ Application = (*Materialize)(nil)
 
 // BeginTxn implements Application.BeginTxn and is a no-op.
 func (m *Materialize) BeginTxn(shard consumer.Shard) error {
-	m.txnOpened = time.Now().UTC()
+	m.TxnOpened()
 	return nil
 }
 
