@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/shuffle"
 	pc "github.com/estuary/protocols/capture"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -34,8 +36,6 @@ type Capture struct {
 	// Specification under which the capture is currently running.
 	// This is duplicated from the task term to avoid needing type assertions on each usage.
 	spec *pf.CaptureSpec
-	// Timestamp at which the current transaction was begun
-	txnOpened time.Time
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -65,12 +65,18 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err = c.initTerm(shard, c.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	c.spec = c.taskTerm.task.(*pf.CaptureSpec)
+	err = c.build.Extract(func(db *sql.DB) error {
+		c.spec, err = catalog.LoadCapture(db, c.labels.TaskName)
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
 
 	defer func() {
 		if err == nil {
 			c.Log(log.DebugLevel, log.Fields{
-				"capture":    c.labels.TaskName,
+				"capture":    c.spec,
 				"shard":      c.shardSpec.Id,
 				"build":      c.labels.Build,
 				"checkpoint": cp,
@@ -88,9 +94,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
 		}
 	}
-
-	c.Log(log.DebugLevel, log.Fields{"spec": c.spec.String(), "build": c.labels.Build},
-		"loaded specification")
 
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
@@ -324,7 +327,8 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	}
 
 	// Publish a final message with statistics about the capture transaction we'll soon finish
-	var statsMessage = c.CaptureTxnStats(c.txnOpened, statsPerBinding)
+	var statsEvent = c.captureStats(statsPerBinding)
+	var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
 	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
 		return fmt.Errorf("publishing stats document: %w", err)
 	}
@@ -332,9 +336,28 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	return nil
 }
 
+func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var captureStats = make(map[string]CaptureBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		if bindingStats != nil { // Skip bindings that didn't participate
+			var name = c.spec.Bindings[i].Collection.Collection.String()
+			// It's possible for multiple bindings to use the same collection, in which case the
+			// stats should be summed.
+			var prevStats = captureStats[name]
+			captureStats[name] = CaptureBindingStats{
+				Right: prevStats.Right.with(bindingStats.Right),
+				Out:   prevStats.Out.with(bindingStats.Out),
+			}
+		}
+	}
+	var event = c.NewStatsEvent()
+	event.Capture = captureStats
+	return event
+}
+
 // BeginTxn is a no-op.
 func (c *Capture) BeginTxn(consumer.Shard) error {
-	c.txnOpened = time.Now().UTC()
+	c.TxnOpened()
 	return nil
 }
 
