@@ -1,13 +1,14 @@
 package runtime
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/estuary/protocols/catalog"
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -30,8 +31,6 @@ type Derive struct {
 	// Active derivation specification, updated in RestoreCheckpoint.
 	// This is duplicated from the task term to avoid needing type assertions on each usage.
 	derivation *pf.DerivationSpec
-	// Timestamp corresponding to the beginning of the current transaction
-	txnOpened time.Time
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -64,12 +63,18 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err = d.initTerm(shard, d.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	d.derivation = d.taskTerm.task.(*pf.DerivationSpec)
+	err = d.build.Extract(func(db *sql.DB) error {
+		d.derivation, err = catalog.LoadDerivation(db, d.labels.TaskName)
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
 
 	defer func() {
 		if err == nil {
 			d.Log(log.DebugLevel, log.Fields{
-				"derivation": d.labels.TaskName,
+				"derivation": d.derivation,
 				"shard":      d.shardSpec.Id,
 				"build":      d.labels.Build,
 				"checkpoint": cp,
@@ -118,7 +123,7 @@ func (d *Derive) Destroy() {
 
 // BeginTxn begins a derive transaction.
 func (d *Derive) BeginTxn(shard consumer.Shard) error {
-	d.txnOpened = time.Now().UTC()
+	d.TxnOpened()
 	d.binding.BeginTxn()
 	return nil
 }
@@ -168,10 +173,56 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	if err != nil {
 		return err
 	}
-	if _, err := pub.PublishUncommitted(mapper.Map, d.DeriveTxnStats(d.txnOpened, stats)); err != nil {
+	var statsEvent = d.deriveStats(stats)
+	var statsMessage = d.StatsFormatter.FormatEvent(statsEvent)
+	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
 		return fmt.Errorf("publishing stats document: %w", err)
 	}
 	return nil
+}
+
+func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
+	// assert that our task is a derivation and panic if not.
+	var tfStats = make(map[string]DeriveTransformStats, len(txnStats.Transforms))
+	// Only output register stats if at least one participating transform has an update lambda. This
+	// allows for distinguishing between transforms where no update was invoked (Register stats will
+	// be omitted) and transforms where the update lambda happened to only update existing registers
+	// (Created will be 0).
+	var includesUpdate = false
+	for i, tf := range txnStats.Transforms {
+		// Don't include transforms that didn't participate in this transaction.
+		if tf != nil && tf.Input != nil {
+			var tfSpec = d.derivation.Transforms[i]
+			var stats = DeriveTransformStats{
+				Input: docsAndBytesFromProto(tf.Input),
+			}
+			if tfSpec.UpdateLambda != nil {
+				includesUpdate = true
+				stats.Update = &InvokeStats{
+					Out:          docsAndBytesFromProto(tf.Update.Output),
+					SecondsTotal: tf.Update.TotalSeconds,
+				}
+			}
+			if tfSpec.PublishLambda != nil {
+				stats.Publish = &InvokeStats{
+					Out:          docsAndBytesFromProto(tf.Publish.Output),
+					SecondsTotal: tf.Publish.TotalSeconds,
+				}
+			}
+			tfStats[tfSpec.Transform.String()] = stats
+		}
+	}
+	var event = d.NewStatsEvent()
+	event.Derive = &DeriveStats{
+		Transforms: tfStats,
+		Out:        docsAndBytesFromProto(txnStats.Output),
+	}
+	if includesUpdate {
+		event.Derive.Registers = &DeriveRegisterStats{
+			CreatedTotal: txnStats.Registers.Created,
+		}
+	}
+	return event
 }
 
 // StartCommit implements the Store interface, and writes the current transaction
