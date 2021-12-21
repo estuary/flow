@@ -423,3 +423,81 @@ func TestVerifyReferencedJournalsCases(t *testing.T) {
 	require.EqualError(t, VerifyReferencedJournals(ctx, jc, req),
 		"Shard[shard-B]: named journal does not exist (does/not/exist)")
 }
+
+func TestAPIUnassignCases(t *testing.T) {
+	var tf, cleanup = newTestFixture(t)
+	defer cleanup()
+
+	var specA = makeShard(shardA)
+	var specB = makeShard(shardB)
+	var specC = makeShard(shardC)
+
+	tf.allocateShard(specA)
+	tf.allocateShard(specB, remoteID)
+	tf.setReplicaStatus(specB, remoteID, 0, pc.ReplicaStatus_PRIMARY)
+	tf.allocateShard(specC, localID, remoteID)
+	tf.setReplicaStatus(specC, localID, 0, pc.ReplicaStatus_PRIMARY)
+	tf.setReplicaStatus(specC, remoteID, 1, pc.ReplicaStatus_STANDBY)
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
+
+	// Asserts that we have modified the assignment as we expected.
+	var check = func(resp *pc.UnassignResponse, expectedSpec *pc.ShardSpec, expectedStatuses []pc.ReplicaStatus) {
+		require.Equal(t, pc.Status_OK, resp.Status)
+		// Immediately query for remaining shard replicas.
+		listResp, err := tf.service.List(context.Background(), &pc.ListRequest{
+			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", expectedSpec.Id.String())},
+		})
+		require.NoError(t, err)
+		require.Equal(t, 1, len(listResp.Shards))
+		if len(expectedStatuses) > 0 {
+			require.Equal(t, 1, len(listResp.Shards[0].Status))
+			require.Equal(t, expectedStatuses, []pc.ReplicaStatus{listResp.Shards[0].Status[0]})
+		}
+	}
+
+	// Case: A shard with no prior assignments
+	resp, err := tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}})
+	require.EqualError(t, err, "no assignment found")
+	check(resp, specA, []pc.ReplicaStatus{})
+
+	// Case: A shard with a single assignment
+	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specB.Id}})
+	require.NoError(t, err)
+	check(resp, specB, []pc.ReplicaStatus{})
+
+	// Case: A shard with multiple assignments
+	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specC.Id}})
+	require.NoError(t, err)
+	check(resp, specC, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_STANDBY}})
+
+	// Case: Only unassign failed shards
+	tf.allocateShard(specA, localID)
+	tf.setReplicaStatus(specA, localID, 0, pc.ReplicaStatus_PRIMARY)
+	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
+	require.NoError(t, err)
+	check(resp, specA, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_PRIMARY}})
+
+	tf.setReplicaStatus(specA, localID, 0, pc.ReplicaStatus_FAILED)
+	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
+	require.Equal(t, pc.Status_OK, resp.Status)
+	require.NoError(t, err)
+	check(resp, specA, []pc.ReplicaStatus{})
+
+	// Case: Remove multiple unrelated shard assignments at once
+	tf.allocateShard(specA, localID)
+	tf.setReplicaStatus(specA, localID, 0, pc.ReplicaStatus_FAILED)
+	tf.allocateShard(specB, localID)
+	tf.setReplicaStatus(specB, localID, 0, pc.ReplicaStatus_FAILED)
+	tf.allocateShard(specC, localID)
+	tf.setReplicaStatus(specC, localID, 0, pc.ReplicaStatus_PRIMARY)
+	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id, specB.Id}, OnlyFailed: true})
+	require.NoError(t, err)
+	check(resp, specA, []pc.ReplicaStatus{})
+	check(resp, specB, []pc.ReplicaStatus{})
+	check(resp, specC, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_PRIMARY}})
+
+	// Cleanup.
+	tf.allocateShard(specA)
+	tf.allocateShard(specB)
+	tf.allocateShard(specC)
+}

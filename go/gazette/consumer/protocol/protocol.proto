@@ -443,6 +443,18 @@ message GetHintsResponse {
   bytes extension = 100;
 }
 
+message UnassignRequest {
+  // Shards to unassign.
+  repeated string shards = 1 [ (gogoproto.casttype) = "ShardID" ];
+  // Only unassign shards which have a primary in FAILED status.
+  bool only_failed = 2;
+}
+
+message UnassignResponse {
+  // Status of the Unassign RPC.
+  Status status = 1;
+}
+
 // Shard is the Consumer service API for interacting with Shards. Applications
 // are able to wrap or alter the behavior of Shard API implementations via the
 // Service.ShardAPI structure. They're also able to implement additional gRPC
@@ -456,4 +468,6 @@ service Shard {
   rpc Apply(ApplyRequest) returns (ApplyResponse);
   // GetHints fetches hints for a shard.
   rpc GetHints(GetHintsRequest) returns (GetHintsResponse);
+  // Unassign a Shard.
+  rpc Unassign(UnassignRequest) returns (UnassignResponse);
 }

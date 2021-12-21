@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"fmt"
+
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -146,6 +148,26 @@ func (m *GetHintsResponse) Validate() error {
 func (m GetHintsResponse_ResponseHints) Validate() error {
 	if m.Hints != nil {
 		return m.Hints.Validate()
+	}
+	return nil
+}
+
+// Validate returns an error if the UnassignRequest is not well-formed.
+func (m *UnassignRequest) Validate() error {
+	for i, shard := range m.Shards {
+		if err := shard.Validate(); err != nil {
+			return pb.ExtendContext(err, "Shards[%d]", i)
+		}
+	}
+	return nil
+}
+
+// Validate returns an error if the UnassignResponse is not well-formed.
+func (m *UnassignResponse) Validate() error {
+	if err := m.Status.Validate(); err != nil {
+		return pb.ExtendContext(err, "Status")
+	} else if m.Status != Status_OK {
+		return fmt.Errorf("bad status: %v", m.Status.String())
 	}
 	return nil
 }

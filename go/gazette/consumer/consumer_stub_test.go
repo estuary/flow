@@ -21,6 +21,7 @@ type shardServerStub struct {
 	ListFunc     func(context.Context, *pc.ListRequest) (*pc.ListResponse, error)
 	ApplyFunc    func(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error)
 	GetHintsFunc func(context.Context, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
+	UnassignFunc func(context.Context, *pc.UnassignRequest) (*pc.UnassignResponse, error)
 }
 
 // newShardServerStub returns a shardServerStub instance served by a local GRPC server.
@@ -68,4 +69,9 @@ func (s *shardServerStub) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.
 // GetHints implements the shardServerStub interface by proxying through GetHintsFunc.
 func (s *shardServerStub) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 	return s.GetHintsFunc(ctx, req)
+}
+
+// Unassign implements the shardServerStub interface by proxying through UnassignFunc.
+func (s *shardServerStub) Unassign(ctx context.Context, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+	return s.UnassignFunc(ctx, req)
 }

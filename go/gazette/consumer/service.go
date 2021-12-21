@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -51,6 +51,7 @@ type Service struct {
 		List     func(context.Context, *Service, *pc.ListRequest) (*pc.ListResponse, error)
 		Apply    func(context.Context, *Service, *pc.ApplyRequest) (*pc.ApplyResponse, error)
 		GetHints func(context.Context, *Service, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
+		Unassign func(context.Context, *Service, *pc.UnassignRequest) (*pc.UnassignResponse, error)
 	}
 
 	// stoppingCh is closed when the Service is in the process of shutting down.
@@ -74,6 +75,7 @@ func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalCli
 	svc.ShardAPI.List = ShardList
 	svc.ShardAPI.Apply = ShardApply
 	svc.ShardAPI.GetHints = ShardGetHints
+	svc.ShardAPI.Unassign = ShardUnassign
 	return svc
 }
 
@@ -152,6 +154,11 @@ func (svc *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyR
 // GetHints calls its ShardAPI delegate.
 func (svc *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 	return svc.ShardAPI.GetHints(ctx, svc, req)
+}
+
+// Unassign calls its ShardAPI delegate.
+func (svc *Service) Unassign(ctx context.Context, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+	return svc.ShardAPI.Unassign(ctx, svc, req)
 }
 
 // Service implements the ShardServer interface.

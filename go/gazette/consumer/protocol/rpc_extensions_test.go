@@ -147,6 +147,29 @@ func (s *RPCSuite) TestApplyResponseValidationCases(c *gc.C) {
 	c.Check(resp.Validate(), gc.IsNil)
 }
 
+func (s *RPCSuite) TestUnassignRequestValidationCases(c *gc.C) {
+	var req = UnassignRequest{
+		Shards: []ShardID{"/good/shard/id", ""},
+	}
+	c.Check(req.Validate(), gc.ErrorMatches, `Shards\[1\]: invalid length .*`)
+
+	req.Shards[1] = "/another/valid/shard/id"
+	c.Check(req.Validate(), gc.IsNil)
+}
+
+func (s *RPCSuite) TestUnassignResponseValidationCases(c *gc.C) {
+	var resp = UnassignResponse{
+		Status: 9101,
+	}
+
+	c.Check(resp.Validate(), gc.ErrorMatches, `Status: invalid status \(9101\)`)
+	resp.Status = Status_ETCD_TRANSACTION_FAILED
+	c.Check(resp.Validate(), gc.ErrorMatches, `bad status: ETCD_TRANSACTION_FAILED`)
+	resp.Status = Status_OK
+
+	c.Check(resp.Validate(), gc.IsNil)
+}
+
 func badHeaderFixture() *pb.Header {
 	return &pb.Header{
 		ProcessId: pb.ProcessSpec_ID{Zone: "zone", Suffix: "name"},

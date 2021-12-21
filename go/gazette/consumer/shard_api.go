@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -11,6 +12,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
@@ -182,6 +184,53 @@ func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (
 	return resp, nil
 }
 
+func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+	var resp = &pc.UnassignResponse{Status: pc.Status_OK}
+
+	if err := req.Validate(); err != nil {
+		return resp, err
+	}
+
+	var state = srv.Resolver.state
+	defer state.KS.Mu.RUnlock()
+	state.KS.Mu.RLock()
+
+	var cmp []clientv3.Cmp
+	var ops []clientv3.Op
+
+	for _, shard := range req.Shards {
+		assignments := state.Assignments.Prefixed(allocator.ItemAssignmentsPrefix(state.KS, shard.String()))
+		primaryAssignment, primaryKv, err := findAssignmentAtSlot(assignments, 0)
+		if err != nil {
+			return resp, err
+		} else if req.OnlyFailed && primaryAssignment.AssignmentValue.(*pc.ReplicaStatus).Code != pc.ReplicaStatus_FAILED {
+			continue
+		}
+
+		if item, found := allocator.LookupItem(state.KS, shard.String()); !found {
+			return resp, fmt.Errorf("verifying shard consistency: could not find shard item")
+		} else if !state.IsConsistent(item, primaryKv, assignments) {
+			return resp, fmt.Errorf("verifying shard consistency: shard is not in a consistent state")
+		} else if len(assignments) < item.ItemValue.DesiredReplication() {
+			return resp, fmt.Errorf("verifying shard consistency: shard is already missing replicas")
+		}
+
+		var key = allocator.AssignmentKey(state.KS, primaryAssignment)
+		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", primaryKv.Raw.ModRevision))
+		ops = append(ops, clientv3.OpDelete(key))
+	}
+
+	etcdResp, err := srv.Etcd.Txn(ctx).If(cmp...).Then(ops...).Commit()
+	if err != nil {
+		return resp, fmt.Errorf("executing etcd transaction: %w", err)
+	} else if etcdResp.Succeeded {
+		// If we made changes, delay responding until we have read our own Etcd write.
+		err = state.KS.WaitForRevision(ctx, etcdResp.Header.Revision)
+	}
+
+	return resp, err
+}
+
 // ListShards is a convenience for invoking the List RPC, which maps a validation or !OK status to an error.
 func ListShards(ctx context.Context, sc pc.ShardClient, req *pc.ListRequest) (*pc.ListResponse, error) {
 	if r, err := sc.List(pb.WithDispatchDefault(ctx), req, grpc.WaitForReady(true)); err != nil {
@@ -308,4 +357,14 @@ func FetchHints(ctx context.Context, sc pc.ShardClient, req *pc.GetHintsRequest)
 	} else {
 		return r, nil
 	}
+}
+
+func findAssignmentAtSlot(assignments keyspace.KeyValues, targetSlot int) (allocator.Assignment, keyspace.KeyValue, error) {
+	for _, assignment := range assignments {
+		if a, ok := assignment.Decoded.(allocator.Assignment); ok && a.Slot == targetSlot {
+			return a, assignment, nil
+		}
+	}
+
+	return allocator.Assignment{}, keyspace.KeyValue{}, fmt.Errorf("no assignment found")
 }

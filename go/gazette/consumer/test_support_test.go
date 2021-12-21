@@ -306,6 +306,7 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 		if id == (pb.ProcessSpec_ID{}) {
 			continue
 		}
+
 		var asn = allocator.Assignment{
 			ItemID:       spec.Id.String(),
 			MemberZone:   id.Zone,
@@ -326,6 +327,25 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 	var resp, err = f.etcd.Txn(context.Background()).If().Then(ops...).Commit()
 	require.NoError(f.t, err)
 	require.Equal(f.t, true, resp.Succeeded)
+
+	f.ks.Mu.RLock()
+	require.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), resp.Header.Revision))
+	f.ks.Mu.RUnlock()
+}
+
+func (f *testFixture) setReplicaStatus(spec *pc.ShardSpec, assignment pb.ProcessSpec_ID, slot int, code pc.ReplicaStatus_Code) {
+	var status = pc.ReplicaStatus{Code: code}
+
+	var asn = allocator.Assignment{
+		ItemID:          spec.Id.String(),
+		MemberZone:      assignment.Zone,
+		MemberSuffix:    assignment.Suffix,
+		Slot:            slot,
+		AssignmentValue: status,
+	}
+	var key = allocator.AssignmentKey(f.ks, asn)
+	resp, err := f.etcd.Put(context.Background(), key, status.MarshalString())
+	require.NoError(f.t, err)
 
 	f.ks.Mu.RLock()
 	require.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), resp.Header.Revision))
