@@ -44,34 +44,19 @@ func NewStatsFormatter(
 	}, nil
 }
 
-// CaptureTxnStats returns a new flow.Mappable with statistics for a single capture transaction that
-// was begun at `txnOpened`. The `statsPerBinding` may contain nil values for bindings that did not
-// participate in the transaction, in which case they will not be included in the resulting stats
-// document.
-func (p *StatsFormatter) CaptureTxnStats(txnOpened time.Time, statsPerBinding []*pf.CombineAPI_Stats) flow.Mappable {
-	var event = p.captureStats(txnOpened, statsPerBinding)
-	return p.newDocument(event)
+func (s *StatsFormatter) NewEvent(txnOpened time.Time) StatsEvent {
+	return StatsEvent{
+		Meta:  Meta{UUID: string(pf.DocumentUUIDPlaceholder)},
+		Shard: s.shard,
+		// Truncate the timestamp for stats events in order to give users a reasonable roll-up of
+		// stats by default.
+		Timestamp:        txnOpened.Truncate(time.Minute),
+		TxnCount:         1,
+		OpenSecondsTotal: time.Since(txnOpened).Seconds(),
+	}
 }
 
-// DeriveTxnStats returns a new flow.Mappable with statistics for a single derive transaction that
-// was begun at `txnOpened`. The derive stats `Transforms` may contain nil values for transforms
-// that did not participate in the transaction, in which case they will not be included in the
-// resulting stats document.
-func (p *StatsFormatter) DeriveTxnStats(txnOpened time.Time, deriveStats *pf.DeriveAPI_Stats) flow.Mappable {
-	var event = p.deriveStats(txnOpened, deriveStats)
-	return p.newDocument(event)
-}
-
-// MaterializeTxnStats returns a new flow.Mappable with statistics for a single materialize transaction that
-// was begun at `txnOpened`. The `statsPerBinding` may contain nil values for bindings that did not
-// participate in the transaction, in which case they will not be included in the resulting stats
-// document.
-func (p *StatsFormatter) MaterializeTxnStats(txnOpened time.Time, statsPerBinding []*pf.CombineAPI_Stats) flow.Mappable {
-	var event = p.materializationStats(txnOpened, statsPerBinding)
-	return p.newDocument(event)
-}
-
-func (p *StatsFormatter) newDocument(event StatsEvent) flow.Mappable {
+func (p *StatsFormatter) FormatEvent(event StatsEvent) flow.Mappable {
 	var doc, err = json.Marshal(event)
 	if err != nil {
 		panic(fmt.Sprintf("marshaling stats json cannot fail: %v", err))
@@ -82,104 +67,6 @@ func (p *StatsFormatter) newDocument(event StatsEvent) flow.Mappable {
 		Spec:       p.statsCollection,
 		Doc:        doc,
 		Partitions: p.partitions,
-	}
-}
-
-func (s *StatsFormatter) materializationStats(txnOpened time.Time, statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
-	var spec = s.task.(*pf.MaterializationSpec)
-	var stats = make(map[string]MaterializeBindingStats)
-	for i, bindingStats := range statsPerBinding {
-		if bindingStats != nil { // Skip bindings that didn't participate
-			var name = spec.Bindings[i].Collection.Collection.String()
-			// It's possible for multiple bindings to use the same collection, in which case the
-			// stats should be summed.
-			var prevStats = stats[name]
-			stats[name] = MaterializeBindingStats{
-				Left:  prevStats.Left.with(bindingStats.Left),
-				Right: prevStats.Right.with(bindingStats.Right),
-				Out:   prevStats.Out.with(bindingStats.Out),
-			}
-		}
-	}
-	var event = s.newEvent(txnOpened)
-	event.Materialize = stats
-	return event
-}
-
-func (s *StatsFormatter) captureStats(txnOpened time.Time, statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
-	var captureSpec = s.task.(*pf.CaptureSpec)
-	var captureStats = make(map[string]CaptureBindingStats)
-	for i, bindingStats := range statsPerBinding {
-		if bindingStats != nil { // Skip bindings that didn't participate
-			var name = captureSpec.Bindings[i].Collection.Collection.String()
-			// It's possible for multiple bindings to use the same collection, in which case the
-			// stats should be summed.
-			var prevStats = captureStats[name]
-			captureStats[name] = CaptureBindingStats{
-				Right: prevStats.Right.with(bindingStats.Right),
-				Out:   prevStats.Out.with(bindingStats.Out),
-			}
-		}
-	}
-	var event = s.newEvent(txnOpened)
-	event.Capture = captureStats
-	return event
-}
-
-func (s *StatsFormatter) deriveStats(txnOpened time.Time, txnStats *pf.DeriveAPI_Stats) StatsEvent {
-	// assert that our task is a derivation and panic if not.
-	var derivationSpec = s.task.(*pf.DerivationSpec)
-	var tfStats = make(map[string]DeriveTransformStats, len(txnStats.Transforms))
-	// Only output register stats if at least one participating transform has an update lambda. This
-	// allows for distinguishing between transforms where no update was invoked (Register stats will
-	// be omitted) and transforms where the update lambda happened to only update existing registers
-	// (Created will be 0).
-	var includesUpdate = false
-	for i, tf := range txnStats.Transforms {
-		// Don't include transforms that didn't participate in this transaction.
-		if tf != nil && tf.Input != nil {
-			var tfSpec = derivationSpec.Transforms[i]
-			var stats = DeriveTransformStats{
-				Input: docsAndBytesFromProto(tf.Input),
-			}
-			if tfSpec.UpdateLambda != nil {
-				includesUpdate = true
-				stats.Update = &InvokeStats{
-					Out:          docsAndBytesFromProto(tf.Update.Output),
-					SecondsTotal: tf.Update.TotalSeconds,
-				}
-			}
-			if tfSpec.PublishLambda != nil {
-				stats.Publish = &InvokeStats{
-					Out:          docsAndBytesFromProto(tf.Publish.Output),
-					SecondsTotal: tf.Publish.TotalSeconds,
-				}
-			}
-			tfStats[tfSpec.Transform.String()] = stats
-		}
-	}
-	var event = s.newEvent(txnOpened)
-	event.Derive = &DeriveStats{
-		Transforms: tfStats,
-		Out:        docsAndBytesFromProto(txnStats.Output),
-	}
-	if includesUpdate {
-		event.Derive.Registers = &DeriveRegisterStats{
-			CreatedTotal: txnStats.Registers.Created,
-		}
-	}
-	return event
-}
-
-func (s *StatsFormatter) newEvent(txnOpened time.Time) StatsEvent {
-	return StatsEvent{
-		Meta:  Meta{UUID: string(pf.DocumentUUIDPlaceholder)},
-		Shard: s.shard,
-		// Truncate the timestamp for stats events in order to give users a reasonable roll-up of
-		// stats by default.
-		Timestamp:        txnOpened.Truncate(time.Minute),
-		TxnCount:         1,
-		OpenSecondsTotal: time.Since(txnOpened).Seconds(),
 	}
 }
 

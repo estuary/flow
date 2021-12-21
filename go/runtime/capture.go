@@ -89,9 +89,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}
 
-	c.Log(log.DebugLevel, log.Fields{"spec": c.spec.String(), "build": c.labels.Build},
-		"loaded specification")
-
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
 		var combiner, err = bindings.NewCombine(c.LogPublisher)
@@ -324,12 +321,33 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	}
 
 	// Publish a final message with statistics about the capture transaction we'll soon finish
-	var statsMessage = c.CaptureTxnStats(c.txnOpened, statsPerBinding)
+	var statsEvent = c.captureStats(statsPerBinding)
+	var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
 	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
 		return fmt.Errorf("publishing stats document: %w", err)
 	}
 
 	return nil
+}
+
+func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var captureSpec = c.task.(*pf.CaptureSpec)
+	var captureStats = make(map[string]CaptureBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		if bindingStats != nil { // Skip bindings that didn't participate
+			var name = captureSpec.Bindings[i].Collection.Collection.String()
+			// It's possible for multiple bindings to use the same collection, in which case the
+			// stats should be summed.
+			var prevStats = captureStats[name]
+			captureStats[name] = CaptureBindingStats{
+				Right: prevStats.Right.with(bindingStats.Right),
+				Out:   prevStats.Out.with(bindingStats.Out),
+			}
+		}
+	}
+	var event = c.taskTerm.StatsFormatter.NewEvent(c.txnOpened)
+	event.Capture = captureStats
+	return event
 }
 
 // BeginTxn is a no-op.

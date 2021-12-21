@@ -201,7 +201,8 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// but actually publish the stats message here using that sequencing info. This would
 	// theoretically allow materialization stats to be published transactionally, but requires
 	// exposing new functionality in the Publisher, so it is being left for a future improvement.
-	m.statsPublisher.PublishCommitted(mapper.Map, m.MaterializeTxnStats(m.txnOpened, stats))
+	var statsEvent = m.materializationStats(stats)
+	m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
 
 	// Wait for any |waitFor| operations. In practice this is always empty.
 	// It would contain pending journal writes, but materializations don't issue any.
@@ -214,6 +215,26 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// Return Acknowledged as the StartCommit future, which requires that it
 	// resolve before the next transaction may begin to close.
 	return commitOps.Acknowledged
+}
+
+func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var stats = make(map[string]MaterializeBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		if bindingStats != nil { // Skip bindings that didn't participate
+			var name = m.spec.Bindings[i].Collection.Collection.String()
+			// It's possible for multiple bindings to use the same collection, in which case the
+			// stats should be summed.
+			var prevStats = stats[name]
+			stats[name] = MaterializeBindingStats{
+				Left:  prevStats.Left.with(bindingStats.Left),
+				Right: prevStats.Right.with(bindingStats.Right),
+				Out:   prevStats.Out.with(bindingStats.Out),
+			}
+		}
+	}
+	var event = m.StatsFormatter.NewEvent(m.txnOpened)
+	event.Materialize = stats
+	return event
 }
 
 // Destroy implements consumer.Store.Destroy
