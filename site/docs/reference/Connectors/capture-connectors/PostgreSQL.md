@@ -1,10 +1,3 @@
-:::warning
-Olivia's notes and Qs for review
-1. Code sample: why are slot, publication, and watermarks commented out?
-2. Documenting discover workflow here because our first audience is Rockset. I assume this will go away with the UI, let me know if I'm wrong. Also open to alternative ideas
-3. This is intended to be fairly agnostic as far as CLI vs UI at this point to allow flexibility going forward, while still being accurate to current product
-:::
-
 ## Prerequisites
 To use this connector, you'll need a PostgreSQL database setup with the following:
 * [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
