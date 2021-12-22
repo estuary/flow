@@ -65,7 +65,6 @@ or a transformation might be updated with a bug fix.
 
 When one or more catalog entities are updated,
 a catalog **build** validates their definitions and prepares them for execution by Flow's runtime.
-
 Every build is assigned a unique identifier called a **build ID**,
 and the build ID is used to reconcile which version of a catalog entity
 is being executed by the runtime.
@@ -106,6 +105,8 @@ catalog tasks:
 * A derivation updates a collection by applying transformations to other source collections.
 * A materialization reacts to changes of a collection to update an endpoint.
 
+***
+
 ## Collections
 
 **Collections** are a collection of documents having a common **key** and [schema](#schemas).
@@ -113,30 +114,14 @@ They are the fundamental representation for datasets within Flow, much like a da
 
 They are best described as a real-time data lake:
 documents are stored as an organized layout of JSON files in your cloud storage bucket.
-If Flow needs to read historical data (say, as part of a new materialization),
+If Flow needs to read historical data -- say, as part of creating a new materialization --
 it does so by reading from your bucket.
 You can use regular bucket lifecycle policies to manage the deletion of data from a collection.
 However, capturing _into_ a collection or materializing _from_ a collection happens within milliseconds.
 
 [Learn more about collections](catalog-entities/collections.md)
 
-## Endpoints
-
-**Endpoints** are the external systems that you connect using Flow.
-All kinds of systems can be endpoints: databases, key/value stores, streaming pub/sub systems, SaaS APIs, and cloud storage locations.
-
-**Captures** pull or ingest data _from_ an endpoint, while **materializations** push data _into_ an endpoint.
-There's an essentially unbounded number of different systems and APIs to which Flow might need to capture or materialize data.
-Rather than attempt to directly integrate them all, Flow's runtime communicates with endpoints through plugin **connectors**.
-
-### Resources
-
-An endpoint **resource** is an addressable collection of data within an endpoint.
-The exact meaning of a resource is up to the endpoint and its connector. For example:
-
-* Resources of a database endpoint might be its individual tables.
-* Resources of a Kafka cluster might be its topics.
-* Resources of a SaaS vendor connector might be its various API feeds.
+***
 
 ## Captures
 
@@ -155,6 +140,8 @@ Push captures are under development.
 
 [Learn more about captures](catalog-entities/captures.md)
 
+***
+
 ## Materializations
 
 A **materialization** is a catalog task which connects to an endpoint
@@ -168,9 +155,116 @@ Like captures, materializations are powered by [connectors](#connectors).
 
 [Learn more about materializations](catalog-entities/materialization.md)
 
-## Connectors
+***
 
-As discussed in [endpoints](#endpoints), there are _lots_ of places where you work with data.
+## Derivations
+
+A **derivation** is a collection which continuously
+derives its documents from transformations that are applied
+to one or more source collections.
+
+Derivations can be used to map, reshape, and filter documents.
+They can also be used to tackle complex stateful streaming workflows,
+including joins and aggregations,
+and are not subject to the windowing and scaling limitations that are common to other systems.
+
+[Learn more about derivations](catalog-entities/derivations/)
+
+***
+
+## Schemas
+
+All collections in Flow have an associated
+[JSON schema](https://json-schema.org/understanding-json-schema/)
+against which documents are validated every time they're written or read.
+Schemas are core to how Flow ensures the integrity of your data.
+Flow validates your documents to ensure that
+bad data doesn't make it into your collections -- or worse,
+into downstream data products!
+
+Flow pauses catalog tasks when documents don't match the collection schema,
+alerting you to the mismatch and allowing you to fix it before it creates a bigger problem.
+
+### Constraints
+
+JSON schema is a flexible standard for representing structure, invariants,
+and other constraints over your documents.
+
+Schemas can be very permissive, or highly exacting, or somewhere in between.
+JSON schema goes far beyond checking basic document structure,
+to also support conditionals and invariants like
+"I expect all items in this array to be unique",
+or "this string must be an email",
+or "this integer must be between a multiple of 10 and in the range 0-100".
+
+### Projections
+
+Flow leverages your JSON schemas to produce other types of schemas as-needed,
+such as TypeScript types and SQL `CREATE TABLE` statements.
+
+In many cases these projections provide comprehensive end-to-end type safety
+of Flow catalogs and their TypeScript transformations, all statically verified
+when the catalog is built.
+
+### Reduction Extensions
+
+Flow [collections](#collections) have a defined **key**, which is akin to
+a database primary key declaration and determines how documents of the
+collection are grouped.
+When a collection is materialized into a database table, its key becomes
+the SQL primary key of the materialized table.
+
+This of course raises the question: what happens if _multiple_ documents
+of a given key are added to a collection?
+You might expect that the last-written document is the effective document for
+that key. This "last write wins" treatment is how comparable systems behave,
+and is also Flow's default.
+
+Flow also offers schema **extensions**
+that give you substantially more control over how documents are combined and reduced.
+`reduce` annotations let you deeply merge documents, maintain running counts,
+and achieve other complex aggregation behaviors.
+
+### Key Strategies
+
+Reduction annotations change the common patterns for how you think about collection keys.
+
+Suppose you are building a reporting fact table over events of your business.
+Today you would commonly consider a unique event ID to be its natural key.
+You would load all events into your warehouse and perform query-time aggregation.
+When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
+
+With Flow, you instead use a collection key of your _fact table dimensions_,
+and use `reduce` annotations to define your metric aggregations.
+A materialization of the collection then maintains a
+database table which is keyed on your dimensions,
+so that queries are both fast _and_ up to date.
+
+[Learn more about schemas](catalog-entities/schemas-and-data-reductions.md)
+
+***
+
+## Endpoints
+
+**Endpoints** are the external systems that you connect using Flow.
+All kinds of systems can be endpoints: databases, key/value stores, streaming pub/sub systems, SaaS APIs, and cloud storage locations.
+
+[Captures](#captures) pull or ingest data _from_ an endpoint, while [materializations](#materializations) push data _into_ an endpoint.
+There's an essentially unbounded number of different systems and APIs to which Flow might need to capture or materialize data.
+Rather than attempt to directly integrate them all, Flow's runtime communicates with endpoints through plugin [connectors](#connectors).
+
+### Resources
+
+An endpoint **resource** is an addressable collection of data within an endpoint.
+The exact meaning of a resource is up to the endpoint and its connector. For example:
+
+* Resources of a database endpoint might be its individual tables.
+* Resources of a Kafka cluster might be its topics.
+* Resources of a SaaS connector might be its various API feeds.
+
+### Connectors
+
+There are _lots_ of potential endpoints where you want to work with data.
 Though Flow is a unified platform for data synchronization,
 it's impractical for any single company — Estuary included — to provide an integration for every
 possible endpoint in the growing landscape of data solutions.
@@ -188,94 +282,18 @@ Crucially, this means Flow doesn't need to know about new types of endpoint ahea
 so long as a connector is available Flow can work with the endpoint, and it's
 relatively easy to build a connector yourself.
 
-[Learn more about connectors](connectors.md)
-
-## Derivations
-
-A **derivation** is a collection which continuously
-derives its documents from transformations that are applied
-to one or more source collections.
-
-Derivations can be used to map, reshape, and filter documents.
-They can also be used to tackle complex stateful streaming workflows,
-including joins and aggregations,
-and are not subject to the windowing and scaling limitations that are common to other systems.
-
-[Learn more about derivations](catalog-entities/derivations/)
-
-## Schemas
-
-All collections in Flow have an associated
-[JSON schema](https://json-schema.org/understanding-json-schema/)
-against which documents are validated every time they're written or read.
-Schemas are core to how Flow ensures the integrity of your data.
-JSON schema is a flexible standard for representing constraints and
-expectations, and Flow validates your documents to ensure that
-bad data doesn't make it into your collections -- or worse,
-into downstream data products!
-
-Flow pauses catalog tasks when documents don't match the collection schema,
-alerting you to the mismatch and allowing you to fix it before it creates a bigger problem.
-
 ### Discovery
 
-Connectors introspect endpoint resources through a **discovery** workflow
-and typically provide an appropriate JSON schema for each endpoint resource.
-For example a database connector will provide JSON schemas for tables being
-captured, freeing you from having to write these schemas yourself.
+Connectors offer **discovery** APIs for understanding how a connector
+should be configured, and what resources are available within an endpoint.
 
-### Projections
+Flow works with connector APIs to provide a guided discovery workflow
+which makes it easy to configure the connector, and select from a menu
+of available endpoint resources you can capture.
 
-Flow leverages your JSON schemas to produce other types of schemas as-needed,
-such as TypeScript types and SQL `CREATE TABLE` statements.
+[Learn more about endpoints and connectors](connectors.md)
 
-In many cases these projections provide comprehensive end-to-end type safety
-of Flow catalogs and their TypeScript transformations, all statically verified
-when the catalog is built.
-
-### Extensions
-
-Flow supports the full JSON schema standard, and extends it with additional
-keywords which define additional document behaviors.
-A notable example is Flow's [reduce](#reductions) annotations.
-
-[Learn more about schemas](catalog-entities/schemas-and-data-reductions.md)
-
-## Reductions
-
-Flow [collection](#collections) have a defined **key**, which is akin to
-a database primary key declaration and determines how documents of the collection
-are grouped.
-When a collection is materialized into a database table, its key becomes
-the SQL primary key of the materialized table.
-
-This of course raises the question: what happens if _multiple_ documents
-of a given key are added to a collection?
-You might expect that the last-written document is the effective document for
-that key. This "last write wins" treatment is how comparable systems behave,
-and is also Flow's default.
-
-Flow also offers schema [extensions](#extensions)
-that give you substantially more control over how documents are combined and reduced.
-`reduce` annotations let you deeply merge documents, maintain running counts,
-and achieve other complex aggregation behaviors.
-
-[Learn more about reductions](catalog-entities/schemas-and-data-reductions.md#reduction-annotations)
-
-### Key Strategies
-
-Reduction annotations change the common patterns for how you think about collection keys.
-
-Suppose you are building a reporting fact table over events of your business.
-Today you would commonly consider a unique event ID to be its natural key.
-You would load all events into your warehouse and perform query-time aggregation.
-When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
-
-With Flow, you instead use a collection key of your _fact table dimensions_,
-and use `reduce` annotations to define your metric aggregations.
-A materialization of the collection then maintains a
-database table which is keyed on your dimensions,
-so that queries are both fast _and_ up to date.
+***
 
 ## Tests
 
@@ -286,12 +304,16 @@ and verification steps assert that the contents of another derived collection ma
 
 [Learn more about tests](catalog-entities/tests.md)
 
-## Storage mappings
+***
+
+## Storage Mappings
 
 Flow [collections](#collections) use cloud storage buckets for the durable storage of data.
 Storage mappings define how Flow maps your various collections into your storage buckets and prefixes.
 
 [Learn more about storage mappings](#undefined)
+
+***
 
 ## flowctl
 
