@@ -206,7 +206,7 @@ In many cases these projections provide comprehensive end-to-end type safety
 of Flow catalogs and their TypeScript transformations, all statically verified
 when the catalog is built.
 
-### Reduction Extensions
+### Reductions
 
 Flow [collections](#collections) have a defined **key**, which is akin to
 a database primary key declaration and determines how documents of the

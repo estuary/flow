@@ -20,14 +20,12 @@ Pull captures pull documents from an endpoint using a [connector](../#connectors
 # A set of captures to include in the catalog.
 # Optional, type: object
 captures:
-
   # The name of the capture.
   acmeCo/example/source-s3:
-
-    # Endpoints define how to connect to the source of the capture.
+    # Endpoint defines how to connect to the source of the capture.
     # Required, type: object
     endpoint:
-      # This endpoint uses a Docker image connector.
+      # This endpoint uses a connector provided as a Docker image.
       connector:
         # Docker image which implements the capture connector.
         image: ghcr.io/estuary/source-s3:dev
@@ -44,13 +42,14 @@ captures:
         # Required, type: string
         target: acmeCo/example/collection
 
-        # The resource includes any additional configuration required to
-        # extract data from the endpoint and map it into the collection.
-        # The nature of this configuration depends on the endpoint type and connector.
+        # The resource is additional configuration required by the endpoint
+        # connector to identify and capture a specific endpoint resource.
+        # The structure and meaning of this configuration is defined by
+        # the specific connector.
         # Required, type: object
         resource:
-            stream: a-bucket/and-prefix
-            syncMode: incremental
+          stream: a-bucket/and-prefix
+          syncMode: incremental
 
       - target: acmeCo/example/another-collection
         resource:

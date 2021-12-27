@@ -4,47 +4,292 @@ description: How Flow pushes collections to your endpoints using materialization
 
 # Materializations
 
-**Materializations** are the means by which Flow pushes collections into your destination **endpoints** such as **** your databases, key/value stores, and publish/subscribe systems. It is the conceptual inverse of a capture. A materialization binds a [collection](collections.md) to an endpoint and ensures new updates are reflected in that external system with very low latency.&#x20;
-
-Once it's defined in the catalog spec, Flow continually keeps the endpoint up to date with the most current data in a collection.
+**Materializations** are the means by which Flow pushes collections into your destination **endpoints**:
+databases, key/value stores, publish/subscribe systems, and more.
+A materialization binds a [collection](collections.md) to an endpoint resource such as a database table,
+into which the collection is continuously materialized.
+As documents are added to bound collections, the materialization ensures
+that each document is reflected in the endpoint resource with very low latency.
+Materializations are the conceptual inverse of [captures](captures.md).
 
 ![](<materializations.svg>)
 
-Wherever applicable, materializations are indexed by the [collection key](collections.md#collection-keys). For SQL specifically, this means components of the collection key are used as the composite primary key of the table.
+## Specification
 
-Many systems are document-oriented in nature and can accept unmodified collection documents. Others are table-oriented, so in order to materialize into them, you select a subset of available projections, where each projection becomes a column in the created target table.
+Materializations are expressed within a Flow catalog specification:
 
-### Endpoints
+```yaml
+# A set of materializations to include in the catalog.
+# Optional, type: object
+materializations:
+  # The name of the materialization.
+  acmeCo/example/database-views:
+    # Endpoint defines how to connect to the destination of the materialization.
+    # Required, type: object
+    endpoint:
+      # This endpoint uses a connector provided as a Docker image.
+      connector:
+        # Docker image which implements the materialization connector.
+        image: ghcr.io/estuary/materialize-postgres:dev
+        # File which provides the connector's required configuration.
+        # Configuration may also be presented inline.
+        config: path/to/connector-config.yaml
 
-Endpoints are the systems that Flow can materialize data into or capture data from. Each capture and materialization contains information required to log in, pull from, and update the target system. You can declare all kinds of systems as endpoints, including databases, key/value stores, streaming pub/sub, Webhook APIs, and cloud storage locations.
+    # Bindings define how one or more collections map to materialized endpoint resources.
+    # A single materialization may include many collections and endpoint resources,
+    # each defined as a separate binding.
+    # Required, type: object
+    bindings:
+      - # The source collection to materialize.
+        # This may be defined in a separate, imported catalog source file.
+        # Required, type: string
+        source: acmeCo/example/collection
 
-Each materialization requires an [endpoint configuration](../../reference/catalog-reference/materialization/endpoints.md), which leverages a specific connector for the type of endpoint being used.&#x20;
+        # The resource is additional configuration required by the endpoint
+        # connector to identify and materialize a specific endpoint resource.
+        # The structure and meaning of this configuration is defined by
+        # the specific connector.
+        # Required, type: object
+        resource:
+          # The materialize-postgres connector expects a `table` key
+          # which names a table to materialize into.
+          table: example_table
+```
 
-### How materializations work&#x20;
+## Continuous Materialized Views
 
-When you first declare a materialization, Flow back-fills the endpoint (say, a database table) with the historical documents of the collection. From there, Flow keeps it up to date using precise, incremental updates.\
-\
-Flow stores updates in transactions, as quickly as the endpoint can handle them. This might be milliseconds in the case of a fast key/value store, or many minutes in the case of an OLAP warehouse.
+Flow materializations are **continuous materialized views**:
+they maintain a representation of the collection within the endpoint,
+as an endpoint resource which is indexed on the
+[collection key](collections.md#collection-keys).
+As the materialization runs it ensures that all collection documents
+and their accumulated [reductions](../#reductions) are reflected in this
+managed endpoint resource.
+For example, consider a collection and its materialization:
 
-If the endpoint is also transactional, then these transactions are integrated for end-to-end “exactly once” semantics. At a high level, transactions:
+```yaml
 
-> * **Read** current documents from the data store, stream, or other location for relevant collection keys (where applicable, and not already cached by the runtime).
-> * **Reduce** one or more new collection documents into each of those read values.
-> * **Write** the updated document back out to the original location.
+collections:
+  acmeCo/colors:
+    key: [/color]
+    schema:
+      type: object
+      required: [color, total]
+      reduce: {strategy: merge}
+      properties:
+        color: {enum: [red, blue, purple]}
+        total:
+          type: integer
+          reduce: {strategy: sum}
 
-The materialization is sensitive to back pressure from the endpoint. As a database gets busy, Flow adaptively batches and combines documents to reduce the number of database operations it must issue.&#x20;
+materializations:
+  acmeCo/example/database-views:
+    endpoint: ...
+    bindings:
+      - source: acmeCo/colors
+        resource: { table: colors }
+```
 
-Flow's built-in efficiencies allow it to intelligently combine documents and thus consolidate updates.&#x20;
+Suppose documents are periodically added to the collection:
+```json
+{"color": "red", "total": 1}
+{"color": "blue", "total": 2}
+{"color": "blue", "total": 3}
+```
 
-* In a given transaction, Flow turns large volumes of incoming requests into fewer table updates by reducing like keys.
-* As a target database becomes busier or slower, Flow combines more documents and issues fewer updates.
+Its materialization into a database table will have a single row for each unique color.
+As documents arrive in the collection, the row `total` is updated within the
+materialized table so that it reflects the overall count:
 
-Flow issues at most one store read and one store write per collection key. It then intelligently reduces updates based on those keys. This allows you to safely materialize a collection with a high rate of changes into a small database.
+![](materialization.gif)
 
-#### Fully reduced vs delta updates
+When you first declare a materialization
+Flow back-fills the endpoint resource with the historical documents of the collection.
+Once caught up, Flow applies new collection documents using incremental and low-latency updates.
 
-Reductions occur automatically during the materialization process based on the [collection key](collections.md#collection-keys) and the type of endpoint. This is driven by the [connector](../../concepts/connectors.md) in use.
+As collection documents arrive Flow:
 
-When you materialize into a database-like system, Flow both inserts new documents and updates existing documents by the collection's key. For example, if you have a collection with a key of `[/userId]`, then as each document is materialized, Flow queries the system for an existing record with the same `userId` and, if found, combines both the new and existing document before updating the existing record. We say that the resulting records are _fully reduced_, which means that they represent the complete up-to-date state of the record.&#x20;
+* **Reads** previously materialized documents from the endpoint for the relevant keys.
+* **Reduces** new documents into these read documents.
+* **Writes** updated documents back into the endpoint resource, indexed by their keys.
 
-When you materialize into a streaming system such as Kafka, Flow publishes each document as it is, without further reduction. We call this a _delta update._
+Flow does _not_ keep separate internal copies of collection or reduction states,
+as some other systems do. The endpoint resource is the one and only place
+where state "lives" within a materialization. This makes materializations very
+efficient and scalable to operate. They are able to maintain _very_ large tables
+stored in highly scaled storage systems like OLAP warehouses, BigTable, or DynamoDB.
+
+## Projected Fields
+
+Many systems are document-oriented and can directly work
+with collections of JSON documents.
+Others systems are table-oriented and require an up-front declaration
+of columns and types to be most useful, such as a SQL `CREATE TABLE` definition.
+
+Flow uses collection [projections](projections.md) to relate locations within
+a hierarchical JSON document to equivalent named fields.
+A materialization can in turn select a subset of available projected fields
+where, for example, each field becomes a column in a SQL table created by
+the connector.
+
+It would be tedious to explicitly list projections for every materialization,
+though you certainly can if desired.
+Instead Flow and the endpoint connector _negotiate_ a recommended field selection
+on your behalf which can be fine-tuned.
+For example a SQL database connector will typically *require* that fields
+composing the primary key be included, and will *recommend* that scalar
+values be included, but will by-default exclude document locations that
+don't have native SQL representations, such as locations which can have
+multiple JSON types or are arrays or maps.
+
+```yaml
+materializations:
+  acmeCo/example/database-views:
+    endpoint: ...
+    bindings:
+      - source: acmeCo/example/collection
+        resource: { table: example_table }
+
+        # Select (or exclude) projections of the collection for materialization as fields.
+        # If not provided then the recommend fields of the endpoint connector are used.
+        # Optional, type: object
+        fields:
+          # Whether to include fields that are recommended by the endpoint connector.
+          # If false, then fields can still be added using `include`.
+          # Required, type: boolean
+          recommended: true
+
+          # Fields to exclude. This is useful for deselecting a subset of recommended fields.
+          # Default: [], type: array
+          exclude: [myField, otherField]
+
+          # Fields to include. This can supplement recommended fields, or can
+          # designate explicit fields to use if recommended fields are disabled.
+          #
+          # Values of this map are used to customize connector behavior on a per-field basis.
+          # They are passed directly to the connector and are not interpreted by Flow.
+          # Consult your connector's documentation for details of what customizations are available.
+          # This is an advanced feature and is not commonly used.
+          #
+          # default: {}, type: object
+          include:  {goodField: {}, greatField: {}}
+```
+
+## Partition Selectors
+
+Partition selectors let you materialize only a subset of a collection that has
+[logical partitions](projections.md#logical-partitions).
+For example you might have a large collection which is logically partitioned
+on each of your customers:
+
+```yaml
+collections:
+  acmeCo/anvil/orders:
+    key: [/id]
+    schema: orders.schema.yaml
+    projections:
+      customer:
+        location: /order/customer
+        partition: true
+      metal:
+        location: /product/metal_type
+        partition: true
+      bulk:
+        location: /order/bulk_order
+        partition: true
+```
+
+A large customer asks if you can provide an up-to-date accounting of their orders.
+This can be accomplished with a partition selector:
+
+```yaml
+materializations:
+  acmeCo/example/database-views:
+    endpoint: ...
+    bindings:
+      - source: acmeCo/anvil/orders
+        resource: { table: coyote_orders }
+
+        # Specify a partition selector to use.
+        # If not provided, then all partitions are materialized by default.
+        partitions:
+
+          # `include` selects partitioned fields and corresponding values which
+          # must be matched in order for a partition to be materialized.
+          # All of the included fields must be matched.
+          # Default: All partitions are included. type: object
+          include:
+            # Include partitions where "Coyote" is the customer.
+            customer: [Coyote]
+            # AND where the metal type of the anvil is "Iron" OR "Steel".
+            metal: [Iron, Steel]
+
+          # `exclude` selects partitioned fields and corresponding values which,
+          # if matched, exclude the partition from being materialized.
+          # A match of any of the excluded fields will exclude the partition.
+          # Default: No partitions are excluded. type: object
+          exclude:
+            bulk: [true]
+```
+
+Partition selectors are a very efficient way to select a subset of a
+much larger collection for materialization,
+because Flow reads and processes only those partitions which match the selector.
+
+## SQLite Endpoint
+
+In addition to materialization connectors, Flow offers a built-in SQLite endpoint
+for local testing and development. SQLite is not suitable for materializations
+running within a managed data plane.
+
+```yaml
+materializations:
+  acmeCo/example/database-views:
+    endpoint:
+      # A SQLite endpoint is specified using `sqlite` instead of `connector`.
+      sqlite:
+        # The SQLite endpoint requires the `path` of the SQLite database to use,
+        # specified as a file path. It may include URI query parameters;
+        # See: https://www.sqlite.org/uri.html and https://github.com/mattn/go-sqlite3#connection-string
+        path: example/database.sqlite?_journal_mode=WAL
+```
+
+## Backpressure
+
+Flow processes updates in transactions, as quickly as the endpoint can handle them.
+This might be milliseconds in the case of a fast key/value store,
+or many minutes in the case of an OLAP warehouse.
+
+If the endpoint is also transactional then Flow integrates its internal transactions
+with those of the endpoint for integrated end-to-end “exactly once” semantics.
+
+The materialization is sensitive to back pressure from the endpoint.
+As a database gets busy, Flow adaptively batches and combines documents to consolidate updates:
+
+* In a given transaction, Flow reduces of all incoming documents on the collection key.
+  Multiple documents will combine and result in a single endpoint read and write during the transaction.
+* As a target database becomes busier or slower, transactions become larger.
+  Flow does more reduction work within each transaction, and each endpoint read or write
+  accounts for an increasing volume of collection documents.
+
+This allows you to safely materialize a collection with a high rate of changes into a small database,
+so long as the cardinality of the materialization is of reasonable size.
+
+## Delta Updates
+
+Not all endpoints are stateful systems, like a database.
+Webhooks, APIs, and Pub/Sub systems may also be endpoints but none of these
+typically provide a state representation that Flow can query.
+They are write-only in nature, and Flow cannot use their endpoint state
+to help it fully reduce collection documents on their keys.
+
+For this class of endpoint, Flow offers a **delta-updates** mode.
+When using delta updates, Flow does not attempt to maintain
+full reductions of each unique collection key.
+Instead Flow will locally reduce documents within each transaction
+(this is often called a "combine"), and will then materialize one
+_delta_ document per-key to the endpoint.
+
+Flow and the specific endpoint connector internally negotiate to determine
+whether delta updates should be used. The specific connector may
+provide configurable settings which can be used to fine-tune this behavior.
