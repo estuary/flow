@@ -11,11 +11,45 @@ Every collection has a key and an associated JSON schema that documents must val
 JSON schema is flexible and the schema could be exactingly strict,
 extremely permissive, or somewhere in between.
 
+## Specification
+
+Collections are expressed within a Flow catalog specification:
+
+```yaml
+# A set of collections to include in the catalog.
+# Optional, type: object
+collections:
+  # The unique name of the collection.
+  acmeCo/products/anvils:
+
+    # The schema of the collection, against which collection documents are validated.
+    # Required, type: string or object
+    schema: anvils.schema.yaml
+
+    # The key of the collection, specified as JSON pointers of one or more
+    # locations within collection documents. If multiple fields are given,
+    # they act as a composite key, equivalent to a SQL table PRIMARY KEY
+    # with multiple table columns.
+    # Required, type: array
+    key: [/product/id]
+
+    # Projections and logical partitions for this collection.
+    # See the "Projections" concept page to learn more.
+    # Optional, type: object
+    projections:
+
+    # Derivation that builds this collection from others through transformations.
+    # See the "Derivations" concept page to learn more.
+    # Optional, type: object
+    derivation:
+```
+
 ## Storage
 
 Collections are hybrids of low-latency streams and batch datasets.
 Stream readers receive an added document within milliseconds of its being committed.
 Once written, documents group into regular JSON files and persist into an organized layout in cloud storage (a "data lake").
+
 Your [storage mappings](storage-mappings.md) determine the cloud storage location of each collection.
 Flow understands how persisted files stitch back together with the stream,
 and readers of collections transparently switch between direct read from cloud storage and low-latency streaming.
@@ -213,6 +247,40 @@ This property makes keys less "lossy" than they might otherwise appear,
 and it is generally good practice to chose a key that reflects how
 you wish to _query_ a collection, rather than an exhaustive key
 that's certain to be unique for every document.
+
+## Projections
+
+Projections are named locations within a collection document that may be used for
+logical partitioning or directly exposed to databases into which collections are
+materialized.
+
+Many projections are automatically inferred from the collection schema.
+The `projections` stanza can be used to provide additional projections,
+and to declare logical partitions:
+
+```yaml
+collections:
+  acmeCo/products/anvils:
+    schema: anvils.schema.yaml
+    key: [/product/id]
+
+    # Projections and logical partitions for this collection.
+    # Keys name the unique projection field, and values are its JSON Pointer
+    # location within the document and configure logical partitioning.
+    # Optional, type: object
+    projections:
+      # Short form: define a field "product_id" with document pointer /product/id.
+      product_id: "/product/id"
+
+      # Long form: define a field "metal" with document pointer /metal_type
+      # which is a logical partition of the collection.
+      metal:
+        location: "/metal_type"
+        partition: true
+
+```
+
+Learn more about [projections](projections.md).
 
 ## Characteristics of Collections
 
