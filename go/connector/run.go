@@ -59,6 +59,17 @@ func Run(
 		"run",
 		"--interactive",
 		"--rm",
+		// Tell docker not to persist any container stdout/stderr output.
+		// Containers may write _lots_ of output to std streams, and docker's
+		// logging drivers may persist all or some of that to disk, which could
+		// easily exhaust all available disk space. The default logging driver
+		// does this. Setting the log driver here means that we don't rely on
+		// any user-defined docker configuration for this, but it also means
+		// that running `docker logs` to see the output of a connector will not
+		// work. This is acceptable, since all of the stderr output is logged
+		// into the ops collections.
+		"--log-driver",
+		"none",
 	}
 
 	if networkName != "" {
