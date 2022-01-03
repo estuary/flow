@@ -48,7 +48,7 @@ Your test performed as expected; now you can deploy the catalog.
 
 Start a local, temporary Flow data plane:
 ```console
-$ flowctl temp-data-plane --builds-root file://$(pwd)/
+$ flowctl temp-data-plane 
 ```
 
 A data plane is a long-lived, multi-tenant, scale-out component that
