@@ -11,12 +11,12 @@ To use this connector, you'll need a PostgreSQL database setup with the followin
 
 
 ### Setup
-The simplest way to meet the above prerequisites is to connect to the database as a superuser and change the WAL level.
+The simplest way to meet the above prerequisites is to change the WAL level and have the connector use a database superuser role.
 
 For a more restricted setup, create a new user with just the required permissions as detailed in the following steps:
 
 1. Create a new user and password:
-```console
+```sql
 CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 ```
 2. Assign the appropriate role.
@@ -32,7 +32,7 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
     GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
     ```
 
-    where `<others>` lists all schemas that will be captured.
+    where `<others>` lists all schemas that will be captured from.
     :::info
     If an even more restricted set of permissions is desired, you can also grant SELECT on
     just the specific table(s) which should be captured from. The ‘information_schema’ and
@@ -43,7 +43,6 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 
 ```console
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
-
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
 CREATE PUBLICATION flow_publication FOR ALL TABLES;
 ```
@@ -59,11 +58,11 @@ You may set up the configuration using the `flowctl discover` workflow, or with 
 ### Values
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
-|  |Tenant |String| Required | The tenant in which to create the capture. This is the prefix of your cloud storage bucket. |
-| |Name | String | Required |The unique name of the capture |
-| `connectionURI` | Database Connection URL | String | Required | Connection parameters, as a libpq-compatible connection string |
-| `max_lifespan_seconds` | Maximum Connector Lifespan (seconds) | number | 0.0 | When nonzero, imposes a maximum runtime after which to unconditionally shut down |
-| `poll_timeout_seconds` | Poll Timeout (seconds) | number | 0.0 | When tail=false, controls how long to sit idle before shutting down |
+| `database` | Database | string | `"postgres"` | Logical database name to capture from. |
+| `host` | Host | String | Required | Host name of the database to connect to. |
+| `port` | Port | uint16 | `5432` | Port on which to connect to the database. |
+| `user` | User | String | Required | Database user to use. |
+| `password` | Password | String | Required | User password configured within the database. |
 | `publication_name` | Publication Name | string | `"flow_publication"` | The name of the PostgreSQL publication to replicate from |
 | `slot_name` | Replication Slot Name | string | `"flow_slot"` | The name of the PostgreSQL replication slot to replicate from |
 | `watermarks_table` | Watermarks Table | string | `"public.flow_watermarks"` | The name of the table used for watermark writes during backfills |
@@ -73,20 +72,25 @@ A minimal capture definition within the catalog spec will look like the followin
 
 ```yaml
 captures:
-  $tenant/CAPTURE_NAME:
+  ${tenant}/${CAPTURE_NAME}:
     endpoint:
       airbyteSource:
         image: "ghcr.io/estuary/source-postgres:dev"
         config:
-          connectionURI: "postgres://flow:flow@localhost:5432/flow"
+          host: "localhost"
+          port: 5432
+          database: "flow"
+          user: "flow_capture"
+          password: "secret"
           # slot_name: “flow_slot”                     # Default
           # publication_name: “flow_publication”       # Default
           # watermarks_table: “public.flow_watermarks” # Default
     bindings:
       - resource:
-        stream: ${TABLE_NAME}
-        syncMode: incremental
-      target: ${COLLECTION_NAME}
+          stream: ${TABLE_NAME}
+          namespace: ${TABLE_NAMESPACE}
+          syncMode: incremental
+        target: ${COLLECTION_NAME}
 ```
 We recommend using `flowctl discover` to generate it, as detailed below. Your capture definition will likely be more complex, with a  **binding** for each table in the source database.
 
@@ -102,7 +106,7 @@ flowctl discover --image=ghcr.io/estuary/source-postgres:dev
 ```
 This generates a config from the latest version of the connector, provided as a Docker image.
 
-2. Open the config file called `discover-source-postgres-config.yaml`. This is your space to specify the required values detailed above. Fill in `connectionURI` (required) and modify other values, if you'd like.
+2. Open the config file called `discover-source-postgres-config.yaml`. This is your space to specify the required values detailed above. Fill in required values and modify other values, if you'd like.
 3. Run the command again:
 ```console
 flowctl discover --image=ghcr.io/estuary/source-postgres:dev

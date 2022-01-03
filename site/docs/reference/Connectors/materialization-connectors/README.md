@@ -5,29 +5,29 @@ Estuary's available materialization connectors are listed in this section. Each 
 More configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information on missing connectors.
 :::
 
-Links to the package page on GitHub are also provided, including the most recent Docker image, which you'll need for certain configuration methods.
+Links to the most recent Docker image, which you'll need for certain configuration methods.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
 ## Available materialization connectors
 * Apache Parquet
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/materialize-s3-parquet)
+  * Package — ghcr.io/estuary/materialize-s3-parquet:dev
 * Elasticsearch
   * Configuration
-  * [Package](https://github.com/estuary/connectors/pkgs/container/materialize-elasticsearch)
+  * Package — ghcr.io/estuary/materialize-elasticsearch:dev
 * Google BigQuery
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/materialize-bigquery)
+  * Package — ghcr.io/estuary/materialize-bigquery:dev
 * PostgreSQL
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/materialize-postgres)
+  * Package — ghcr.io/estuary/materialize-postgres:dev
 * Rockset
   * [Configuration](./Rockset.md)
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/materialize-rockset)
+  * Package — ghcr.io/estuary/materialize-rockset:dev
 * Snowflake
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/materialize-snowflake)
+  * Package — ghcr.io/estuary/materialize-snowflake:dev
 * Webhook
   * Configuration
-  * [Package](https://github.com/estuary/connectors/pkgs/container/materialize-webhook)
+  * Package — ghcr.io/estuary/materialize-webhook:dev

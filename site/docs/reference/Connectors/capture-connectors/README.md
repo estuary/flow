@@ -6,7 +6,7 @@ Estuary's available capture connectors are listed in this section. Each connecto
 More configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information on missing connectors.
 :::
 
-Links to the package page on GitHub are also provided, including the most recent Docker image, which you'll need for certain configuration methods.
+Links to the most recent Docker image, which you'll need for certain configuration methods.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
@@ -14,16 +14,16 @@ Estuary is actively developing new connectors, so check back regularly for the l
 
 * Amazon Kinesis
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/source-kinesis)
+  * Package — ghcr.io/estuary/source-kinesis:dev
 * Amazon S3
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/source-s3)
+  * Package — ghcr.io/estuary/source-s3:dev
 * Apache Kafka
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/source-kafka)
+  * Package — ghcr.io/estuary/source-kafka:dev
 * Google Cloud Storage
   * Configuration
-  * [Package ](https://github.com/estuary/connectors/pkgs/container/source-gcs)
+  * Package — ghcr.io/estuary/source-gcs:dev
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
-  * [Package](https://github.com/estuary/connectors/pkgs/container/source-postgres)
+  * Package — ghcr.io/estuary/source-postgres:dev

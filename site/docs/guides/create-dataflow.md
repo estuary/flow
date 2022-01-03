@@ -38,9 +38,9 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 
     ```yaml
     storageMappings:
-    tenant/:
+      tenant/:
         stores:
-        - bucket: "my-bucket"
+          - bucket: "my-bucket"
             provider: "S3"
     ```
 
@@ -50,9 +50,9 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 
 5. Launch the system locally:
     ```console
-    flowctl temp-data-plane --builds-root file://$(pwd)/
+    flowctl temp-data-plane
     ```
-6. Next, deploy your data plane:
+6. Leave that running and open a new shell window. There, deploy your catalog:
     ```console
     flowctl deploy --source=your_file.flow.yaml --wait-and-cleanup
     ```

@@ -15,7 +15,7 @@ Captures are objects utilizing the following entities:
 # Optional, type: object
 captures:
 
-  # The name of the capture.
+  # The name of the capture, formatted as {tenant}/{capturename}, where {tenant} is your cloud storage bucket.
   example/name:
 
     # Bindings define how collections are populated from the data source.  A
