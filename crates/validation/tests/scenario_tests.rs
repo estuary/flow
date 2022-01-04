@@ -149,7 +149,7 @@ test://example/captures:
   captures:
     good: &spec
       endpoint:
-        airbyteSource:
+        connector:
           image: an/image
           config:
             bucket: a-bucket
@@ -187,7 +187,7 @@ test://example/materializations:
   materializations:
     good: &spec
       endpoint:
-        flowSink:
+        connector:
           image: an/image
           config:
             bucket: a-bucket
@@ -231,7 +231,7 @@ test://example/catalog.yaml:
   materializations:
     testing/b/2: &materialization_spec
       endpoint:
-        flowSink:
+        connector:
           image: an/image
           config: { a: config }
       bindings: []
@@ -242,7 +242,7 @@ test://example/catalog.yaml:
   captures:
     testing/b/3: &capture_spec
       endpoint:
-        airbyteSource:
+        connector:
           image: an/image
           config: { a: value }
       bindings: []
