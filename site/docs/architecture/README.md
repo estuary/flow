@@ -11,7 +11,7 @@ The pages in this section discuss how this happens under the hood.
 
 The below diagram roughly describes Flow's architecture for a given data flow:
 
-![](<architecture.png>)
+![](<architecture.svg>)
 
 The Flow runtime includes the activated catalog processes: captures, derivations, and materializations. But note that collections are stored in a cloud data lake, and additional components are involved — collections are composed of **journals,** and **brokers** connect them to the runtime. This architecture allows the low latency and flexible scaling that characterize Flow. You can learn more about it on the [Collection storage](storage.md) page.
 
