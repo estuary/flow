@@ -109,10 +109,10 @@ tests:
   acmeCo/tests/greetings:
     - verify:
         collection: acmeCo/greetings
+        description: Verify only documents which greet Nintendo characters.
         documents:
-          - { userId: 1, greeting: "Hello Zelda Again" }
+          - { userId: 1, greeting: "Hello Zelda" }
           - { userId: 3, greeting: "Hello Pikachu" }
-        # Verify documents of the collection which are Nintendo characters.
         partitions:
           include:
             platform: [Nintendo]
@@ -166,5 +166,3 @@ tests:
 ```
 
 This allows all the subsequent tests to re-use the documents from the first `ingest` step without having to duplicate them.
-
-To learn more about test programming elements, see the [tests reference documentation](../../reference/catalog-reference/tests.md).

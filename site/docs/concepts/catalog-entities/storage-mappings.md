@@ -24,15 +24,13 @@ collections:
   acmeCo/anvils:
     key: [/id]
     schema: anvil-schema.yaml
-    projections:
-      owner:
-        location: /anvil/owner
-        partition: true
 ```
 
-...would store all of its data files under path `s3://acmeco-bucket/my-prefix/acmeCo/anvils/`.
+Would store all of its data files under path `s3://acmeco-bucket/my-prefix/acmeCo/anvils/`.
 
 Every Flow collection must have an associated storage mapping, and a catalog build will fail if multiple storage mappings have overlapping prefixes.
+
+[Learn more about logical partitions and storage](projections.md#logical-partitions).
 
 ## Recovery logs
 
