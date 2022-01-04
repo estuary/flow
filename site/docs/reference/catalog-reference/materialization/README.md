@@ -15,7 +15,7 @@ Materializations are objects utilizing the below entities:
 # Optional, type: object
 materializations:
 
-  # The name of the materialization, formatted as {tenant}/{capturename}, where {tenant} is your cloud storage bucket.
+  # The name of the materialization.
   example/name:
 
     # Bindings define how collections are included in the materialization.
