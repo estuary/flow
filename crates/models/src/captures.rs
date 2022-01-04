@@ -42,7 +42,7 @@ impl CaptureDef {
 
     pub fn example() -> Self {
         Self {
-            endpoint: CaptureEndpoint::AirbyteSource(ConnectorConfig::example()),
+            endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),
@@ -73,8 +73,9 @@ impl CaptureBinding {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum CaptureEndpoint {
-    /// # An Airbyte source connector.
-    AirbyteSource(ConnectorConfig),
+    /// # A Connector.
+    #[serde(alias = "airbyteSource")]
+    Connector(ConnectorConfig),
     /// # A push ingestion.
     Ingest(IngestConfig),
 }
@@ -82,7 +83,7 @@ pub enum CaptureEndpoint {
 impl CaptureEndpoint {
     pub fn endpoint_type(&self) -> EndpointType {
         match self {
-            Self::AirbyteSource(_) => EndpointType::AirbyteSource,
+            Self::Connector(_) => EndpointType::AirbyteSource,
             Self::Ingest(_) => EndpointType::Ingest,
         }
     }

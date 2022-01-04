@@ -100,7 +100,7 @@ Edit and update this file, and then run this command again.
 			Spec struct {
 				Image  string     `yaml:"image"`
 				Config *yaml.Node `yaml:"config"`
-			} `yaml:"airbyteSource"`
+			} `yaml:"connector"`
 		} `yaml:"endpoint"`
 		Bindings []Binding `yaml:"bindings"`
 	}

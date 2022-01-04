@@ -27,7 +27,7 @@ collections:
 captures:
   example/capture:
     endpoint:
-      airbyteSource:
+      connector:
         image: ghcr.io/estuary/source-hello-world:293ed5c
         config:
           greetings: 1000

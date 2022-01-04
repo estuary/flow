@@ -27,7 +27,7 @@
               }
             ],
             "endpoint": {
-              "airbyteSource": {
+              "connector": {
                 "config": "connector-config.yaml",
                 "image": "connector/image:tag"
               }
@@ -101,7 +101,7 @@
               }
             ],
             "endpoint": {
-              "flowSink": {
+              "connector": {
                 "config": "connector-config.yaml",
                 "image": "connector/image:tag"
               }
@@ -301,13 +301,13 @@
       "description": "An Endpoint connector used for Flow captures.",
       "oneOf": [
         {
-          "title": "An Airbyte source connector.",
+          "title": "A Connector.",
           "type": "object",
           "required": [
-            "airbyteSource"
+            "connector"
           ],
           "properties": {
-            "airbyteSource": {
+            "connector": {
               "$ref": "#/definitions/ConnectorConfig"
             }
           },
@@ -802,13 +802,13 @@
       "description": "An Endpoint connector used for Flow materializations.",
       "oneOf": [
         {
-          "title": "A Flow sink.",
+          "title": "A Connector.",
           "type": "object",
           "required": [
-            "flowSink"
+            "connector"
           ],
           "properties": {
-            "flowSink": {
+            "connector": {
               "$ref": "#/definitions/ConnectorConfig"
             }
           },
