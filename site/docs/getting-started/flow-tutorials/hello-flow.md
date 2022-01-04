@@ -48,7 +48,7 @@ Your test performed as expected; now you can deploy the catalog.
 
 Start a local, temporary Flow data plane:
 ```console
-$ flowctl temp-data-plane 
+$ flowctl temp-data-plane
 ```
 
 A data plane is a long-lived, multi-tenant, scale-out component that
@@ -129,7 +129,3 @@ The updates you push to `documents` are materialized to `word_counts` with milli
 of real-world and business applications (far beyond counting cats and hats).
 
 When you're done with your testing, exit the data flow by returning to your first console window and pressing **Ctrl-C**.
-
-## Learn more
-* For a broader conceptual overview, start [here](../../concepts/README.md).
-* For details on how to write your own catalog, go [here](../../reference/catalog-reference/README.md).
