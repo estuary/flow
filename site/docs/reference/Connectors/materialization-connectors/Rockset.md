@@ -1,3 +1,7 @@
+This Flow connector materializes [delta updates](../../../concepts/catalog-entities/materialization.md#how-materializations-work-) of your Flow collections into Rockset collections.
+
+`ghcr.io/estuary/materialize-rockset:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+
 ## Prerequisites
 To use this connector, you'll need :
 * An existing catalog spec that includes at least one collection with its schema specified
@@ -8,13 +12,7 @@ To use this connector, you'll need :
     * Optional; if none exist, one will be created by the connector.
 
 ## Configuration
-You should have a catalog spec YAML file with, at minimum, one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. For each Flow collection you want to materialize, you'll specify a **binding** in the materialization.
-
-The basic steps are as follows:
-
-1. In your catalog spec, add a `materializations` section if necessary, and create a new materialization with a unique name. Follow the basic [materialization setup](../../../concepts/catalog-entities/materialization.md) and the example below as a guide.
-2. Add the required Rockset configuration values per the table below.
-3. Add additional bindings for each Flow collection you want to materialize, if necessary.
+To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/catalog-entities/materialization.md) and add the required Rockset configuration values per the table below.
 
 ### Values
 | Value | Name | Type | Required/Default | Details |
@@ -26,7 +24,6 @@ The basic steps are as follows:
 | `collection` | Rockset collection | String | Required| For each binding, the name of the destination Rockset table |
 
 ### Sample
-Add your materialization to your existing catalog spec YAML file using this example as a model and providing required values per the table above:
 
 ```yaml
 # If this is the first materialization, add the section to your catalog spec

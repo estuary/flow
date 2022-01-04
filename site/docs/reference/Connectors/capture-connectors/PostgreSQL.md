@@ -1,3 +1,7 @@
+This Flow connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
+
+`ghcr.io/estuary/source-postgres:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+
 ## Prerequisites
 To use this connector, you'll need a PostgreSQL database setup with the following:
 * [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
@@ -21,13 +25,13 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 ```
 2. Assign the appropriate role.
     1. If using PostgreSQL v14 or later:
-    ```console
+    ```sql
     GRANT pg_read_all_data TO flow_capture;
     ```
 
     2. If using an earlier version:
 
-    ```console
+    ```sql
     GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
     GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
     ```
@@ -41,13 +45,13 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
     :::
 3. Create the watermarks table, grant privileges, and create publication:
 
-```console
+```sql
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
 CREATE PUBLICATION flow_publication FOR ALL TABLES;
 ```
 4. Set WAL level to logical:
-```console
+```sql
 ALTER SYSTEM SET wal_level = logical;
 ```
 5. Restart PostgreSQL to allow the WAL level change to take effect.
@@ -92,26 +96,6 @@ captures:
           syncMode: incremental
         target: ${COLLECTION_NAME}
 ```
-We recommend using `flowctl discover` to generate it, as detailed below. Your capture definition will likely be more complex, with a  **binding** for each table in the source database.
+Your capture definition will likely be more complex, with multiple binding for each table in the source database.
 
-
-## How to use `flowctl discover`
-Currently, `flowctl discover` is the provided method to begin setting up a capture, and saves significant time
-compared to manually writing the catalog spec. `discover` generates the capture specification as well as the
-**collections** you'll need to perpetuate each bound resource within the Flow runtime.
-
-1. In your terminal, run:
-```console
-flowctl discover --image=ghcr.io/estuary/source-postgres:dev
-```
-This generates a config from the latest version of the connector, provided as a Docker image.
-
-2. Open the config file called `discover-source-postgres-config.yaml`. This is your space to specify the required values detailed above. Fill in required values and modify other values, if you'd like.
-3. Run the command again:
-```console
-flowctl discover --image=ghcr.io/estuary/source-postgres:dev
-```
-4. Open the resulting catalog spec file, which has a name like `discover-source-postgres.flow.yaml`.
-Note the capture definition and the collection(s) created to support each binding.
-
-You can now continue to build out and customize your catalog.
+Methods to generate a capture definition are provided here (INSERT LINK ON HOW TO USE CONNECTORS)
