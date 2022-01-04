@@ -25,7 +25,7 @@ pub struct MaterializationDef {
 impl MaterializationDef {
     pub fn example() -> Self {
         Self {
-            endpoint: MaterializationEndpoint::FlowSink(ConnectorConfig::example()),
+            endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
         }
@@ -107,8 +107,9 @@ impl Default for MaterializationFields {
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationEndpoint {
-    /// # A Flow sink.
-    FlowSink(ConnectorConfig),
+    /// # A Connector.
+    #[serde(alias = "flowSink")]
+    Connector(ConnectorConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
 }
@@ -116,7 +117,7 @@ pub enum MaterializationEndpoint {
 impl MaterializationEndpoint {
     pub fn endpoint_type(&self) -> EndpointType {
         match self {
-            Self::FlowSink(_) => EndpointType::FlowSink,
+            Self::Connector(_) => EndpointType::FlowSink,
             Self::Sqlite(_) => EndpointType::Sqlite,
         }
     }

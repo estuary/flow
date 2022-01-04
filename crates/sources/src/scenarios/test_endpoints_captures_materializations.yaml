@@ -7,7 +7,7 @@ test://example/catalog.yaml:
   captures:
     first/capture:
       endpoint:
-        airbyteSource:
+        connector:
           image: an/image
           config:
             bucket: foobar
@@ -21,6 +21,7 @@ test://example/catalog.yaml:
 
     capture/second:
       endpoint:
+        # Continue support for deprecated `airbyteSource`.
         airbyteSource:
           image: another/image
           config: referenced/config.yaml
@@ -41,14 +42,14 @@ test://example/catalog.yaml:
 
     capture/config-missing:
       endpoint:
-        airbyteSource:
+        connector:
           image: another/image
           config: config/not/found.yaml
       bindings: []
 
     capture/config-parse-error:
       endpoint:
-        airbyteSource:
+        connector:
           image: another/image
           config: malformed-config.yaml
       bindings: []
@@ -56,7 +57,7 @@ test://example/catalog.yaml:
   materializations:
     a/materialization:
       endpoint:
-        flowSink:
+        connector:
           image: materialization/image
           config:
             its: config
@@ -78,6 +79,7 @@ test://example/catalog.yaml:
 
     materialization/with-config:
       endpoint:
+        # Continue support for deprecated `flowSink`.
         flowSink:
           image: materialization/another:image
           config: referenced/config.yaml
@@ -85,14 +87,14 @@ test://example/catalog.yaml:
 
     materialization/with-config-fragment:
       endpoint:
-        flowSink:
+        connector:
           image: materialization/another:image
           config: referenced/config.yaml#/bad/fragment
       bindings: []
 
     materialization/missing-config:
       endpoint:
-        flowSink:
+        connector:
           image: materialization/image
           config: config/not/found.yaml
       bindings: []

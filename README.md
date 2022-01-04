@@ -44,7 +44,7 @@ captures:
   # Capture Citi Bike's public system ride data.
   examples/citi-bike/rides-from-s3:
     endpoint:
-      airbyteSource:
+      connector:
         # Docker image which implements a capture from S3.
         image: ghcr.io/estuary/source-s3:dev
         # Configuration for the S3 connector.
@@ -94,7 +94,7 @@ materializations:
   # Materialize rides into a PostgreSQL database.
   examples/citi-bike/to-postgres:
     endpoint:
-      flowSink:
+      connector:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
           # Try this by standing up a local PostgreSQL database.

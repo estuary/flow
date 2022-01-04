@@ -24,7 +24,7 @@ collections:
 captures:
   examples/citi-bike/rides-from-s3:
     endpoint:
-      airbyteSource:
+      connector:
         image: ghcr.io/estuary/source-s3:dev
         config: rides.config.yaml
     bindings:

@@ -912,7 +912,7 @@ impl<F: Fetcher> Loader<F> {
         use models::CaptureEndpoint::*;
 
         // Map a URL reference into its absolute form, and load it.
-        if let AirbyteSource(models::ConnectorConfig {
+        if let Connector(models::ConnectorConfig {
             image,
             config: models::Config::Url(relative),
         }) = endpoint
@@ -921,14 +921,14 @@ impl<F: Fetcher> Loader<F> {
             self.load_import(scope, &absolute, models::ContentType::Config)
                 .await;
 
-            endpoint = AirbyteSource(models::ConnectorConfig {
+            endpoint = Connector(models::ConnectorConfig {
                 image,
                 config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
             });
         }
 
         match endpoint {
-            AirbyteSource(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
             Ingest(spec) => Some(serde_json::to_value(spec).unwrap()),
         }
     }
@@ -941,7 +941,7 @@ impl<F: Fetcher> Loader<F> {
         use models::MaterializationEndpoint::*;
 
         // Map a URL reference into its absolute form, and ensure that it's loaded.
-        if let FlowSink(models::ConnectorConfig {
+        if let Connector(models::ConnectorConfig {
             image,
             config: models::Config::Url(relative),
         }) = endpoint
@@ -950,14 +950,14 @@ impl<F: Fetcher> Loader<F> {
             self.load_import(scope, &absolute, models::ContentType::Config)
                 .await;
 
-            endpoint = FlowSink(models::ConnectorConfig {
+            endpoint = Connector(models::ConnectorConfig {
                 image,
                 config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
             });
         }
 
         match endpoint {
-            FlowSink(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
             Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
                     Some(serde_json::to_value(spec).unwrap()) // Already absolute.

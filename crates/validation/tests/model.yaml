@@ -45,7 +45,7 @@ test://example/int-string-captures:
   captures:
     testing/s3-source:
       endpoint:
-        airbyteSource:
+        connector:
           image: s3
           config:
             bucket: a-bucket
@@ -59,7 +59,7 @@ test://example/int-string-captures:
 
     testing/db-cdc:
       endpoint:
-        airbyteSource:
+        connector:
           image: database
           config: cdc-config.yaml
       bindings:
@@ -81,7 +81,7 @@ test://example/webhook-deliveries:
   materializations:
     testing/webhook/deliveries:
       endpoint:
-        flowSink:
+        connector:
           image: webhook/connector
           config: webhook-config.yaml
       bindings:
@@ -112,7 +112,7 @@ test://example/db-views:
   materializations:
     testing/db-views:
       endpoint:
-        flowSink:
+        connector:
           image: database/image
           config:
             foo: bar

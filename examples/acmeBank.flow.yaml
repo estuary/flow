@@ -44,7 +44,7 @@ collections:
 #materializations:
 #  acmeBank/database:
 #    endpoint:
-#      flowSink:
+#      connector:
 #        # Use a Docker connector to materialize into a PostgreSQL database.
 #        # Connectors encapsulate the details of how to update a remote system,
 #        # whether it's a database, a key/value store, pub/sub, or a SaaS API.
