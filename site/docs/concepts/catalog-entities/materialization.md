@@ -191,12 +191,6 @@ collections:
       customer:
         location: /order/customer
         partition: true
-      metal:
-        location: /product/metal_type
-        partition: true
-      bulk:
-        location: /order/bulk_order
-        partition: true
 ```
 
 A large customer asks if you can provide an up-to-date accounting of their orders.
@@ -210,31 +204,13 @@ materializations:
       - source: acmeCo/anvil/orders
         resource: { table: coyote_orders }
 
-        # Specify a partition selector to use.
-        # If not provided, then all partitions are materialized by default.
+        # Process partitions where "Coyote" is the customer.
         partitions:
-
-          # `include` selects partitioned fields and corresponding values which
-          # must be matched in order for a partition to be materialized.
-          # All of the included fields must be matched.
-          # Default: All partitions are included. type: object
           include:
-            # Include partitions where "Coyote" is the customer.
             customer: [Coyote]
-            # AND where the metal type of the anvil is "Iron" OR "Steel".
-            metal: [Iron, Steel]
-
-          # `exclude` selects partitioned fields and corresponding values which,
-          # if matched, exclude the partition from being materialized.
-          # A match of any of the excluded fields will exclude the partition.
-          # Default: No partitions are excluded. type: object
-          exclude:
-            bulk: [true]
 ```
 
-Partition selectors are a very efficient way to select a subset of a
-much larger collection for materialization,
-because Flow reads and processes only those partitions which match the selector.
+[Learn more about partition selectors](projections.md#partition-selectors).
 
 ## SQLite Endpoint
 

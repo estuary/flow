@@ -76,11 +76,19 @@ In Flow, you instead define a **capture** of data from the source, which runs co
 
 ## Fivetran, Airbyte, and other ELT solutions
 
-Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the worlds in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of [**captures**](../reference/catalog-reference/captures/) (reads from sources), [**derivations**](../concepts/catalog-entities/derivations/) (transforms), and [**materializations**](../concepts/catalog-entities/materialization.md) **** (writes to destinations). Collectively, these are called _tasks_.
+Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the worlds in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of
+[**captures**](../../concepts/catalog-entities/captures) (reads from sources),
+[**derivations**](../../concepts/catalog-entities/derivations) (transforms), and
+[**materializations**](../../concepts/catalog-entities/materialization) (writes to destinations).
+Collectively, these are called _tasks_.
 
 Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing.
 
-Like Airbyte, Flow also uses connectors for interacting with external systems in captures and materializations. For captures, [Flow integrates the Airbyte specification](https://www.estuary.dev/introducing-estuarys-open-source-connector-repository/), so all Airbyte source connectors can be used with Flow. For materializations, Flow uses its own protocol, which is not compatible with the Airbyte spec. In either case, the usage of connectors is pretty similar.
+Like Airbyte, Flow also uses connectors for interacting with external systems in captures and materializations. For captures,
+[Flow integrates the Airbyte specification](https://www.estuary.dev/introducing-estuarys-open-source-connector-repository/),
+so all Airbyte source connectors can be used with Flow.
+For materializations Flow uses its own protocol which is not compatible with the Airbyte spec.
+In either case the usage of connectors is pretty similar.
 
 In terms of technical capabilities, Flow can do everything that these tools can and more, but those tools are more mature while Flow is currently in private beta. Both Fivetran and Airbyte both currently have graphical interfaces that make them much easier for non-technical users to configure, while Flow's UI is under development. Currently, Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
 

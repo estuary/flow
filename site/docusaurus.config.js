@@ -15,7 +15,7 @@ const config = {
   favicon: 'img/favicon.ico',
   organizationName: 'estuary',
   projectName: 'flow',
-  trailingSlash: false,
+  trailingSlash: true,
 
   presets: [
     [
