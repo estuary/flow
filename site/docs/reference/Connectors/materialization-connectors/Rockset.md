@@ -8,30 +8,31 @@ To use this connector, you'll need :
     * Optional; if none exist, one will be created by the connector.
 
 ## Configuration
-You should have a catalog spec YAML file with, at minimum, one **collection**. You'll add a [materialization](../../../concepts/catalog-entities/materialization.md) that includes the values required by the Rockset connector.
+You should have a catalog spec YAML file with, at minimum, one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. For each Flow collection you want to materialize, you'll specify a **binding** in the materialization.
+
+The basic steps are as follows:
+
+1. In your catalog spec, add a `materializations` section if necessary, and create a new materialization with a unique name. Follow the basic [materialization setup](../../../concepts/catalog-entities/materialization.md) and the example below as a guide.
+2. Add the required Rockset configuration values per the table below.
+3. Add additional bindings for each Flow collection you want to materialize, if necessary.
 
 ### Values
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
-|  |Tenant |String| Required | The tenant in which to create the materialization. This typically matches the collection. |
-| |Name | String | Required |The unique name of the materialization |
 | `api_key` | API Key | String | Required | Rockset API key generated from the web UI. |
-| `workspace` | Workspace | String | **What is default?** | For each binding, name of the Rockset workspace |
-| `collection` | Rockset collection | String | **What is default?** | For each binding, the name of the destination Rockset table |
-||source | string | Required | For each binding, name of the Flow collection you want to materialize to Rockset. This follows the format `tenant/source_collection` |
-
-:::warning
-Check accuracy of above and whether there are additional values
-:::
+| `HttpLogging` | HTTP Logging | bool | false | Enable verbose logging of the HTTP calls to the Rockset API |
+| `MaxConcurrentRequests` | Maximum Concurrent Requests | int | 1 | The upper limit on how many concurrent requests will be sent to Rockset. |
+| `workspace` | Workspace | String | Required | For each binding, name of the Rockset workspace |
+| `collection` | Rockset collection | String | Required| For each binding, the name of the destination Rockset table |
 
 ### Sample
 Add your materialization to your existing catalog spec YAML file using this example as a model and providing required values per the table above:
 
 ```yaml
-# If this is the first materialization, add a section to your catalog spec
+# If this is the first materialization, add the section to your catalog spec
 materializations:
-  tenant/mat_name:
-	endpoint:
+  ${tenant}/${mat_name}:
+	  endpoint:
   	  flowSink:
     	    config:
                api_key: supersecret
@@ -41,7 +42,7 @@ materializations:
     # to ensure complete data flow-through
     bindings:
   	- resource:
-      	workspace: namespace_name
-      	collection: table_name
-    source: tenant/source_collection
+      	workspace: ${namespace_name}
+      	collection: ${table_name}
+    source: ${tenant}/${source_collection}
 ```

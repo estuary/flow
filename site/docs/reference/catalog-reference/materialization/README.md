@@ -15,7 +15,7 @@ Materializations are objects utilizing the below entities:
 # Optional, type: object
 materializations:
 
-  # The name of the materialization.
+  # The name of the materialization, formatted as {tenant}/{capturename}, where {tenant} is your cloud storage bucket.
   example/name:
 
     # Bindings define how collections are included in the materialization.
@@ -29,11 +29,11 @@ materializations:
       # in a separate file that is imported by, or imports, this file.
       # Required, type: string
       - source: example/collection
-      
+
         # The resource is the a freeform set of configuration values used
         # by the specific endpoint type. Each endpoint type will require its
         # own set of configuration values.
-        # Required, type: object 
+        # Required, type: object
         resource:
           # In this example, the `sqlite` endpoint type expects a `table` key
           # to specify the table the data will be materialized into.
