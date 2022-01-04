@@ -4,7 +4,12 @@ description: Lambdas are pure functions that power transformations.
 
 # Lambdas
 
-Lambda functions power transformations in derivations. In MapReduce terms, lambdas are mappers. The Flow runtime performs combine and reduce operations using [reduction annotations](../reductions.md) provided with schemas. While reductions can be applied during captures or materializations, lambdas are only possible in derivations; thus, the full power of map-reduce, joins, and other transformations is only possible in the derivation context.
+Lambda functions power transformations in derivations.
+In map and reduce terms, lambdas are mapper functions.
+The Flow runtime performs combine and reduce operations using
+[reduction annotations](../schemas-and-data-reductions.md#reductions) defined within your schemas.
+While reductions can be applied during captures or materializations, lambdas are only possible in derivations;
+thus, the full power of map-reduce, joins, and other transformations is only possible in the derivation context.
 
 Lambdas exist as standalone files, which are referenced by derivations as in the following:
 
