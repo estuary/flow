@@ -33,12 +33,13 @@ A test is a sequence of one or more sequential steps, each either an `ingest` or
   * `ingest` steps add one or more documents to a collection.
   * `verify` steps make assertions about the current contents of a collection.
 
-All steps must complete successfully in order for a test to pass
+All steps must complete successfully in order for a test to pass.
 
 ## Ingest
 
 `ingest` steps add documents to a named collection.
-All documents must validate against the collection's [schema](schemas-and-data-reductions.md),
+All documents must validate against the collection's
+[schema](schemas-and-data-reductions.md),
 or a catalog build error will be reported.
 
 All documents from a _single_ `ingest` step are added in one transaction.
@@ -97,6 +98,27 @@ tests:
           - { userId: 2 }
           - { userId: 3, greeting: "Hello Pikachu" }
 ```
+
+### Partition Selectors
+
+Verify steps may include a partition selector to
+verify only documents of a specific partition:
+
+```yaml
+tests:
+  acmeCo/tests/greetings:
+    - verify:
+        collection: acmeCo/greetings
+        documents:
+          - { userId: 1, greeting: "Hello Zelda Again" }
+          - { userId: 3, greeting: "Hello Pikachu" }
+        # Verify documents of the collection which are Nintendo characters.
+        partitions:
+          include:
+            platform: [Nintendo]
+```
+
+[Learn more about partition selectors](projections.md#partition-selectors).
 
 ## Tips
 

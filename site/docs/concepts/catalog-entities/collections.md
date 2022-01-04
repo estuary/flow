@@ -302,7 +302,8 @@ The Flow runtime persists data to cloud storage as soon as possible, and uses ma
 
 A new derivation or materialization will efficiently back-fill over all collection documents – even where they span months or even years of data – by reading directly out of cloud storage.
 
-Crucially, a high scale back-fill that sources from a collection doesn’t compete with and cannot harm the collection’s ability to accept new writes, as reads depend _only_ on cloud storage for serving up historical data. This is a guarantee that’s unique to [Flow's architecture.](../../architecture/)
+Crucially, a high scale back-fill that sources from a collection doesn’t compete with and cannot harm the collection’s ability to accept new writes, as reads depend _only_ on cloud storage for serving up historical data.
+This is a guarantee that’s unique to [Flow's architecture.](../../../architecture/)
 
 ### Logical Partitions
 
