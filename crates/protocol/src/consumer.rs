@@ -432,12 +432,19 @@ pub struct UnassignRequest {
     /// Only unassign shards which have a primary in FAILED status.
     #[prost(bool, tag="2")]
     pub only_failed: bool,
+    /// Avoids actually removing any shard assignments, but the response will
+    /// report which shards would have been affected.
+    #[prost(bool, tag="3")]
+    pub dry_run: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnassignResponse {
     /// Status of the Unassign RPC.
     #[prost(enumeration="Status", tag="1")]
     pub status: i32,
+    /// Shards which had assignments removed.
+    #[prost(string, repeated, tag="2")]
+    pub shards: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Status is a response status code, used across Gazette Consumer RPC APIs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
