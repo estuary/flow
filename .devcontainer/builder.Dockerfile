@@ -16,8 +16,6 @@ RUN apt-get update -y \
       dirmngr \
       curl \
       git \
-      # Required in order to cross-compile for different architectures.
-      g++-multilib \
       gnupg2 \
       libncurses5-dev \
       libreadline-dev \
