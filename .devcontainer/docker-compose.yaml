@@ -4,7 +4,7 @@ services:
   develop:
     build:
       context: .
-      dockerfile: github-ubuntu-2004.Dockerfile
+      dockerfile: builder.Dockerfile
 
     volumes:
       - ..:/workspace:cached
