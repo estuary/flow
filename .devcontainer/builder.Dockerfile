@@ -177,11 +177,11 @@ curl -L -o /tmp/golang.tgz \
  && go version
 
 RUN case "${TARGETARCH}" in \
-    	amd64) 
+    	amd64) \
 		DOCKER_SHA256='ddb13aff1fcdcceb710bf71a210169b9c1abfd7420eeaf42cf7975f8fae2fcc8' \
 		DOCKER_ARCH='x86_64' \
 		;; \
-    	arm64) 
+    	arm64) \
 		DOCKER_SHA256='d6abb961d5c71a9a15b067de796c581f6ae8ee79044a6d98d529912095853ea7' \
 		DOCKER_ARCH='aarch64' \
 		;; \
