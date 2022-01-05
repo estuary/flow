@@ -12,7 +12,7 @@ GOBIN = $(shell go env GOPATH)/bin
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
 CARGO_TARGET_DIR ?= ${ROOTDIR}/target
-RUST_TARGET_TRIPLE ?= x86_64-unknown-linux-gnu
+export RUST_TARGET_TRIPLE ?= x86_64-unknown-linux-gnu
 RUSTBIN = ${CARGO_TARGET_DIR}/release
 # Location to place intermediate files and output artifacts
 # during the build process. Note the go tool ignores directories
@@ -111,16 +111,10 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 ##########################################################################
 # Make targets used by CI:
 
-# TODO: no longer needed because builder image has lld on the path
-# We use LLVM for faster linking. See .cargo/config.
-.PHONY: extra-ci-setup
-extra-ci-runner-setup:
-	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
-
 .PHONY: print-versions
 print-versions:
 	echo "Resolved repository version: $${FLOW_VERSION}" \
-		&& /usr/bin/ld.lld --version \
+		&& lld --version \
 		&& cargo version --verbose \
 		&& docker --version \
 		&& gcloud info \
