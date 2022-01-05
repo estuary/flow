@@ -23,6 +23,7 @@ RUN apt-get update -y \
       libsqlite3-dev \
       libssl-dev \
       locales \
+      jq \
       openssh-client  \
       pkg-config \
       postgresql-client \
