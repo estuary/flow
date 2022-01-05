@@ -119,7 +119,7 @@ This makes the `discover` workflow a quick way to start setting up a new data fl
 
 1. In your terminal, run:
 ```console
-flowctl discover --image=${connector-image}
+flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
 ```
 
 This generates a config from the latest version of the connector, provided as a Docker image.
@@ -128,16 +128,16 @@ This generates a config from the latest version of the connector, provided as a 
 A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md)
 :::
 
-2. Open the newly generated config file ending in `-config.yaml`.
+2. Open the newly generated config file called `discover-source-<connector-name>-config.yaml`.
   This is your space to specify the required values for the connector.
   Fill in required values and modify other values, if you'd like.
 
 3. Run the command again:
 ```console
-flowctl discover --image=${connector-image}
+flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
 ```
 
-4. Open the resulting catalog spec file, which has a name ending in `.flow.yaml`.
+4. Open the resulting catalog spec file, `discover-source-<connector-name>.flow.yaml`.
    It will include a capture definition with one or more bindings, and the collection(s) created to support each binding.
 
 If you notice any undesired resources from the endpoint were included in the catalog spec,

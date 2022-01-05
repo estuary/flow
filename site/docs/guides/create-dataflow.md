@@ -23,7 +23,7 @@ In the majority of cases, the capture and materialization each rely on a plug-in
     You may notice the template you cloned in step 1 comes with a catalog spec. It's an example, so you can disregard it unless you choose to run the [tutorial](../../getting-started/flow-tutorials/hello-flow).
     :::
 
-2. Refer to the [capture connectors list](../../reference/connectors/capture-connectors) and find your data source system. Click on its **configuration** link, set up prerequisites as necessary, and follow the instructions to generate a catalog spec with `flowctl discover`.
+2. Refer to the [capture connectors list](../../reference/connectors/capture-connectors) and find your data source system. Click on its **configuration** link, set up prerequisites as necessary, and follow the instructions to generate a catalog spec with [`flowctl discover`](../concepts/connectors.md#flowctl-discover).
 
     A generalized version of the `discover` workflow is as follows:
     1. In your terminal, run: `flowctl discover --image=ghcr.io/estuary/<connector-name>:dev`
