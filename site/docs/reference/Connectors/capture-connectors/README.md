@@ -24,6 +24,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Google Cloud Storage
   * Configuration
   * Package — ghcr.io/estuary/source-gcs:dev
+* MySQL
+  * [Configuration](./MySQL.md)
+  * Package - ghcr.io/estuary/source-mysql:dev
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
