@@ -182,7 +182,7 @@ RUN case "${TARGETARCH}" in \
 		DOCKER_ARCH='x86_64' \
 		;; \
     	arm64) \
-		DOCKER_SHA256='d6abb961d5c71a9a15b067de796c581f6ae8ee79044a6d98d529912095853ea7' \
+		DOCKER_SHA256='bdf080af7d6f383ad80e415e9c1952a63c7038c149dc673b7598bfca4d3311ec' \
 		DOCKER_ARCH='aarch64' \
 		;; \
 	*) echo >&2 "unsupported target architecture: ${TARGETARCH}"; exit 1 ;; \
