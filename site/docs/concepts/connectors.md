@@ -373,4 +373,4 @@ and will remove this suffix from configuration keys before passing them to the c
 
 ## Available Connectors
 
-[Learn about available connectors in the reference section](../reference/Connectors/)
+[Learn about available connectors in the reference section](../../reference/Connectors/)

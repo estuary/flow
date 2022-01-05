@@ -8,7 +8,7 @@ description: How to transform and join data in Flow
 This documentation covers most use cases of derivations. You can find additional information about specific features not discussed here by using `flowctl json-schema` on the command line.
 {% endhint %}
 
-****[Derivations](../../../concepts/catalog-entities/derivations/) collectively refer to any transformation or join that you can do in Flow aside from schema-based [reduction annotations](../../reduction-strategies/). They define how documents are derived from other collections. A [collection](../collections.md) without a derivation is referred to as a **captured collection**. &#x20;
+****[Derivations](../../../concepts/catalog-entities/derivations/) collectively refer to any transformation or join that you can do in Flow aside from schema-based [reduction annotations](../../reduction-strategies/). They define how documents are derived from other collections. A collection without a derivation is referred to as a **captured collection**. &#x20;
 
 Derivations in Flow are objects that use the following entities:
 
