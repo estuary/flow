@@ -114,7 +114,7 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 .PHONY: print-versions
 print-versions:
 	echo "Resolved repository version: $${FLOW_VERSION}" \
-		&& lld --version \
+		&& ld.lld --version \
 		&& cargo version --verbose \
 		&& docker --version \
 		&& gcloud info \
