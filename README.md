@@ -6,6 +6,7 @@
      width="300"
      height="300"/>
          </p>
+
 ### Build millisecond-latency, scalable, future-proof data pipelines in minutes.
 
 Estuary Flow is a DataOps platform that integrates all of the systems you use to produce, process, and consume data.
