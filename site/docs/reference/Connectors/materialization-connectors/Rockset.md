@@ -75,6 +75,18 @@ To configure this, within the `resource` of each binding, add
 
 If you don't have an S3 integration set up with your historical data, you can use a two-step process to bulk ingest historical data from a Flow collection. First, you'll port your historical data into an S3 bucket and backfill it into Rockset using Estuary's [materialize-s3-parquet](../materialize-s3-parquet/) connector. Then, you'll implement the Rockset connector, which will pick up the dataflow where the S3-parquet connector left off.
 
+import Mermaid from '@theme/Mermaid';
+
+<Mermaid chart={`
+	graph TD
+    A[Create an S3 integration in Rockset] --> B
+    B[Create Flow materialization into S3 bucket] --> C
+    C[Wait for S3 materialization to catch up with historical data] -->|When ready to bulk ingest into Rockset| D
+    D[Disable S3 materialization shards] --> E
+    E[Update same materialization to use the Rockset connector with the integration created in first step] --> F
+    F[Rockset connector automatically continues materializing after the bulk ingestion completes]
+`}/>
+
 To set this up, use the following procedure as a guide, substituting `example/flow/collection` for your collection:
 
 1. Follow the [instructions here](https://rockset.com/docs/amazon-s3/#create-an-s3-integration) to create the integration, but _do not create the Rockset collection yet_.
@@ -104,7 +116,7 @@ To set this up, use the following procedure as a guide, substituting `example/fl
         disable: true
       # ...the remainder of the materialization yaml remains the same as above
   ```
-4. Update the materialization to use the `materialize-rockset` connector, and re-enable the shards. Here you'll provide the name of the Rockset S3 integration you created above, as well as the bucket and prefix that you previously materialized into. **It's critical that the name of the materialization remains the same as it was for materializing into S3.** 
+4. Update the materialization to use the `materialize-rockset` connector, and re-enable the shards. Here you'll provide the name of the Rockset S3 integration you created above, as well as the bucket and prefix that you previously materialized into. **It's critical that the name of the materialization remains the same as it was for materializing into S3.**
   ```yaml
   materializations:
     example/toRockset:
