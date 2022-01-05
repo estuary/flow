@@ -59,7 +59,7 @@ jobs:
         env:
           # ${{ contains(steps.changed-files.outputs.modified_files, '.devcontainer/builder.Dockerfile') }}
           IS_BUILDER_MODIFIED: 'true'
-          BRANCH_TAG: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          BRANCH_TAG: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
         run: |
           if [[ "$IS_BUILDER_MODIFIED" == "true" ]]; then
             echo "::set-output name=builderImageTag::${BRANCH_TAG}"
