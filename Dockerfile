@@ -1,5 +1,5 @@
 ARG BUILDER_VERSION=master
-FROM ghcr.io/estuary/flow-builder:$(BUILDER_VERSION) as builder
+FROM ghcr.io/estuary/flow-builder:${BUILDER_VERSION} as builder
 
 RUN mkdir /workspace
 WORKDIR /workspace
