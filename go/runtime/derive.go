@@ -29,8 +29,7 @@ type Derive struct {
 	// Instrumented RocksDB recorder.
 	recorder *recoverylog.Recorder
 	// Active derivation specification, updated in RestoreCheckpoint.
-	// This is duplicated from the task term to avoid needing type assertions on each usage.
-	derivation *pf.DerivationSpec
+	derivation pf.DerivationSpec
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -63,18 +62,11 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err = d.initTerm(shard, d.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	err = d.build.Extract(func(db *sql.DB) error {
-		d.derivation, err = catalog.LoadDerivation(db, d.labels.TaskName)
-		return err
-	})
-	if err != nil {
-		return pf.Checkpoint{}, err
-	}
 
 	defer func() {
 		if err == nil {
 			d.Log(log.DebugLevel, log.Fields{
-				"derivation": d.derivation,
+				"derivation": d.labels.TaskName,
 				"shard":      d.shardSpec.Id,
 				"build":      d.labels.Build,
 				"checkpoint": cp,
@@ -86,6 +78,19 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 			}, "failed to initialize processing term")
 		}
 	}()
+
+	err = d.build.Extract(func(db *sql.DB) error {
+		deriveSpec, err := catalog.LoadDerivation(db, d.labels.TaskName)
+		if deriveSpec != nil {
+			d.derivation = *deriveSpec
+		}
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
+	d.Log(log.DebugLevel, log.Fields{"spec": d.derivation, "build": d.labels.Build},
+		"loaded specification")
 
 	if err = d.initReader(&d.taskTerm, shard, d.derivation.TaskShuffles(), d.host); err != nil {
 		return pf.Checkpoint{}, err
@@ -102,7 +107,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 		return pf.Checkpoint{}, fmt.Errorf("creating derive service: %w", err)
 	}
 
-	err = d.binding.Configure(shard.FQN(), d.schemaIndex, d.derivation, tsClient)
+	err = d.binding.Configure(shard.FQN(), d.schemaIndex, &d.derivation, tsClient)
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("configuring derive API: %w", err)
 	}
@@ -191,26 +196,27 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 	var includesUpdate = false
 	for i, tf := range txnStats.Transforms {
 		// Don't include transforms that didn't participate in this transaction.
-		if tf != nil && tf.Input != nil {
-			var tfSpec = d.derivation.Transforms[i]
-			var stats = DeriveTransformStats{
-				Input: docsAndBytesFromProto(tf.Input),
-			}
-			if tfSpec.UpdateLambda != nil {
-				includesUpdate = true
-				stats.Update = &InvokeStats{
-					Out:          docsAndBytesFromProto(tf.Update.Output),
-					SecondsTotal: tf.Update.TotalSeconds,
-				}
-			}
-			if tfSpec.PublishLambda != nil {
-				stats.Publish = &InvokeStats{
-					Out:          docsAndBytesFromProto(tf.Publish.Output),
-					SecondsTotal: tf.Publish.TotalSeconds,
-				}
-			}
-			tfStats[tfSpec.Transform.String()] = stats
+		if tf == nil || tf.Input == nil {
+			continue
 		}
+		var tfSpec = d.derivation.Transforms[i]
+		var stats = DeriveTransformStats{
+			Input: docsAndBytesFromProto(tf.Input),
+		}
+		if tfSpec.UpdateLambda != nil {
+			includesUpdate = true
+			stats.Update = &InvokeStats{
+				Out:          docsAndBytesFromProto(tf.Update.Output),
+				SecondsTotal: tf.Update.TotalSeconds,
+			}
+		}
+		if tfSpec.PublishLambda != nil {
+			stats.Publish = &InvokeStats{
+				Out:          docsAndBytesFromProto(tf.Publish.Output),
+				SecondsTotal: tf.Publish.TotalSeconds,
+			}
+		}
+		tfStats[tfSpec.Transform.String()] = stats
 	}
 	var event = d.NewStatsEvent()
 	event.Derive = &DeriveStats{

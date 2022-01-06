@@ -12,7 +12,7 @@ import (
 func TestMaterializationStats(t *testing.T) {
 	// Simulate a materialization with two bindings, where only one of them participated in the
 	// transaction, to exercise the conditional inclusion of binding stats.
-	var materializationSpec = &pf.MaterializationSpec{
+	var materializationSpec = pf.MaterializationSpec{
 		Materialization: pf.Materialization("test/materialization"),
 		Bindings: []*pf.MaterializationSpec_Binding{
 			{
@@ -52,7 +52,7 @@ func TestMaterializationStats(t *testing.T) {
 		},
 	}
 	var actual = subject.materializationStats(input)
-	assertEventMeta(t, actual, materializationSpec, "materialization")
+	assertEventMeta(t, actual, &materializationSpec, "materialization")
 	var expected = map[string]MaterializeBindingStats{
 		"test/collectionA": {
 			Left: DocsAndBytes{
@@ -104,7 +104,7 @@ func TestMaterializationStats(t *testing.T) {
 		},
 	}
 	actual = subject.materializationStats(input)
-	assertEventMeta(t, actual, materializationSpec, "materialization")
+	assertEventMeta(t, actual, &materializationSpec, "materialization")
 	expected = map[string]MaterializeBindingStats{
 		"test/collectionA": {
 			Left: DocsAndBytes{
