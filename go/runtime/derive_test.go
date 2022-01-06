@@ -11,7 +11,7 @@ func TestDeriveStats(t *testing.T) {
 	// Simulate a derivation with 4 transforms, and then publish stats for 3 of them, each with a
 	// different combination of update and publish lambdas. This tests all of the conditional
 	// inclusions of transforms and invocation stats.
-	var derivationSpec = &pf.DerivationSpec{
+	var derivationSpec = pf.DerivationSpec{
 		Collection: pf.CollectionSpec{
 			Collection: pf.Collection("test/derive"),
 		},
@@ -104,7 +104,7 @@ func TestDeriveStats(t *testing.T) {
 	}
 
 	var actual = subject.deriveStats(&input)
-	assertEventMeta(t, actual, derivationSpec, "derivation")
+	assertEventMeta(t, actual, &derivationSpec, "derivation")
 
 	var expected = DeriveStats{
 		Transforms: map[string]DeriveTransformStats{

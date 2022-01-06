@@ -30,8 +30,7 @@ type Materialize struct {
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
 	// Specification under which the materialization is currently running.
-	// This is duplicated from the task term to avoid needing type assertions on each usage.
-	spec *pf.MaterializationSpec
+	spec pf.MaterializationSpec
 	// Stats are handled differently for materializations than they are for other task types,
 	// because materializations don't have stats available until after the transaction starts to
 	// commit. See comment below in StartCommit.
@@ -61,10 +60,10 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 		host:           host,
 		store:          store,
 		statsPublisher: statsPublisher,
-		client:         nil,          // Initialized in RestoreCheckpoint.
-		spec:           nil,          // Initialized in RestoreCheckpoint.
-		taskReader:     taskReader{}, // Initialized in RestoreCheckpoint.
-		taskTerm:       taskTerm{},   // Initialized in RestoreCheckpoint.
+		client:         nil,                      // Initialized in RestoreCheckpoint.
+		spec:           pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
+		taskReader:     taskReader{},             // Initialized in RestoreCheckpoint.
+		taskTerm:       taskTerm{},               // Initialized in RestoreCheckpoint.
 	}
 
 	return out, nil
@@ -76,18 +75,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err = m.initTerm(shard, m.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	err = m.build.Extract(func(db *sql.DB) error {
-		m.spec, err = catalog.LoadMaterialization(db, m.labels.TaskName)
-		return err
-	})
-	if err != nil {
-		return pf.Checkpoint{}, err
-	}
 
 	defer func() {
 		if err == nil {
 			m.Log(log.DebugLevel, log.Fields{
-				"materialization": m.spec,
+				"materialization": m.labels.TaskName,
 				"shard":           m.shardSpec.Id,
 				"build":           m.labels.Build,
 				"checkpoint":      cp,
@@ -98,7 +90,18 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			}, "failed to initialize processing term")
 		}
 	}()
-
+	err = m.build.Extract(func(db *sql.DB) error {
+		materializationSpec, err := catalog.LoadMaterialization(db, m.labels.TaskName)
+		if materializationSpec != nil {
+			m.spec = *materializationSpec
+		}
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
+	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
+		"loaded specification")
 	if m.client == nil {
 		// First initialization.
 	} else if err := m.client.Close(); err != nil {
@@ -144,7 +147,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		m.store.driverCheckpoint(),
 		newCombinerFn,
 		m.labels.Range,
-		m.spec,
+		&m.spec,
 		m.labels.Build,
 	)
 	if err != nil {
@@ -226,16 +229,18 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
 	var stats = make(map[string]MaterializeBindingStats)
 	for i, bindingStats := range statsPerBinding {
-		if bindingStats != nil { // Skip bindings that didn't participate
-			var name = m.spec.Bindings[i].Collection.Collection.String()
-			// It's possible for multiple bindings to use the same collection, in which case the
-			// stats should be summed.
-			var prevStats = stats[name]
-			stats[name] = MaterializeBindingStats{
-				Left:  prevStats.Left.with(bindingStats.Left),
-				Right: prevStats.Right.with(bindingStats.Right),
-				Out:   prevStats.Out.with(bindingStats.Out),
-			}
+		// Skip bindings that didn't participate
+		if bindingStats == nil {
+			continue
+		}
+		var name = m.spec.Bindings[i].Collection.Collection.String()
+		// It's possible for multiple bindings to use the same collection, in which case the
+		// stats should be summed.
+		var prevStats = stats[name]
+		stats[name] = MaterializeBindingStats{
+			Left:  prevStats.Left.with(bindingStats.Left),
+			Right: prevStats.Right.with(bindingStats.Right),
+			Out:   prevStats.Out.with(bindingStats.Out),
 		}
 	}
 	var event = m.NewStatsEvent()
