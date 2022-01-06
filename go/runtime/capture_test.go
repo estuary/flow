@@ -9,7 +9,7 @@ import (
 
 func TestCaptureStats(t *testing.T) {
 	// Simulate a capture with two bindings, where only one of them participated in the transaction.
-	var captureSpec = &pf.CaptureSpec{
+	var captureSpec = pf.CaptureSpec{
 		Capture: pf.Capture("test/capture"),
 		Bindings: []*pf.CaptureSpec_Binding{
 			{
@@ -57,7 +57,7 @@ func TestCaptureStats(t *testing.T) {
 			},
 		},
 	}
-	assertEventMeta(t, actual, captureSpec, "capture")
+	assertEventMeta(t, actual, &captureSpec, "capture")
 	require.Equal(t, expect, actual.Capture)
 
 	// Test where stats exist for multiple bindings that each reference the same collection
@@ -98,6 +98,6 @@ func TestCaptureStats(t *testing.T) {
 			},
 		},
 	}
-	assertEventMeta(t, actual, captureSpec, "capture")
+	assertEventMeta(t, actual, &captureSpec, "capture")
 	require.Equal(t, expect, actual.Capture)
 }

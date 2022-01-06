@@ -34,8 +34,7 @@ type Capture struct {
 	// Store delegate for persisting local checkpoints.
 	store connectorStore
 	// Specification under which the capture is currently running.
-	// This is duplicated from the task term to avoid needing type assertions on each usage.
-	spec *pf.CaptureSpec
+	spec pf.CaptureSpec
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -54,8 +53,8 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 		host:     host,
 		delegate: nil, // Initialized in RestoreCheckpoint.
 		store:    store,
-		spec:     nil,        // Initialized in RestoreCheckpoint.
-		taskTerm: taskTerm{}, // Initialized in RestoreCheckpoint.
+		spec:     pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
+		taskTerm: taskTerm{},       // Initialized in RestoreCheckpoint.
 	}, nil
 }
 
@@ -65,29 +64,33 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err = c.initTerm(shard, c.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-	err = c.build.Extract(func(db *sql.DB) error {
-		c.spec, err = catalog.LoadCapture(db, c.labels.TaskName)
-		return err
-	})
-	if err != nil {
-		return pf.Checkpoint{}, err
-	}
-
 	defer func() {
 		if err == nil {
 			c.Log(log.DebugLevel, log.Fields{
-				"capture":    c.spec,
+				"capture":    c.labels.TaskName,
 				"shard":      c.shardSpec.Id,
 				"build":      c.labels.Build,
 				"checkpoint": cp,
 			}, "initialized processing term")
-
 		} else {
 			c.Log(log.ErrorLevel, log.Fields{
 				"error": err.Error(),
 			}, "failed to initialize processing term")
 		}
 	}()
+
+	err = c.build.Extract(func(db *sql.DB) error {
+		captureSpec, err := catalog.LoadCapture(db, c.labels.TaskName)
+		if captureSpec != nil {
+			c.spec = *captureSpec
+		}
+		return err
+	})
+	if err != nil {
+		return pf.Checkpoint{}, err
+	}
+	c.Log(log.DebugLevel, log.Fields{"spec": c.spec, "build": c.labels.Build},
+		"loaded specification")
 
 	if c.delegate != nil {
 		if err := c.delegate.Close(); err != nil {
@@ -119,7 +122,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 
 	if c.spec.EndpointType == pf.EndpointType_INGEST {
 		// Create a PushServer for the specification.
-		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, c.spec, c.labels.Build)
+		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
 		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
 		}
@@ -144,7 +147,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 			c.store.driverCheckpoint(),
 			newCombinerFn,
 			c.labels.Range,
-			c.spec,
+			&c.spec,
 			c.labels.Build,
 			!c.host.Config.Flow.Poll,
 		)
@@ -339,15 +342,17 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
 	var captureStats = make(map[string]CaptureBindingStats)
 	for i, bindingStats := range statsPerBinding {
-		if bindingStats != nil { // Skip bindings that didn't participate
-			var name = c.spec.Bindings[i].Collection.Collection.String()
-			// It's possible for multiple bindings to use the same collection, in which case the
-			// stats should be summed.
-			var prevStats = captureStats[name]
-			captureStats[name] = CaptureBindingStats{
-				Right: prevStats.Right.with(bindingStats.Right),
-				Out:   prevStats.Out.with(bindingStats.Out),
-			}
+		// Skip bindings that didn't participate
+		if bindingStats == nil {
+			continue
+		}
+		var name = c.spec.Bindings[i].Collection.Collection.String()
+		// It's possible for multiple bindings to use the same collection, in which case the
+		// stats should be summed.
+		var prevStats = captureStats[name]
+		captureStats[name] = CaptureBindingStats{
+			Right: prevStats.Right.with(bindingStats.Right),
+			Out:   prevStats.Out.with(bindingStats.Out),
 		}
 	}
 	var event = c.NewStatsEvent()
