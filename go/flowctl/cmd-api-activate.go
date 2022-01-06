@@ -402,7 +402,7 @@ func applyAllChanges(
 	for _, j := range phase1.Changes {
 		logJournalChange(j)
 	}
-	if !dryRun {
+	if !dryRun && len(phase1.Changes) != 0 {
 		if _, err := client.ApplyJournalsInBatches(ctx, jc, &phase1, maxEtcdTxnSize); err != nil {
 			return fmt.Errorf("applying journals: %w", err)
 		}
@@ -419,7 +419,7 @@ func applyAllChanges(
 			log.WithFields(log.Fields{"id": c.Upsert.Id}).Info("insert shard")
 		}
 	}
-	if !dryRun {
+	if !dryRun && len(phase2.Changes) != 0 {
 		if _, err := consumer.ApplyShardsInBatches(ctx, sc, &phase2, maxEtcdTxnSize); err != nil {
 			return fmt.Errorf("applying shards: %w", err)
 		}
@@ -431,7 +431,7 @@ func applyAllChanges(
 	for _, j := range phase3.Changes {
 		logJournalChange(j)
 	}
-	if !dryRun {
+	if !dryRun && len(phase3.Changes) != 0 {
 		if _, err := client.ApplyJournalsInBatches(ctx, jc, &phase3, maxEtcdTxnSize); err != nil {
 			return fmt.Errorf("applying journals: %w", err)
 		}
