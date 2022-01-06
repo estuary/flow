@@ -200,6 +200,32 @@ func TestConvergence(t *testing.T) {
 		require.EqualError(t, err, "expected exactly one shard in the response")
 	})
 
+	t.Run("partitions-split-sub-range", func(t *testing.T) {
+		var out, err = MapPartitionToSplit(collection, allPartitions[0:1], 2)
+		require.NoError(t, err)
+		cupaloy.SnapshotT(t, out)
+	})
+
+	t.Run("partitions-split-full-range", func(t *testing.T) {
+		var out, err = MapPartitionToSplit(collection, allPartitions[2:3], 8)
+		require.NoError(t, err)
+		cupaloy.SnapshotT(t, out)
+	})
+
+	t.Run("partitions-split-errors", func(t *testing.T) {
+		// Case: expects exactly one partition.
+		_, err = MapPartitionToSplit(collection, nil, 2)
+		require.EqualError(t, err, "expected exactly one journal in the response")
+		_, err = MapPartitionToSplit(collection, allPartitions, 2)
+		require.EqualError(t, err, "expected exactly one journal in the response")
+
+		// Case: not a power-of-two in [2, 256].
+		for _, splits := range []uint{0, 1, 3, 7, 127, 258, 512} {
+			_, err = MapPartitionToSplit(collection, allPartitions[0:1], splits)
+			require.EqualError(t, err, "splits must be a power of two and in range [2, 256]")
+		}
+	})
+
 	var desiredPartitions = MapPartitionsToCurrentSplits(allPartitions)
 
 	// aj & as are empty fixtures which verify that routines are correctly
