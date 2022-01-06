@@ -29,7 +29,7 @@ To use this connector, begin with a Flow catalog that has at least one **collect
 # If this is the first materialization, add the section to your catalog spec
 materializations:
   ${tenant}/${mat_name}:
-	  endpoint:
+	  connector:
   	  flowSink:
     	    config:
                api_key: supersecret
