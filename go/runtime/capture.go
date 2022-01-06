@@ -93,7 +93,11 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		"loaded specification")
 
 	if c.delegate != nil {
-		if err := c.delegate.Close(); err != nil {
+		err = c.delegate.Close()
+		// Set the delegate to nil so that we don't try to close it again in Destory should
+		// something go wrong
+		c.delegate = nil
+		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
 		}
 	}
