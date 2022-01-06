@@ -30,7 +30,7 @@ To use this connector, begin with a Flow catalog that has at least one **collect
 materializations:
   ${tenant}/${mat_name}:
 	  endpoint:
-  	  flowSink:
+  	  connector:
     	    config:
                api_key: supersecret
             # Path to the latest version of the connector, provided as a Docker image
@@ -45,8 +45,17 @@ materializations:
 ```
 ## Bulk ingestion for large backfills of historical data
 
-You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and require additional steps in your dataflow. Flow's Rockset connector supports this in multiple ways.
+You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and requires additional steps in your dataflow. Flow's Rockset connector supports this through the GitOps workflow.
 
+### Prerequisites
+Before completing this workflow, make sure you have:
+* A working catalog spec including at least one Flow collection with its schema specified.
+* A production or [development](../../../getting-started/installation.md) environment
+::: Tip
+The following is an intermediate workflow. As needed, refer to [this guide](../../../guides/create-dataflow.md) for the basic steps to create and deploy a catalog spec using the GitOps workflow.
+:::
+
+### How to configure a bulk ingestion
 If you already have an [S3 integration](https://rockset.com/docs/amazon-s3/) in Rockset, you can simply direct the connector to it. The connector will create the collection from the given integration, process all objects in the S3 bucket first, and then begin writing additional any additional, newer data that is coming through your pipeline. This ensures that documents are always written to Rockset in the proper order.
 
 To configure this, within the `resource` of each binding, add
@@ -56,7 +65,7 @@ To configure this, within the `resource` of each binding, add
   materializations:
     example/toRockset:
       endpoint:
-        flowSink:
+        connector:
           image: ghcr.io/estuary/materialize-rockset:dev
           config:
             api_key: <your rockset API key here>
@@ -95,7 +104,7 @@ To set this up, use the following procedure as a guide, substituting `example/fl
   materializations:
     example/toRockset:
       endpoint:
-        flowSink:
+        connector:
           image: ghcr.io/estuary/materialize-s3-parquet:dev
           config:
             bucket: example-s3-bucket
@@ -121,7 +130,7 @@ To set this up, use the following procedure as a guide, substituting `example/fl
   materializations:
     example/toRockset:
       endpoint:
-        flowSink:
+        connector:
           image: ghcr.io/estuary/materialize-rockset:dev
           config:
             api_key: <your rockset API key here>
