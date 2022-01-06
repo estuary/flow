@@ -102,10 +102,15 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	}
 	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
 		"loaded specification")
-	if m.client == nil {
-		// First initialization.
-	} else if err := m.client.Close(); err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+
+	if m.client != nil {
+		err = m.client.Close()
+		// Set the client to nil so that we don't try to close it again in Destroy should something
+		// go wrong
+		m.client = nil
+		if err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+		}
 	}
 
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
