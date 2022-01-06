@@ -94,7 +94,12 @@ impl Parser for CsvParser {
             .unwrap_or(self.default_delimiter);
 
         let mut builder = csv::ReaderBuilder::new();
-        builder.delimiter(delim);
+        // Configure the underlying parser to allow rows to have more columns than the header row.
+        // This is needed in order to properly parse files using explicitly configured headers
+        // instead of reading the column names from the first row. `CsvOutput` will explicitly check
+        // each row to ensure that it has no more columns than there are headers, which will account
+        // for explicitly configured headers.
+        builder.delimiter(delim).flexible(true);
 
         // The default line ending is CRLF, and we'll stick with that unless the user specifies
         // something different.
@@ -193,6 +198,9 @@ pub enum Error {
 
     #[error("cannot construct a JSON object from row {0} because it's impossible to create the location {2:?} within the document: {1}")]
     InvalidStructure(u64, Value, String),
+
+    #[error("row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/QRKf3x for help with configuring the parser")]
+    ExtraColumn(u64, usize, usize),
 }
 
 fn box_err<E: Into<Error>>(err: E) -> Box<dyn std::error::Error> {
@@ -368,6 +376,14 @@ impl CsvOutput {
                 }
             }
         }
+        if current_row.len() > headers.len() {
+            return Err(box_err(Error::ExtraColumn(
+                *row_num,
+                current_row.len(),
+                headers.len(),
+            ))
+            .into());
+        }
         Ok(result)
     }
 }
@@ -404,6 +420,66 @@ mod test {
     fn test_input(content: impl Into<Vec<u8>>) -> Input {
         use std::io::Cursor;
         Input::Stream(Box::new(Cursor::new(content.into())))
+    }
+
+    // Test for: https://github.com/estuary/connectors/issues/97
+    #[test]
+    fn fails_when_there_are_more_columns_than_headers() {
+        let conf = ParseConfig::default();
+
+        // CSV has 2 column headers, but row 3 has 3 columns :boom:
+        let csv = test_input("a,b\n1\n2,3\n4,5,6");
+        let mut iter = new_csv_parser().parse(&conf, csv).expect("parse failed");
+
+        // First two rows should parse successfully
+        let one = iter
+            .next()
+            .expect("first row should exist")
+            .expect("first row should succeed");
+        assert_eq!(json!({"a": "1"}), one);
+        let two = iter
+            .next()
+            .expect("second row should exist")
+            .expect("second row should succeed");
+        assert_eq!(json!({"a": "2", "b": "3"}), two);
+
+        let err_message = iter
+            .next()
+            .expect("third row should exist")
+            .expect_err("third row should be an error")
+            .to_string();
+        assert!(
+            err_message.contains("row 3 has 3 columns, but the headers only define 2 columns"),
+            "unexpected error message: {}",
+            err_message
+        );
+    }
+
+    #[test]
+    fn parses_when_there_are_more_configured_headers_than_columns() {
+        let conf = ParseConfig {
+            format: Some(Format::Csv),
+            csv: Some(CharacterSeparatedConfig {
+                headers: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let csv = test_input("1\n2,3\n4,5,6");
+        let results = new_csv_parser()
+            .parse(&conf, csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        assert_eq!(
+            vec![
+                json!({"a": "1"}),
+                json!({"a": "2", "b": "3"}),
+                json!({"a": "4", "b": "5", "c": "6"}),
+            ],
+            results
+        );
     }
 
     #[test]
