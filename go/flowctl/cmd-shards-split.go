@@ -19,9 +19,7 @@ import (
 )
 
 // This command will be under the shards command which leverages the gazctlcmd.ShardsCfg config.
-type cmdSplit struct {
-	Broker        mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
-	Consumer      mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
+type cmdShardsSplit struct {
 	DryRun        bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	Shard         string                `long:"shard" required:"true" description:"Shard to split"`
 	SplitOnRClock bool                  `long:"split-rclock" description:"Split on rotated clock (instead of on key)"`
@@ -32,21 +30,21 @@ func init() {
 	// Automatically register this command under the shards command
 	gazctlcmd.CommandRegistry.AddCommand("shards", "split", "Split a Flow processing shard", `
 Split a Flow processing shard into two, either on shuffled key or rotated clock.
-`, &cmdSplit{})
+`, &cmdShardsSplit{})
 }
 
-func (cmd cmdSplit) execute(ctx context.Context) error {
+func (cmd cmdShardsSplit) execute(ctx context.Context) error {
 	ctx = pb.WithDispatchDefault(ctx)
 
-	rjc, _, err := newJournalClient(ctx, cmd.Broker)
+	rjc, _, err := newJournalClient(ctx, gazctlcmd.ShardsCfg.Broker)
 	if err != nil {
 		return err
 	}
-	sc, _, err := newShardClient(ctx, cmd.Consumer)
+	sc, _, err := newShardClient(ctx, gazctlcmd.ShardsCfg.Consumer)
 	if err != nil {
 		return err
 	}
-	buildsRoot, err := getBuildsRoot(ctx, cmd.Consumer)
+	buildsRoot, err := getBuildsRoot(ctx, gazctlcmd.ShardsCfg.Consumer)
 	if err != nil {
 		return err
 	}
@@ -120,7 +118,7 @@ func (cmd cmdSplit) execute(ctx context.Context) error {
 	return nil
 }
 
-func (cmd cmdSplit) Execute(_ []string) error {
+func (cmd cmdShardsSplit) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(gazctlcmd.ShardsCfg.Log)
 

@@ -32,7 +32,7 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	var out ShardLabeling
 	var err error
 
-	if out.LogLevel, err = expectOne(set, LogLevel); err != nil {
+	if out.LogLevel, err = ExpectOne(set, LogLevel); err != nil {
 		return out, err
 	}
 	if out.Range, err = ParseRangeSpec(set); err != nil {
@@ -44,13 +44,13 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	if out.SplitTarget, err = maybeOne(set, SplitTarget); err != nil {
 		return out, err
 	}
-	if out.Build, err = expectOne(set, Build); err != nil {
+	if out.Build, err = ExpectOne(set, Build); err != nil {
 		return out, err
 	}
-	if out.TaskName, err = expectOne(set, TaskName); err != nil {
+	if out.TaskName, err = ExpectOne(set, TaskName); err != nil {
 		return out, err
 	}
-	if out.TaskType, err = expectOne(set, TaskType); err != nil {
+	if out.TaskType, err = ExpectOne(set, TaskType); err != nil {
 		return out, err
 	}
 
@@ -70,7 +70,9 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	return out, nil
 }
 
-func expectOne(set pf.LabelSet, name string) (string, error) {
+// ExpectOne extracts label |name| from the |set|.
+// The label is expected to exist with a single non-empty value.
+func ExpectOne(set pf.LabelSet, name string) (string, error) {
 	if v := set.ValuesOf(name); len(v) != 1 {
 		return "", fmt.Errorf("expected one label for %q (got %v)", name, v)
 	} else if len(v[0]) == 0 {

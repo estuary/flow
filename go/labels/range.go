@@ -57,7 +57,7 @@ func EncodeHexU32Label(name string, value uint32, set pf.LabelSet) pf.LabelSet {
 // ParseHexU32Label parses label |name|, a hex-encoded uint32, from the LabelSet.
 // It returns an error if the label value is malformed.
 func ParseHexU32Label(name string, set pf.LabelSet) (uint32, error) {
-	if l, err := expectOne(set, name); err != nil {
+	if l, err := ExpectOne(set, name); err != nil {
 		return 0, err
 	} else if len(l) != 8 {
 		return 0, fmt.Errorf("expected %s to be a 4-byte, hex encoded integer; got %v", name, l)
