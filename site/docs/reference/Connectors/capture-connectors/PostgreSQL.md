@@ -78,7 +78,7 @@ A minimal capture definition within the catalog spec will look like the followin
 captures:
   ${tenant}/${CAPTURE_NAME}:
     endpoint:
-      airbyteSource:
+      connector:
         image: "ghcr.io/estuary/source-postgres:dev"
         config:
           host: "localhost"
