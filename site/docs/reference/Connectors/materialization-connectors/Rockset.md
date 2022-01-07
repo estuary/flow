@@ -3,6 +3,7 @@ This Flow connector materializes [delta updates](../../../concepts/catalog-entit
 `ghcr.io/estuary/materialize-rockset:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
+
 To use this connector, you'll need :
 * An existing catalog spec that includes at least one collection with its schema specified
 * A Rockset account with an [API key generated](https://rockset.com/docs/rest-api/#createapikey) from the web UI
@@ -12,9 +13,11 @@ To use this connector, you'll need :
     * Optional; if none exist, one will be created by the connector.
 
 ## Configuration
+
 To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/catalog-entities/materialization.md) and add the required Rockset configuration values per the table below.
 
 ### Values
+
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
 | `api_key` | API Key | String | Required | Rockset API key generated from the web UI. |
@@ -48,41 +51,17 @@ materializations:
 You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and requires additional steps in your dataflow. Flow's Rockset connector supports this through the GitOps workflow.
 
 ### Prerequisites
+
 Before completing this workflow, make sure you have:
 * A working catalog spec including at least one Flow collection with its schema specified.
 * A production or [development](../../../getting-started/installation.md) environment
-::: Tip
+::: tip
 The following is an intermediate workflow. As needed, refer to [this guide](../../../guides/create-dataflow.md) for the basic steps to create and deploy a catalog spec using the GitOps workflow.
 :::
 
 ### How to configure a bulk ingestion
-If you already have an [S3 integration](https://rockset.com/docs/amazon-s3/) in Rockset, you can simply direct the connector to it. The connector will create the collection from the given integration, process all objects in the S3 bucket first, and then begin writing additional any additional, newer data that is coming through your pipeline. This ensures that documents are always written to Rockset in the proper order.
 
-To configure this, within the `resource` of each binding, add
-`initializeFromS3` and fill out the S3 integration details as shown in the following example:
-
-  ```yaml
-  materializations:
-    example/toRockset:
-      endpoint:
-        connector:
-          image: ghcr.io/estuary/materialize-rockset:dev
-          config:
-            api_key: <your rockset API key here>
-            max_concurrent_requests: 5
-      bindings:
-        - resource:
-            workspace: <your rockset workspace name>
-            collection: <your rockset collection name>
-            initializeFromS3:
-              integration: <rockset integration name>
-              bucket: example-s3-bucket
-              region: us-east-1
-              prefix: example/s3-prefix/
-          source: example/flow/collection
-  ```
-
-If you don't have an S3 integration set up with your historical data, you can use a two-step process to bulk ingest historical data from a Flow collection. First, you'll port your historical data into an S3 bucket and backfill it into Rockset using Estuary's [materialize-s3-parquet](../materialize-s3-parquet/) connector. Then, you'll implement the Rockset connector, which will pick up the dataflow where the S3-parquet connector left off.
+A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [materialize-s3-parquet](../materialize-s3-parquet/) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switch to the Rockset Write API for the continuous materialization of new data.
 
 import Mermaid from '@theme/Mermaid';
 
@@ -98,7 +77,7 @@ import Mermaid from '@theme/Mermaid';
 
 To set this up, use the following procedure as a guide, substituting `example/flow/collection` for your collection:
 
-1. Follow the [instructions here](https://rockset.com/docs/amazon-s3/#create-an-s3-integration) to create the integration, but _do not create the Rockset collection yet_.
+1. You'll need an [S3 integration](https://rockset.com/docs/amazon-s3/) in Rockset. To create one, follow the [instructions here](https://rockset.com/docs/amazon-s3/#create-an-s3-integration), but _do not create the Rockset collection yet_.
 2. Create and activate a materialization of `example/flow/collection` into a unique prefix within an S3 bucket of your choosing.
   ```yaml
   materializations:
@@ -146,19 +125,4 @@ To set this up, use the following procedure as a guide, substituting `example/fl
               prefix: example/s3-prefix/
           source: example/flow/collection
   ```
-5. When you activate the new materialization, the connector will create the Rockset collection using the given integration, and wait for it to ingest all of the data from S3 before it continues. During this time, the Flow shards will remain in `STANDBY` status, so `flowctl deploy` is expected to block until the bulk ingestion completes. Once this completes, the materialize-rockset connector will automatically switch over to using the Rockset write API.
-
-## Potential improvements
-
-There are a number of additional parameters that users may want to control when creating Rockset collections. The following parameters from the [Rockset API docs](https://rockset.com/docs/rest-api/#createcollection) are potential candidates for inclusion in the connector/resource configs.
-
-```
-retention_secs
-time_partition_resolution_secs
-event_time_info
-field_mappings
-field_mapping_query
-clustering_key
-field_schemas
-inverted_index_group_encoding_options
-```
+5. When you activate the new materialization, the connector will create the Rockset collection using the given integration, and wait for it to ingest all of the historical data from S3 before it continues. Once this completes, the Rockset connector will automatically switch over to the incoming stream of new data.
