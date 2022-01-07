@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -108,9 +110,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		// Set the client to nil so that we don't try to close it again in Destroy should something
 		// go wrong
 		m.client = nil
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
 		}
+		// The error could be a context cancelation, which we should ignore
+		err = nil
 	}
 
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
