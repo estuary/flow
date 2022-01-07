@@ -3,6 +3,7 @@
 
 const lightCodeTheme = require('prism-react-renderer/themes/github');
 const darkCodeTheme = require('prism-react-renderer/themes/dracula');
+const codeImport = require('remark-code-import');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -26,6 +27,7 @@ const config = {
           sidebarPath: require.resolve('./sidebars.js'),
           editUrl: 'https://github.com/estuary/flow/edit/master/site/',
           routeBasePath: '/',
+          remarkPlugins: [codeImport],
         },
         /*
         blog: {

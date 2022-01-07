@@ -27,6 +27,7 @@
   "devDependencies": {
     "@docusaurus/module-type-aliases": "2.0.0-beta.13",
     "@tsconfig/docusaurus": "^1.0.4",
+    "remark-code-import": "^0.4.0",
     "typescript": "^4.5.2"
   },
   "browserslist": {
