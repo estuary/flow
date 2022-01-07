@@ -1,0 +1,27 @@
+import:
+  - transfers.flow.yaml
+
+collections:
+  acmeBank/first-send:
+    schema: transfers.schema.yaml
+    key: [/id]
+
+    derivation:
+      # We'll store a `true/false` boolean in our register documents,
+      # which is initially `false` and becomes `true` after the first transfer.
+      register:
+        schema: { type: boolean }
+        initial: false
+
+      transform:
+        fromTransfers:
+          source:
+            name: acmeBank/transfers
+          # Shuffle so that each account pair
+          # is allocated its own register.
+          shuffle:
+            key: [/sender, /recipient]
+          update:
+            lambda: typescript
+          publish:
+            lambda: typescript

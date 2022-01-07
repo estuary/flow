@@ -1,0 +1,7 @@
+type: object
+properties:
+  id: { type: integer }
+  sender: { type: string }
+  recipient: { type: string }
+  amount: { type: number }
+required: [id, sender, recipient, amount]
