@@ -22,8 +22,10 @@ collections:
   # The unique name of the collection.
   acmeCo/products/anvils:
 
-    # The schema of the collection, against which collection documents are validated.
-    # Required, type: string or object
+    # The schema of the collection, against which collection documents
+    # are validated. This may be an inline definition or a relative URL
+    # reference.
+    # Required, type: string (relative URL form) or object (inline form)
     schema: anvils.schema.yaml
 
     # The key of the collection, specified as JSON pointers of one or more

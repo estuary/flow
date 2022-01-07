@@ -1,0 +1,23 @@
+import:
+  - transfers.flow.yaml
+
+collections:
+  acmeBank/balances:
+    schema:
+      type: object
+      required: [user]
+      reduce: { strategy: merge }
+      properties:
+        user: { type: string }
+        balance:
+          type: number
+          reduce: { strategy: sum }
+    key: [/user]
+
+    derivation:
+      transform:
+        fromTransfers:
+          source:
+            name: acmeBank/transfers
+          publish:
+            lambda: typescript
