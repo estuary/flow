@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -97,9 +98,11 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		// Set the delegate to nil so that we don't try to close it again in Destory should
 		// something go wrong
 		c.delegate = nil
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
 		}
+		// The error could be a context cancelation, which we should ignore
+		err = nil
 	}
 
 	// Closure which builds a Combiner for a specified binding.
