@@ -4,11 +4,11 @@ import Mermaid from '@theme/Mermaid';
 
 # Derivations
 
-A derivation is a [collection](../collections.md)
+A derivation is a [collection](collections.md)
 which continuously derives its documents
 from transformations that are applied to one or more other source collections.
 It defines both the collection of derived documents,
-and also a [catalog task](../../#tasks)
+and also a [catalog task](../#tasks)
 which processes documents of source collections as they become available,
 transforming them into updates of the derived collection.
 
@@ -163,7 +163,7 @@ The **source** of a transformation is a collection.
 As documents are published into the source collection,
 they are continuously read and processed by the transformation.
 
-A [partition selector](../projections.md#partition-selectors) may be provided
+A [partition selector](projections.md#partition-selectors) may be provided
 to process only a subset of the logical partitions of the source collection.
 Selectors are efficient: only partitions which match the selector are read,
 and Flow can cheaply skip over partitions that don't.
@@ -286,13 +286,13 @@ with stubs of the required interfaces
 and having TypeScript types that match your schemas.
 You just write the function body.
 
-[Learn more about TypeScript generation](../../flowctl.md#typescript-generation)
+[Learn more about TypeScript generation](../flowctl.md#typescript-generation)
 :::
 
 ***
 
 Derivation collection schemas may have
-[reduction](../schemas-and-data-reductions.md#reductions) annotations,
+[reduction](schemas-and-data-reductions.md#reductions) annotations,
 and publish lambdas can be combined with reductions in interesting ways.
 
 You may be familiar with `map` and `reduce` functions
@@ -341,7 +341,7 @@ As we've already seen, not all derivations require registers
 but they are essential for a variety of important use cases.
 
 Each register is a document with a user-defined
-[schema](../schemas-and-data-reductions.md).
+[schema](schemas-and-data-reductions.md).
 Registers are keyed, and every derivation maintains an index of keys
 and their corresponding register documents.
 Every source document is mapped to a specific register document
@@ -459,7 +459,7 @@ before it can begin the next.
 ***
 
 Register schemas may also have
-[reduction](../schemas-and-data-reductions.md#reductions) annotations,
+[reduction](schemas-and-data-reductions.md#reductions) annotations,
 and documents returned by update lambdas
 are _reduced_ into the current register value.
 
@@ -595,7 +595,7 @@ your materialization endpoint, or within the derivation's registers.
 These two approaches can produce equivalent results
 but they do so in very different ways.
 
-### Accumulate in the Database
+### Accumulate in your Database
 
 To accumulate in your materialization endpoint, such as a database,
 you define a derivation with a reducible schema
