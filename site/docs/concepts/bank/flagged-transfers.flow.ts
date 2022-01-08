@@ -1,6 +1,6 @@
 import { collections, interfaces, registers } from 'flow/modules';
 
-// Implementation for derivation site/docs/concepts/catalog-entities/derivations/bank/flagged-transfers.flow.yaml#/collections/acmeBank~1flagged-transfers/derivation.
+// Implementation for derivation site/docs/concepts/derivations/bank/flagged-transfers.flow.yaml#/collections/acmeBank~1flagged-transfers/derivation.
 export class AcmeBankFlaggedTransfers implements interfaces.AcmeBankFlaggedTransfers {
     fromTransferRecipientUpdate(source: collections.AcmeBankTransfers): registers.AcmeBankFlaggedTransfers[] {
         return [source.amount]; // Credit recipient.

@@ -43,7 +43,7 @@ Except where noted, it's recommended that these outputs be committed within your
   TypeScript modules which accompany your catalog source files.
   A stub is generated for you if your catalog source uses a TypeScript lambda, and a module doesn't yet exist.
   See [Typescript code generation](#typescript-code-generation) and
-  [learn how TypeScript modules are imported](catalog-entities/import.md#typescript-modules).
+  [learn how TypeScript modules are imported](import.md#typescript-modules).
 
 * `dist/`: ♻
   Holds JavaScript and source map files produced during TypeScript compilation.
@@ -57,7 +57,7 @@ Except where noted, it's recommended that these outputs be committed within your
   Files used by `npm` to manage dependencies and your catalog's associated JavaScript project.
   You may customize portions of `package.json`,
   but its `dependencies` stanza will be overwritten by the
-  [npmDependencies](catalog-entities/import.md#npm-dependencies)
+  [npmDependencies](import.md#npm-dependencies)
   of your catalog source files.
 
 * `.eslintrc.js`: ⚓
@@ -76,7 +76,7 @@ Except where noted, it's recommended that these outputs be committed within your
 ### TypeScript Code Generation
 
 As part of the catalog build process, Flow translates your
-[schemas](catalog-entities/schemas.md)
+[schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
 These definitions live within `flow_generated/` of your catalog build directory,
 and are frequently over-written by invocations of `flowctl`.

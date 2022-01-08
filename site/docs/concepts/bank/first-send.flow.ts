@@ -1,6 +1,6 @@
 import { collections, interfaces, registers } from 'flow/modules';
 
-// Implementation for derivation site/docs/concepts/catalog-entities/derivations/bank/first-send.flow.yaml#/collections/acmeBank~1first-send/derivation.
+// Implementation for derivation site/docs/concepts/derivations/bank/first-send.flow.yaml#/collections/acmeBank~1first-send/derivation.
 export class AcmeBankFirstSend implements interfaces.AcmeBankFirstSend {
     fromTransfersUpdate(_source: collections.AcmeBankTransfers): registers.AcmeBankFirstSend[] {
         return [true]; // Toggle the register from `false` => `true`.

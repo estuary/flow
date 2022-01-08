@@ -1,6 +1,6 @@
 import { collections, interfaces, registers } from 'flow/modules';
 
-// Implementation for derivation site/docs/concepts/catalog-entities/derivations/bank/balances.flow.yaml#/collections/acmeBank~1balances/derivation.
+// Implementation for derivation site/docs/concepts/derivations/bank/balances.flow.yaml#/collections/acmeBank~1balances/derivation.
 export class AcmeBankBalances implements interfaces.AcmeBankBalances {
     fromTransfersPublish(
         source: collections.AcmeBankTransfers,

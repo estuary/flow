@@ -60,7 +60,7 @@ Persisted files integrate with your existing batch tools, like Spark and MapRedu
 They use Hive-compatible partitioning, which systems like BigQuery and Snowflake use
 to read only the subset of files that match the `WHERE` clause of your ad-hoc query (known as _predicate push-down_).
 
-Learn more about how Flow stores data in the [architecture documentation](../../architecture/storage.md).
+Learn more about how Flow stores data in the [architecture documentation](../architecture/storage.md).
 
 ## Schemas
 
@@ -187,7 +187,7 @@ location could not exist, or could exist with the wrong type.
 
 Flow itself doesn't mind if a keyed location could have multiple types,
 so long as they're each of the allowed types: an `integer` or `string` for example.
-Some materialization [connectors](../connectors.md) however may impose further type
+Some materialization [connectors](connectors.md) however may impose further type
 restrictions as required by the endpoint.
 For example, SQL databases do not support multiple types for a primary key.
 
@@ -305,7 +305,7 @@ The Flow runtime persists data to cloud storage as soon as possible, and uses ma
 A new derivation or materialization will efficiently back-fill over all collection documents – even where they span months or even years of data – by reading directly out of cloud storage.
 
 Crucially, a high scale back-fill that sources from a collection doesn’t compete with and cannot harm the collection’s ability to accept new writes, as reads depend _only_ on cloud storage for serving up historical data.
-This is a guarantee that’s unique to [Flow's architecture.](../../../architecture/)
+This is a guarantee that’s unique to [Flow's architecture.](../../architecture/)
 
 ### Logical Partitions
 

@@ -21,7 +21,7 @@ This means that the Flow catalog creates a data lake that's directly accessible 
 Each collection has all of its data stored under a single prefix in a cloud storage bucket. No other collection's data can use that same prefix (this is one reason why collection names cannot be prefixes of one another). When collections have
 [partitions](README.md#storage-of-partitioned-collections), the prefixes are further divided.&#x20;
 
-Not every collection in your catalog needs to follow the same storage mapping. The bucket and prefix used for each collection are entirely up to you, and can be [configured in your catalog spec](../concepts/catalog-entities/storage-mappings.md).
+Not every collection in your catalog needs to follow the same storage mapping. The bucket and prefix used for each collection are entirely up to you, and can be [configured in your catalog spec](../concepts/storage-mappings.md).
 
 ### How brokers connect collections to the runtime
 
@@ -54,7 +54,7 @@ Using brokers to move data into and out of your cloud storage bucket provides st
 
 ### Storage of partitioned collections
 
-[Logically partitioned](../concepts/catalog-entities/projections.md#logical-partitions)
+[Logically partitioned](../concepts/projections.md#logical-partitions)
 collections share a single storage mapping prefix, but they add additional, separate prefixes for each distinct partition. Flow translates the partition keys and values into a storage location based on the broadly adopted convention established by Hive. This allows Hive and other tools that use the same convention to "just work" when you want to import or query data from your collection's cloud storage. For example, in Hive this convention is used to support predicate pushdowns, which makes queries against specific partitions much faster.
 
 To illustrate this, let's look at an example collection of animal sightings that's partitioned on `genus` and`species`.
