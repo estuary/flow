@@ -286,7 +286,7 @@ with stubs of the required interfaces
 and having TypeScript types that match your schemas.
 You just write the function body.
 
-[Learn more about TypeScript generation](../flowctl.md#typescript-generation)
+[Learn more about TypeScript generation](flowctl.md#typescript-generation)
 :::
 
 ***

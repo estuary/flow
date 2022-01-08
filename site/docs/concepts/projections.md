@@ -64,7 +64,7 @@ collections:
 Logical partitions isolate the storage of documents by their differing
 values for partitioned fields.
 Under the hood, the partitioned fields of a document are applied to name and identify the
-[journal](../../architecture/README.md#how-brokers-connect-collections-to-the-runtime)
+[journal](journals.md)
 into which the document is written, which in turn prescribes how journal fragment files are arranged within cloud storage.
 
 For example, a document of "acmeCo/user-sessions" like:

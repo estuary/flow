@@ -16,7 +16,7 @@ In future releases of Flow, you'll be able to directly control the number of sha
 
 ### Optimizing processing with partitions
 
-Logical [partitioning](../concepts/catalog-entities/projections.md#logical-partitions) can optimize catalog tasks by only reading from the desired partitions and filtering out unneeded data. Leveraging partitions is an easy way to improve performance.
+Logical [partitioning](../concepts/projections.md#logical-partitions) can optimize catalog tasks by only reading from the desired partitions and filtering out unneeded data. Leveraging partitions is an easy way to improve performance.
 
 Let's say you have a collection of animal sightings partitioned on `family`, `genus`, and `species`. Now you want to add a derivation that only wants to process sightings of `Felis catus`. The derivation _could_ read every single document in the collection and simply filter out those that it doesn't care about. But doing so means that you use a lot of compute and network capacity reading all the documents that you end up filtering out. Derivations may define a partition selector instead to only read from the partitions they actually care about. For example, you might use the following selector in a derivation if you only wanted to process sightings of house cats.
 

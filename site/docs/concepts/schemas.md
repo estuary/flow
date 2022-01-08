@@ -284,5 +284,5 @@ oneOf:
 ```
 
 Combining schema conditionals with annotations can be used to build
-[rich behaviors](../../reference/reduction-strategies/composing-with-conditionals.md).
+[rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 
