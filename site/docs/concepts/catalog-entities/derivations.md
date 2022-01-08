@@ -292,7 +292,7 @@ You just write the function body.
 ***
 
 Derivation collection schemas may have
-[reduction](schemas-and-data-reductions.md#reductions) annotations,
+[reduction](schemas.md#reductions) annotations,
 and publish lambdas can be combined with reductions in interesting ways.
 
 You may be familiar with `map` and `reduce` functions
@@ -341,7 +341,7 @@ As we've already seen, not all derivations require registers
 but they are essential for a variety of important use cases.
 
 Each register is a document with a user-defined
-[schema](schemas-and-data-reductions.md).
+[schema](schemas.md).
 Registers are keyed, and every derivation maintains an index of keys
 and their corresponding register documents.
 Every source document is mapped to a specific register document
@@ -459,7 +459,7 @@ before it can begin the next.
 ***
 
 Register schemas may also have
-[reduction](schemas-and-data-reductions.md#reductions) annotations,
+[reduction](schemas.md#reductions) annotations,
 and documents returned by update lambdas
 are _reduced_ into the current register value.
 
