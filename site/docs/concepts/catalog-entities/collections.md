@@ -111,7 +111,7 @@ collections:
 </TabItem>
 </Tabs>
 
-[Learn more about schemas](schemas-and-data-reductions.md)
+[Learn more about schemas](schemas.md)
 
 ## Keys
 

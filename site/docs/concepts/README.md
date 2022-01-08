@@ -239,7 +239,7 @@ A materialization of the collection then maintains a
 database table which is keyed on your dimensions,
 so that queries are both fast _and_ up to date.
 
-[Learn more about schemas](catalog-entities/schemas-and-data-reductions.md)
+[Learn more about schemas](catalog-entities/schemas.md)
 
 ***
 

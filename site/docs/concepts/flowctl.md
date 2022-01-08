@@ -76,7 +76,7 @@ Except where noted, it's recommended that these outputs be committed within your
 ### TypeScript Code Generation
 
 As part of the catalog build process, Flow translates your
-[schemas](catalog-entities/schemas-and-data-reductions.md)
+[schemas](catalog-entities/schemas.md)
 into equivalent TypeScript types on your behalf.
 These definitions live within `flow_generated/` of your catalog build directory,
 and are frequently over-written by invocations of `flowctl`.
