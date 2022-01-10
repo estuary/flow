@@ -33,6 +33,7 @@ type taskTerm struct {
 	// Logger used to publish logs that are scoped to this task.
 	// It is embedded to allow directly calling .Log on a taskTerm.
 	*LogPublisher
+	*StatsFormatter
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -60,10 +61,17 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	var logsCollection *pf.CollectionSpec
+	var statsCollectionSpec *pf.CollectionSpec
+	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
-		logsCollection, err = catalog.LoadCollection(db, logCollection(t.labels.TaskName).String())
-		return err
+		if logsCollectionSpec, err = catalog.LoadCollection(db, logCollection(t.labels.TaskName).String()); err != nil {
+			return fmt.Errorf("loading collection: %w", err)
+		}
+		if statsCollectionSpec, err = catalog.LoadCollection(db, statsCollection(t.labels.TaskName).String()); err != nil {
+			return fmt.Errorf("loading stats collection: %w", err)
+		}
+
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -71,12 +79,19 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	// TODO(johnny): close old LogPublisher here, and in destroy() ?
 	if t.LogPublisher, err = NewLogPublisher(
 		t.labels,
-		logsCollection,
+		logsCollectionSpec,
 		t.schemaIndex,
 		shard.JournalClient(),
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 	); err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
+	}
+
+	if t.StatsFormatter, err = NewStatsFormatter(
+		t.labels,
+		statsCollectionSpec,
+	); err != nil {
+		return err
 	}
 
 	t.Log(log.InfoLevel, log.Fields{

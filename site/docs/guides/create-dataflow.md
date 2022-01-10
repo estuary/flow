@@ -20,10 +20,10 @@ In the majority of cases, the capture and materialization each rely on a plug-in
     Next, you'll create your catalog spec. Rather than starting from scratch, you'll use the guided `flowctl discover` process to generate one that is pre-configured for the capture connector you're using.
 
     :::tip
-    You may notice the template you cloned in step 1 comes with a catalog spec. It's an example, so you can disregard it unless you choose to run the [tutorial](../getting-started/flow-tutorials/hello-flow).
+    You may notice the template you cloned in step 1 comes with a catalog spec. It's an example, so you can disregard it unless you choose to run the [tutorial](../../getting-started/flow-tutorials/hello-flow).
     :::
 
-2. Refer to the [capture connectors list](../reference/connectors/capture-connectors) and find your data source system. Click on its **configuration** link, set up prerequisites as necessary, and follow the instructions to generate a catalog spec with `flowctl discover`.
+2. Refer to the [capture connectors list](../../reference/connectors/capture-connectors) and find your data source system. Click on its **configuration** link, set up prerequisites as necessary, and follow the instructions to generate a catalog spec with [`flowctl discover`](../concepts/connectors.md#flowctl-discover).
 
     A generalized version of the `discover` workflow is as follows:
     1. In your terminal, run: `flowctl discover --image=ghcr.io/estuary/<connector-name>:dev`
@@ -46,7 +46,7 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 
     To complete your end-to-end dataflow, you'll now add a materialization. Like your capture, materializations are configured differently depending on the connector and endpoint system; however, they are configured manually.
 
-4. Go to the [materialization connectors list](../reference/connectors/materialization-connectors). Find your destination system, open its **configuration** page, and follow the sample to configure your materialization.
+4. Go to the [materialization connectors list](../../reference/connectors/materialization-connectors). Find your destination system, open its **configuration** page, and follow the sample to configure your materialization.
 
 5. Launch the system locally:
     ```console

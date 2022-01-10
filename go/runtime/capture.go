@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -64,7 +65,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err = c.initTerm(shard, c.host); err != nil {
 		return pf.Checkpoint{}, err
 	}
-
 	defer func() {
 		if err == nil {
 			c.Log(log.DebugLevel, log.Fields{
@@ -73,7 +73,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 				"build":      c.labels.Build,
 				"checkpoint": cp,
 			}, "initialized processing term")
-
 		} else {
 			c.Log(log.ErrorLevel, log.Fields{
 				"error": err.Error(),
@@ -81,25 +80,30 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}()
 
-	if c.delegate != nil {
-		if err := c.delegate.Close(); err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
+	err = c.build.Extract(func(db *sql.DB) error {
+		captureSpec, err := catalog.LoadCapture(db, c.labels.TaskName)
+		if captureSpec != nil {
+			c.spec = *captureSpec
 		}
-	}
-
-	if err = c.build.Extract(func(db *sql.DB) error {
-		if s, err := catalog.LoadCapture(db, c.labels.TaskName); err != nil {
-			return err
-		} else {
-			c.spec = *s
-			return nil
-		}
-	}); err != nil {
+		return err
+	})
+	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-
-	c.Log(log.DebugLevel, log.Fields{"spec": c.spec.String(), "build": c.labels.Build},
+	c.Log(log.DebugLevel, log.Fields{"spec": c.spec, "build": c.labels.Build},
 		"loaded specification")
+
+	if c.delegate != nil {
+		err = c.delegate.Close()
+		// Set the delegate to nil so that we don't try to close it again in Destory should
+		// something go wrong
+		c.delegate = nil
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
+		}
+		// The error could be a context cancelation, which we should ignore
+		err = nil
+	}
 
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
@@ -299,11 +303,12 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 
 	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
 
+	var statsPerBinding = make([]*pf.CombineAPI_Stats, 0, len(c.delegate.Combiners()))
 	for b, combiner := range c.delegate.Combiners() {
 		var binding = c.spec.Bindings[b]
 		_ = binding.Collection // Elide nil check.
 
-		var err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+		var stats, err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 			if full {
 				panic("capture produces only partially combined documents")
 			}
@@ -328,13 +333,45 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		if err != nil {
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
+		statsPerBinding = append(statsPerBinding, stats)
+	}
+
+	// Publish a final message with statistics about the capture transaction we'll soon finish
+	var statsEvent = c.captureStats(statsPerBinding)
+	var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
+	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
+		return fmt.Errorf("publishing stats document: %w", err)
 	}
 
 	return nil
 }
 
+func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var captureStats = make(map[string]CaptureBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		// Skip bindings that didn't participate
+		if bindingStats == nil {
+			continue
+		}
+		var name = c.spec.Bindings[i].Collection.Collection.String()
+		// It's possible for multiple bindings to use the same collection, in which case the
+		// stats should be summed.
+		var prevStats = captureStats[name]
+		captureStats[name] = CaptureBindingStats{
+			Right: prevStats.Right.with(bindingStats.Right),
+			Out:   prevStats.Out.with(bindingStats.Out),
+		}
+	}
+	var event = c.NewStatsEvent()
+	event.Capture = captureStats
+	return event
+}
+
 // BeginTxn is a no-op.
-func (c *Capture) BeginTxn(consumer.Shard) error { return nil }
+func (c *Capture) BeginTxn(consumer.Shard) error {
+	c.TxnOpened()
+	return nil
+}
 
 // FinalizeTxn is a no-op.
 func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return nil }

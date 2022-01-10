@@ -92,19 +92,6 @@ Flow's UI is under rapid development and expected to be generally available by e
 
 [Learn more about catalog specifications](catalog-entities/)
 
-### Tasks
-
-Captures, derivations, and materializations are collectively referred to as catalog **tasks**.
-They are the "active" components of a catalog, each running continuously and reacting to documents
-as they become available.
-
-Collections, by way of comparison, are inert. They reflect data at rest, and are acted upon by
-catalog tasks:
-
-* A capture adds documents to a collection pulled from an endpoint.
-* A derivation updates a collection by applying transformations to other source collections.
-* A materialization reacts to changes of a collection to update an endpoint.
-
 ***
 
 ## Collections
@@ -120,6 +107,18 @@ You can use regular bucket lifecycle policies to manage the deletion of data fro
 However, capturing _into_ a collection or materializing _from_ a collection happens within milliseconds.
 
 [Learn more about collections](catalog-entities/collections.md)
+
+### Journals
+
+**Journals** provide the low-level storage for Flow collections.
+Each logical and physical partition of a collection is backed by a journal.
+
+Task [shards](#task-shards) also use journals to provide for their durability
+and fault tolerance.
+Each shard has an associated **recovery log**, which is a journal into which
+internal checkpoint states are written.
+
+[Learn more about journals](journals.md)
 
 ***
 
@@ -241,6 +240,36 @@ database table which is keyed on your dimensions,
 so that queries are both fast _and_ up to date.
 
 [Learn more about schemas](catalog-entities/schemas-and-data-reductions.md)
+
+***
+
+## Tasks
+
+Captures, derivations, and materializations are collectively referred to as catalog **tasks**.
+They are the "active" components of a catalog, each running continuously and reacting to documents
+as they become available.
+
+Collections, by way of comparison, are inert. They reflect data at rest, and are acted upon by
+catalog tasks:
+
+* A capture adds documents to a collection pulled from an endpoint.
+* A derivation updates a collection by applying transformations to other source collections.
+* A materialization reacts to changes of a collection to update an endpoint.
+
+### Task Shards
+
+Task **shards** are the unit of execution for a catalog [task](#tasks).
+A single task can have many shards, which allow the task to scale across
+many machines to achieve more throughput and parallelism.
+
+Shards are created and managed by the Flow runtime.
+Each shard represents a slice of the overall work of the catalog task,
+including its processing status and associated internal checkpoints.
+Catalog tasks are created with a single shard,
+which can be repeatedly subdivided at any time — with no downtime — to
+increase the processing capacity of the task.
+
+[Learn more about shards](shards.md)
 
 ***
 

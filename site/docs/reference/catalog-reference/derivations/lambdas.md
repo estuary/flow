@@ -8,7 +8,7 @@ description: How to implement lambdas for derivations
 Currently, Flow only offers TypeScript lambdas, but more are coming in the future.&#x20;
 {% endhint %}
 
-A TypeScript file is required to create a [lambda](../../../concepts/catalog-entities/derivations/lambdas.md). If you haven't already, run the catalog with `flowctl develop` or `flowctl test`, even if the catalog isn't complete. This will [generate a TypeScript file ](../../flowctl-build-outputs.md#typescript-code-generation)and stub it out for you.
+A TypeScript file is required to create a [lambda](../../../concepts/catalog-entities/derivations/lambdas.md). If you haven't already, run the catalog with `flowctl develop` or `flowctl test`, even if the catalog isn't complete. This will generate a TypeScript file and stub it out for you.
 
 Lambdas take in a source, register, and previous value and use the language in which they were implemented to return a value in the correct schema. This value is used to either `update` a register or `publish` to a collection.
 

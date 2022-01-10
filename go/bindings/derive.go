@@ -31,17 +31,18 @@ import (
 	"golang.org/x/net/trace"
 )
 
+// These metrics give us a sense of update lambda invocation times for the whole process. The idea
+// is to have some level of observability to this that doesn't require materializing the ops
+// collections, for the sake of resiliency.
 var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Name:    "flow_derive_lambda_duration_seconds",
 	Help:    "Duration in seconds of invocation of derive lambdas",
 	Buckets: []float64{0.0005, 0.002, 0.01, 0.05, 0.1, 0.3, 1.0},
-}, []string{"derivation", "lambdaType"})
+}, []string{"lambdaType"})
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	svc     *service
-	metrics combineMetrics
-	stats   combineStats
+	svc *service
 
 	// Fields which are re-initialized with each reconfiguration.
 	runningTasks int               // Number of trampoline tasks.
@@ -87,9 +88,7 @@ func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops
 	}
 
 	var derive = &Derive{
-		svc:     svc,
-		metrics: combineMetrics{},
-		stats:   combineStats{},
+		svc: svc,
 
 		// Fields updated by Configure:
 		runningTasks: 0,
@@ -124,9 +123,7 @@ func (d *Derive) Configure(
 		d.trampoline.stop()
 	}
 
-	var collection = derivation.Collection.Collection
-	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
-	d.metrics = newCombineMetrics(fqn, collection)
+	combineConfigureCounter.Inc()
 
 	d.trampoline, d.trampolineCh = newTrampolineServer(
 		context.Background(),
@@ -181,8 +178,6 @@ func (d *Derive) Add(uuid pf.UUIDParts, key []byte, transformIndex uint32, doc j
 			TransformIndex: transformIndex,
 		})
 	d.svc.sendBytes(uint32(pf.DeriveAPI_NEXT_DOCUMENT_BODY), doc)
-	d.stats.rightDocs++
-	d.stats.rightBytes += len(doc)
 
 	// If we have no resolved tasks to send, AND we don't have many unsent
 	// frames, AND it's not an ACK, THEN skip polling.
@@ -226,8 +221,7 @@ func (d *Derive) sendResolvedTasks() (sent bool) {
 }
 
 // Drain derived documents, invoking the callback for each distinct group-by document.
-func (d *Derive) Drain(cb CombineCallback) error {
-	defer d.stats.reset()
+func (d *Derive) Drain(cb CombineCallback) (*pf.DeriveAPI_Stats, error) {
 	d.svc.sendBytes(uint32(pf.DeriveAPI_FLUSH_TRANSACTION), nil)
 
 	for {
@@ -235,7 +229,7 @@ func (d *Derive) Drain(cb CombineCallback) error {
 
 		var _, out, err = d.svc.poll()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		log.WithFields(log.Fields{
@@ -260,14 +254,12 @@ func (d *Derive) Drain(cb CombineCallback) error {
 			}).Trace("derive.Drain draining combiner")
 
 			var stats pf.DeriveAPI_Stats
-			d.stats.drainDocs, d.stats.drainBytes, err = drainCombineToCallback(d.svc, &out, cb, &stats)
+			err = drainCombineToCallback(d.svc, &out, cb, &stats)
 			if err == nil {
-				// TODO: return these stats instead of logging them
-				log.WithField("stats", stats).Trace("drained derive")
-				d.metrics.recordDrain(&d.stats)
+				recordDeriveDrain(&stats)
 			}
 
-			return err
+			return &stats, err
 		}
 
 		// Otherwise we have active tasks, or the first |out| is a task start.
@@ -286,6 +278,16 @@ func (d *Derive) Drain(cb CombineCallback) error {
 			"tasks": d.runningTasks,
 		}).Trace("derive.Drain resolved a blocking task")
 	}
+}
+
+func recordDeriveDrain(stats *pf.DeriveAPI_Stats) {
+	for _, tf := range stats.Transforms {
+		combineRightDocsCounter.Add(float64(tf.Publish.Output.Docs))
+		combineRightBytesCounter.Add(float64(tf.Publish.Output.Bytes))
+	}
+	combineDrainDocsCounter.Add(float64(stats.Output.Docs))
+	combineDrainBytesCounter.Add(float64(stats.Output.Bytes))
+	combineDrainOpsCounter.Inc()
 }
 
 // PrepareCommit persists the current Checkpoint and RocksDB WriteBatch.
@@ -376,9 +378,9 @@ func newDeriveInvokeHandler(shardFqn string, derivation *pf.DerivationSpec, tsCl
 		return request, client, nil
 	}
 
-	// lookup metrics eagerly, to avoid doing it in a hot loop
-	var updateLambdaTimes = deriveLambdaDurations.WithLabelValues(shardFqn, "update")
-	var publishLambdaTimes = deriveLambdaDurations.WithLabelValues(shardFqn, "publish")
+	// Lookup metrics eagerly, to avoid doing it in a hot loop.
+	var updateLambdaTimes = deriveLambdaDurations.WithLabelValues("update")
+	var publishLambdaTimes = deriveLambdaDurations.WithLabelValues("publish")
 
 	var exec = func(ctx context.Context, i interface{}) ([]byte, error) {
 		var invoke = i.(*pf.DeriveAPI_Invoke)

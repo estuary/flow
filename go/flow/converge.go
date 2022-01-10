@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/bits"
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/protocols/flow"
@@ -162,6 +163,50 @@ func MapShardToSplit(task pf.Task, shards []pc.ListResponse_Shard, splitOnKey bo
 	rhs.SetValue(labels.SplitSource, parent.Id.String())
 
 	return []pf.LabelSet{lhs, rhs}, nil
+}
+
+// MapPartitionToSplit maps a single partition journal contained in |journals|
+// to a desired split state, where the partition is evenly subdivided into
+// |splits| sub-partitions. |splits| must be a power-of-two.
+func MapPartitionToSplit(collection *pf.CollectionSpec, journals []pb.ListResponse_Journal, splits uint) ([]pf.LabelSet, error) {
+	if len(journals) != 1 {
+		return nil, fmt.Errorf("expected exactly one journal in the response")
+	} else if splits < 2 || splits > 256 || bits.OnesCount(splits) != 1 {
+		return nil, fmt.Errorf("splits must be a power of two and in range [2, 256]")
+	}
+	var parent = journals[0].Spec
+
+	begin, err := labels.ParseHexU32Label(labels.KeyBegin, parent.LabelSet)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", labels.KeyBegin, err)
+	}
+	end, err := labels.ParseHexU32Label(labels.KeyEnd, parent.LabelSet)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", labels.KeyEnd, err)
+	}
+
+	if begin > end {
+		return nil, fmt.Errorf("expected KeyBegin <= KeyEnd (%08x vs %08x)", begin, end)
+	}
+	var range_ = 1 + uint(end) - uint(begin)
+
+	var out []pf.LabelSet
+	for p := uint(0); p != splits; p++ {
+		var set = pf.LabelSet{Labels: append([]pf.Label(nil), parent.Labels...)}
+
+		set = labels.EncodeHexU32Label(
+			labels.KeyBegin,
+			begin+uint32(range_*(p+0)/splits),
+			set,
+		)
+		set = labels.EncodeHexU32Label(
+			labels.KeyEnd,
+			begin+uint32(range_*(p+1)/splits)-1,
+			set,
+		)
+		out = append(out, set)
+	}
+	return out, nil
 }
 
 // CollectionChanges compares a CollectionSpec and |desiredSplits| with the

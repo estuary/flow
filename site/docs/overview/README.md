@@ -36,10 +36,6 @@ Use the **Getting started** documentation to set up your development environment
 
 We recommend starting with the tutorials, but after that, read the **[Concepts](concepts/README.md)**.
 
-**Trying to figure out an advanced workflow?**
-
-If you've mastered the basics but want to refine your pipeline, you'll find answers in our technical **[Reference](reference/README.md)**.
-
 ****
 
 ### **Other resources**

@@ -12,7 +12,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	log "github.com/sirupsen/logrus"
 )
 
 // CombineCallback is the callback accepted by Combine.Finish and Derive.Finish.
@@ -33,8 +32,6 @@ type Combine struct {
 	svc         *service
 	drained     []C.Out
 	pinnedIndex *SchemaIndex // Used from Rust.
-	stats       combineStats
-	metrics     combineMetrics
 }
 
 // NewCombiner builds and returns a new Combine.
@@ -46,8 +43,6 @@ func NewCombine(logPublisher ops.Logger) (*Combine, error) {
 	var combine = &Combine{
 		svc:     svc,
 		drained: nil,
-		stats:   combineStats{},
-		metrics: combineMetrics{},
 	}
 
 	// Destroy the held service on garbage collection.
@@ -67,9 +62,8 @@ func (c *Combine) Configure(
 	keyPtrs []string,
 	fieldPtrs []string,
 ) error {
-	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
+	combineConfigureCounter.Inc()
 
-	c.metrics = newCombineMetrics(fqn, collection)
 	c.pinnedIndex = index
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
@@ -88,8 +82,6 @@ func (c *Combine) Configure(
 func (c *Combine) ReduceLeft(doc json.RawMessage) error {
 	c.drained = nil // Invalidate.
 	c.svc.sendBytes(uint32(pf.CombineAPI_REDUCE_LEFT), doc)
-	c.stats.leftDocs++
-	c.stats.leftBytes += len(doc)
 
 	if c.svc.queuedFrames() >= 128 {
 		return pollExpectNoOutput(c.svc)
@@ -101,9 +93,6 @@ func (c *Combine) ReduceLeft(doc json.RawMessage) error {
 func (c *Combine) CombineRight(doc json.RawMessage) error {
 	c.drained = nil // Invalidate.
 	c.svc.sendBytes(uint32(pf.CombineAPI_COMBINE_RIGHT), doc)
-
-	c.stats.rightDocs++
-	c.stats.rightBytes += len(doc)
 
 	if c.svc.queuedFrames() >= 128 {
 		return pollExpectNoOutput(c.svc)
@@ -127,23 +116,20 @@ func (c *Combine) PrepareToDrain() error {
 }
 
 // Drain combined documents, invoking the callback for each distinct group-by document.
-// If Drain returns without error, the Combine may be used again.
-func (c *Combine) Drain(cb CombineCallback) (err error) {
-	defer c.stats.reset()
+// If Drain returns without error, the Combine may be used again. Returns statistics from the
+// combiner that pertain to everything after the prior call to Drain, up through this one.
+func (c *Combine) Drain(cb CombineCallback) (*pf.CombineAPI_Stats, error) {
 	if c.drained == nil {
-		if err = c.PrepareToDrain(); err != nil {
-			return
+		if err := c.PrepareToDrain(); err != nil {
+			return nil, err
 		}
 	}
 	var stats pf.CombineAPI_Stats
-	c.stats.drainDocs, c.stats.drainBytes, err = drainCombineToCallback(c.svc, &c.drained, cb, &stats)
+	var err = drainCombineToCallback(c.svc, &c.drained, cb, &stats)
 	if err == nil {
-		c.metrics.recordDrain(&c.stats)
+		recordCombineDrain(&stats)
 	}
-	// TODO: return stats instead of logging them
-	log.WithField("stats", stats).Trace("drained combiner")
-
-	return
+	return &stats, err
 }
 
 // Destroy the Combine service, releasing all held resources.
@@ -165,7 +151,7 @@ func drainCombineToCallback(
 	out *[]C.Out,
 	cb CombineCallback,
 	statsMessage proto.Unmarshaler,
-) (nDocs, nBytes int, err error) {
+) (err error) {
 	// Sanity check we got triples of output frames, plus one at the end for the stats.
 	if len(*out)%3 != 1 {
 		panic(fmt.Sprintf("wrong number of output frames (%d; should be %% 3, plus 1)", len(*out)))
@@ -173,8 +159,6 @@ func drainCombineToCallback(
 
 	for len(*out) >= 3 {
 		var doc = svc.arenaSlice((*out)[0])
-		nDocs++
-		nBytes += len(doc)
 		if err = cb(
 			pf.CombineAPI_Code((*out)[0].code) == pf.CombineAPI_DRAINED_REDUCED_DOCUMENT,
 			doc,                       // Doc.
@@ -209,92 +193,58 @@ func newCombineSvc(logPublisher ops.Logger) (*service, error) {
 	)
 }
 
-var combineConfigureCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+/*
+* These prometheus metrics track some of the same things that we get from the stats collection, but
+* on a per-process basis. They are not scoped to individual shards, because that level of detail is
+* already covered by the stats in the ops collections. But these metrics are useful in that they
+* roll up by reactor instance, and in that they provide some level of observability that doesn't
+* rely on materializing Flow collections. Basically, we shouldn't rely 100% on Flow for monitoring
+* Flow.
+ */
+
+var combineConfigureCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_configure_total",
 	Help: "Count of combiner configurations",
-}, []string{"shard", "collection"})
+})
 
-var combineLeftDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+var combineLeftDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_left_docs_total",
 	Help: "Count of documents input as the left hand side of combine operations",
-}, []string{"shard", "collection"})
-var combineLeftBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineLeftBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_left_bytes_total",
 	Help: "Number of bytes input as the left hand side of combine operations",
-}, []string{"shard", "collection"})
-var combineRightDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineRightDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_right_docs_total",
 	Help: "Count of documents input as the right hand side of combine operations",
-}, []string{"shard", "collection"})
-var combineRightBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineRightBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_right_bytes_total",
 	Help: "Number of bytes input as the right hand side of combine operations",
-}, []string{"shard", "collection"})
-var combineDrainDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineDrainDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_drain_docs_total",
 	Help: "Count of documents drained from combiners",
-}, []string{"shard", "collection"})
-var combineDrainBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineDrainBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_drain_bytes_total",
 	Help: "Number of bytes drained from combiners",
-}, []string{"shard", "collection"})
-var combineOpsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+})
+var combineDrainOpsCounter = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "flow_combine_drain_ops_total",
 	Help: "Count of number of combine operations. A single operation may combine any number of documents with any number of distinct keys.",
-}, []string{"shard", "collection"})
+})
 
-type combineStats struct {
-	leftDocs   int
-	leftBytes  int
-	rightDocs  int
-	rightBytes int
-	drainDocs  int
-	drainBytes int
-}
+func recordCombineDrain(stats *pf.CombineAPI_Stats) {
+	combineLeftDocsCounter.Add(float64(stats.Left.Docs))
+	combineLeftBytesCounter.Add(float64(stats.Left.Bytes))
 
-func (s *combineStats) reset() {
-	*s = combineStats{}
-}
+	combineRightDocsCounter.Add(float64(stats.Right.Docs))
+	combineRightBytesCounter.Add(float64(stats.Right.Bytes))
 
-type combineMetrics struct {
-	leftDocs  prometheus.Counter
-	leftBytes prometheus.Counter
+	combineDrainDocsCounter.Add(float64(stats.Out.Docs))
+	combineDrainBytesCounter.Add(float64(stats.Out.Bytes))
 
-	rightDocs  prometheus.Counter
-	rightBytes prometheus.Counter
-
-	drainDocs  prometheus.Counter
-	drainBytes prometheus.Counter
-
-	drainCounter prometheus.Counter
-}
-
-func newCombineMetrics(fqn string, collection pf.Collection) combineMetrics {
-	var name = collection.String()
-
-	return combineMetrics{
-		leftDocs:  combineLeftDocsCounter.WithLabelValues(fqn, name),
-		leftBytes: combineLeftBytesCounter.WithLabelValues(fqn, name),
-
-		rightDocs:  combineRightDocsCounter.WithLabelValues(fqn, name),
-		rightBytes: combineRightBytesCounter.WithLabelValues(fqn, name),
-
-		drainDocs:  combineDrainDocsCounter.WithLabelValues(fqn, name),
-		drainBytes: combineDrainBytesCounter.WithLabelValues(fqn, name),
-
-		drainCounter: combineOpsCounter.WithLabelValues(fqn, name),
-	}
-}
-
-func (m *combineMetrics) recordDrain(stats *combineStats) {
-	m.leftDocs.Add(float64(stats.leftDocs))
-	m.leftBytes.Add(float64(stats.leftBytes))
-
-	m.rightDocs.Add(float64(stats.rightDocs))
-	m.rightBytes.Add(float64(stats.rightBytes))
-
-	m.drainDocs.Add(float64(stats.drainDocs))
-	m.drainBytes.Add(float64(stats.drainBytes))
-
-	m.drainCounter.Inc()
+	combineDrainOpsCounter.Inc()
 }
