@@ -9,7 +9,7 @@ Pipelines are defined within a Flow [catalog](#catalogs), and deployed to a Flow
 
 This page provides a high-level explanation of important concepts and terminology you'll need to understand as you begin working with Flow.
 
-![](<architecture.png>)
+![](<at-a-glance.png>)
 
 ## Catalogs
 
