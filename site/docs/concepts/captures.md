@@ -1,7 +1,3 @@
----
-description: How Flow uses captures to pull data from external sources
----
-
 # Captures
 
 A **capture** is a catalog task which connects to an endpoint

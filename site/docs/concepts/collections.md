@@ -1,7 +1,3 @@
----
-description: How Flow stores data
----
-
 # Collections
 
 Flow stores data in **collections**:

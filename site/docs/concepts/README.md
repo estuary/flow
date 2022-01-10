@@ -1,7 +1,3 @@
----
-description: Understand Flow's high-level concepts
----
-
 # Concepts
 
 Flow helps you define data pipelines that connect your data systems, APIs, and storage, and optionally transform data along the way.
