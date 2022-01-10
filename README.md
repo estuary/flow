@@ -28,7 +28,7 @@ With a Flow pipeline, you:
 
 ❗️ Currently, Flow is a CLI-only platform. **Our UI is coming in Q1 of 2022**, and we will continue to grow both the CLI and UI. Flow is a tool meant for *all* stakeholders: engineers, analysts, and everyone in between.❗️
 
-![Workflow Overview](site/docs/concepts/architecture.png)
+![Workflow Overview](site/docs/concepts/at-a-glance.png)
 
 ## Documentation
 
