@@ -1,10 +1,3 @@
----
-sidebar_position: 3
-description: >-
-  Learn how to use the command-line interface to build, test, deploy, and run
-  catalogs
----
-
 # flowctl
 
 The `flowctl` command-line interface is used to test, develop, and deploy Flow catalogs.

@@ -1,7 +1,3 @@
----
-description: How Flow translates between JSON-based collections
----
-
 # Projections
 
 Flow documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.

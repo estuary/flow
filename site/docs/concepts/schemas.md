@@ -1,7 +1,3 @@
----
-description: How Flow uses JSON schemas to model data structure and constraints
----
-
 # Schemas
 
 Flow documents and [collections](collections.md) always have an associated schema

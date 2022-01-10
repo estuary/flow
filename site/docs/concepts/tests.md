@@ -1,7 +1,3 @@
----
-description: Understanding the essential components of a good Flow test
----
-
 # Tests
 
 As Flow catalogs grow in breadth and scope, and as requirements change or new contributors get involved,
