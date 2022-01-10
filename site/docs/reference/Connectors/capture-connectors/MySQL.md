@@ -11,12 +11,12 @@ To use this connector, you'll need a MySQL database setup with the following:
 * A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
-  - By default this is named `"flow.watermarks"` but this can be overridden in `config.json`.
+  - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
 * A capture user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
-  - Permission to insert/update/delete on the watermarks table.
+  - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
-  - Permission to read from `information_schema` tables (if automatic discovery is used).
+  - Permission to read from `information_schema` tables, if automatic discovery is used.
 
 ### Setup
 To meet these requirements, do the following:
@@ -26,7 +26,7 @@ To meet these requirements, do the following:
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 ```
-2. Create the 'flow_capture' user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table. The `SELECT` permission can be restricted to just the tables that need to be
+2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table. The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access too.
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
@@ -40,15 +40,40 @@ SET PERSIST binlog_row_metadata = 'FULL';
 ```
 
 ## Configuration
-There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the PostgreSQL source connector.
+There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the MySQL source connector.
 
 ### Values
-TODO check value names
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
-| `address` | Address | string | Required | Database host:port to connect to |
-| `user` | User | string | Required; `"flow_capture"` | Database user to connect as |
+| `address` | Address | string | Required | IP address or port of the database host |
+| `user` | User | string | Required | Database user to connect as |
 | `password` | Password | string | Required | Password for the specified database user |
 | `dbname` | Database name | string | Required | Name of the database to connect to |
-| `serverid` !! | Server ID | int | Required | Server ID for replication |
-| `WatermarksTable` !| Watermarks Table | string | `"flow.watermarks"` | The name of the table used for watermark writes during backfills |
+| `server_id` | Server ID | int | Required | Server ID for replication |
+| `watermarks_table`| Watermarks Table | string | `"flow.watermarks"` | The name of the table used for watermark writes during backfills |
+
+### Sample
+A minimal capture definition within the catalog spec will look like the following:
+
+```yaml
+captures:
+  ${TENANT}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-mysql:dev
+        config:
+          address: "127.0.0.1:3306"
+          dbname: "test"
+          password: "secret"
+          server_id: 12345
+          user: "flow_capture"
+          watermarks_table: "flow.watermarks"
+    bindings:
+      - resource:
+          namespace: ${TABLE_NAMESPACE}
+          stream: ${TABLE_NAME}
+          syncMode: incremental
+        target: ${TENANT}/${COLLECTION_NAME}
+
+```
+Your capture definition will likely be more complex, with additional bindings for each table in the source database.
