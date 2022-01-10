@@ -1,10 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/estuary/protocols/catalog"
@@ -29,6 +33,10 @@ type Materialize struct {
 	store connectorStore
 	// Specification under which the materialization is currently running.
 	spec pf.MaterializationSpec
+	// Stats are handled differently for materializations than they are for other task types,
+	// because materializations don't have stats available until after the transaction starts to
+	// commit. See comment below in StartCommit.
+	statsPublisher *message.Publisher
 	// Embedded task reader scoped to current task version.
 	// Initialized in RestoreCheckpoint.
 	taskReader
@@ -46,15 +54,18 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	if err != nil {
 		return nil, fmt.Errorf("newConnectorStore: %w", err)
 	}
+	var clock = message.NewClock(time.Now().UTC())
+	var statsPublisher = message.NewPublisher(shard.JournalClient(), &clock)
 
 	var out = &Materialize{
-		client:      nil, // Initialized in RestoreCheckpoint.
-		coordinator: coordinator,
-		host:        host,
-		store:       store,
-		spec:        pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
-		taskReader:  taskReader{},             // Initialized in RestoreCheckpoint.
-		taskTerm:    taskTerm{},               // Initialized in RestoreCheckpoint.
+		coordinator:    coordinator,
+		host:           host,
+		store:          store,
+		statsPublisher: statsPublisher,
+		client:         nil,                      // Initialized in RestoreCheckpoint.
+		spec:           pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
+		taskReader:     taskReader{},             // Initialized in RestoreCheckpoint.
+		taskTerm:       taskTerm{},               // Initialized in RestoreCheckpoint.
 	}
 
 	return out, nil
@@ -81,26 +92,30 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			}, "failed to initialize processing term")
 		}
 	}()
-
-	if m.client == nil {
-		// First initialization.
-	} else if err := m.client.Close(); err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
-	}
-
-	if err = m.build.Extract(func(db *sql.DB) error {
-		if s, err := catalog.LoadMaterialization(db, m.labels.TaskName); err != nil {
-			return err
-		} else {
-			m.spec = *s
-			return nil
+	err = m.build.Extract(func(db *sql.DB) error {
+		materializationSpec, err := catalog.LoadMaterialization(db, m.labels.TaskName)
+		if materializationSpec != nil {
+			m.spec = *materializationSpec
 		}
-	}); err != nil {
+		return err
+	})
+	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-
-	m.Log(log.DebugLevel, log.Fields{"spec": m.spec.String(), "build": m.labels.Build},
+	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
 		"loaded specification")
+
+	if m.client != nil {
+		err = m.client.Close()
+		// Set the client to nil so that we don't try to close it again in Destroy should something
+		// go wrong
+		m.client = nil
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+		}
+		// The error could be a context cancelation, which we should ignore
+		err = nil
+	}
 
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
 		return pf.Checkpoint{}, err
@@ -188,9 +203,24 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	commitOps.LogCommitted = m.store.startCommit(shard, cp, prepared,
 		consumer.OpFutures{commitOps.DriverCommitted: struct{}{}})
 
-	if err = m.client.StartCommit(commitOps); err != nil {
+	stats, err := m.client.StartCommit(commitOps)
+	if err != nil {
 		return client.FinishedOperation(err)
 	}
+	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
+
+	// Stats are currently written using PublishCommitted for materializations, which means that
+	// we cannot make any transactional guarantees about them. They might get published more than
+	// once for the same transaction, or else not at all. The reason for this is that we don't
+	// actually know the stats until we call client.StartCommit, which requires that we give it our
+	// checkpoint. That checkpoint would need to include ack intents for the published stats
+	// document if we were to make it transactional. So it's a chicken-and-egg problem.
+	// A possible solution to this would be to add the ack intent to the checkpoint in FinalizeTxn,
+	// but actually publish the stats message here using that sequencing info. This would
+	// theoretically allow materialization stats to be published transactionally, but requires
+	// exposing new functionality in the Publisher, so it is being left for a future improvement.
+	var statsEvent = m.materializationStats(stats)
+	m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
 
 	// Wait for any |waitFor| operations. In practice this is always empty.
 	// It would contain pending journal writes, but materializations don't issue any.
@@ -203,6 +233,28 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// Return Acknowledged as the StartCommit future, which requires that it
 	// resolve before the next transaction may begin to close.
 	return commitOps.Acknowledged
+}
+
+func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
+	var stats = make(map[string]MaterializeBindingStats)
+	for i, bindingStats := range statsPerBinding {
+		// Skip bindings that didn't participate
+		if bindingStats == nil {
+			continue
+		}
+		var name = m.spec.Bindings[i].Collection.Collection.String()
+		// It's possible for multiple bindings to use the same collection, in which case the
+		// stats should be summed.
+		var prevStats = stats[name]
+		stats[name] = MaterializeBindingStats{
+			Left:  prevStats.Left.with(bindingStats.Left),
+			Right: prevStats.Right.with(bindingStats.Right),
+			Out:   prevStats.Out.with(bindingStats.Out),
+		}
+	}
+	var event = m.NewStatsEvent()
+	event.Materialize = stats
+	return event
 }
 
 // Destroy implements consumer.Store.Destroy
@@ -227,6 +279,7 @@ var _ Application = (*Materialize)(nil)
 
 // BeginTxn implements Application.BeginTxn and is a no-op.
 func (m *Materialize) BeginTxn(shard consumer.Shard) error {
+	m.TxnOpened()
 	return nil
 }
 

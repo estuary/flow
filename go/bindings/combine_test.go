@@ -64,7 +64,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 
 	require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": "not an int"}`)))
 
-	err = combiner.Drain(func(_ bool, raw json.RawMessage, packedKey, packedFields []byte) error {
+	_, err = combiner.Drain(func(_ bool, raw json.RawMessage, packedKey, packedFields []byte) error {
 		require.Fail(t, "expected combine callback not to be called")
 		return fmt.Errorf("not a real error")
 	})
@@ -159,7 +159,7 @@ func TestCombineBindings(t *testing.T) {
 	}
 }
 
-func expectCombineFixture(t *testing.T, finish func(CombineCallback) error) {
+func expectCombineCallback(t *testing.T) CombineCallback {
 	var expect = []struct {
 		i int64
 		s []string
@@ -168,7 +168,7 @@ func expectCombineFixture(t *testing.T, finish func(CombineCallback) error) {
 		{42, []string{"two", "three"}},
 	}
 
-	require.NoError(t, finish(func(_ bool, raw json.RawMessage, packedKey, packedFields []byte) error {
+	return func(_ bool, raw json.RawMessage, packedKey, packedFields []byte) error {
 		t.Log("doc", string(raw))
 
 		var doc struct {
@@ -189,5 +189,19 @@ func expectCombineFixture(t *testing.T, finish func(CombineCallback) error) {
 
 		expect = expect[1:]
 		return nil
-	}))
+	}
+}
+
+func expectCombineFixture(t *testing.T, finish func(CombineCallback) (*pf.CombineAPI_Stats, error)) {
+	var stats, err = finish(expectCombineCallback(t))
+	require.NoError(t, err)
+	t.Log(stats)
+	// Technically, we already test the correctness of stats on the rust side, but these assertions
+	// exist to ensure that the stats successfully make it back into the Go side correctly.
+	require.Equal(t, uint64(1), stats.Left.Docs)
+	require.Equal(t, uint64(23), stats.Left.Bytes)
+	require.Equal(t, uint64(3), stats.Right.Docs)
+	require.Equal(t, uint64(72), stats.Right.Bytes)
+	require.Equal(t, uint64(2), stats.Out.Docs)
+	require.Equal(t, uint64(167), stats.Out.Bytes)
 }

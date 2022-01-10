@@ -155,7 +155,8 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	// Drain the combiner, mapping documents to logical partitions and writing
 	// them as uncommitted messages.
 	var mapper = flow.NewMapper(ctx, f.Service.Etcd, f.Journals, f.Service.State.LocalKey)
-	if err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
+	// Ignore combine stats for testing
+	if _, err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
 		if full {
 			panic("ingest produces only partially combined documents")
 		}

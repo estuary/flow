@@ -16,13 +16,10 @@ import (
 	"github.com/estuary/protocols/fdb/tuple"
 	pf "github.com/estuary/protocols/flow"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
-
-// TODO: move ops collection structs to a separate file
 
 // ShardRef is a reference to a specific task shard that represents the source of logs and stats.
 // This struct definition matches the JSON schema for the ops collections at:
@@ -38,63 +35,18 @@ type Meta struct {
 	UUID string `json:"uuid"`
 }
 
-type DocsAndBytes struct {
-	Docs  uint64 `json:"docs"`
-	Bytes uint64 `json:"bytes"`
-}
-
-func docsAndBytesFromProto(proto *pf.DocsAndBytes) DocsAndBytes {
-	if proto == nil {
-		return DocsAndBytes{}
+func shardAndPartitions(labeling labels.ShardLabeling) (ShardRef, tuple.Tuple) {
+	var shard = ShardRef{
+		Name:        labeling.TaskName,
+		Kind:        labeling.TaskType,
+		KeyBegin:    fmt.Sprintf("%08x", labeling.Range.KeyBegin),
+		RClockBegin: fmt.Sprintf("%08x", labeling.Range.RClockBegin),
 	}
-	return DocsAndBytes{
-		Docs:  proto.Docs,
-		Bytes: proto.Bytes,
+	var partitions = tuple.Tuple{
+		shard.Kind,
+		shard.Name,
 	}
-}
-
-type CaptureBindingStats struct {
-	Right DocsAndBytes `json:"right"`
-	Out   DocsAndBytes `json:"out"`
-}
-
-type MaterializeBindingStats struct {
-	Left  DocsAndBytes `json:"left"`
-	Right DocsAndBytes `json:"right"`
-	Out   DocsAndBytes `json:"out"`
-}
-
-type InvokeStats struct {
-	Out          DocsAndBytes `json:"out"`
-	SecondsTotal float64      `json:"secondsTotal"`
-}
-
-type DeriveTransformStats struct {
-	Input   DocsAndBytes  `json:"input"`
-	Update  *InvokeStats  `json:"update,omitempty"`
-	Publish *DocsAndBytes `json:"publish,omitempty"`
-}
-
-type DeriveRegisterStats struct {
-	CreatedTotal uint64 `json:"createdTotal"`
-}
-
-type DeriveStats struct {
-	Transforms map[string]DeriveTransformStats `json:"transforms"`
-	Out        DocsAndBytes                    `json:"out"`
-	Registers  *DeriveRegisterStats            `json:"registers,omitempty"`
-}
-
-// StatsEvent is the Go struct corresponding to ops/<tenant>/stats collections. It must be
-// consistent with the JSON schema: crates/build/src/ops/ops-stats-schema.json
-type StatsEvent struct {
-	Meta             Meta                               `json:"_meta"`
-	Shard            *ShardRef                          `json:"shard"`
-	Timestamp        time.Time                          `json:"ts"`
-	OpenSecondsTotal float64                            `json:"openSecondsTotal"`
-	Capture          map[string]CaptureBindingStats     `json:"capture,omitempty"`
-	Materialize      map[string]MaterializeBindingStats `json:"materialize,omitempty"`
-	Derive           *DeriveStats                       `json:"derive,omitempty"`
+	return shard, partitions
 }
 
 // LogEvent is a Go struct definition that matches the log event documents defined by:
@@ -186,7 +138,7 @@ func NewLogPublisher(
 	go func(ch <-chan *client.AsyncAppend) {
 		for op := range ch {
 			if logErr := op.Err(); logErr != nil && logErr != context.Canceled {
-				ops.StdLogger().Log(log.ErrorLevel, log.Fields{
+				ops.StdLogger().Log(logrus.ErrorLevel, logrus.Fields{
 					"shard": shard,
 					"error": logErr,
 				}, "failed to append to log collection")
@@ -223,7 +175,7 @@ func NewLogPublisher(
 }
 
 // Level implements the ops.Logger interface.
-func (p *LogPublisher) Level() log.Level {
+func (p *LogPublisher) Level() logrus.Level {
 	return p.level
 }
 
@@ -253,15 +205,15 @@ func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map
 	return err
 }
 
-func levelString(level log.Level) string {
+func levelString(level logrus.Level) string {
 	switch level {
-	case log.TraceLevel:
+	case logrus.TraceLevel:
 		return "trace"
-	case log.DebugLevel:
+	case logrus.DebugLevel:
 		return "debug"
-	case log.InfoLevel:
+	case logrus.InfoLevel:
 		return "info"
-	case log.WarnLevel:
+	case logrus.WarnLevel:
 		return "warn"
 	default:
 		return "error"
@@ -298,6 +250,8 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface
 	if err != nil {
 		return fmt.Errorf("serializing log event: %w", err)
 	}
+	// We currently omit the key from this Mappable, which is fine because we don't actually use it
+	// for publishing logs.
 	var mappable = flow.Mappable{
 		Spec:       p.opsCollection,
 		Doc:        json.RawMessage(eventJson),
@@ -324,24 +278,15 @@ func (m *constMapper) Map(msg message.Mappable) (pb.Journal, string, error) {
 	return m.journal, m.journalContentType, nil
 }
 
-// validateLogCollection ensures that the collection spec has the expected key and partition fields.
-// We manually extract keys and partition fields for logs collections, instead of running them
-// through a combiner. This function ensures that the fields we extract here will match the logs
+// validateOpsCollection ensures that the collection spec has the expected partition fields.
+// We manually extract partition fields for logs and stats collections, instead of running them
+// through a combiner. This function ensures that the fields we extract here will match the ops
 // collection that we'll publish to. This validation should fail if someone were to change the
 // generated ops collections without updating this file to match.
-func validateLogCollection(c *pf.CollectionSpec) error {
+func validateOpsCollection(c *pf.CollectionSpec) error {
 	var expectedPartitionFields = []string{"kind", "name"}
 	if err := validateStringSliceEq(expectedPartitionFields, c.PartitionFields); err != nil {
 		return fmt.Errorf("invalid partition fields: %w", err)
-	}
-	var expectedKeyPtrs = []string{
-		"/shard/name",
-		"/shard/keyBegin",
-		"/shard/rClockBegin",
-		"/ts",
-	}
-	if err := validateStringSliceEq(expectedKeyPtrs, c.KeyPtrs); err != nil {
-		return fmt.Errorf("invalid key pointers: %w", err)
 	}
 	return nil
 }
