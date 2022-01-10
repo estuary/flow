@@ -129,12 +129,15 @@ The following sections will refer to this example when discussing concepts.
 
 ## Transformations
 
-A transformation binds a **source** collection to a derivation.
+A transformation binds a [source](#sources) collection to a derivation.
 As documents of the source collection arrive,
 the transformation processes the document
-to derive new documents, or update a register, or both.
+to [publish](#publish-lambdas) new documents,
+or [update](#update-lambdas) a
+[register](#registers),
+or both.
 
-Read source documents are _shuffled_ on a **shuffle key** to
+Read source documents are [shuffled](#shuffles) on a **shuffle key** to
 co-locate the processing of documents that have equal shuffle keys.
 The transformation then processes documents by invoking **lambdas**:
 user-defined functions which accept documents as arguments
@@ -156,6 +159,23 @@ However renaming a running transformation is not possible:
 if attempted, the old transformation is dropped and
 a new transformation under the new name is created,
 which begins reading its source collection all over again.
+
+<Mermaid chart={`
+	graph LR;
+    d[Derivation];
+    t[Transformation];
+    r[Registers];
+    p[Publish λ];
+    u[Update λ];
+    c[Sourced Collection];
+    d-- has many -->t;
+    t-- reads from -->c;
+    t-- invokes -->u;
+    t-- invokes -->p;
+    u-- updates -->r;
+    r-- reads -->p;
+    d-- indexes -->r;
+`}/>
 
 ## Sources
 
@@ -427,14 +447,14 @@ and by implication was the first transfer for this pair of accounts.
 <Mermaid chart={`
   sequenceDiagram
     autonumber
-    Flow->>Update λ: update({sender: alice, recipient: bob})?
-    Update λ-->>Flow: return "true"
-    Flow->>Registers: lookup(key = [alice, bob])?
-    Registers-->>Flow: not found, initialize as "false"
-    Flow-->>Flow: Register: "false" => "true"
-    Flow-)Registers: store(key = [alice, bob], value = "true")
-    Flow->>Publish λ: publish({sender: alice, recipient: bob}, register = "true", previous = "false")?
-    Publish λ-->>Flow: return {sender: alice, recipient: bob}
+    Derivation->>Update λ: update({sender: alice, recipient: bob})?
+    Update λ-->>Derivation: return "true"
+    Derivation->>Registers: lookup(key = [alice, bob])?
+    Registers-->>Derivation: not found, initialize as "false"
+    Derivation-->>Derivation: Register: "false" => "true"
+    Derivation-)Registers: store(key = [alice, bob], value = "true")
+    Derivation->>Publish λ: publish({sender: alice, recipient: bob}, register = "true", previous = "false")?
+    Publish λ-->>Derivation: return {sender: alice, recipient: bob}
 `}/>
 
 :::info FAQ
@@ -505,16 +525,16 @@ into a derivation register keyed on the account.
 <Mermaid chart={`
   sequenceDiagram
     autonumber
-    Flow->>Registers: lookup(key = alice)?
-    Registers-->>Flow: not found, initialize as 0
-    Flow->>Update λ: update({recipient: alice, amount: 50, ...})?
-    Update λ-->>Flow: return +50
-    Flow->>Update λ: update({sender: alice, amount: 75, ...})?
-    Update λ-->>Flow: return -75
-    Flow-->>Flow: Register: 0 + 50 => 50
-    Flow-->>Flow: Register: 50 - 75 => -25
-    Flow->>Publish λ: publish({sender: alice, amount: 75, ...}, register = -25, previous = 50)?
-    Publish λ-->>Flow: return {sender: alice, amount: 75, balance: -25, overdrawn: true}
+    Derivation->>Registers: lookup(key = alice)?
+    Registers-->>Derivation: not found, initialize as 0
+    Derivation->>Update λ: update({recipient: alice, amount: 50, ...})?
+    Update λ-->>Derivation: return +50
+    Derivation->>Update λ: update({sender: alice, amount: 75, ...})?
+    Update λ-->>Derivation: return -75
+    Derivation-->>Derivation: Register: 0 + 50 => 50
+    Derivation-->>Derivation: Register: 50 - 75 => -25
+    Derivation->>Publish λ: publish({sender: alice, amount: 75, ...}, register = -25, previous = 50)?
+    Publish λ-->>Derivation: return {sender: alice, amount: 75, balance: -25, overdrawn: true}
 `}/>
 
 ## Processing Order
