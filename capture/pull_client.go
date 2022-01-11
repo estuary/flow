@@ -92,7 +92,12 @@ func (c *PullClient) Serve(startCommitFn func(error)) {
 	var respCh = PullResponseChannel(c.rpc)
 
 	c.loop(startCommitFn,
-		func() (drained bool, err error) {
+		func(full bool) (drained bool, err error) {
+			var maybeRespCh <-chan PullResponseError
+			if !full {
+				maybeRespCh = respCh
+			}
+
 			select {
 			case <-c.maybeLogCommittedOp():
 				if err = c.onLogCommitted(); err != nil {
@@ -105,7 +110,7 @@ func (c *PullClient) Serve(startCommitFn func(error)) {
 					return false, fmt.Errorf("onLogCommittedOpCh: %w", err)
 				}
 
-			case rx, ok := <-respCh:
+			case rx, ok := <-maybeRespCh:
 				if !ok {
 					respCh = nil // Don't select again.
 					return true, nil

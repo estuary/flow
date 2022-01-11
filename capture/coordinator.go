@@ -39,10 +39,14 @@ type captureTxn struct {
 	combiners []pf.Combiner
 	// Merged checkpoint of the capture.
 	merged pf.DriverCheckpoint
+	// Number of bytes accumulated into the transaction.
+	numBytes int
 	// Number of checkpoints accumulated into the transaction.
 	numCheckpoints int
 	// Are we awaiting a Checkpoint before we may commit ?
 	pending bool
+	// Are we no longer accepting further documents & checkpoints ?
+	full bool
 }
 
 func newCoordinator(
@@ -151,6 +155,7 @@ func (c *coordinator) onDocuments(docs Documents) error {
 		if err := combiner.CombineRight(docs.Arena.Bytes(slice)); err != nil {
 			return fmt.Errorf("combiner.CombineRight: %w", err)
 		}
+		c.next.numBytes += int(slice.End - slice.Begin)
 	}
 	c.next.pending = true // Mark that we're awaiting a Checkpoint.
 
@@ -165,6 +170,7 @@ func (c *coordinator) onCheckpoint(checkpoint pf.DriverCheckpoint) error {
 	}
 	c.next.numCheckpoints++
 	c.next.pending = false
+	c.next.full = c.next.numBytes > combinerByteThreshold
 
 	return nil
 }
@@ -178,7 +184,7 @@ func (c *coordinator) maybeLogCommittedOp() <-chan struct{} {
 
 func (c *coordinator) loop(
 	startCommitFn func(error),
-	nextFn func() (drained bool, _ error),
+	nextFn func(full bool) (drained bool, _ error),
 ) (__out error) {
 	defer func() {
 		// loopOp must resolve first to avoid a deadlock if
@@ -197,8 +203,10 @@ func (c *coordinator) loop(
 			c.prior, c.next = c.next, captureTxn{
 				combiners:      c.prior.combiners,
 				merged:         pf.DriverCheckpoint{},
+				numBytes:       0,
 				numCheckpoints: 0,
 				pending:        true,
+				full:           false,
 			}
 			c.logCommittedDone = false
 
@@ -207,10 +215,17 @@ func (c *coordinator) loop(
 		}
 
 		var err error
-		if drained, err = nextFn(); err != nil {
+		if drained, err = nextFn(c.next.full); err != nil {
 			return err
 		}
 	}
 
 	return io.EOF
 }
+
+// combinerByteThreshold is a coarse target on the documents which can be
+// optimistically combined within a capture transaction, while awaiting
+// the commit of a previous transaction. Upon reaching this threshold,
+// further documents and checkpoints will not be folded into the
+// transaction.
+var combinerByteThreshold = (1 << 27) // 128MB.
