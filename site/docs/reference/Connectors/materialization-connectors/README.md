@@ -5,7 +5,7 @@ Estuary's available materialization connectors are listed in this section. Each 
 More configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information on missing connectors.
 :::
 
-Links to the most recent Docker image, which you'll need for certain configuration methods.
+Also listed are links to the most recent Docker image, which you'll need for certain configuration methods.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
