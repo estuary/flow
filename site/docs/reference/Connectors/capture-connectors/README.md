@@ -6,7 +6,7 @@ Estuary's available capture connectors are listed in this section. Each connecto
 More configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information on missing connectors.
 :::
 
-Links to the most recent Docker image, which you'll need for certain configuration methods.
+Also listed are links to the most recent Docker image, which you'll need for certain configuration methods.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
@@ -24,6 +24,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Google Cloud Storage
   * Configuration
   * Package — ghcr.io/estuary/source-gcs:dev
+* MySQL
+  * [Configuration](./MySQL.md)
+  * Package - ghcr.io/estuary/source-mysql:dev
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
