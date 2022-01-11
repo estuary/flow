@@ -97,12 +97,20 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, <-startCommitCh)
 	drain()
 
+	// Lower the threshold under which we'll combine multiple checkpoints of documents.
+	// Of the three following checkpoints, the first and second but not third will
+	// be combined into one commit.
+	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
+	combinerByteThreshold = 16
+
 	// While this commit runs, the server sends more documents and checkpoints.
 	server.sendDocs(0, "six", "seven")
 	server.sendDocs(0, "eight")
 	server.sendCheckpoint(map[string]int{"c": 1})
 	server.sendDocs(0, "nine")
 	server.sendCheckpoint(map[string]int{"b": 2})
+	server.sendDocs(0, "ten")
+	server.sendCheckpoint(map[string]int{"d": 1})
 	// Then it closes without waiting for our Acknowledge.
 	server.DoneOp.Resolve(nil)
 
@@ -111,7 +119,15 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
 	commitOp.Resolve(nil)
 
-	// Expect we're notified of a last commit, which rolls up both checkpoints.
+	// Expect we're notified of a 2nd to last commit, which rolls up two checkpoints.
+	require.NoError(t, <-startCommitCh)
+	drain()
+
+	commitOp = client.NewAsyncOperation()
+	require.NoError(t, rpc.SetLogCommitOp(commitOp))
+	commitOp.Resolve(nil)
+
+	// Final commit.
 	require.NoError(t, <-startCommitCh)
 	drain()
 

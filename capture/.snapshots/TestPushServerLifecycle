@@ -1,7 +1,7 @@
 DRIVER CHECKPOINT:
-(flow.DriverCheckpoint) driver_checkpoint_json:"{\"a\":2,\"b\":2}" 
+(flow.DriverCheckpoint) driver_checkpoint_json:"{\"a\":2,\"b\":2,\"c\":1}" 
 CAPTURED
-([]json.RawMessage) (len=5) {
+([]json.RawMessage) (len=7) {
   (json.RawMessage) (len=5) {
     00000000  22 6f 6e 65 22                                    |"one"|
   },
@@ -16,5 +16,11 @@ CAPTURED
   },
   (json.RawMessage) (len=6) {
     00000000  22 66 69 76 65 22                                 |"five"|
+  },
+  (json.RawMessage) (len=5) {
+    00000000  22 73 69 78 22                                    |"six"|
+  },
+  (json.RawMessage) (len=7) {
+    00000000  22 73 65 76 65 6e 22                              |"seven"|
   }
 }

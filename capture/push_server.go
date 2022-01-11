@@ -12,7 +12,7 @@ import (
 type PushServer struct {
 	coordinator
 	ctx               context.Context   // Context of Serve's lifetime.
-	readyCh           chan readyPush    // Sent to from Push.
+	pushCh            chan readyPush    // Sent to from Push.
 	priorAck, nextAck []chan<- struct{} // Notifications for awaiting RPCs.
 }
 
@@ -44,7 +44,7 @@ func NewPushServer(
 	var out = &PushServer{
 		coordinator: coordinator,
 		ctx:         ctx,
-		readyCh:     make(chan readyPush),
+		pushCh:      make(chan readyPush),
 	}
 	return out, nil
 }
@@ -61,7 +61,7 @@ func (c *PushServer) Push(
 	ackCh chan<- struct{},
 ) error {
 	select {
-	case c.readyCh <- readyPush{
+	case c.pushCh <- readyPush{
 		docs:       docs,
 		checkpoint: checkpoint,
 		ackCh:      ackCh,
@@ -110,7 +110,12 @@ func (c *PushServer) Serve(startCommitFn func(error)) {
 			}
 			startCommitFn(err)
 		},
-		func() (drained bool, err error) {
+		func(full bool) (drained bool, err error) {
+			var maybePushCh <-chan readyPush
+			if !full {
+				maybePushCh = c.pushCh
+			}
+
 			select {
 			case <-doneCh:
 				doneCh = nil // Don't select again.
@@ -127,7 +132,7 @@ func (c *PushServer) Serve(startCommitFn func(error)) {
 					return false, fmt.Errorf("onLogCommittedOpCh: %w", err)
 				}
 
-			case rx := <-c.readyCh:
+			case rx := <-maybePushCh:
 				for _, docs := range rx.docs {
 					if err := c.onDocuments(docs); err != nil {
 						return false, fmt.Errorf("onDocuments: %w", err)

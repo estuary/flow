@@ -89,24 +89,41 @@ func TestPushServerLifecycle(t *testing.T) {
 	commitOp.Resolve(nil)
 	_, _ = <-acksCh, <-acksCh // Next two Pushes are acknowledged.
 
-	// A checkpoint without Documents is also valid.
-	require.NoError(t, push.Push(
-		nil,
-		*makeCheckpoint(map[string]int{"a": 2}),
-		acksCh,
-	))
+	// Lower the target threshold for combining push checkpoints,
+	// so that the first and second pushes commit separately.
+	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
+	combinerByteThreshold = 1
 
-	// Begin a graceful top of Serve.
-	cancel()
+	// Next two pushes race our reads of the next ready commit.
+	// However, we set a low combiner byte threshold, so we're guaranteed
+	// that they commit separately (which would otherwise not be true).
+	go func() {
+		require.NoError(t, push.Push(
+			[]Documents{*makeDocs(0, "six", "seven")},
+			*makeCheckpoint(map[string]int{"c": 1}),
+			acksCh,
+		))
+		// A checkpoint without Documents is also valid.
+		require.NoError(t, push.Push(
+			nil,
+			*makeCheckpoint(map[string]int{"a": 2}),
+			acksCh,
+		))
 
-	// We were notified that the next commit is ready.
-	require.NoError(t, <-startCommitCh)
-	drain()
+		// Begin a graceful top of Serve.
+		cancel()
+	}()
 
-	commitOp = client.NewAsyncOperation()
-	require.NoError(t, push.SetLogCommitOp(commitOp))
-	commitOp.Resolve(nil)
-	_ = <-acksCh // Last push is acknowledged.
+	// We are notified that two commits are ready.
+	for i := 0; i != 2; i++ {
+		require.NoError(t, <-startCommitCh)
+		drain()
+
+		commitOp = client.NewAsyncOperation()
+		require.NoError(t, push.SetLogCommitOp(commitOp))
+		commitOp.Resolve(nil)
+		<-acksCh // Push is acknowledged.
+	}
 
 	// Serve has stopped running.
 	<-push.ServeOp().Done()
