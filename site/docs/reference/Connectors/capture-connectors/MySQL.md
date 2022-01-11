@@ -1,5 +1,10 @@
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
+:::caution
+This connector is still under development. Estuary does not currently guarantee
+that it will behave as expected in all production environments.
+:::
+
 `ghcr.io/estuary/source-mysql:dev` provides the latest connector image when using the Flow GitOps environment.
 You can also follow the link in your browser to see past image versions.
 
@@ -26,8 +31,10 @@ To meet these requirements, do the following:
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 ```
-2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table. The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access too.
+2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
@@ -35,7 +42,9 @@ CREATE USER IF NOT EXISTS flow_capture
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-
+```
+3. Configure the binary log to record complete table metadata.
+```sql
 SET PERSIST binlog_row_metadata = 'FULL';
 ```
 
@@ -45,7 +54,7 @@ There are various ways to configure and implement connectors. See [connectors](.
 ### Values
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
-| `address` | Address | string | Required | IP address or port of the database host |
+| `address` | Address | string | Required | IP address and port of the database host |
 | `user` | User | string | Required | Database user to connect as |
 | `password` | Password | string | Required | Password for the specified database user |
 | `dbname` | Database name | string | Required | Name of the database to connect to |
