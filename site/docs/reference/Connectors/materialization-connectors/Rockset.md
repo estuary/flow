@@ -53,13 +53,13 @@ You can backfill large amounts of historical data into Rockset using a *bulk ing
 ### Prerequisites
 
 Before completing this workflow, make sure you have:
-* A working catalog spec including at least one Flow collection with its schema specified.
+* A working catalog spec including at least one Flow collection.
 * A production or [development](../../../getting-started/installation.md) environment
 ::: tip
 The following is an intermediate workflow. As needed, refer to [this guide](../../../guides/create-dataflow.md) for the basic steps to create and deploy a catalog spec using the GitOps workflow.
 :::
 
-### How to configure a bulk ingestion
+### How to perform a bulk ingestion
 
 A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [materialize-s3-parquet](../materialize-s3-parquet/) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switch to the Rockset Write API for the continuous materialization of new data.
 
