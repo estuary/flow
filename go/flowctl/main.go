@@ -84,10 +84,12 @@ its responsible shards and will exit only when it can safely do so.
 
 	// journals command - Add all journals sub-commands from gazctl under this command.
 	journals, err := parser.Command.AddCommand("journals", "Interact with broker journals", "", gazctlcmd.JournalsCfg)
+	mbp.Must(err, "failed to add journals command")
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("journals", journals, true), "failed to add commands")
 
 	// shards command - Add all shards sub-commands from gazctl under this command.
 	shards, err := parser.Command.AddCommand("shards", "Interact with consumer shards", "", gazctlcmd.ShardsCfg)
+	mbp.Must(err, "failed to add shards command")
 	mbp.Must(gazctlcmd.CommandRegistry.AddCommands("shards", shards, true), "failed to add commands")
 
 	mbp.AddPrintConfigCmd(parser, iniFilename)
@@ -118,6 +120,10 @@ Monitor a catalog's dataflow execution in the data-plane, and exit when it finis
 	addCmd(apis, "delete", "Delete from a built Flow catalog", `
 Delete tasks and collections of a built Flow catalog.
 `, &apiDelete{})
+
+	addCmd(apis, "spec", "Query a connector image for its specification", `
+Query a connector image for its specification.
+`, &apiSpec{})
 
 	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)
