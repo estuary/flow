@@ -1,15 +1,13 @@
----
-description: How Flow stores data
----
-
 # Collections
 
-Flow stores data in **collections**: append-only sets of immutable JSON documents.
-Collections may be appended to by **captures**, or be _derived_ from transformed source collections.
+Flow stores data in **collections**:
+a real-time data lake of JSON documents.
+Collections may be added to by [captures](captures.md),
+or be [derived](derivations.md) as a transformation
+of other source collections.
 
-Every collection has a key and an associated JSON schema that documents must validate against.
-JSON schema is flexible and the schema could be exactingly strict,
-extremely permissive, or somewhere in between.
+Every collection has a key and an associated [schema](#schemas)
+that its documents must validate against.
 
 ## Specification
 
@@ -22,8 +20,10 @@ collections:
   # The unique name of the collection.
   acmeCo/products/anvils:
 
-    # The schema of the collection, against which collection documents are validated.
-    # Required, type: string or object
+    # The schema of the collection, against which collection documents
+    # are validated. This may be an inline definition or a relative URL
+    # reference.
+    # Required, type: string (relative URL form) or object (inline form)
     schema: anvils.schema.yaml
 
     # The key of the collection, specified as JSON pointers of one or more
@@ -44,27 +44,15 @@ collections:
     derivation:
 ```
 
-## Storage
-
-Collections are hybrids of low-latency streams and batch datasets.
-Stream readers receive an added document within milliseconds of its being committed.
-Once written, documents group into regular JSON files and persist into an organized layout in cloud storage (a "data lake").
-
-Your [storage mappings](storage-mappings.md) determine the cloud storage location of each collection.
-Flow understands how persisted files stitch back together with the stream,
-and readers of collections transparently switch between direct read from cloud storage and low-latency streaming.
-
-Persisted files integrate with your existing batch tools, like Spark and MapReduce.
-They use Hive-compatible partitioning, which systems like BigQuery and Snowflake use
-to read only the subset of files that match the `WHERE` clause of your ad-hoc query (known as _predicate push-down_).
-
-Learn more about how Flow stores data in the [architecture documentation](../../architecture/storage.md).
-
 ## Schemas
 
-Every Flow collection must declare a JSON schema.
-Flow will never allow data to be added to a collection that does not validate against a schema.
-This helps ensure the quality of your data products and the reliability of your derivations and materializations.
+Every Flow collection must declare a schema,
+and will never accept documents
+that do not validate against the schema.
+This helps ensure the quality of your data products
+and the reliability of your derivations and materializations.
+Schema specifications are flexible:
+yours could be exactingly strict, extremely permissive, or somewhere in between.
 
 Schemas may either be declared inline, or provided as a reference to a file.
 References can also include JSON pointers as a URL fragment to name a specific schema of a larger schema document:
@@ -109,7 +97,7 @@ collections:
 </TabItem>
 </Tabs>
 
-[Learn more about schemas](schemas-and-data-reductions.md)
+[Learn more about schemas](schemas.md)
 
 ## Keys
 
@@ -185,7 +173,7 @@ location could not exist, or could exist with the wrong type.
 
 Flow itself doesn't mind if a keyed location could have multiple types,
 so long as they're each of the allowed types: an `integer` or `string` for example.
-Some materialization [connectors](../connectors.md) however may impose further type
+Some materialization [connectors](connectors.md) however may impose further type
 restrictions as required by the endpoint.
 For example, SQL databases do not support multiple types for a primary key.
 
@@ -280,38 +268,24 @@ collections:
 
 ```
 
-Learn more about [projections](projections.md).
+[Learn more about projections](projections.md).
 
-## Characteristics of Collections
+## Storage
 
-When working with collections, it's important to know how they're implemented to understand what they are and what they aren't.
+Collections are real-time data lakes.
+Historical documents of the collection
+are stored as an organized layout of
+regular JSON files in your cloud storage bucket.
+Reads of that history are served by
+directly reading files from your bucket.
 
-### Optimized for Low-Latency Processing
+Your [storage mappings](storage-mappings.md)
+determine how Flow collections are mapped into
+your cloud storage buckets.
 
-As documents are added to a collection, materializations and derivations that use that collection are immediately notified (within milliseconds). This allows Flow to minimize end-to-end processing latency.
+Unlike a traditional data lake, however,
+it's very efficient to read collection documents as they are written.
+Derivations and materializations which source from a collection
+are notified of its new documents within milliseconds of their being published.
 
-### As Data Lakes
-
-Collections organize, index, and durably store documents within a hierarchy of files implemented atop cloud storage. These files are Flow’s native, source-of-truth representation for the contents of the collection, and can be managed and deleted using regular bucket life-cycle policies.
-
-Files hold collection documents with no special formatting (for example, as JSON lines), and can be directly processed using Spark and other preferred tools.
-
-### Unbounded Size
-
-The Flow runtime persists data to cloud storage as soon as possible, and uses machine disks only for temporary data and indexes. Collection retention policies can be driven only by your organizational requirements – not your available disk space.
-
-A new derivation or materialization will efficiently back-fill over all collection documents – even where they span months or even years of data – by reading directly out of cloud storage.
-
-Crucially, a high scale back-fill that sources from a collection doesn’t compete with and cannot harm the collection’s ability to accept new writes, as reads depend _only_ on cloud storage for serving up historical data.
-This is a guarantee that’s unique to [Flow's architecture.](../../../architecture/)
-
-### Logical Partitions
-
-Logical partitions are defined in terms of a [JSON-Pointer](https://tools.ietf.org/html/rfc6901): the pointer `/region` would extract a partition value of “EU” from collection document `{"region": "EU", ...}`.
-
-Documents are segregated by partition values, and are organized within cloud storage using a Hive-compatible layout. Partitioned collections are directly interpretable as external tables by tools that understand Hive partitioning and predicate push-down, like Snowflake, BigQuery, and Hive itself.
-
-Each logical partition will have one or more _physical_ partitions, backed by a corresponding Gazette journal.
-Physical partitions are largely transparent to users, but enable Flow to scale out processing as the data rate increases, and may be added at any time.
-
-Learn more about [logical partitions](projections.md#logical-partitions).
+[Learn more about journals, which provide storage for collections](journals.md)

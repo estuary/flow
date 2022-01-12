@@ -1,7 +1,3 @@
----
-description: How Flow uses JSON schemas to model data structure and constraints
----
-
 # Schemas
 
 Flow documents and [collections](collections.md) always have an associated schema
@@ -16,11 +12,10 @@ and that bugs and invalid documents are caught before they can impact downstream
 ## JSON Schema
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
-is an open standard for defining the schema and structure of documents.
+is an expressive open standard for defining the schema and structure of documents.
 Flow uses it for all schemas defined within a Flow catalog.
 
-JSON Schema is an expressive standard for defining document shapes:
-it goes well beyond basic type information and can model
+JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),
 recursion, and other complex, real-world composite types.
 Schemas can also define rich data validations like minimum & maximum values,
@@ -33,17 +28,29 @@ They’re a powerful tool for ensuring end-to-end data quality:
 for catching data errors and mistakes early,
 before they can impact your production data products.
 
+### Generation
+
+When capturing data from an external system,
+Flow is often able to generate suitable JSON schemas on your behalf.
+
+[Learn more about using connectors](connectors.md#using-connectors)
+
 ### Translations
 
 A central design tenant of Flow is that users need only provide
 a model of their data _one time_, as a JSON schema.
-Having done that, Flow leverages static inference over the schema
-to provide translations into other schema flavors:
+Having done that, Flow leverages static inference over your schemas
+to perform many build-time validations of your catalog entities,
+helping you catch potential problems early.
 
-* Most [projections](projections.md) of a collection are automatically inferred from its schema,
-  and inference is used to map to appropriate SQL types and constraints.
-* Inference powers many of the error checks Flow performs,
-  such as ensuring that the collection key must exist and is of an appropriate type.
+Schema inference is also used to provide translations into other schema flavors:
+
+* Most [projections](projections.md) of a collection
+  are automatically inferred from its schema.
+  Materializations use your projections to create appropriate representations
+  in your endpoint system.
+  A SQL connector will create table definitions with appropriate
+  columns, types, and constraints.
 * Flow generates TypeScript definitions from schemas to provide
   compile-time type checks of user lambda functions.
   These checks are immensely helpful for surfacing mismatched expectations around,
@@ -284,5 +291,5 @@ oneOf:
 ```
 
 Combining schema conditionals with annotations can be used to build
-[rich behaviors](../../reference/reduction-strategies/composing-with-conditionals.md).
+[rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 

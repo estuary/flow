@@ -1,7 +1,3 @@
----
-description: How Flow pushes collections to your endpoints using materializations
----
-
 # Materializations
 
 **Materializations** are the means by which Flow pushes collections into your destination **endpoints**:

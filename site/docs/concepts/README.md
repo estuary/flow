@@ -1,7 +1,3 @@
----
-description: Understand Flow's high-level concepts
----
-
 # Concepts
 
 Flow helps you define data pipelines that connect your data systems, APIs, and storage, and optionally transform data along the way.
@@ -9,7 +5,7 @@ Pipelines are defined within a Flow [catalog](#catalogs), and deployed to a Flow
 
 This page provides a high-level explanation of important concepts and terminology you'll need to understand as you begin working with Flow.
 
-![](<architecture.png>)
+![](<at-a-glance.png>)
 
 ## Catalogs
 
@@ -75,13 +71,21 @@ possibly replacing an older build under which they had been running.
 ### Specifications
 
 A catalog build begins from a set of **catalog specifications**
-which define the behavior of your catalog: its captures, derivations, tests, and more.
+which define the behavior of your catalog:
+The entities it contains, like captures, collections, and derivations,
+and their specific behaviors and configuration.
 
 You define catalog specifications using either Flow's interactive UI,
 or by directly creating and editing YAML or JSON files which are typically managed
 in a Git repository using familiar developer workflows (often called "GitOps").
+
+These files use the extension `*.flow.yaml` or simply `flow.yaml` by convention.
+As a practical benefit, using this extension will activate Flow's VSCode integration and auto-complete.
 Flow integrates with VSCode for development environment support, like auto-complete,
 tooltips, and inline documentation.
+
+Depending on your catalog, you may also have TypeScript modules,
+JSON schemas, or test fixtures which are also managed in your git repository.
 
 Whether you use the UI or Git-managed specifications is up to you,
 and teams can switch back and forth depending on what's more familiar.
@@ -89,8 +93,6 @@ and teams can switch back and forth depending on what's more familiar.
 :::note
 Flow's UI is under rapid development and expected to be generally available by end of Q1 2022.
 :::
-
-[Learn more about catalog specifications](catalog-entities/)
 
 ***
 
@@ -106,7 +108,7 @@ it does so by reading from your bucket.
 You can use regular bucket lifecycle policies to manage the deletion of data from a collection.
 However, capturing _into_ a collection or materializing _from_ a collection happens within milliseconds.
 
-[Learn more about collections](catalog-entities/collections.md)
+[Learn more about collections](collections.md)
 
 ### Journals
 
@@ -137,7 +139,7 @@ There are two categories of captures:
 Push captures are under development.
 :::
 
-[Learn more about captures](catalog-entities/captures.md)
+[Learn more about captures](captures.md)
 
 ***
 
@@ -152,7 +154,7 @@ keeps endpoint resources (like database tables) up to date using precise,
 incremental updates.
 Like captures, materializations are powered by [connectors](#connectors).
 
-[Learn more about materializations](catalog-entities/materialization.md)
+[Learn more about materializations](materialization.md)
 
 ***
 
@@ -167,7 +169,7 @@ They can also be used to tackle complex stateful streaming workflows,
 including joins and aggregations,
 and are not subject to the windowing and scaling limitations that are common to other systems.
 
-[Learn more about derivations](catalog-entities/derivations/)
+[Learn more about derivations](derivations/)
 
 ***
 
@@ -239,7 +241,7 @@ A materialization of the collection then maintains a
 database table which is keyed on your dimensions,
 so that queries are both fast _and_ up to date.
 
-[Learn more about schemas](catalog-entities/schemas-and-data-reductions.md)
+[Learn more about schemas](schemas.md)
 
 ***
 
@@ -331,7 +333,7 @@ A test is a sequence of ingestion or verification steps.
 Ingestion steps ingest one or more document fixtures into a collection,
 and verification steps assert that the contents of another derived collection match a test expectation.
 
-[Learn more about tests](catalog-entities/tests.md)
+[Learn more about tests](tests.md)
 
 ***
 

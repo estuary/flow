@@ -1,14 +1,7 @@
----
-sidebar_position: 3
-description: >-
-  Learn how to use the command-line interface to build, test, deploy, and run
-  catalogs
----
-
 # flowctl
 
 The `flowctl` command-line interface is used to test, develop, and deploy Flow catalogs.
-It is the one and only Flow binary that you need to work with,
+It is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
 
 `flowctl` includes a number of important sub-commands:
@@ -16,8 +9,9 @@ so distribution and upgrades are all simple.
 * `discover` auto-creates a catalog spec given a connector and a data source.
   It’s an assisted way to configure an endpoint data capture and scaffold a Flow project.
 
-* `temp-data-plane` starts a small local Flow data plane.
-  You are running a complete deployment of the Flow runtime, but shrunk down to run on your local machine instead of a data center.
+* `temp-data-plane` starts a local, ephemeral Flow data plane.
+  It runs a complete deployment of the Flow runtime,
+  but shrunk down to your local machine instead of a data center.
 
 * `deploy` builds from catalog sources and deploys into a Flow data plane.
   It's typically used to deploy to a temporary data plane for local development.
@@ -43,7 +37,7 @@ Except where noted, it's recommended that these outputs be committed within your
   TypeScript modules which accompany your catalog source files.
   A stub is generated for you if your catalog source uses a TypeScript lambda, and a module doesn't yet exist.
   See [Typescript code generation](#typescript-code-generation) and
-  [learn how TypeScript modules are imported](catalog-entities/import.md#typescript-modules).
+  [learn how TypeScript modules are imported](import.md#typescript-modules).
 
 * `dist/`: ♻
   Holds JavaScript and source map files produced during TypeScript compilation.
@@ -55,9 +49,9 @@ Except where noted, it's recommended that these outputs be committed within your
 
 * `package.json` and `package-lock.json`: ♻
   Files used by `npm` to manage dependencies and your catalog's associated JavaScript project.
-  You may customize portions of `package.json`,
+  You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
-  [npmDependencies](catalog-entities/import.md#npm-dependencies)
+  [npmDependencies](import.md#npm-dependencies)
   of your catalog source files.
 
 * `.eslintrc.js`: ⚓
@@ -67,16 +61,16 @@ Except where noted, it's recommended that these outputs be committed within your
 * `.prettierrc.js`: ⚓
   Configures the formatter that's used to format your TypeScript files.
 
-:::info
+:::info Legend
 ⚓: Generated only if it does not exist. Never modified or deleted by `flowctl`.
 
-♻ : `flowctl` re-generates and overwrites contents.
+♻: `flowctl` re-generates and overwrites contents.
 :::}
 
 ### TypeScript Code Generation
 
 As part of the catalog build process, Flow translates your
-[schemas](catalog-entities/schemas-and-data-reductions.md)
+[schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
 These definitions live within `flow_generated/` of your catalog build directory,
 and are frequently over-written by invocations of `flowctl`.

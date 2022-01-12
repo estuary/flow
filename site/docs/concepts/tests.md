@@ -1,7 +1,3 @@
----
-description: Understanding the essential components of a good Flow test
----
-
 # Tests
 
 As Flow catalogs grow in breadth and scope, and as requirements change or new contributors get involved,
@@ -39,7 +35,7 @@ All steps must complete successfully in order for a test to pass.
 
 `ingest` steps add documents to a named collection.
 All documents must validate against the collection's
-[schema](schemas-and-data-reductions.md),
+[schema](schemas.md),
 or a catalog build error will be reported.
 
 All documents from a _single_ `ingest` step are added in one transaction.

@@ -1,7 +1,3 @@
----
-description: How Flow translates between JSON-based collections
----
-
 # Projections
 
 Flow documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.
@@ -19,9 +15,7 @@ using a field that is simply the JSON Pointer with its leading slash removed.
 For example a schema scalar with pointer `/myScalar` will generate a projection with field `myScalar`.
 
 You can supplement by providing additional collection projections,
-and a document location can have more than one projection field that references it.
-
-Some examples:
+and a document location can have more than one projection field that references it:
 
 ```yaml
 collections:
@@ -30,7 +24,7 @@ collections:
     key: [/user/id, /timestamp]
     projections:
       # A "user/id" projection field is automatically inferred.
-      # Add an supplemental field that doesn't have a slash.
+      # Add an additional field that doesn't have a slash.
       user_id: /user/id
       # Partly decompose a nested array of requests into a handful of named projections.
       "first request": /requests/0
@@ -49,47 +43,47 @@ collections:
     schema: session.schema.yaml
     key: [/user/id, /timestamp]
     projections:
-      # Define logical partitions over country and device type.
       country:
-        location_ptr: /country
+        location: /country
         partition: true
       device:
-        location_ptr: /agent/type
+        location: /agent/type
         partition: true
-      robot:
-        location_ptr: /agent/robot
+      network:
+        location: /agent/network
         partition: true
 ```
 
-Logical partitions isolate the storage of documents by their differing
-values for partitioned fields.
-Under the hood, the partitioned fields of a document are applied to name and identify the
-[journal](../../architecture/README.md#how-brokers-connect-collections-to-the-runtime)
-into which the document is written, which in turn prescribes how journal fragment files are arranged within cloud storage.
+Logical partitions isolate the storage of documents
+by their differing values for partitioned fields.
+Flow extracts partitioned fields from each document,
+and every unique combination of partitioned fields
+is a separate logical partition.
+
+Every logical partition has one or more **physical partitions**
+into which their documents are written,
+which in turn controls
+how files are arranged within cloud storage.
 
 For example, a document of "acmeCo/user-sessions" like:
 
 ```json
-{"country": "CA", "agent": {"type": "iPhone"}, ...}
+{"country": "CA", "agent": {"type": "iPhone", "network": "LTE"}, ...}
 ```
 
-Would map to a journal prefix of
-`example/sessions/country=CA/device=iPhone/`,
-which in turn would produce fragment files in cloud storage like:
+Might produce files in cloud storage like:
 
 ```
-s3://bucket/example/sessions/country=CA/device=iPhone/pivot=00/utc_date=2020-11-04/utc_hour=16/<name>.gz
+s3://bucket/example/sessions/country=CA/device=iPhone/network=LTE/pivot=00/utc_date=2020-11-04/utc_hour=16/<name>.gz
 ```
 
 :::info
-`pivot` identifies a _physical partition_,
-while `utc_date` and `utc_hour` reflect the time at which the journal fragment was created.
-
-Within a logical partition, there are one or more physical partitions, each a journal, into which documents are actually written. The logical partition prefix is extended with a `pivot` suffix to arrive at a concrete journal name.
-
-Flow is designed so that physical partitions can be dynamically added at any time,
-to scale the write and read throughput capacity of a collection.
+`country`, `device`, and `network` together identify a _logical partition_,
+while `pivot` identifies a _physical partition_.
+`utc_date` and `utc_hour` is the time at which the journal fragment was created.
 :::
+
+[Learn more about physical partitions](journals.md#physical-partitions).
 
 ### Partition Selectors
 
@@ -116,34 +110,9 @@ partitions:
   # A match of any of the excluded fields will exclude the partition.
   # Default: No partitions are excluded. type: object
   exclude:
-    # Don't process sessions from robots.
-    robot: [true]
+    # Skip sessions which were over a 3G network.
+    network: ["3G"]
 ```
 
 Partition selectors are efficient as they allow Flow to altogether
 avoid reading documents that aren’t needed.
-
-### Hive Layouts
-
-As discussed in [Logical Partitions](#logical-partitions),
-Flow ultimately produces fragment files in cloud storage with names like:
-
-```
-s3://bucket/example/sessions/country=CA/device=iPhone/pivot=00/utc_date=2020-11-04/utc_hour=16/<name>.gz
-```
-
-If you're familiar with Apache Hive, this layout should feel familiar.
-Flow names and organizes collection fragment files to make them directly usable
-by tools that understand Hive partitioning, like Spark and Hive itself.
-Collections can also be integrated as Hive-compatible external tables
-in tools like
-[Snowflake](https://docs.snowflake.com/en/user-guide/tables-external-intro.html#partitioned-external-tables)
-and
-[BigQuery](https://cloud.google.com/bigquery/docs/hive-partitioned-queries-gcs).
-
-
-SQL queries against these tables can even utilize **predicate push-down**,
-taking query predicates over `country`, `device`, or `utc_date` and `utc_hour`
-and pushing them down into the selection of files that must be read to answer
-the query — often offering much faster and more efficient query execution because
-far less data must be read.

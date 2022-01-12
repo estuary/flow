@@ -14,7 +14,7 @@ import:
 
 The import rules are designed so that a collection doesn’t have to do anything special
 in order to be imported by another,
-and [`flowctl`](../../concepts/flowctl.md) can even directly build remote sources:
+and [`flowctl`](flowctl.md) can even directly build remote sources:
 
 ```bash
 # Test an example from the flow-template repository.

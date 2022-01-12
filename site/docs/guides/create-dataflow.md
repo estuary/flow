@@ -62,7 +62,7 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 
 ## What's next?
 
-With Flow, you can build a wide range of scalable real-time data integrations, with optional transformations. Flow is currently in private beta, and its capabilities are growing rapidly.
+With Flow, you can build a wide range of scalable real-time data integrations, with optional transformations.
 * You can add multiple captures and materializations to the same catalog spec. Check back regularly; we frequently add new connectors.
-* You can add [derivations](../concepts/catalog-entities/derivations/README.md), but note that this area of functionality is under development.
+* You can add [derivations](../concepts/derivations.md).
 * Current beta customers can work with the Estuary team to set up production-level pipelines.

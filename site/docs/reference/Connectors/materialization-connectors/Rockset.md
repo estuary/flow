@@ -1,4 +1,4 @@
-This Flow connector materializes [delta updates](../../../concepts/catalog-entities/materialization.md#how-materializations-work-) of your Flow collections into Rockset collections.
+This Flow connector materializes [delta updates](../../../concepts/materialization.md#how-materializations-work-) of your Flow collections into Rockset collections.
 
 `ghcr.io/estuary/materialize-rockset:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
@@ -14,7 +14,7 @@ To use this connector, you'll need :
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/catalog-entities/materialization.md) and add the required Rockset configuration values per the table below.
+To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/materialization.md) and add the required Rockset configuration values per the table below.
 
 ### Values
 

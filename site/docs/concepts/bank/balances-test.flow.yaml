@@ -1,0 +1,30 @@
+import:
+  - balances.flow.yaml
+
+tests:
+  acmeBank/tests/balances:
+    - ingest:
+        collection: acmeBank/transfers
+        description: Initial deposits into user accounts.
+        documents:
+          - { id: 1, sender: CREDIT, recipient: alice, amount: 100 }
+          - { id: 2, sender: CREDIT, recipient: bob, amount: 100 }
+          - { id: 3, sender: CREDIT, recipient: carol, amount: 100 }
+
+    - ingest:
+        collection: acmeBank/transfers
+        description: Transfers between users, and a withdraw.
+        documents:
+          - { id: 4, sender: alice, recipient: bob, amount: 20 }
+          - { id: 5, sender: bob, recipient: carol, amount: 40 }
+          - { id: 6, sender: carol, recipient: alice, amount: 90 }
+          - { id: 7, sender: bob, recipient: CREDIT, amount: 40 }
+
+    - verify:
+        collection: acmeBank/balances
+        description: Verify expected balances.
+        documents:
+          - { user: CREDIT, balance: -260 }
+          - { user: alice, balance: 170 }
+          - { user: bob, balance: 40 }
+          - { user: carol, balance: 50 }

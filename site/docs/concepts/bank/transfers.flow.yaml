@@ -1,0 +1,6 @@
+collections:
+  # Collection of 💲 transfers between accounts:
+  #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
+  acmeBank/transfers:
+    schema: transfers.schema.yaml
+    key: [/id]

@@ -4,11 +4,11 @@ description: Flow's default reduction behaviors and available strategies to cust
 
 # Reduction strategies
 
-Flow uses [reductions](../../concepts/catalog-entities/schemas-and-data-reductions.md#reductions)
+Flow uses [reductions](../../concepts/schemas.md#reductions)
 to aggregate data in the runtime in order to improve endpoint performance.
 Reductions tell Flow how two versions of a document can be meaningfully combined together. Guarantees that underlie all Flow reduction behavior are explained in depth [below](./#reduction-guarantees).&#x20;
 
-Some reductions [occur automatically](../../concepts/catalog-entities/materialization.md#how-materializations-work) during captures and materializations to optimize performance, but you can define more advanced behavior using reduction annotations in collection schemas.
+Some reductions [occur automatically](../../concepts/materialization.md#how-materializations-work) during captures and materializations to optimize performance, but you can define more advanced behavior using reduction annotations in collection schemas.
 
 The available strategies are:&#x20;
 
