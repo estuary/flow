@@ -61,7 +61,7 @@ The following is an intermediate workflow. As needed, refer to [this guide](../.
 
 ### How to perform a bulk ingestion
 
-A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [materialize-s3-parquet](../materialize-s3-parquet/) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switch to the Rockset Write API for the continuous materialization of new data.
+A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [materialize-s3-parquet](https://github.com/estuary/connectors/pkgs/container/materialize-s3-parquet) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switch to the Rockset Write API for the continuous materialization of new data.
 
 import Mermaid from '@theme/Mermaid';
 
