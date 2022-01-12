@@ -138,22 +138,22 @@ func (cmd cmdCombine) Execute(_ []string) error {
 				"inputDocs":  inputDocs,
 				"inputBytes": inputBytes,
 			}).Info("draining combiner")
-			oDocs, oBytes, err := drainToStdout(combine)
+			stats, err := drainToStdout(combine)
 			if err != nil {
 				return fmt.Errorf("draining combiner: %w", err)
 			}
-			outputDocs += oDocs
-			outputBytes += oBytes
+			outputDocs += stats.Out.Docs
+			outputBytes += stats.Out.Bytes
 			drained = true
 		}
 	}
 	if !drained {
-		oDocs, oBytes, err := drainToStdout(combine)
+		stats, err := drainToStdout(combine)
 		if err != nil {
 			return fmt.Errorf("draining combiner: %w", err)
 		}
-		outputDocs += oDocs
-		outputBytes += oBytes
+		outputDocs += stats.Out.Docs
+		outputBytes += stats.Out.Bytes
 	}
 
 	log.WithFields(log.Fields{
@@ -165,12 +165,9 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	return nil
 }
 
-func drainToStdout(combiner *bindings.Combine) (outputDocs uint64, outputBytes uint64, err error) {
-	err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey []byte, packedFields []byte) error {
-		outputDocs++
-		outputBytes = outputBytes + uint64(len(doc))
+func drainToStdout(combiner *bindings.Combine) (*pf.CombineAPI_Stats, error) {
+	return combiner.Drain(func(full bool, doc json.RawMessage, packedKey []byte, packedFields []byte) error {
 		fmt.Println(string(doc))
 		return nil
 	})
-	return
 }

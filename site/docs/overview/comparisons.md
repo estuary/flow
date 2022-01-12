@@ -42,7 +42,7 @@ Flow is built on [Gazette](https://gazette.readthedocs.io/en/latest/), a highly-
 
 Generally, Flow users don't need to know or care much about Gazette and its architecture, since Flow provides a higher-level interface over groups of journals, called collections.
 
-Flow [collections](../concepts/catalog-entities/collections.md) are somewhat similar to Kafka **streams**, but with some important differences. Collections always store JSON and must have an associated JSON schema. Collections also support automatic logical and physical partitioning. Each collection is backed by one or more journals, depending on the partitioning.
+Flow [collections](../concepts/collections.md) are somewhat similar to Kafka **streams**, but with some important differences. Collections always store JSON and must have an associated JSON schema. Collections also support automatic logical and physical partitioning. Each collection is backed by one or more journals, depending on the partitioning.
 
 Flow [tasks](https://docs.estuary.dev/architecture/scaling#processing-with-shards) are most similar to Kafka **stream processors**, but are more opinionated. Tasks fall into one of three categories: captures, derivations, and materializations. Tasks may also have more than one process, which Flow calls **shards**, to allow for parallel processing. Tasks and shards are fully managed by Flow. This includes transactional state management and zero-downtime splitting of shards, which enables turnkey scaling.
 
@@ -50,7 +50,7 @@ Flow [tasks](https://docs.estuary.dev/architecture/scaling#processing-with-shard
 
 Spark can be described as a batch engine with stream processing add-ons, where Flow is fundamentally a streaming system that is able to easily integrate with batch systems.
 
-You can think of a Flow [collection](../concepts/catalog-entities/collections.md) as a set of RDDs with common associated metadata. In Spark, you can save an RDD to a variety of external systems, like cloud storage or a database. Likewise, you can load from a variety of external systems to create an RDD. Finally, you can transform one RDD into another. You use Flow collections in a similar manner. They represent a logical dataset, which you can **materialize** to push the data into some external system like cloud storage or a database. You can also create a collection that is **derived** by applying stateful transformations to one or more source collections.
+You can think of a Flow [collection](../concepts/collections.md) as a set of RDDs with common associated metadata. In Spark, you can save an RDD to a variety of external systems, like cloud storage or a database. Likewise, you can load from a variety of external systems to create an RDD. Finally, you can transform one RDD into another. You use Flow collections in a similar manner. They represent a logical dataset, which you can **materialize** to push the data into some external system like cloud storage or a database. You can also create a collection that is **derived** by applying stateful transformations to one or more source collections.
 
 Unlike Spark RDDs, Flow collections are backed by one or more unbounded append-only logs. Therefore, you don't create a new collection each time data arrives; you simply append to the existing one. Collections can be partitioned and can support extremely large volumes of data.
 
@@ -77,9 +77,9 @@ In Flow, you instead define a **capture** of data from the source, which runs co
 ## Fivetran, Airbyte, and other ELT solutions
 
 Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the worlds in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of
-[**captures**](../../concepts/catalog-entities/captures) (reads from sources),
-[**derivations**](../../concepts/catalog-entities/derivations) (transforms), and
-[**materializations**](../../concepts/catalog-entities/materialization) (writes to destinations).
+[**captures**](../../concepts/captures) (reads from sources),
+[**derivations**](../../concepts/derivations) (transforms), and
+[**materializations**](../../concepts/materialization) (writes to destinations).
 Collectively, these are called _tasks_.
 
 Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing.

@@ -1,4 +1,4 @@
-This Flow connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
+This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
 `ghcr.io/estuary/source-postgres:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
@@ -57,7 +57,7 @@ ALTER SYSTEM SET wal_level = logical;
 5. Restart PostgreSQL to allow the WAL level change to take effect.
 
 ## Configuration
-You may set up the configuration using the `flowctl discover` workflow, or with Flow's coming UI. Either of these methods will set up a basic [capture](../../../concepts/catalog-entities/captures.md) configuration, but you must supply additional values for the PostgreSQL connector.
+There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Values
 | Value | Name | Type | Required/Default | Details |
@@ -66,7 +66,7 @@ You may set up the configuration using the `flowctl discover` workflow, or with 
 | `host` | Host | String | Required | Host name of the database to connect to. |
 | `port` | Port | uint16 | `5432` | Port on which to connect to the database. |
 | `user` | User | String | Required | Database user to use. |
-| `password` | Password | String | Required | User password configured within the database. |
+| `password` | Password | string | Required | User password configured within the database. |
 | `publication_name` | Publication Name | string | `"flow_publication"` | The name of the PostgreSQL publication to replicate from |
 | `slot_name` | Replication Slot Name | string | `"flow_slot"` | The name of the PostgreSQL replication slot to replicate from |
 | `watermarks_table` | Watermarks Table | string | `"public.flow_watermarks"` | The name of the table used for watermark writes during backfills |
@@ -78,7 +78,7 @@ A minimal capture definition within the catalog spec will look like the followin
 captures:
   ${tenant}/${CAPTURE_NAME}:
     endpoint:
-      airbyteSource:
+      connector:
         image: "ghcr.io/estuary/source-postgres:dev"
         config:
           host: "localhost"
@@ -94,8 +94,6 @@ captures:
           stream: ${TABLE_NAME}
           namespace: ${TABLE_NAMESPACE}
           syncMode: incremental
-        target: ${COLLECTION_NAME}
+        target: ${TENANT}/${COLLECTION_NAME}
 ```
-Your capture definition will likely be more complex, with multiple binding for each table in the source database.
-
-Methods to generate a capture definition are provided here (INSERT LINK ON HOW TO USE CONNECTORS)
+Your capture definition will likely be more complex, with additional bindings for each table in the source database.
