@@ -62,18 +62,8 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     for tenant in tenants {
         let logs_collection_name = format!("ops/{}/logs", tenant);
         let stats_collection_name = format!("ops/{}/stats", tenant);
-        add_ops_collection(
-            logs_collection_name,
-            log_schema.url.clone(),
-            Some(models::JsonPointer::new("/ts")),
-            tables,
-        );
-        add_ops_collection(
-            stats_collection_name,
-            stats_schema.url.clone(),
-            None,
-            tables,
-        );
+        add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
+        add_ops_collection(stats_collection_name, stats_schema.url.clone(), tables);
     }
 }
 
@@ -81,23 +71,16 @@ fn ops_collection_resource_url() -> Url {
     builtin_url("ops/generated/collections")
 }
 
-fn add_ops_collection(
-    name: String,
-    schema_url: Url,
-    add_key: Option<models::JsonPointer>,
-    tables: &mut sources::Tables,
-) {
+fn add_ops_collection(name: String, schema_url: Url, tables: &mut sources::Tables) {
     let scope = ops_collection_resource_url();
 
     let name = models::Collection::new(name);
-    let mut key = vec![
+    let key = vec![
         models::JsonPointer::new("/shard/name"),
         models::JsonPointer::new("/shard/keyBegin"),
         models::JsonPointer::new("/shard/rClockBegin"),
+        models::JsonPointer::new("/ts"),
     ];
-    if let Some(add) = add_key {
-        key.push(add);
-    }
 
     tables.collections.insert_row(
         scope.clone(),
