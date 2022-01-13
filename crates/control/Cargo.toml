@@ -10,11 +10,16 @@ anyhow = "1.0.52"
 axum = "0.4.3"
 chrono = "0.4.19"
 hyper = { version = "0.14.16", features = ["full"] }
-reqwest = "0.11.9"
+reqwest = { version = "0.11.9", features = ["json"] }
+serde = { version = "1.0.133", features = ["derive"] }
+serde_json = "1.0.74"
 tokio = { version = "1.15.0", features = ["full"] }
 tower = { version = "0.4.11", features = ["limit"] }
 tower-http = { version = "0.2.0", features = ["trace"] }
 tracing = "0.1.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+insta = "1.10.0"
 
 [features]
