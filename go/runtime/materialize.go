@@ -78,13 +78,15 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		return pf.Checkpoint{}, err
 	}
 
+	var checkpointSource = "n/a"
 	defer func() {
 		if err == nil {
 			m.Log(log.DebugLevel, log.Fields{
-				"materialization": m.labels.TaskName,
-				"shard":           m.shardSpec.Id,
-				"build":           m.labels.Build,
-				"checkpoint":      cp,
+				"materialization":  m.labels.TaskName,
+				"shard":            m.shardSpec.Id,
+				"build":            m.labels.Build,
+				"checkpoint":       cp,
+				"checkpointSource": checkpointSource,
 			}, "initialized processing term")
 		} else {
 			m.Log(log.ErrorLevel, log.Fields{
@@ -169,11 +171,13 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		if err = cp.Unmarshal(b); err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("unmarshal Opened.FlowCheckpoint: %w", err)
 		}
+		checkpointSource = "driver"
 	} else {
 		// Otherwise restore locally persisted checkpoint.
 		if cp, err = m.store.restoreCheckpoint(shard); err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 		}
+		checkpointSource = "recoveryLog"
 	}
 
 	return cp, nil
