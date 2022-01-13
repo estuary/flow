@@ -15,7 +15,7 @@ expression: "&tables.collections"
         scope: builtin://flow/ops/generated/collections,
         collection: ops/acmeCo/stats,
         schema: builtin://flow/ops-stats-schema.json,
-        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin"],
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
         journals: {"fragments":{}},
     },
     Collection {
@@ -29,7 +29,7 @@ expression: "&tables.collections"
         scope: builtin://flow/ops/generated/collections,
         collection: ops/gooble/stats,
         schema: builtin://flow/ops-stats-schema.json,
-        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin"],
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
         journals: {"fragments":{}},
     },
     Collection {
@@ -43,7 +43,7 @@ expression: "&tables.collections"
         scope: builtin://flow/ops/generated/collections,
         collection: ops/justme/stats,
         schema: builtin://flow/ops-stats-schema.json,
-        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin"],
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
         journals: {"fragments":{}},
     },
     Collection {
@@ -57,7 +57,7 @@ expression: "&tables.collections"
         scope: builtin://flow/ops/generated/collections,
         collection: ops/shamazon/stats,
         schema: builtin://flow/ops-stats-schema.json,
-        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin"],
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
         journals: {"fragments":{}},
     },
 ]
