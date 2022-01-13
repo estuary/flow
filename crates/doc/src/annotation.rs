@@ -1,5 +1,6 @@
 use super::reduce;
 use json::{schema, validator, validator::Context};
+use serde::Deserialize;
 use std::convert::TryFrom;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.
@@ -9,8 +10,8 @@ pub enum Annotation {
     Core(schema::CoreAnnotation),
     /// "reduce" annotation keyword.
     Reduce(reduce::Strategy),
-    /// "airbyte_secret" annotation keyword.
-    Secret,
+    /// "secret" or "airbyte_secret" annotation keyword.
+    Secret(bool),
 }
 
 impl schema::Annotation for Annotation {
@@ -25,7 +26,7 @@ impl schema::Annotation for Annotation {
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
-            "reduce" | "airbyte_secret" => true,
+            "reduce" | "secret" | "airbyte_secret" => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
@@ -42,7 +43,10 @@ impl schema::build::AnnotationBuilder for Annotation {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(r) => Ok(Annotation::Reduce(r)),
             },
-            "airbyte_secret" => Ok(Self::Secret),
+            "secret" | "airbyte_secret" => match bool::deserialize(value) {
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+                Ok(b) => Ok(Annotation::Secret(b)),
+            },
             _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
     }
