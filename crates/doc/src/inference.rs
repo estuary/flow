@@ -12,13 +12,24 @@ use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shape {
+    /// Types that this location may take.
     pub type_: types::Set,
+    /// Explicit enumeration of allowed values.
     pub enum_: Option<Vec<Value>>,
+    /// Annotated `title` of the location.
     pub title: Option<String>,
+    /// Annotated `description` of the location.
     pub description: Option<String>,
+    /// Location's `reduce` strategy.
     pub reduction: Reduction,
+    /// Does this location's schema flow from a `$ref`?
     pub provenance: Provenance,
+    /// Default value of this document location, if any.
+    pub default: Option<Value>,
+    /// Is this location sensitive? For example, a password or credential.
+    pub secret: Option<bool>,
 
+    // Further type-specific inferences:
     pub string: StringShape,
     pub array: ArrayShape,
     pub object: ObjShape,
@@ -26,7 +37,7 @@ pub struct Shape {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StringShape {
-    pub is_base64: Option<bool>,
+    pub content_encoding: Option<String>,
     pub content_type: Option<String>,
     pub format: Option<String>,
     pub max_length: Option<usize>,
@@ -168,7 +179,7 @@ impl StringShape {
             _ => None,
         };
         StringShape {
-            is_base64: lhs.is_base64.or(rhs.is_base64),
+            content_encoding: lhs.content_encoding.or(rhs.content_encoding),
             content_type: lhs.content_type.or(rhs.content_type),
             format: lhs.format.or(rhs.format),
             min_length: lhs.min_length.max(rhs.min_length),
@@ -182,7 +193,7 @@ impl StringShape {
             _ => None,
         };
         StringShape {
-            is_base64: union_option(lhs.is_base64, rhs.is_base64),
+            content_encoding: union_option(lhs.content_encoding, rhs.content_encoding),
             content_type: union_option(lhs.content_type, rhs.content_type),
             format: union_option(lhs.format, rhs.format),
             max_length,
@@ -519,6 +530,8 @@ impl Default for Shape {
             description: None,
             reduction: Reduction::Unset,
             provenance: Provenance::Unset,
+            default: None,
+            secret: None,
             string: StringShape::default(),
             array: ArrayShape::default(),
             object: ObjShape::default(),
@@ -610,14 +623,14 @@ impl Shape {
                     Annotation::Core(CoreAnnotation::Description(d)) => {
                         shape.description = Some(d.clone());
                     }
-                    Annotation::Secret => {
-                        // TODO: secret is currently a no-op,
-                        // but we'll want to plumb this through into inference.
+                    Annotation::Core(CoreAnnotation::Default(value)) => {
+                        shape.default = Some(value.clone());
                     }
+                    Annotation::Secret(b) => shape.secret = Some(*b),
 
                     // String constraints.
-                    Annotation::Core(CoreAnnotation::ContentEncodingBase64) => {
-                        shape.string.is_base64 = Some(true);
+                    Annotation::Core(CoreAnnotation::ContentEncoding(enc)) => {
+                        shape.string.content_encoding = Some(enc.clone());
                     }
                     Annotation::Core(CoreAnnotation::ContentMediaType(mt)) => {
                         shape.string.content_type = Some(mt.clone());
@@ -819,6 +832,8 @@ impl Shape {
         let description = union_option(lhs.description, rhs.description);
         let reduction = lhs.reduction.union(rhs.reduction);
         let provenance = lhs.provenance.union(rhs.provenance);
+        let default = union_option(lhs.default, rhs.default);
+        let secret = union_option(lhs.secret, rhs.secret);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -852,6 +867,8 @@ impl Shape {
             description,
             reduction,
             provenance,
+            default,
+            secret,
             string,
             array,
             object,
@@ -874,6 +891,8 @@ impl Shape {
         let description = lhs.description.or(rhs.description);
         let reduction = lhs.reduction.intersect(rhs.reduction);
         let provenance = lhs.provenance.intersect(rhs.provenance);
+        let default = lhs.default.or(rhs.default);
+        let secret = lhs.secret.or(rhs.secret);
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -904,6 +923,8 @@ impl Shape {
             description,
             reduction,
             provenance,
+            default,
+            secret,
             string,
             array,
             object,
@@ -1330,16 +1351,21 @@ mod test {
                 reduce: {strategy: firstWriteWins}
                 contentEncoding: base64
                 contentMediaType: some/thing
+                default: john.doe@gmail.com
                 format: email
+                secret: true
                 "#,
                 // Mix of anyOf, oneOf, & ref.
                 r#"
                 $defs:
-                    aDef: {type: [string, array]}
+                  aDef:
+                    type: [string, array]
+                    secret: true
                 allOf:
                 - title: a-title
                 - description: a-description
                 - reduce: {strategy: firstWriteWins}
+                - default: john.doe@gmail.com
                 anyOf:
                 - contentEncoding: base64
                 - type: object # Elided (impossible).
@@ -1349,6 +1375,52 @@ mod test {
                 $ref: '#/$defs/aDef'
                 format: email
                 "#,
+                // This construction verifies the union and intersection
+                // behaviors of all scalar fields.
+                // Note that the final schema has _different_ values for all
+                // of the tested scalars within the constituent schemas of its `anyOf`.
+                // This is effectively a no-op, because the sub-schemas don't
+                // uniformly agree on those annotations, and the union of `something`
+                // and `anything` is always `anything`.
+                r#"
+                allOf:
+                  - anyOf:
+                    - type: string
+                    - type: array
+                  - anyOf:
+                    - title: a-title
+                    - title: a-title
+                  - anyOf:
+                    - description: a-description
+                    - description: a-description
+                  - anyOf:
+                    - reduce: {strategy: firstWriteWins}
+                    - reduce: {strategy: firstWriteWins}
+                  - anyOf:
+                    - contentEncoding: base64
+                    - contentEncoding: base64
+                  - anyOf:
+                    - contentMediaType: some/thing
+                    - contentMediaType: some/thing
+                  - anyOf:
+                    - default: john.doe@gmail.com
+                    - default: john.doe@gmail.com
+                  - anyOf:
+                    - format: email
+                    - format: email
+                  - anyOf:
+                    - secret: true
+                    - secret: true
+                  - anyOf:
+                    - title: other-title
+                    - description: other-description
+                    - reduce: {strategy: lastWriteWins}
+                    - contentEncoding: not-base64
+                    - contentMediaType: wrong/thing
+                    - default: jane.doe@gmail.com
+                    - format: timestamp
+                    - secret: false
+                "#,
             ],
             Shape {
                 type_: types::STRING | types::ARRAY,
@@ -1356,8 +1428,10 @@ mod test {
                 description: Some("a-description".to_owned()),
                 reduction: Reduction::FirstWriteWins,
                 provenance: Provenance::Inline,
+                default: Some(Value::String("john.doe@gmail.com".to_owned())),
+                secret: Some(true),
                 string: StringShape {
-                    is_base64: Some(true),
+                    content_encoding: Some("base64".to_owned()),
                     content_type: Some("some/thing".to_owned()),
                     format: Some("email".to_owned()),
                     max_length: None,

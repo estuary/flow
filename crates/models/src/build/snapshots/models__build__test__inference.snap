@@ -1,0 +1,38 @@
+---
+source: crates/models/src/build/mod.rs
+expression: "&[out1, out2]"
+
+---
+[
+    Inference {
+        types: [
+            "boolean",
+            "string",
+        ],
+        must_exist: true,
+        string: Some(
+            String {
+                content_type: "a/type",
+                format: "email",
+                content_encoding: "BaSE64",
+                is_base64: true,
+                max_length: 123,
+            },
+        ),
+        title: "the title",
+        description: "the description",
+        default_json: "{\"hello\":\"world\"}",
+        secret: true,
+    },
+    Inference {
+        types: [
+            "boolean",
+        ],
+        must_exist: false,
+        string: None,
+        title: "the title",
+        description: "the description",
+        default_json: "{\"hello\":\"world\"}",
+        secret: true,
+    },
+]
