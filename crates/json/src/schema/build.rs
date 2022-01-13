@@ -32,8 +32,6 @@ pub enum Error {
     ExpectedNumber,
     #[error("expected an array of strings")]
     ExpectedStringArray,
-    #[error("invalid contentEncoding (expected 'base64')")]
-    UnexpectedContentEncoding,
     #[error("expected '{0}' to be a base URI")]
     ExpectedBaseURI(url::Url),
     #[error("unexpected keyword '{0}'")]
@@ -590,10 +588,9 @@ impl AnnotationBuilder for CoreAnnotation {
 
     fn from_keyword(kw: &str, v: &sj::Value) -> Result<Self, Error> {
         Ok(match kw {
-            keywords::CONTENT_ENCODING => match v {
-                sj::Value::String(s) if s == "base64" => CoreAnnotation::ContentEncodingBase64,
-                _ => return Err(UnexpectedContentEncoding),
-            },
+            keywords::CONTENT_ENCODING => {
+                CoreAnnotation::ContentEncoding(extract_str(v)?.to_owned())
+            }
             keywords::CONTENT_MEDIA_TYPE => {
                 CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
             }

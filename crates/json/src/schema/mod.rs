@@ -40,7 +40,7 @@ pub enum CoreAnnotation {
     ReadOnly(bool),
     WriteOnly(bool),
     Examples(Vec<sj::Value>),
-    ContentEncodingBase64,
+    ContentEncoding(String),
     ContentMediaType(String),
     /// The "format" annotation can be simply informational, or it can optionally be an assertion
     /// that a string is valid for the given format. We currently only collect and use it as an

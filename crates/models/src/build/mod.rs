@@ -10,16 +10,32 @@ mod bundle;
 pub use bundle::bundled_schema;
 
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
+    let default_json = shape
+        .default
+        .as_ref()
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
+    let is_base64 = shape
+        .string
+        .content_encoding
+        .as_ref()
+        .map(|v| v.to_ascii_lowercase() == "base64")
+        .unwrap_or_default();
+
     flow::Inference {
         types: shape.type_.to_vec(),
         must_exist: exists.must(),
         title: shape.title.clone().unwrap_or_default(),
         description: shape.description.clone().unwrap_or_default(),
+        default_json,
+        secret: shape.secret.unwrap_or_default(),
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
                 content_type: shape.string.content_type.clone().unwrap_or_default(),
                 format: shape.string.format.clone().unwrap_or_default(),
-                is_base64: shape.string.is_base64.unwrap_or_default(),
+                content_encoding: shape.string.content_encoding.clone().unwrap_or_default(),
+                is_base64,
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
             })
         } else {
@@ -631,6 +647,33 @@ pub fn test_step_spec(
 #[cfg(test)]
 mod test {
     use super::*;
+    use doc::inference::StringShape;
+    use serde_json::json;
+
+    #[test]
+    fn test_inference() {
+        let mut shape = Shape {
+            type_: types::STRING | types::BOOLEAN,
+            default: Some(json!({"hello": "world"})),
+            description: Some("the description".to_string()),
+            title: Some("the title".to_owned()),
+            secret: Some(true),
+            string: StringShape {
+                content_encoding: Some("BaSE64".to_owned()),
+                format: Some("email".to_string()),
+                content_type: Some("a/type".to_string()),
+                min_length: 10,
+                max_length: Some(123),
+            },
+            ..Default::default()
+        };
+
+        let out1 = inference(&shape, Exists::Must);
+        shape.type_ = types::BOOLEAN;
+        let out2 = inference(&shape, Exists::May);
+
+        insta::assert_debug_snapshot!(&[out1, out2]);
+    }
 
     #[test]
     fn test_name_escapes() {
@@ -640,6 +683,11 @@ mod test {
             "_¾the-=res+.".to_string(),
         ]);
         assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+.");
+
+        let gross_url =
+            "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
+        let out = encode_resource_path(&vec!["prefix".to_string(), gross_url.to_string()]);
+        assert_eq!(&out, "prefix%2Fhttp%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
     }
 
     #[test]
@@ -660,13 +708,5 @@ mod test {
         let collection = crate::Collection::new("the/collection");
         let labels = journal_selector(&collection, &Some(selector));
         insta::assert_debug_snapshot!(labels);
-    }
-
-    #[test]
-    fn test_arbitrary_webhook_urls() {
-        let url =
-            "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
-        let out = encode_resource_path(&vec![url.to_string()]);
-        assert_eq!(&out, "http%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
     }
 }

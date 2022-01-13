@@ -186,12 +186,18 @@ pub struct Inference {
     pub must_exist: bool,
     #[prost(message, optional, tag="3")]
     pub string: ::core::option::Option<inference::String>,
-    /// The title from the schema, if provided
+    /// The title from the schema, if provided.
     #[prost(string, tag="4")]
     pub title: ::prost::alloc::string::String,
-    /// The description from the schema, if provided
+    /// The description from the schema, if provided.
     #[prost(string, tag="5")]
     pub description: ::prost::alloc::string::String,
+    /// The default value from the schema, if provided.
+    #[prost(string, tag="6")]
+    pub default_json: ::prost::alloc::string::String,
+    /// Whether this location is marked as a secret, like a credential or password.
+    #[prost(bool, tag="7")]
+    pub secret: bool,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -204,8 +210,10 @@ pub mod inference {
         /// Annotated format when the projection is of "string" type.
         #[prost(string, tag="4")]
         pub format: ::prost::alloc::string::String,
-        /// Whether the value is base64-encoded when the projection is of "string"
-        /// type.
+        /// Annotated Content-Encoding when the projection is of "string" type.
+        #[prost(string, tag="7")]
+        pub content_encoding: ::prost::alloc::string::String,
+        /// Is the Content-Encoding "base64" (case-invariant)?
         #[prost(bool, tag="5")]
         pub is_base64: bool,
         /// Maximum length when the projection is of "string" type. Zero for no
@@ -783,8 +791,9 @@ pub mod derive_api {
         pub transforms: ::prost::alloc::vec::Vec<stats::TransformStats>,
         #[prost(message, optional, tag="2")]
         pub registers: ::core::option::Option<stats::RegisterStats>,
-        /// The documents drained from the derive pipeline's combiner. This is not necessarily the same
-        /// as the sum of all publish lambda outputs because those outputs may be further reduced.
+        /// The documents drained from the derive pipeline's combiner. This is not
+        /// necessarily the same as the sum of all publish lambda outputs because
+        /// those outputs may be further reduced.
         #[prost(message, optional, tag="3")]
         pub output: ::core::option::Option<super::DocsAndBytes>,
     }
@@ -794,7 +803,8 @@ pub mod derive_api {
         #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct InvokeStats {
-            /// The total number of documents and bytes that were output from the invocations.
+            /// The total number of documents and bytes that were output from the
+            /// invocations.
             #[prost(message, optional, tag="1")]
             pub output: ::core::option::Option<super::super::DocsAndBytes>,
             /// Sum total duration of all invocations, in seconds.
@@ -817,11 +827,13 @@ pub mod derive_api {
         #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct RegisterStats {
-            /// The number of new register values that were created and added to the registers database.
-            /// In the future, it may be nice to also expose stats related to the size of documents stored
-            /// within registers, but it's not obvious how to count updates to existing values as a result of
-            /// reductions. So this lone field represents the cerservative subset of register stats that I
-            /// feel confident we can and should expose as part of the user-facing stats.
+            /// The number of new register values that were created and added to the
+            /// registers database. In the future, it may be nice to also expose stats
+            /// related to the size of documents stored within registers, but it's not
+            /// obvious how to count updates to existing values as a result of
+            /// reductions. So this lone field represents the cerservative subset of
+            /// register stats that I feel confident we can and should expose as part
+            /// of the user-facing stats.
             #[prost(uint64, tag="1")]
             pub created: u64,
         }
@@ -960,8 +972,8 @@ pub struct AdvanceTimeRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AdvanceTimeResponse {
 }
-/// DocsAndBytes represents a count of JSON documents, and their cumulative total size in bytes.
-/// This is used by the various Stats messages.
+/// DocsAndBytes represents a count of JSON documents, and their cumulative total
+/// size in bytes. This is used by the various Stats messages.
 #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DocsAndBytes {
