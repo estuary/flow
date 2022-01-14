@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -15,11 +16,7 @@ import (
 	"unicode"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/capture"
-	"github.com/estuary/flow/go/capture/driver/airbyte"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
-	pc "github.com/estuary/protocols/capture"
 	"github.com/estuary/protocols/catalog"
 	pf "github.com/estuary/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +30,7 @@ type cmdDiscover struct {
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
 	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 	Prefix      string                `long:"prefix" default:"acmeCo" description:"Prefix of generated catalog entities. For example, an organization or company name."`
+	Directory   string                `long:"directory" description:"Output directory for catalog source files. Defaults to --prefix"`
 }
 
 func (cmd cmdDiscover) Execute(_ []string) error {
@@ -46,18 +44,22 @@ func (cmd cmdDiscover) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 
 	var imageParts = strings.Split(cmd.Image, "/")
-	var connectorName = escape(strings.Split(imageParts[len(imageParts)-1], ":")[0])
+	var connectorName = strings.Split(imageParts[len(imageParts)-1], ":")[0]
 
-	configPath, err := filepath.Abs(
-		fmt.Sprintf("discover-%s.config.yaml", connectorName))
-	if err != nil {
-		return fmt.Errorf("building config path: %w", err)
+	// Directory defaults to --prefix.
+	if cmd.Directory == "" {
+		cmd.Directory = cmd.Prefix
 	}
-	catalogPath, err := filepath.Abs(
-		fmt.Sprintf("discover-%s.flow.yaml", connectorName))
-	if err != nil {
-		return fmt.Errorf("building output catalog path: %w", err)
+
+	if err := os.MkdirAll(cmd.Directory, 0755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	} else if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
+		return fmt.Errorf("getting absolute directory: %w", err)
 	}
+
+	var configName = fmt.Sprintf("%s.config.yaml", connectorName)
+	var configPath = filepath.Join(cmd.Directory, configName)
+	var catalogPath = filepath.Join(cmd.Directory, fmt.Sprintf("%s.flow.yaml", connectorName))
 
 	// If the configuration file doesn't exist, write it as a stub.
 	if w, err := os.OpenFile(configPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err == nil {
@@ -66,7 +68,7 @@ Creating a connector configuration stub at %s.
 Edit and update this file, and then run this command again.
 `, configPath)
 
-		if err = writeConfigStub(context.Background(), cmd.Image, cmd.Network, w); err != nil {
+		if err = cmd.writeConfigStub(context.Background(), w); err != nil {
 			_ = os.Remove(configPath) // Don't leave an empty file behind.
 		}
 		return err
@@ -75,18 +77,20 @@ Edit and update this file, and then run this command again.
 	}
 
 	// Discover bindings and write the output catalog.
-
-	configYaml, configRaw, err := readConfig(configPath)
-	if err != nil {
-		return err
-	}
-	discovered, err := discoverBindings(context.Background(), cmd.Image, cmd.Network, configRaw)
+	discovered, err := apiDiscover{
+		Log:         cmd.Log,
+		Diagnostics: cmd.Diagnostics,
+		Image:       cmd.Image,
+		Network:     cmd.Network,
+		Config:      configPath,
+		Output:      "", // Not required.
+	}.execute(context.Background())
 	if err != nil {
 		return err
 	}
 
 	type Collection struct {
-		Schema interface{}
+		Schema string
 		Key    []string `yaml:",flow"`
 	}
 	var collections = make(map[string]Collection)
@@ -98,8 +102,8 @@ Edit and update this file, and then run this command again.
 	type Capture struct {
 		Endpoint struct {
 			Spec struct {
-				Image  string     `yaml:"image"`
-				Config *yaml.Node `yaml:"config"`
+				Image  string `yaml:"image"`
+				Config string `yaml:"config"`
 			} `yaml:"connector"`
 		} `yaml:"endpoint"`
 		Bindings []Binding `yaml:"bindings"`
@@ -108,24 +112,37 @@ Edit and update this file, and then run this command again.
 	var hasEmptyKeys bool
 
 	capture.Endpoint.Spec.Image = cmd.Image
-	capture.Endpoint.Spec.Config = configYaml.Content[0]
+	capture.Endpoint.Spec.Config = configName
 
 	for _, b := range discovered.Bindings {
-		var target = path.Join(cmd.Prefix, escape(b.RecommendedName))
+		var collection = path.Join(cmd.Prefix, escape(b.RecommendedName))
+		var schemaName = fmt.Sprintf("%s.schema.yaml", b.RecommendedName)
 
 		var schema, resource interface{}
 		if err := json.Unmarshal(b.DocumentSchemaJson, &schema); err != nil {
-			return fmt.Errorf("decoding schema of %s: %w", target, err)
+			return fmt.Errorf("decoding schema of %s: %w", collection, err)
 		} else if err = json.Unmarshal(b.ResourceSpecJson, &resource); err != nil {
-			return fmt.Errorf("decoding resource of %s: %w", target, err)
+			return fmt.Errorf("decoding resource of %s: %w", collection, err)
 		}
 
-		collections[target] = Collection{
+		// Write out schema file.
+		var schemaBytes bytes.Buffer
+		var enc = yaml.NewEncoder(&schemaBytes)
+		enc.SetIndent(2)
+		if err := enc.Encode(schema); err != nil {
+			return fmt.Errorf("encoding schema: %w", err)
+		} else if err = enc.Close(); err != nil {
+			return fmt.Errorf("encoding schema: %w", err)
+		} else if err = ioutil.WriteFile(filepath.Join(cmd.Directory, schemaName), schemaBytes.Bytes(), 0644); err != nil {
+			return fmt.Errorf("writing schema: %w", err)
+		}
+
+		collections[collection] = Collection{
 			Key:    b.KeyPtrs,
-			Schema: schema,
+			Schema: schemaName,
 		}
 		capture.Bindings = append(capture.Bindings, Binding{
-			Target:   target,
+			Target:   collection,
 			Resource: resource,
 		})
 
@@ -138,7 +155,6 @@ Edit and update this file, and then run this command again.
 	if err != nil {
 		return fmt.Errorf("opening output catalog: %w", err)
 	}
-
 	var enc = yaml.NewEncoder(w)
 	enc.SetIndent(2)
 
@@ -174,59 +190,23 @@ You must manually add appropriate keys, and update associated collection schemas
 `)
 	}
 
-	if err = os.Remove(configPath); err != nil {
-		return fmt.Errorf("removing config: %w", err)
-	}
-
 	return nil
 }
 
-func readConfig(path string) (root *yaml.Node, raw json.RawMessage, err error) {
-	var iface interface{}
-	root = new(yaml.Node)
-
-	if r, err := os.Open(path); err != nil {
-		return nil, nil, fmt.Errorf("opening config: %w", err)
-	} else if err = yaml.NewDecoder(r).Decode(root); err != nil {
-		return nil, nil, fmt.Errorf("decoding config: %w", err)
+func (cmd cmdDiscover) writeConfigStub(ctx context.Context, w io.WriteCloser) error {
+	var spec = apiSpec{
+		Log:         cmd.Log,
+		Diagnostics: cmd.Diagnostics,
+		Image:       cmd.Image,
+		Network:     cmd.Network,
 	}
 
-	if r, err := os.Open(path); err != nil {
-		return nil, nil, fmt.Errorf("opening config: %w", err)
-	} else if err = yaml.NewDecoder(r).Decode(&iface); err != nil {
-		return nil, nil, fmt.Errorf("decoding config: %w", err)
-	}
-
-	if raw, err = json.Marshal(iface); err != nil {
-		return nil, nil, fmt.Errorf("encoding JSON config: %w", err)
-	}
-
-	return root, raw, nil
-}
-
-func writeConfigStub(ctx context.Context, image string, connectorNetwork string, w io.WriteCloser) error {
-	spec, err := json.Marshal(airbyte.EndpointSpec{
-		Image:  image,
-		Config: nil,
-	})
+	var resp, err = spec.execute(ctx)
 	if err != nil {
-		return fmt.Errorf("encoding spec: %w", err)
+		return fmt.Errorf("querying connector spec: %w", err)
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, connectorNetwork, ops.StdLogger())
-	if err != nil {
-		return fmt.Errorf("building client: %w", err)
-	}
-
-	specResponse, err := client.Spec(ctx,
-		&pc.SpecRequest{
-			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
-			EndpointSpecJson: spec,
-		})
-	if err != nil {
-		return fmt.Errorf("fetching connector spec: %w", err)
-	}
-
+	// TODO(johnny): Factor out into a schema tool.
 	tmpdir, err := ioutil.TempDir("", "flow-discover")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
@@ -234,7 +214,7 @@ func writeConfigStub(ctx context.Context, image string, connectorNetwork string,
 	defer os.RemoveAll(tmpdir)
 
 	var tmpfile = filepath.Join(tmpdir, "schema.yaml")
-	mbp.Must(ioutil.WriteFile(tmpfile, specResponse.EndpointSpecSchemaJson, 0600), "writing spec")
+	mbp.Must(ioutil.WriteFile(tmpfile, resp.EndpointSpecSchema, 0600), "writing spec")
 
 	// Build the schema
 	var buildConfig = pf.BuildAPI_Config{
@@ -283,41 +263,10 @@ func writeConfigStub(ctx context.Context, image string, connectorNetwork string,
 		} else if node, err := ptr.Create(&config); err != nil {
 			return fmt.Errorf("creating location %q: %w", loc.Location, err)
 		} else if *node == nil {
-
-			var nn = new(yaml.Node)
-			nn.Style = yaml.FlowStyle // renders values inline with the keys instead of on the next line
-			nn.Kind = yaml.ScalarNode // seems required to get numbers and bools to render correctly
-
-			nn.FootComment =
-				fmt.Sprintf("%s\n%s", loc.Spec.Description, loc.Spec.Types)
-
-			if loc.Spec.MustExist {
-				nn.FootComment += " (required)"
+			var nn, err = buildStubNode(&loc.Spec)
+			if err != nil {
+				return fmt.Errorf("location %s: %w", loc.Location, err)
 			}
-			// The explicit tags are necessary for the encoder to know how to render these. They
-			// will not be included in the final output.
-			switch getDefaultType(&loc.Spec) {
-			case pf.JsonTypeString:
-				nn.SetString("")
-			case pf.JsonTypeInteger:
-				nn.Value = "0"
-				nn.Tag = "!!int"
-			case pf.JsonTypeNumber:
-				nn.Value = "0.0"
-				nn.Tag = "!!float"
-			case pf.JsonTypeBoolean:
-				nn.Value = "false"
-				nn.Tag = "!!bool"
-			case pf.JsonTypeObject:
-				nn.Value = "{}"
-				nn.Tag = "!!map"
-			case pf.JsonTypeArray:
-				nn.Value = "[]"
-				nn.Tag = "!!seq"
-			case pf.JsonTypeNull:
-				nn.Tag = "!!null"
-			}
-
 			*node = nn
 		}
 	}
@@ -349,30 +298,57 @@ func getDefaultType(inference *pf.Inference) string {
 	return fallback
 }
 
-func discoverBindings(ctx context.Context, image string, connectorNetwork string, config json.RawMessage) (*pc.DiscoverResponse, error) {
-	spec, err := json.Marshal(airbyte.EndpointSpec{
-		Image:  image,
-		Config: config,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("encoding spec: %w", err)
+func buildStubNode(inference *pf.Inference) (*yaml.Node, error) {
+	var node = new(yaml.Node)
+
+	if len(inference.DefaultJson) != 0 {
+		if err := yaml.NewDecoder(bytes.NewReader(inference.DefaultJson)).Decode(node); err != nil {
+			return nil, fmt.Errorf("decoding schema `default` value: %w", err)
+		}
+		node = node.Content[0] // Unwrap root document node.
+	} else {
+		// The explicit tags are necessary for the encoder to know how to render these. They
+		// will not be included in the final output.
+		switch getDefaultType(inference) {
+		case pf.JsonTypeString:
+			node.SetString("")
+		case pf.JsonTypeInteger:
+			node.Value = "0"
+			node.Tag = "!!int"
+		case pf.JsonTypeNumber:
+			node.Value = "0.0"
+			node.Tag = "!!float"
+		case pf.JsonTypeBoolean:
+			node.Value = "false"
+			node.Tag = "!!bool"
+		case pf.JsonTypeObject:
+			node.Value = "{}"
+			node.Tag = "!!map"
+		case pf.JsonTypeArray:
+			node.Value = "[]"
+			node.Tag = "!!seq"
+		case pf.JsonTypeNull:
+			node.Tag = "!!null"
+		}
+
+		// Required to get numbers and booleans to render correctly (?).
+		node.Kind = yaml.ScalarNode
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, connectorNetwork, ops.StdLogger())
-	if err != nil {
-		return nil, fmt.Errorf("building client: %w", err)
+	// Renders values inline with keys, instead of on the next line.
+	node.Style = yaml.FlowStyle
+
+	node.FootComment =
+		fmt.Sprintf("%s\n%s", inference.Description, inference.Types)
+
+	if inference.MustExist {
+		node.FootComment += " (required)"
+	}
+	if inference.Secret {
+		node.FootComment += " (secret)"
 	}
 
-	discovered, err := client.Discover(ctx,
-		&pc.DiscoverRequest{
-			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
-			EndpointSpecJson: spec,
-		})
-	if err != nil {
-		return nil, fmt.Errorf("fetching connector bindings: %w", err)
-	}
-
-	return discovered, nil
+	return node, nil
 }
 
 func escape(s string) string {
