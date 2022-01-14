@@ -125,6 +125,10 @@ Delete tasks and collections of a built Flow catalog.
 Query a connector image for its specification.
 `, &apiSpec{})
 
+	addCmd(apis, "discover", "Discover resource of a capture connector", `
+Discover resources of a capture connector using a configuration.
+`, &apiDiscover{})
+
 	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)
 }
