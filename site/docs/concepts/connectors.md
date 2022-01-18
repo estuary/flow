@@ -1,3 +1,6 @@
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Connectors
 
 **Connectors** are plugin components that bridge the gap between Flow’s runtime and
@@ -113,39 +116,133 @@ The support offered today is rudimentary.
 The [`flowctl`](./flowctl.md) command-line tool offers a rudimentary guided workflow
 for creating a connector instance through the `discover` sub-command
 
-:::info Limitation
-Currently, `flowctl discover` is limited to creating catalog captures using a connector.
-Materializations must be written manually.
-:::
-
 `discover` generates a catalog source file. It includes the capture specification
 as well as recommended **collections**, which are bound to each captured resource of the endpoint.
 This makes the `discover` workflow a quick way to start setting up a new data flow.
 
-1. In your terminal, run:
-   ```console
-   flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
-   ```
+:::info Limitation
+`flowctl discover` can fully scaffold catalog captures.
+You can also use `flowctl discover`
+to create stub configuration files for materialization connectors,
+but the remainder of the materialization must be written manually.
+:::
 
-  This generates a config from the latest version of the connector, provided as a Docker image.
+#### Step 1: Generate a Configuration File Stub
 
-  :::tip
-  A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md).
-  :::
+In your terminal, run:
+```console
+$ flowctl discover --image ghcr.io/estuary/${connector_name}:dev --prefix acmeCo/anvils
 
-2. Open the newly generated config file called `discover-source-<connector-name>-config.yaml`.
-  This is your space to specify the required values for the connector.
-  Fill in required values and modify other values, if you'd like.
+Creating a connector configuration stub at /workspaces/flow/acmeCo/anvils/source-postgres.config.yaml.
+Edit and update this file, and then run this command again.
+```
 
-3. Run the command again:
-   ```console
-   flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
-   ```
+This command takes a connector Docker `--image`
+and creates a configuration file stub,
+which by default is written to the `--prefix` subdirectory of your current directory
+— in this case `./acmeCo/anvils/source-postgres.config.yaml`.
 
-4. Open the resulting catalog spec file, `discover-source-<connector-name>.flow.yaml`.
+:::tip
+A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md).
+:::
 
-   It will include a capture definition with one or more bindings, and the
-   definitions of one or more collections to support each binding.
+#### Step 2: Update your Stubbed Configuration File
+
+Open and edit the generated config file.
+It is pre-populated with configuration required by the connector,
+their default values, and descriptive comments:
+
+```yaml
+database: postgres
+# Logical database name to capture from.
+# [string] (required)
+
+host: ""
+# Host name of the database to connect to.
+# [string] (required)
+
+password: ""
+# User password configured within the database.
+# [string] (required)
+
+port: 5432
+# Host port of the database to connect to.
+# [integer] (required)
+```
+
+#### Step 3: Discover Resources from your Endpoint
+
+A second invocation of the same command
+finds your configuration file
+and completes the discovery workflow.
+It creates (or overwrites) a catalog source file within your directory
+which includes a capture definition with one or more bindings,
+definitions of collections to support each binding,
+and associated collection schemas:
+
+```console
+$ flowctl discover --image ghcr.io/estuary/${connector_name}:dev --prefix acmeCo/anvils
+
+Created a Flow catalog at /workspaces/flow/acmeCo/anvils/source-postgres.flow.yaml
+with discovered collections and capture bindings.
+```
+
+The generated `${connector_name}.flow.yaml` is the source file for your capture.
+It will include a capture definition with one or more bindings,
+and the collection(s) created to contain documents from each bound endpoint resource.
+The capture and all collections are named using your chosen `--prefix`:
+
+<Tabs>
+<TabItem value="File Listing">
+
+```console
+$ find acmeCo/
+acmeCo/
+acmeCo/anvils
+acmeCo/anvils/source-postgres.flow.yaml
+acmeCo/anvils/source-postgres.config.yaml
+acmeCo/anvils/my_table.schema.yaml
+acmeCo/anvils/my_other_table.schema.yaml
+```
+
+</TabItem>
+<TabItem value="source-postgres.flow.yaml">
+
+```yaml
+collections:
+  acmeCo/anvils/my_table:
+    schema: my_table.schema.yaml
+    key: [/the/primary, /key]
+  acmeCo/anvils/my_other_table:
+    schema: my_other_table.schema.yaml
+    key: [/other/key]
+captures:
+  acmeCo/anvils/source-postgres:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-postgres:dev
+        config: source-postgres.config.yaml
+    bindings:
+      - resource:
+          namespace: public
+          stream: my_table
+          syncMode: incremental
+        target: acmeCo/anvils/my_table
+      - resource:
+          namespace: public
+          stream: my_other_table
+          syncMode: incremental
+        target: acmeCo/anvils/my_other_table
+```
+
+</TabItem>
+</Tabs>
+
+You can repeat this step any number of times,
+to re-generate and update your catalog sources
+so that they reflect the endpoint's current resources.
+
+#### Step 4: Inspect and Trim your Catalog
 
 If you notice an undesired resources from the endpoint was included in the catalog spec,
 you can remove its binding and corresponding collection to remove it from your catalog.
@@ -204,9 +301,6 @@ which must be provided to the connector for it to function.
 When directly working with catalog source files,
 you have the option of inlining the configuration into your connector
 or storing it in separate files:
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 <Tabs>
 <TabItem value="Inline" default>

@@ -6,8 +6,10 @@ so distribution and upgrades are all simple.
 
 `flowctl` includes a number of important sub-commands:
 
-* `discover` auto-creates a catalog spec given a connector and a data source.
-  It’s an assisted way to configure an endpoint data capture and scaffold a Flow project.
+* `discover` auto-creates a catalog specification given a connector and endpoint configuration.
+  It’s an assisted way to configure an endpoint capture and scaffold a Flow project.
+
+  [Learn more about `flowctl discover`](connectors.md#flowctl-discover)
 
 * `temp-data-plane` starts a local, ephemeral Flow data plane.
   It runs a complete deployment of the Flow runtime,
