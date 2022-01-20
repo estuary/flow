@@ -14,10 +14,10 @@ basic configuration options.
 
 2. Referencing the config files and shell output, collect the following information:
 
-   * The **endpoint** for the SSH server, which may look like the any of following:
-     * `ec2-198-21-98-1.compute-1.amazonaws.com`
-     * `198.21.98.1`
-     * `198.21.98.1:22`
+   * The **endpoint** for the SSH server, formatted as `ssh://hostname[:port]`. This may look like the any of following:
+     * `ssh://ec2-198-21-98-1.compute-1.amazonaws.com`
+     * `ssh://198.21.98.1`
+     * `ssh://198.21.98.1:22`
    * The SSH **user**, which will be used to log into the SSH server, for example, `sshuser`. You may choose to create a new
   user for this workflow.
 
@@ -57,12 +57,12 @@ basic configuration options.
 
 After you've completed the prerequisites, you should have the following parameters:
 
-* `ssh_endpoint`: the endpoint, step 2
-* `ssh_private_key_base64`: the encoded PEM file, step 4
-* `ssh_user`: the username, step 2
-* `remote_host`: the endpoint's host, step 5
-* `remote_port`: the endpoint's port, step 5
-* `local_port`: the port on the localhost used to connect to the SSH server, step 7
+* `sshEndpoint`: the endpoint, step 2
+* `sshPrivateKeyBase64`: the encoded PEM file, step 4
+* `sshUser`: the username, step 2
+* `remoteHost`: the endpoint's host, step 5
+* `remotePort`: the endpoint's port, step 5
+* `localPort`: the port on the localhost used to connect to the SSH server, step 7
 
 1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
   in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a code sample.
@@ -72,4 +72,4 @@ capture or materialization definition.
 
 2. Set the host to `localhost`.
 
-3. Set the port to the same value you chose for `local_port` in the SSH configuration.
+3. Set the port to the same value you chose for `localPort` in the SSH configuration.
