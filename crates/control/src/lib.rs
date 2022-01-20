@@ -8,10 +8,16 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tower::{limit::ConcurrencyLimitLayer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
+use tracing::info;
+
+mod shutdown;
 
 pub fn run(
     listener: TcpListener,
 ) -> anyhow::Result<impl Future<Output = Result<(), hyper::Error>>> {
+    let addr = listener.local_addr()?;
+    let address = format!("http://{}:{}", addr.ip(), addr.port());
+
     let app = Router::new()
         .route("/health_check", get(health_check))
         .route("/connectors", get(list_connectors))
@@ -21,7 +27,11 @@ pub fn run(
                 .layer(ConcurrencyLimitLayer::new(64)),
         );
 
-    let server = axum::Server::from_tcp(listener)?.serve(app.into_make_service());
+    let server = axum::Server::from_tcp(listener)?
+        .serve(app.into_make_service())
+        .with_graceful_shutdown(shutdown::signal());
+
+    info!("Listening on {}", address);
 
     Ok(server)
 }
