@@ -44,7 +44,7 @@ Ran 1 tests, 1 passed, 0 failed
 ```
 Your test performed as expected; now you can deploy the catalog.
 
-## Run It Locally
+## Run it locally
 
 Start a local, temporary Flow data plane:
 ```console
@@ -55,13 +55,13 @@ A data plane is a long-lived, multi-tenant, scale-out component that
 usually runs in a data center.
 Fortunately it also shrinks down to your laptop.
 
-This returns a couple exported addresses, which you'll need in a moment:
+This returns a couple exported addresses. Copy these; you'll need them in a moment:
 ```console
 export BROKER_ADDRESS=http://localhost:8080
 export CONSUMER_ADDRESS=http://localhost:9000
 ```
 
-Now, deploy the catalog to your data plane:
+Now, deploy the catalog to your data plane by running:
 ```console
 $ export BROKER_ADDRESS=http://localhost:8080
 $ export CONSUMER_ADDRESS=http://localhost:9000
@@ -83,13 +83,13 @@ Type "help" for help.
 ```
 The `documents` table is still empty, so you'll populate it with a few phrases:
 
-```console
+```sql
 flow=# insert into documents (body) values ('The cat in the hat.'), ('hat Cat CAT!');
 INSERT 0 2
 ```
 Now, you'll take a look at `word_counts` to see the results:
 
-```console
+```sql
 flow=# select word, count, doc_count from word_counts;
  word | count | doc_count
 ------+-------+-----------
@@ -100,7 +100,7 @@ flow=# select word, count, doc_count from word_counts;
 (4 rows)
 ```
 Say you made a typo in that second value. You can immediately update it:
-```console
+```sql
 flow=# update documents set body = 'cat Cat CAT!' where id = 2;
 UPDATE 1
 flow=# select word, count, doc_count from word_counts order by word;
@@ -113,7 +113,8 @@ flow=# select word, count, doc_count from word_counts order by word;
 (4 rows)
 ```
 Now, let's clean up the table:
-```console
+
+```sql
 flow=# delete from documents ;
 DELETE 2
 flow=# select word, count, doc_count from word_counts order by word;

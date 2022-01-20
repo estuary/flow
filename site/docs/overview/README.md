@@ -8,12 +8,12 @@ slug: /
 
 Estuary Flow is a tool for building, testing, and evolving pipelines that continuously capture, transform, and materialize data across all of your systems. It unifies today's batch and streaming paradigms so that your systems – current and future – are synchronized around the same data sets, updating in milliseconds. Use Flow to:
 
- * Perform *Change Data Capture* from MySQL tables into PostgreSQL, or a cloud analytics warehouse.
- * Fetch, transform, and load logs from Cloud Delivery Networks (CDNs) into Elastic Search or BigQuery.
- * Instrument real-time analytics over your business events, accessible from current tools like PostgreSQL or even Google Sheets.
- * Capture and organize your data from your SaaS vendors (like Salesforce or Facebook), into a Parquet Data Lake.
+ * Perform *change data capture* from MySQL tables into PostgreSQL or a cloud analytics warehouse
+ * Fetch, transform, and load logs from cloud delivery networks (CDNs) into Elastic Search or BigQuery
+ * Instrument real-time analytics over your business events, accessible from current tools like PostgreSQL or even Google Sheets
+ * Capture and organize your data from your SaaS vendors (like Salesforce or Facebook), into a Parquet data lake
 
-Flow composes cloud-native streaming infrastructure, a powerful runtime for data processing,
+Flow comprises cloud-native streaming infrastructure, a powerful runtime for data processing,
 and an open-source ecosystem of pluggable connectors for integrating your existing systems.
 
 ### Quick start
@@ -29,8 +29,8 @@ If you're unsure if Flow is the right solution for your data integration needs, 
 
 Use the **Getting started** documentation to set up your development environment and run through tutorials designed to quickly teach you the most essential skills and concepts.
 
-* **[Installation](getting-started/installation.md)**
-* **[Tutorial Introduction](getting-started/flow-tutorials/)**
+* **[Setting up a development environment](getting-started/installation.md)**
+* **[Tutorials](getting-started/flow-tutorials/)**
 
 **Looking to understand the concepts behind Flow at a deeper level?**
 

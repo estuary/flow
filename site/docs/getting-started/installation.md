@@ -27,7 +27,7 @@ Download and install the following prerequisites:
 
 #### Create a Git repository from the Flow Template <a href="#create-a-git-repository-from-the-flow-template" id="create-a-git-repository-from-the-flow-template"></a>
 
-Visit the [Flow template repository](https://github.com/estuary/flow-template) on GitHub, click on **Use this template**, and proceed to create your repository.
+Visit the [Flow Template repository](https://github.com/estuary/flow-template) on GitHub, click on **Use this template**, and proceed to create your repository.
 
 #### Open in VS Code <a href="#open-in-vs-code" id="open-in-vs-code"></a>
 
@@ -37,7 +37,14 @@ Clone your repository locally and open it in VS Code. You'll see a popup in the 
 
 Regardless of the method you used, first test everything is working as expected. The repository contains a sample project, which includes a test. (It also serves as a quick tutorial, which we recommend as a next step).
 
-In a terminal window, run: `$ flowctl test --source word-counts.flow.yaml`. Verify that it returns `Ran 1 tests, 1 passed, 0 failed`.
+In a terminal window, run:
+```console
+flowctl test --source word-counts.flow.yaml
+```
+Verify that it returns:
+```console
+Ran 1 tests, 1 passed, 0 failed
+```
 
 You're now ready to start using Flow!
 
