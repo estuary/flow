@@ -5,7 +5,8 @@ description: Common pain points you might have, and how Flow addresses them.
 
 # Who should use Flow?
 
-Flow is a DataOps platform designed for all members of your data team. Its powerful CLI gives backend engineers data integration superpowers. At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute and participate.
+Flow is a DataOps platform designed for all members of your data team. Its powerful command-line interface gives backend engineers data integration superpowers.
+At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute to and manage the same data pipelines using the web application.
 
 If you answer "yes" to any of the following questions, Flow can help:
 
@@ -17,7 +18,7 @@ If you answer "yes" to any of the following questions, Flow can help:
   Flink, or Google Cloud Dataflow, and want a faster, easier-to-evolve alternative?
 * Is your organization held back by a data engineering bottleneck,
   while less-technical stakeholders are blocked from contributing by a high barrier to entry?
-* Do you have a [distributed data mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
+* Are you building a [distributed data mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
   and are seeking a tool to help with orchestration?
 
 ## Benefits
@@ -35,7 +36,7 @@ To achieve comparable capabilities to Flow you would need:
 * Custom ETL application development, such as Spark, Flink, or AWS λ
 * Supplemental data stores for intermediate transformation states
 * ETL job management and execution, such as a self-hosting or Google Cloud Dataflow
-* Custom reconciliation of historical vs streaming datasets, including onerous "backfills" of new streaming applications from historical data
+* Custom reconciliation of historical vs streaming datasets, including onerous backfills of new streaming applications from historical data
 
 Flow's declarative GitOps workflow is a dramatic simplification from this inherent complexity. It saves you time and costs, catches mistakes before they hit production, and keeps your data fresh across all the places you use it.
 

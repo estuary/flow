@@ -1,7 +1,7 @@
 # Concepts
 
 Flow helps you define data pipelines that connect your data systems, APIs, and storage, and optionally transform data along the way.
-Pipelines are defined within a Flow [catalog](#catalogs), and deployed to a Flow [runtime](#runtime) using the [flowctl](#flowctl) CLI.
+Pipelines are defined within a Flow [catalog](#catalogs) and deployed to a Flow runtime using the [flowctl](#flowctl) command-line interface.
 
 This page provides a high-level explanation of important concepts and terminology you'll need to understand as you begin working with Flow.
 
@@ -42,7 +42,7 @@ All catalog entities, like collections, are identified by a **name**
 such as `acmeCo/teams/manufacturing/anvils`. Names have directory-like
 prefixes and every name within Flow is globally unique.
 
-Thus all Catalog entities exist together in a single **namespace**,
+Thus all catalog entities exist together in a single **namespace**,
 much like how all files in S3 are uniquely identified by their bucket and file name.
 
 :::note
@@ -55,7 +55,7 @@ you can think of name prefixes as being akin to database schemas with arbitrary 
 
 ### Builds
 
-Catalog entities like collections are very long lived and may evolve over time.
+Catalog entities like collections are very long-lived and may evolve over time.
 A collection's schema might be extended with new fields,
 or a transformation might be updated with a bug fix.
 
@@ -72,7 +72,7 @@ possibly replacing an older build under which they had been running.
 
 A catalog build begins from a set of **catalog specifications**
 which define the behavior of your catalog:
-The entities it contains, like captures, collections, and derivations,
+the entities it contains, like captures, collections, and derivations,
 and their specific behaviors and configuration.
 
 You define catalog specifications using either Flow's interactive UI,
@@ -80,12 +80,12 @@ or by directly creating and editing YAML or JSON files which are typically manag
 in a Git repository using familiar developer workflows (often called "GitOps").
 
 These files use the extension `*.flow.yaml` or simply `flow.yaml` by convention.
-As a practical benefit, using this extension will activate Flow's VSCode integration and auto-complete.
-Flow integrates with VSCode for development environment support, like auto-complete,
+As a practical benefit, using this extension activates Flow's VS Code integration and auto-complete.
+Flow integrates with VS Code for development environment support, like auto-complete,
 tooltips, and inline documentation.
 
 Depending on your catalog, you may also have TypeScript modules,
-JSON schemas, or test fixtures which are also managed in your git repository.
+JSON schemas, or test fixtures which are also managed in your Git repository.
 
 Whether you use the UI or Git-managed specifications is up to you,
 and teams can switch back and forth depending on what's more familiar.
@@ -103,7 +103,7 @@ They are the fundamental representation for datasets within Flow, much like a da
 
 They are best described as a real-time data lake:
 documents are stored as an organized layout of JSON files in your cloud storage bucket.
-If Flow needs to read historical data -- say, as part of creating a new materialization --
+If Flow needs to read historical data — say, as part of creating a new materialization —
 it does so by reading from your bucket.
 You can use regular bucket lifecycle policies to manage the deletion of data from a collection.
 However, capturing _into_ a collection or materializing _from_ a collection happens within milliseconds.
@@ -145,12 +145,12 @@ Push captures are under development.
 
 ## Materializations
 
-A **materialization** is a catalog task which connects to an endpoint
+A **materialization** is a catalog task that connects to an endpoint
 and binds one or more collections to corresponding endpoint resources.
-They are the conceptual inverse of **captures.**
+Materializations are the conceptual inverse of **captures.**
 
 As documents become available within bound collections, the materialization
-keeps endpoint resources (like database tables) up to date using precise,
+keeps endpoint resources, like database tables, up to date using precise,
 incremental updates.
 Like captures, materializations are powered by [connectors](#connectors).
 
@@ -160,11 +160,11 @@ Like captures, materializations are powered by [connectors](#connectors).
 
 ## Derivations
 
-A **derivation** is a collection which continuously
+A **derivation** is a collection that continuously
 derives its documents from transformations that are applied
 to one or more source collections.
 
-Derivations can be used to map, reshape, and filter documents.
+You can use derivations to map, reshape, and filter documents.
 They can also be used to tackle complex stateful streaming workflows,
 including joins and aggregations,
 and are not subject to the windowing and scaling limitations that are common to other systems.
@@ -178,9 +178,9 @@ and are not subject to the windowing and scaling limitations that are common to 
 All collections in Flow have an associated
 [JSON schema](https://json-schema.org/understanding-json-schema/)
 against which documents are validated every time they're written or read.
-Schemas are core to how Flow ensures the integrity of your data.
+Schemas are key to how Flow ensures the integrity of your data.
 Flow validates your documents to ensure that
-bad data doesn't make it into your collections -- or worse,
+bad data doesn't make it into your collections — or worse,
 into downstream data products!
 
 Flow pauses catalog tasks when documents don't match the collection schema,
@@ -191,16 +191,16 @@ alerting you to the mismatch and allowing you to fix it before it creates a bigg
 JSON schema is a flexible standard for representing structure, invariants,
 and other constraints over your documents.
 
-Schemas can be very permissive, or highly exacting, or somewhere in between.
-JSON schema goes far beyond checking basic document structure,
-to also support conditionals and invariants like
+Schemas can be very permissive, highly exacting, or somewhere in between.
+JSON schema goes far beyond checking basic document structure.
+It also supports conditionals and invariants like
 "I expect all items in this array to be unique",
 or "this string must be an email",
 or "this integer must be between a multiple of 10 and in the range 0-100".
 
 ### Projections
 
-Flow leverages your JSON schemas to produce other types of schemas as-needed,
+Flow leverages your JSON schemas to produce other types of schemas as needed,
 such as TypeScript types and SQL `CREATE TABLE` statements.
 
 In many cases these projections provide comprehensive end-to-end type safety
@@ -226,7 +226,7 @@ that give you substantially more control over how documents are combined and red
 `reduce` annotations let you deeply merge documents, maintain running counts,
 and achieve other complex aggregation behaviors.
 
-### Key Strategies
+### Key strategies
 
 Reduction annotations change the common patterns for how you think about collection keys.
 
@@ -258,7 +258,7 @@ catalog tasks:
 * A derivation updates a collection by applying transformations to other source collections.
 * A materialization reacts to changes of a collection to update an endpoint.
 
-### Task Shards
+### Task shards
 
 Task **shards** are the unit of execution for a catalog [task](#tasks).
 A single task can have many shards, which allow the task to scale across
@@ -337,12 +337,12 @@ and verification steps assert that the contents of another derived collection ma
 
 ***
 
-## Storage Mappings
+## Storage mappings
 
 Flow [collections](#collections) use cloud storage buckets for the durable storage of data.
 Storage mappings define how Flow maps your various collections into your storage buckets and prefixes.
 
-[Learn more about storage mappings](#undefined)
+[Learn more about storage mappings](./storage-mappings.md)
 
 ***
 
