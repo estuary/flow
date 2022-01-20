@@ -3,6 +3,7 @@ This connector uses change data capture (CDC) to continuously capture updates in
 `ghcr.io/estuary/source-postgres:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
+
 To use this connector, you'll need a PostgreSQL database setup with the following:
 * [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
 * [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
@@ -15,6 +16,7 @@ To use this connector, you'll need a PostgreSQL database setup with the followin
 
 
 ### Setup
+
 The simplest way to meet the above prerequisites is to change the WAL level and have the connector use a database superuser role.
 
 For a more restricted setup, create a new user with just the required permissions as detailed in the following steps:
@@ -57,9 +59,11 @@ ALTER SYSTEM SET wal_level = logical;
 5. Restart PostgreSQL to allow the WAL level change to take effect.
 
 ## Configuration
+
 There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Values
+
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
 | `database` | Database | string | `"postgres"` | Logical database name to capture from. |
@@ -72,6 +76,7 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `watermarks_table` | Watermarks Table | string | `"public.flow_watermarks"` | The name of the table used for watermark writes during backfills |
 
 ### Sample
+
 A minimal capture definition within the catalog spec will look like the following:
 
 ```yaml
@@ -97,3 +102,10 @@ captures:
         target: ${TENANT}/${COLLECTION_NAME}
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
+
+## Connecting to secure networks
+
+The PostgreSQL source connector [supports SSH tunneling](../../../concepts/connectors.mdconnecting-to-endpoints-on-secure-networks)
+to allow Flow to connect to databases ports in secure networks.
+
+To set up and configure your SSH server, see the [guide](../../../guides/connect-network/).

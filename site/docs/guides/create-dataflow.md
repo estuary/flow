@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # Create a simple data flow
 
 Whether you're learning to use Flow or testing a new pipeline, much of your work will take place in a local or virtual environment. This guide outlines the basic steps to create and deploy a data flow using Flow's current GitOps workflow.
