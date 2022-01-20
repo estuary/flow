@@ -399,32 +399,30 @@ captures:
         config:
           # When using a proxy like SSH tunneling, set to localhost
           host: localhost
-          # 0 allows Flow to dynamically choose an open port on your local machine
-          # to connect to the proxy (recommended).
-          # If necessary, you're free to specify a different port.
-          port: 0
+          # Specify an open port on your local machine to connect to the proxy.
+          port: 15432
           database: flow
           user: flow_capture
           password: secret
           proxy:
             # Support for other proxy types will be enabled in the future.
-            proxy_type: ssh_forwarding
-              ssh_forwarding:
-                # Location of the remote SSH server that supports tunneling.
-                ssh_endpoint: 198.21.98.1
-                # Base64-encoded private key to connect to the SSH server.
-                ssh_private_key_base64: wjkEpr7whDZQ8UqIYI4RcNRuithu7chNZg
-                # Username to connect to the SSH server.
-                ssh_user: ssh_user
-                # Host or IP address of the final endpoint to which you’ll
-                # connect via tunneling from the SSH server
-                remote_host: 127.0.0.1
-                # Port of the final endpoint to which you’ll connect via
-                # tunneling from the SSH server.
-                remote_port: 5432
-                # Port on the local machine from which you'll connect to the SSH server.
-                # This must match port, above.
-                local_port: 0
+            proxyType: ssh_forwarding
+            sshForwarding:
+              # Location of the remote SSH server that supports tunneling.
+              sshEndpoint: ssh://198.21.98.1
+              # Base64-encoded private key to connect to the SSH server.
+              sshPrivateKeyBase64: wjkEpr7whDZQ8UqIYI4RcNRuithu7chNZg
+              # Username to connect to the SSH server.
+              sshUser: ssh_user
+              # Host or IP address of the final endpoint to which you’ll
+              # connect via tunneling from the SSH server
+              remoteHost: 127.0.0.1
+              # Port of the final endpoint to which you’ll connect via
+              # tunneling from the SSH server.
+              remotePort: 5432
+              # Port on the local machine from which you'll connect to the SSH server.
+              # This must match port, above.
+              localPort: 15432
       bindings: []
 ```
 ## Available Connectors
