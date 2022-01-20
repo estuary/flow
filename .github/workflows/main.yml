@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build_flow:
     runs-on: ubuntu-20.04
 
     steps:
@@ -84,3 +84,51 @@ jobs:
       # Cleanup in preparation for populating the build cache.
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
       - run: cargo-cache
+
+  build_control:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Prepare
+        id: prep
+        run: |
+          TAG=$(echo $GITHUB_SHA | head -c7)
+          echo ::set-output name=tag::${TAG}
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: control.Dockerfile
+          load: true
+          tags: ghcr.io/estuary/control:test
+
+      - name: Push control image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: control.Dockerfile
+          push: true
+          tags: ghcr.io/estuary/control:${{ steps.prep.outputs.tag }}
+
+      - name: Push control image with 'dev' tag
+        if: ${{ github.event_name == 'push' }}
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: control.Dockerfile
+          push: true # See 'if' above
+          tags: ghcr.io/estuary/control:dev
