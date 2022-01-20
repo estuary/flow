@@ -50,7 +50,7 @@ func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.
 // **new** materialization (one that is not running and has never been Applied). Note that this will
 // "recommend" all projections of single scalar types, which is what drives the default field
 // selection in flowctl.
-func ValidateNewSQLProjections(proposed *pf.CollectionSpec) map[string]*pm.Constraint {
+func ValidateNewSQLProjections(proposed *pf.CollectionSpec, deltaUpdates bool) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, projection := range proposed.Projections {
 		var constraint = new(pm.Constraint)
@@ -58,6 +58,9 @@ func ValidateNewSQLProjections(proposed *pf.CollectionSpec) map[string]*pm.Const
 		case projection.IsPrimaryKey:
 			constraint.Type = pm.Constraint_LOCATION_REQUIRED
 			constraint.Reason = "All Locations that are part of the collections key are required"
+		case projection.IsRootDocumentProjection() && deltaUpdates:
+			constraint.Type = pm.Constraint_LOCATION_RECOMMENDED
+			constraint.Reason = "The root document should usually be materialized"
 		case projection.IsRootDocumentProjection():
 			constraint.Type = pm.Constraint_LOCATION_REQUIRED
 			constraint.Reason = "The root document must be materialized"
