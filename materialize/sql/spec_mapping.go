@@ -89,7 +89,7 @@ func generateApplyStatements(
 ) ([]string, error) {
 	var target = ResourcePath(spec.ResourcePath).Join()
 
-	current, constraints, err := loadConstraints(target, &spec.Collection, existing)
+	current, constraints, err := loadConstraints(target, spec.DeltaUpdates, &spec.Collection, existing)
 	if err != nil {
 		return nil, err
 	}

@@ -103,6 +103,7 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 		var target = resource.Path().Join()
 		current, constraints, err := loadConstraints(
 			target,
+			resource.DeltaUpdates(),
 			&spec.Collection,
 			existing,
 		)
@@ -341,6 +342,7 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 // collection given the (possible) existing binding.
 func loadConstraints(
 	target string,
+	deltaUpdates bool,
 	collection *pf.CollectionSpec,
 	existing map[string]*pf.MaterializationSpec_Binding,
 ) (
@@ -356,7 +358,7 @@ func loadConstraints(
 
 	var constraints map[string]*pm.Constraint
 	if current == nil {
-		constraints = ValidateNewSQLProjections(collection)
+		constraints = ValidateNewSQLProjections(collection, deltaUpdates)
 	} else {
 		constraints = ValidateMatchesExisting(current, collection)
 	}
