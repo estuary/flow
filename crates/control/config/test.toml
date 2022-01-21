@@ -1,0 +1,4 @@
+# test env settings
+
+[application]
+port = 0 # servers launch on a random port in test mode
