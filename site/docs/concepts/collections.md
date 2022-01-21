@@ -1,9 +1,9 @@
 # Collections
 
 Flow stores data in **collections**:
-a real-time data lake of JSON documents.
-Collections may be added to by [captures](captures.md),
-or be [derived](derivations.md) as a transformation
+real-time data lakes of JSON documents.
+Collections may be added to by [captures](./captures.md),
+or be [derived](./derivations.md) as a transformation
 of other source collections.
 
 Every collection has a key and an associated [schema](#schemas)
@@ -75,7 +75,7 @@ collections:
 ```
 
 </TabItem>
-<TabItem value="File Reference">
+<TabItem value="File reference">
 
 ```yaml
 collections:
@@ -85,7 +85,7 @@ collections:
 ```
 
 </TabItem>
-<TabItem value="Reference with Pointer">
+<TabItem value="Reference with pointer">
 
 ```yaml
 collections:
@@ -151,7 +151,7 @@ userId | name
 1      | William
 ```
 
-### Schema Restrictions
+### Schema restrictions
 
 Keyed document locations may be of a limited set of allowed types:
 
@@ -173,7 +173,7 @@ location could not exist, or could exist with the wrong type.
 
 Flow itself doesn't mind if a keyed location could have multiple types,
 so long as they're each of the allowed types: an `integer` or `string` for example.
-Some materialization [connectors](connectors.md) however may impose further type
+Some materialization [connectors](connectors.md), however, may impose further type
 restrictions as required by the endpoint.
 For example, SQL databases do not support multiple types for a primary key.
 
@@ -214,24 +214,24 @@ properties:
 </TabItem>
 </Tabs>
 
-### Key Behaviors
+### Key behaviors
 
 A collection key instructs Flow how documents of a collection are to be
 reduced, such as while being materialized to an endpoint.
 Flow also performs opportunistic local reductions over windows of documents
-(often called a "combine") to improve its performance and reduce the volumes
+(also called "combines") to improve its performance and reduce the volumes
 of data at each processing stage.
 
 An important subtlety is that the underlying storage of a collection
 will potentially retain _many_ documents of a given key.
 
-In the [acmeCo/users example](#keys), each of the "Will" vs "William" variants
-is likely represented in the collection's storage -- so long as they didn't
+In the [acmeCo/users example](#keys), each of the "Will" or "William" variants
+is likely represented in the collection's storage — so long as they didn't
 arrive so closely together that they were locally combined by Flow.
-If desired a derivation could re-key the collection
+If desired, a derivation could re-key the collection
 on `[/userId, /name]` to materialize the various `/name`s seen for a `/userId`.
 
-This property makes keys less "lossy" than they might otherwise appear,
+This property makes keys less lossy than they might otherwise appear,
 and it is generally good practice to chose a key that reflects how
 you wish to _query_ a collection, rather than an exhaustive key
 that's certain to be unique for every document.
@@ -285,7 +285,7 @@ your cloud storage buckets.
 
 Unlike a traditional data lake, however,
 it's very efficient to read collection documents as they are written.
-Derivations and materializations which source from a collection
+Derivations and materializations that source from a collection
 are notified of its new documents within milliseconds of their being published.
 
-[Learn more about journals, which provide storage for collections](journals.md)
+[Learn more about journals, which provide storage for collections](./journals.md)
