@@ -5,11 +5,11 @@ import Mermaid from '@theme/Mermaid';
 # Derivations
 
 A derivation is a [collection](collections.md)
-which continuously derives its documents
+that continuously derives its documents
 from transformations that are applied to one or more other source collections.
-It defines both the collection of derived documents,
-and also a [catalog task](../#tasks)
-which processes documents of source collections as they become available,
+It defines the collection of derived documents
+as well as a [catalog task](../#tasks).
+The task processes documents of source collections as they become available,
 transforming them into updates of the derived collection.
 
 In addition to their collection,
@@ -19,7 +19,7 @@ derivations are defined by their **transformations** and **registers**.
 
 ## Specification
 
-Derivations are specified as a regular collection which has an additional `derivation` stanza:
+A derivation is specified as a regular collection with an additional `derivation` stanza:
 
 ```yaml
 collections:
@@ -101,8 +101,10 @@ collections:
 
 ## Background
 
-For the sake of explanations in the following sections,
-suppose you have an application where users send one another
+The following sections will refer to the following common example
+to illustrate concepts.
+
+Suppose you have an application through which users send one another
 some amount of currency, like in-game tokens or dollars or digital kittens:
 
 <Tabs>
@@ -122,10 +124,7 @@ some amount of currency, like in-game tokens or dollars or digital kittens:
 
 There are many views over this data that you might require,
 such as summaries of sender or receiver activity,
-or current account balances
-within your application.
-
-The following sections will refer to this example when discussing concepts.
+or current account balances within your application.
 
 ## Transformations
 
@@ -133,14 +132,14 @@ A transformation binds a [source](#sources) collection to a derivation.
 As documents of the source collection arrive,
 the transformation processes the document
 to [publish](#publish-lambdas) new documents,
-or [update](#update-lambdas) a
+[update](#update-lambdas) a
 [register](#registers),
 or both.
 
 Read source documents are [shuffled](#shuffles) on a **shuffle key** to
 co-locate the processing of documents that have equal shuffle keys.
 The transformation then processes documents by invoking **lambdas**:
-user-defined functions which accept documents as arguments
+user-defined functions that accept documents as arguments
 and return documents in response.
 
 A derivation may have many transformations,
@@ -148,15 +147,15 @@ and each transformation has a long-lived and stable name.
 Each transformation independently reads documents from its
 source collection and tracks its own read progress.
 More than one transformation can read from the same source collection,
-and transformations may also source from their own derivation
-— enabling cyclic data-flows and graph algorithms.
+and transformations may also source from their own derivation,
+enabling cyclic data-flows and graph algorithms.
 
-Transformations may be added or removed from a derivation at any time.
+Transformations may be added to or removed from a derivation at any time.
 This makes it possible to, for example, add a new collection into an
-existing multi-way join, or to gracefully migrate to a new source
+existing multi-way join, or gracefully migrate to a new source
 collection without incurring downtime.
-However renaming a running transformation is not possible:
-if attempted, the old transformation is dropped and
+However, renaming a running transformation is not possible.
+If attempted, the old transformation is dropped and
 a new transformation under the new name is created,
 which begins reading its source collection all over again.
 
@@ -184,8 +183,8 @@ As documents are published into the source collection,
 they are continuously read and processed by the transformation.
 
 A [partition selector](projections.md#partition-selectors) may be provided
-to process only a subset of the logical partitions of the source collection.
-Selectors are efficient: only partitions which match the selector are read,
+to process only a subset of the source collection's logical partitions.
+Selectors are efficient: only partitions that match the selector are read,
 and Flow can cheaply skip over partitions that don't.
 
 Derivations re-validate their source documents against
@@ -199,15 +198,15 @@ give you an opportunity to correct the problem.
 You may also provide an alternative **source schema**.
 Source schemas aide in processing third-party sources
 of data that you don't control,
-that can have unexpected schema changes without notice.
+which can have unexpected schema changes without notice.
 You may want to capture this data
 with a minimal and very permissive schema.
-Then, a derivation can apply a significantly stricter source schema
+Then, a derivation can apply a significantly stricter source schema,
 which verifies your current expectations of what the data _should_ be.
 If those expectations turn out to be wrong,
 little harm is done:
 your derivation is paused but the capture continues to run.
-You next update your transformations
+You must simply update your transformations
 to account for the upstream changes and then continue without any data loss.
 
 ## Shuffles
@@ -239,14 +238,14 @@ They are also used to map source documents to [registers](#registers).
     p2-- sender: bob -->t2;
 `}/>
 
-If you don't provide a shuffle key
-then Flow will shuffle on the source collection key,
+If you don't provide a shuffle key,
+Flow will shuffle on the source collection key,
 which is typically what you want.
 
 If a derivation has more than one transformation,
 the shuffle keys of all transformations must align with one another
-on the extracted key types (string versus integer)
-and also the number of components in a composite key.
+in terms of the extracted key types (string or integer)
+as well as the number of components in a composite key.
 For example, one transformation couldn't shuffle transfers on `[/id]`
 while another shuffles on `[/sender]`, because `sender` is a string and
 `id` an integer.
@@ -254,15 +253,15 @@ Similarly mixing a shuffle of `[/sender]` alongside `[/sender, /recipient]`
 is prohibited because the keys have different numbers of components.
 However, one transformation _can_ shuffle on `[/sender]`
 while another shuffles on `[/recipient]`,
-as is done in the examples below.
+as in the examples below.
 
-## Publish Lambdas
+## Publish lambdas
 
 A **publish** lambda publishes documents into the derived collection.
 
 To illustrate first with an example,
 suppose you must know the last transfer
-from each sender which was over $100:
+from each sender that was over $100:
 
 <Tabs>
 <TabItem value="last-large-send.flow.yaml" default>
@@ -285,12 +284,12 @@ from each sender which was over $100:
 </TabItem>
 </Tabs>
 
-This transformation defines a TypeScript **publish** lambda
+This transformation defines a TypeScript **publish** lambda,
 which is implemented in an accompanying TypeScript module.
-The lambda is invoked as each source transfer document arrives,
-and is given the `source` document
-as well as a `_register` and `_previous` register which are not used here.
-More on [registers](#registers) in a bit.
+The lambda is invoked as each source transfer document arrives.
+It is given the `source` document,
+and also includes the a `_register` and `_previous` register, which are not used here.
+[Registers](#registers) are discussed in depth below.
 The lambda outputs zero or more documents,
 each of which must conform to the derivation's schema.
 
@@ -303,7 +302,7 @@ In SQL terms, the collection key acts as a GROUP BY.
 :::tip
 Flow will initialize a TypeScript module for your lambdas if one doesn't exist,
 with stubs of the required interfaces
-and having TypeScript types that match your schemas.
+and TypeScript types that match your schemas.
 You just write the function body.
 
 [Learn more about TypeScript generation](flowctl.md#typescript-generation)
@@ -318,10 +317,10 @@ and publish lambdas can be combined with reductions in interesting ways.
 You may be familiar with `map` and `reduce` functions
 built into languages like
 [Python](https://book.pythontips.com/en/latest/map_filter.html),
-[JavaScript](https://www.freecodecamp.org/news/javascript-map-reduce-and-filter-explained-with-examples/),
+[JavaScript](https://www.freecodecamp.org/news/javascript-map-reduce-and-filter-explained-with-examples/);
 and many others,
 or have used tools like MapReduce or Spark.
-In functional terms, lambdas you write within Flow are "mappers",
+In functional terms, lambdas you write within Flow are "mappers,"
 and reductions are always done
 by the Flow runtime using your schema annotations.
 
@@ -355,9 +354,9 @@ for each user from all of the credit and debit amounts of their transfers:
 ## Registers
 
 Registers are the internal _memory_ of a derivation.
-They are a building block which enable derivations to tackle advanced stateful
+They are a building block that enable derivations to tackle advanced stateful
 streaming computations like multi-way joins, windowing, and transaction processing.
-As we've already seen, not all derivations require registers
+As we've already seen, not all derivations require registers,
 but they are essential for a variety of important use cases.
 
 Each register is a document with a user-defined
@@ -367,24 +366,24 @@ and their corresponding register documents.
 Every source document is mapped to a specific register document
 through its extracted [shuffle key](#shuffles).
 
-For example, when shuffling `acmeBank/transfers` on `[/sender]`
-then each account ("alice", "bob", or "carol")
-would be allocated its own register.
+For example, when shuffling `acmeBank/transfers` on `[/sender]`,
+each account ("alice", "bob", or "carol")
+is allocated its own register.
 If you instead shuffle on `[/sender, /recipient]` then each
 _pair_ of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
-would be allocated a register.
+is allocated a register.
 
 Registers are best suited for relatively small,
 fast-changing documents that are shared within and across
 the transformations of a derivation.
 The number of registers indexed within a derivation may be very large,
-and if a register has never before been used
+and if a register has never before been used,
 it starts with a user-defined initial value.
 From there, registers may be modified through an **update lambda**.
 
 :::info
 Under the hood, registers are backed by replicated,
-embedded RocksDB instances which co-locate
+embedded RocksDB instances, which co-locate
 with the lambda execution contexts that Flow manages.
 As contexts are assigned and re-assigned,
 their register databases travel with them.
@@ -395,7 +394,7 @@ which subdivides its contents into two new databases
  — and paired execution contexts — which are re-assigned to other machines.
 :::
 
-## Update Lambdas
+## Update lambdas
 
 An **update** lambda transforms a source document
 into an update of the source document's register.
@@ -431,14 +430,14 @@ to track whether this account pair has been seen before:
 This transformation uses both a publish and an **update** lambda,
 implemented in an accompanying TypeScript module.
 The update lambda is invoked first for each `source` document,
-and it returns zero or more documents
+and it returns zero or more documents,
 which each must conform to the derivation's register schema
 (in this case, a simple boolean).
 
 The **publish** lambda is invoked next, and is given the `source`
 document as well as the _before_ (`previous`) and _after_ (`_register`)
 values of the updated register.
-In this case we don't need the _after_ value:
+In this case, we don't need the _after_ value:
 our update lambda implementation implies that it's always `true`.
 The _before_ value, however,
 tells us whether this was the very first update of this register,
@@ -464,7 +463,7 @@ and by implication was the first transfer for this pair of accounts.
 **Performance.**
 _Update_ and _publish_ are designed to be
 parallelized and pipelined over many source documents simultaneously,
-while still giving the appearance and correctness of lambdas which
+while still giving the appearance and correctness of lambdas
 are invoked in strict serial order.
 Notice that (1) above doesn't depend on actually knowing the register
 value, which doesn't happen until (4).
@@ -513,10 +512,10 @@ and whether the account was overdrawn:
 </TabItem>
 </Tabs>
 
-Source transfers are read twice,
-with the first read shuffling on `/recipient`
+Source transfers are read twice.
+The first read shuffles on `/recipient`
 to track account credits,
-and the second shuffling on `/sender`
+and the second shuffles on `/sender`
 to track account debits and to publish enriched transfer events.
 Update lambdas return the amount of credit or debit,
 and these amounts are summed
@@ -537,16 +536,16 @@ into a derivation register keyed on the account.
     Publish λ-->>Derivation: return {sender: alice, amount: 75, balance: -25, overdrawn: true}
 `}/>
 
-## Processing Order
+## Processing order
 
 Derivations may have multiple transformations that simultaneously read from
 different source collections, or even multiple transformations that read
 from the same source collection.
 
 Roughly speaking, the derivation will globally process transformations and
-their source documents in the time-based order by which the source documents
+their source documents in the time-based order in which the source documents
 were originally written to their source collections.
-This means that a derivation started a month ago,
+This means that a derivation started a month ago
 and a new copy of the derivation started today,
 will process documents in the same order and arrive at the same result.
 Derivations are **repeatable**.
@@ -558,9 +557,9 @@ one task shard is used.
 Processing order can be attenuated through a **read delay**
 or differing transformation **priority**.
 
-## Read Delay
+## Read delay
 
-A transformation can define a read delay which will hold back the processing
+A transformation can define a read delay, which will hold back the processing
 of its source documents until the time delay condition is met.
 For example, a read delay of 15 minutes would mean that a source document
 cannot be processed until it was published at least 15 minutes ago.
@@ -583,25 +582,25 @@ and index the last timestamp of each sensor in a register.
 Then, source the same collection again with a read delay:
 if the register timestamp isn't more recent
 than the delayed source reading,
-then the sensor failed to produce a measurement.
+the sensor failed to produce a measurement.
 
 Flow read delays are very efficient and scale better
 than managing very large numbers of fine-grain timers.
 
 [Learn more from the Citi Bike idle bikes example](https://github.com/estuary/flow/blob/master/examples/citi-bike/idle-bikes.flow.yaml)
 
-## Read Priority
+## Read priority
 
-Sometimes its required that _all_ documents of a source collection
-are processed by a transformation before _any_ documents of some
+Sometimes it's necessary for _all_ documents of a source collection
+to be processed by a transformation before _any_ documents of some
 other source collection are processed, regardless of their
 relative publishing time.
-For example, a collection may have corrections which should be
+For example, a collection may have corrections that should be
 applied before the historical data of another collection
 is re-processed.
 
-Transformation priorities allow for expressing the relative
-processing priority of a derivations various transformations.
+Transformation priorities allow you to express the relative
+processing priority of a derivation's various transformations.
 When priorities are not equal, _all_ available source documents
 of a higher-priority transformation
 are processed before _any_ source documents
@@ -612,19 +611,19 @@ of a lower-priority transformation.
 When you build a derived collection, you must choose where **accumulation** will happen:
 whether Flow will reduce into documents held within
 your materialization endpoint, or within the derivation's registers.
-These two approaches can produce equivalent results
+These two approaches can produce equivalent results,
 but they do so in very different ways.
 
-### Accumulate in your Database
+### Accumulate in your database
 
 To accumulate in your materialization endpoint, such as a database,
 you define a derivation with a reducible schema
 and use only `publish` lambdas and no registers.
 The Flow runtime uses your reduction annotations
-to combine published documents which are written to the collection,
-and also to fully reduce collection documents into the values
-stored in the database,
-keeping the materialized table up to date.
+to combine published documents, which are written to the collection.
+It then fully reduces collection documents into the values
+stored in the database.
+This keeps the materialized table up to date.
 
 A key insight is that the database is
 the _only_ stateful system in this scenario,
@@ -648,15 +647,15 @@ Flow couples its processing transactions with corresponding database transaction
 ensuring end-to-end “exactly once” semantics.
 
 When materializing into a non-transactional store,
-Flow is only able to provide weaker “at least once” semantics:
+Flow is only able to provide weaker “at least once” semantics;
 it’s possible that a document may be combined into a database value more than once.
 Whether that’s a concern depends a bit on the task at hand.
 Some reductions can be applied repeatedly without changing the result (they're "idempotent"),
-and in other use-cases approximations are acceptable.
+while in other use cases approximations are acceptable.
 For the summing example above,
 "at-least-once" semantics could give an incorrect result.
 
-### Accumulate in Registers
+### Accumulate in registers
 
 To accumulate in registers,
 you use a derivation that defines a reducible register schema
@@ -678,7 +677,7 @@ into non-transactional stores
 because the documents they produce
 can be applied multiple times without breaking correctness.
 
-They’re also well-suited for materializations into endpoints which aren't stateful,
+They’re also well-suited for materializations into endpoints that aren't stateful,
 such as pub/sub systems or Webhooks,
 because they can produce fully reduced values as stand-alone updates.
 

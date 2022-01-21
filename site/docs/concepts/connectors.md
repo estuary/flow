@@ -1,5 +1,10 @@
 # Connectors
 
+**Connectors** are plugin components that bridge the gap between Flow’s runtime and
+the various endpoints from which you capture or materialize data.
+They're packaged as Docker images, each encapsulating the details of working with
+a particular kind of endpoint.
+
 Flow’s vision is to provide a common runtime against which any open connector may be run.
 Today Flow supports the
 [Airbyte specification](https://docs.airbyte.io/understanding-airbyte/airbyte-specification)
@@ -25,16 +30,16 @@ Users are empowered to write their own connectors for esoteric systems not alrea
 Furthermore, implementing a Docker-based community specification brings other important qualities to Estuary connectors:
 
 * Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
-* Connectors can be written in any language and run on any machine
-* Built-in solutions for version management (through image tags) and distribution.
-* Container Image Registries allow you to integrate connectors from different sources at will, without the centralized control of a single company
+* The abilities to write connectors in any language and run them on any machine
+* Built-in solutions for version management (through image tags) and distribution
+* The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
 
-## Using Connectors
+## Using connectors
 
 Connectors are packaged as [Open Container](https://opencontainers.org/) (Docker) images,
 and can be discovered, tagged, and pulled using
 [Docker Hub](https://hub.docker.com/),
-[GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
+[GitHub Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
 or any other public image registry provider.
 
 To interface with a connector, the Flow runtime needs to know:
@@ -55,9 +60,9 @@ materializations:
   acmeCo/postgres-views:
     endpoint:
       connector:
-        # 1: Provide the image which implements your endpoint connector.
+        # 1: Provide the image that implements your endpoint connector.
         image: ghcr.io/estuary/materialize-postgres:dev
-        # 2: Provide endpoint configuration which the connector requires.
+        # 2: Provide endpoint configuration that the connector requires.
         config:
           host: localhost
           password: password
@@ -86,10 +91,10 @@ materializations:
 ```
 
 In some cases, you may be comfortable writing out the required configuration of your connector.
-Often you don't know what configuration a connector requires ahead of time.
-Or you may simply prefer a more guided workflow.
+Often, you don't know what configuration a connector requires ahead of time,
+or you may simply prefer a more guided workflow.
 
-For this reason connectors offer APIs which specify the configuration they may require,
+For this reason, connectors offer APIs that specify the configuration they may require,
 or the resources they may have available.
 Flow uses these APIs to offer guided workflows for easy configuration and usage of connectors.
 
@@ -98,49 +103,51 @@ Configuration details for each connector are described on their individual pages
 
 :::info
 Estuary is implementing better UI-driven workflows to easily
-configure and use connectors, expected by end of Q1 2022.
+configure and use connectors, expected by Q2 2022.
 The support offered today is rudimentary.
 :::
 
 
 ### `flowctl discover`
 
-The [`flowctl`](flowctl.md) command-line tool offers a `discover` sub-command
-which offers a rudimentary guided workflow for creating a connector instance.
+The [`flowctl`](./flowctl.md) command-line tool offers a rudimentary guided workflow
+for creating a connector instance through the `discover` sub-command
 
 :::info Limitation
 Currently, `flowctl discover` is limited to creating catalog captures using a connector.
 Materializations must be written manually.
 :::
 
-`discover` generates a catalog source file which includes the capture specification
-as well as recommended **collections** which are bound to each captured resource of the endpoint.
+`discover` generates a catalog source file. It includes the capture specification
+as well as recommended **collections**, which are bound to each captured resource of the endpoint.
 This makes the `discover` workflow a quick way to start setting up a new data flow.
 
 1. In your terminal, run:
-```console
-flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
-```
+   ```console
+   flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
+   ```
 
-This generates a config from the latest version of the connector, provided as a Docker image.
+  This generates a config from the latest version of the connector, provided as a Docker image.
 
-:::tip
-A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md)
-:::
+  :::tip
+  A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md).
+  :::
 
 2. Open the newly generated config file called `discover-source-<connector-name>-config.yaml`.
   This is your space to specify the required values for the connector.
   Fill in required values and modify other values, if you'd like.
 
 3. Run the command again:
-```console
-flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
-```
+   ```console
+   flowctl discover --image=ghcr.io/estuary/<connector-name>:dev
+   ```
 
 4. Open the resulting catalog spec file, `discover-source-<connector-name>.flow.yaml`.
-   It will include a capture definition with one or more bindings, and the collection(s) created to support each binding.
 
-If you notice any undesired resources from the endpoint were included in the catalog spec,
+   It will include a capture definition with one or more bindings, and the
+   definitions of one or more collections to support each binding.
+
+If you notice an undesired resources from the endpoint was included in the catalog spec,
 you can remove its binding and corresponding collection to remove it from your catalog.
 
 ### Editing with `flowctl check`
@@ -163,22 +170,25 @@ Now, you're simply adding a materialization to complete the dataflow.
    and that all configuration is correct.
 
 :::tip
-Flow integrates with VSCode and other editors to offer auto-complete within catalog source files,
+Flow integrates with VS Code and other editors to offer auto-complete within catalog source files,
 which makes it easier to write and structure your files.
 :::
 
-### Credential Manager
+### Config Manager
 
 This method is for Beta clients using Flow as a managed service.
 
-The Estuary Credential Manager acts and feels like a simple user interface. In practice, it's a secure way to collect the configurations details for your use case, so that Estuary engineers can create and start your dataflow.
+The Estuary Config Manager acts and feels like a simple user interface. In practice,
+it's a secure way to collect the configurations details for your use case, so that
+Estuary engineers can create and start your dataflow.
 
 To use it, simply select your desired connector from the drop-down menu and fill out the required fields.
 
 ### Flow UI
 
 :::info Beta
-Flow UI is still undergoing development and will be available, with detailed documentation, in mid 2022.
+Flow UI is still undergoing development and will be available, with detailed
+documentation, in Q2 2022.
 :::
 
 The Flow user interface is an alternative to the GitOps workflow,
@@ -192,7 +202,7 @@ Connectors interface with external systems and universally require endpoint conf
 such as a database hostname or account credentials,
 which must be provided to the connector for it to function.
 When directly working with catalog source files,
-you have the option of inlining configuration into your connector
+you have the option of inlining the configuration into your connector
 or storing it in separate files:
 
 import Tabs from '@theme/Tabs';
@@ -217,7 +227,7 @@ materializations:
 ```
 
 </TabItem>
-<TabItem value="Referenced File">
+<TabItem value="Referenced file">
 
 ```yaml title="my.flow.yaml"
 materializations:
@@ -240,16 +250,16 @@ port: 5432
 </TabItem>
 </Tabs>
 
-Storing configuration in separate files serves to important purposes:
- * Re-use of configuration across multiple captures or materializations.
- * Making it possible to protect your sensitive credentials.
+Storing configuration in separate files serves two important purposes:
+ * Re-use of configuration across multiple captures or materializations
+ * The ability to protect sensitive credentials
 
-### Protecting Secrets
+### Protecting secrets
 
 Most endpoint systems require credentials of some kind,
 such as a username or password.
 
-Directly storing secrets in files which are versioned in Git is poor practice.
+Directly storing secrets in files that are versioned in Git is poor practice.
 Similarly, sensitive credentials should be protected while not in use within Flow's runtime as well.
 The only time a credential needs to be directly accessed is when it's
 required by Flow's runtime for the purposes of instantiating the connector.
@@ -259,7 +269,7 @@ which can encrypt and protect credentials within a GitOps-managed catalog.
 Flow's runtime similarly stores a `sops`-protected configuration in its encrypted form,
 and decrypts it only when invoking a connector on the user’s behalf.
 
-Sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
+sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
 against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or Hashicorp Vault.
 Encryption or decryption of a credential with `sops` is an active process:
 it requires that the user (or the Flow runtime identity) have a current authorization to the required KMS,
@@ -267,9 +277,9 @@ and creates a request trace which can be logged and audited.
 It's also possible to revoke access to the KMS,
 which immediately and permanently removes access to the protected credential.
 
-#### Example: Protect a Configuration
+#### Example: Protect a configuration
 
-Suppose your given a connector configuration:
+Suppose you're given a connector configuration:
 
 ```yaml title="config.yaml"
 host: my.hostname
@@ -328,12 +338,12 @@ you must currently order your configuration files in their natural key-sorted or
 See https://github.com/estuary/flow/issues/303
 :::
 
-#### Example: Protect Portions of a Configuration
+#### Example: Protect portions of a configuration
 
 Endpoint configurations are typically a mix of sensitive and non-sensitive values.
 It can be cumbersome when `sops` protects an entire configuration document as you
 lose visibility into non-sensitive values, which you might prefer to store as
-cleartext for eas of use.
+cleartext for ease of use.
 
 You can use the encrypted-suffix feature of `sops` to selectively protect credentials:
 
@@ -425,6 +435,6 @@ captures:
               localPort: 15432
       bindings: []
 ```
-## Available Connectors
+## Available connectors
 
 [Learn about available connectors in the reference section](../../reference/Connectors/)

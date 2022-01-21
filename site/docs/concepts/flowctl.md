@@ -22,19 +22,19 @@ so distribution and upgrades are all simple.
 For help while using the `flowctl` CLI, use `--help` after any subcommand for more information.
 :::
 
-## Build Directory
+## Build directory
 
 When building Flow catalogs, `flowctl` uses a **build directory**
 which is typically the root directory of your project, and is controlled by flag `--directory`.
-Within this directory `flowctl` creates a number of files and sub-directories.
-Except where noted, it's recommended that these outputs be committed within your GitOps project:
+Within this directory, `flowctl` creates a number of files and sub-directories.
+Except where noted, it's recommended that these outputs be committed within your GitOps project.
 
 * `flow_generated/`: ♻
   Directory of generated files, including TypeScript classes and interfaces.
   See [Typescript code generation](#typescript-code-generation).
 
 * `*.flow.ts`: ⚓
-  TypeScript modules which accompany your catalog source files.
+  TypeScript modules that accompany your catalog source files.
   A stub is generated for you if your catalog source uses a TypeScript lambda, and a module doesn't yet exist.
   See [Typescript code generation](#typescript-code-generation) and
   [learn how TypeScript modules are imported](import.md#typescript-modules).
@@ -67,17 +67,17 @@ Except where noted, it's recommended that these outputs be committed within your
 ♻: `flowctl` re-generates and overwrites contents.
 :::}
 
-### TypeScript Code Generation
+### TypeScript code generation
 
 As part of the catalog build process, Flow translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
-These definitions live within `flow_generated/` of your catalog build directory,
+These definitions live within `flow_generated/` in your catalog build directory,
 and are frequently over-written by invocations of `flowctl`.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn't required.
 
-Flow also generates TypeScript module stubs for Flow catalog sources which reference
+Flow also generates TypeScript module stubs for Flow catalog sources, which reference
 a TypeScript lambda, if that particular Flow catalog source doesn't yet have an accompanying TypeScript module.
 Generated stubs include implementations of the required TypeScript interfaces,
 with all method signatures filled out for you:
@@ -122,12 +122,12 @@ export class AcmeBankBalances implements interfaces.AcmeBankBalances {
 </TabItem>
 </Tabs>
 
-If a TypeScript module exists then `flowctl` will never over-write it,
+If a TypeScript module exists, `flowctl` will never over-write it,
 even if you update or expand your catalog sources such that the required interfaces have changed.
 
 :::tip
 
-If you make changes to a catalog source file `my.flow.yaml` which substantially
+If you make changes to a catalog source file `my.flow.yaml` that substantially
 change the required TypeScript interfaces, try re-naming an existing
 `my.flow.ts` to another name like `old.flow.ts`.
 

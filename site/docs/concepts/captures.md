@@ -1,6 +1,6 @@
 # Captures
 
-A **capture** is a catalog task which connects to an endpoint
+A **capture** is a catalog task which connects to an external data source, or endpoint
 and binds one or more of its resources, such as a database tables,
 to Flow collections.
 As documents become available for any of the bindings,
@@ -8,7 +8,7 @@ Flow validates their schema and adds them to their bound collection.
 
 ![](<captures.svg>)
 
-## Pull Captures
+## Pull captures
 
 Pull captures pull documents from an endpoint using a [connector](../#connectors):
 
@@ -53,19 +53,14 @@ captures:
           syncMode: incremental
 ```
 
-### Estuary Sources
+### Estuary sources
 
 Estuary builds and maintains many real-time connectors for various technology systems,
-such as database change-data-capture (CDC) connectors.
+such as database change data capture (CDC) connectors.
 
-Docker images can be found [on GitHub](https://github.com/orgs/estuary/packages?repo_name=connectors).
+See the [source connector reference documentation](../reference/Connectors/capture-connectors/README.md).
 
-:::note
-We're working on developing reference documentation for Estuary-developed connectors.
-Stay tuned!
-:::
-
-### Airbyte Sources
+### Airbyte sources
 
 Flow also natively supports Airbyte source connectors.
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
@@ -80,7 +75,7 @@ You can use any item whose name begins with `source-`.
 Flow offers a CLI tool `flowctl discover --image connector/image:tag` which
 provides a guided workflow for creating a correctly configured capture.
 
-## Push Captures
+## Push captures
 
 Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol:
 
