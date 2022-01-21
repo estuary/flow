@@ -22,6 +22,7 @@ tracing = "0.1.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+ctor = "0.1.21"
 insta = "1.10.0"
 
 [features]
