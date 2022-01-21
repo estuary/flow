@@ -25,6 +25,7 @@ RUN mkdir ./src \
   && rm -r src
 
 COPY crates/control/src ./src
+COPY crates/control/config ./config
 
 # This touch prevents Docker from using a cached empty main.rs file.
 RUN touch src/main.rs \
@@ -43,6 +44,7 @@ ENV PATH="/app:$PATH"
 
 # Copy in the connector artifact.
 COPY --from=builder /usr/local/cargo/bin/control ./control-plane-server
+COPY --from=builder /app/config ./config
 
 # Avoid running the connector as root.
 USER nonroot:nonroot
