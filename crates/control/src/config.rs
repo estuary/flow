@@ -8,6 +8,7 @@ pub use app_env::app_env;
 #[derive(Debug, Deserialize)]
 pub struct Settings {
     pub application: ApplicationSettings,
+    pub database: DatabaseSettings,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +20,24 @@ pub struct ApplicationSettings {
 impl ApplicationSettings {
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DatabaseSettings {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub db_name: String,
+}
+
+impl DatabaseSettings {
+    pub fn url(&self) -> String {
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            self.username, self.password, self.host, self.port, self.db_name
+        )
     }
 }
 
