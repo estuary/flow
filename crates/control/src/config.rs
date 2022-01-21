@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
-mod app_env;
+pub mod app_env;
 
 pub use app_env::app_env;
 
