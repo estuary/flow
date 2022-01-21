@@ -2,15 +2,19 @@ use std::convert::{TryFrom, TryInto};
 
 use once_cell::sync::OnceCell;
 
-pub fn app_env() -> &'static AppEnv {
-    static APP_ENV: OnceCell<AppEnv> = OnceCell::new();
+static APP_ENV: OnceCell<AppEnv> = OnceCell::new();
 
+pub fn app_env() -> &'static AppEnv {
     APP_ENV.get_or_init(|| {
         std::env::var("APP_ENV")
             .unwrap_or_else(|_| "development".into())
             .try_into()
             .expect("To parse APP_ENV")
     })
+}
+
+pub fn force_env(target: AppEnv) {
+    APP_ENV.set(target).expect("app_env to be unset")
 }
 
 #[derive(Debug)]
