@@ -4,6 +4,7 @@ Flow helps you define data pipelines that connect your data systems, APIs, and s
 Pipelines are defined within a Flow [catalog](#catalogs) and deployed to a Flow runtime using the [flowctl](#flowctl) command-line interface.
 
 This page provides a high-level explanation of important concepts and terminology you'll need to understand as you begin working with Flow.
+These concepts are further discussed in more detail on dedicated pages of this section.
 
 ![](<at-a-glance.png>)
 

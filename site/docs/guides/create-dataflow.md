@@ -10,7 +10,9 @@ Flow's UI is coming in 2022. In the future, Estuary will continue to support and
 :::
 
 ## Prerequisites
-This guide assumes a basic understanding of Flow and its key concepts. At a minimum, begin by reading the [high level concepts](../concepts/README.md) documentation.
+This guide assumes a basic understanding of Flow and its key concepts.
+Before you begin, it's recommended that you read
+the [high level concepts](../concepts/README.md) documentation.
 
 ## Introduction
 The simplest Flow **catalog** comprises three types of entities that define your data flow: a data **capture** from an external source, one or more **collections**, which store that data in the Flow runtime, and a **materialization**, to push them to an external destination.
@@ -29,19 +31,19 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 2. Refer to the [capture connectors list](../../reference/connectors/capture-connectors) and find your data source system. Click on its **configuration** link, set up prerequisites as necessary, and follow the instructions to generate a catalog spec with [`flowctl discover`](../concepts/connectors.md#flowctl-discover).
 
     A generalized version of the `discover` workflow is as follows:
-    1. In your terminal, run: `flowctl discover --image=ghcr.io/estuary/<connector-name>:dev`
-    2. In the generated file called `discover-source-<connector-name>-config.yaml`, fill in the required values.
+    1. In your terminal, run: `flowctl discover --image=ghcr.io/estuary/<connector-name>:dev --prefix your/subdirectory`
+    2. In subdirectory you specified, find the generated file called `discover-source-<connector-name>-config.yaml` and fill in the required values.
     3. Re-run the command. A catalog spec called `discover-source-<connector-name>.flow.yaml` is generated.
 
     You now have a catalog spec that contains a capture and one or more collections.
 
     In a production workflow, your collections would be stored in a cloud storage bucket. In the development workflow, cloud storage isn't used, but you must supply a placeholder **storage mapping**.
 
-3. Copy and paste the following section at the top of your catalog spec, where `tenant` matches the tenant used for your collections:
+3. Copy and paste the following placeholder section at the top of your catalog spec.
 
     ```yaml
     storageMappings:
-      tenant/:
+      "":
         stores:
           - bucket: "my-bucket"
             provider: "S3"
@@ -55,9 +57,12 @@ In the majority of cases, the capture and materialization each rely on a plug-in
     ```console
     flowctl temp-data-plane
     ```
-6. Leave that running and open a new shell window. There, deploy your catalog:
+    Copy the two lines of output that start with `export BROKER_ADDRESS` and `export CONSUMER_ADDRESS` for use in the next step.
+6. Leave that process running and open a new shell window.
+   There, deploy your catalog, substituting your file location and broker and consumer addresses:
     ```console
-    flowctl deploy --source=your_file.flow.yaml --wait-and-cleanup
+    flowctl deploy --source=your_file.flow.yaml --wait-and-cleanup export BROKER_ADDRESS=http://localhost:8080
+    export CONSUMER_ADDRESS=http://localhost:9000
     ```
     You'll now be able to see data flowing between your source and destination systems.
 

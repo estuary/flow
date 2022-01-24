@@ -1,10 +1,11 @@
 ---
 description: Using the merge reduction strategy
+sidebar_position: 3
 ---
 
 # merge
 
-`merge` reduces the LHS and RHS by recursively reducing shared document locations. The LHS and RHS must either both be objects, or both be arrays.
+`merge` reduces the left-hand side and right-hand side by recursively reducing shared document locations. The LHS and RHS must either both be objects, or both be arrays.
 
 If both sides are objects, `merge` performs a deep merge of each property. If LHS and RHS are both arrays, items at each index of both sides are merged together, extending the shorter of the two sides by taking items off the longer:
 
@@ -92,4 +93,4 @@ tests:
             }
 ```
 
-As with `append`, the left-hand side of `merge` _may_ be null, in which case the reduction is treated as a no-op and its result remains null.
+As with `append`, the LHS of `merge` _may_ be null, in which case the reduction is treated as a no-op and its result remains null.

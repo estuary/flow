@@ -1,5 +1,6 @@
 ---
 description: Using the append reduction strategy
+sidebar_position: 1
 ---
 
 # append
@@ -35,4 +36,4 @@ tests:
           - { key: "key", value: [1, 2, 3, null, "abc"] }
 ```
 
-The right-hand side _must_ always be an array. The left-hand side _may_ be null, in which case the reduction is treated as a no-op and its result remains null. This can be combined with schema conditionals to toggle whether reduction-reduction should be done or not.
+The right-hand side must always be an array. The left-hand side may be null, in which case the reduction is treated as a no-op and its result remains null. This can be combined with schema conditionals to toggle whether reduction-reduction should be done or not.
