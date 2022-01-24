@@ -1,9 +1,37 @@
-use axum::Json;
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
-pub async fn health_check() -> String {
-    format!("{}", Utc::now())
+use axum::extract::Extension;
+use axum::Json;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+use tokio::time::Instant;
+
+#[serde_as]
+#[derive(Debug, Serialize)]
+pub struct HealthCheck {
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    current_time: DateTime<Utc>,
+    #[serde_as(as = "Option<serde_with::DurationSecondsWithFrac<String>>")]
+    db_ping_seconds: Option<Duration>,
+}
+
+pub async fn health_check(Extension(db): Extension<PgPool>) -> Json<HealthCheck> {
+    Json(HealthCheck {
+        current_time: Utc::now(),
+        db_ping_seconds: ping(&db).await,
+    })
+}
+
+async fn ping(db: &PgPool) -> Option<Duration> {
+    let start = Instant::now();
+
+    let res = sqlx::query("SELECT 1").execute(db).await;
+
+    match res {
+        Ok(_) => Some(Instant::now() - start),
+        Err(_) => None,
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
