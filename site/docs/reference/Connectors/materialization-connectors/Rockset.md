@@ -1,4 +1,4 @@
-This Flow connector materializes [delta updates](../../../concepts/materialization.md#how-materializations-work-) of your Flow collections into Rockset collections.
+This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of your Flow collections into Rockset collections.
 
 `ghcr.io/estuary/materialize-rockset:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
@@ -14,7 +14,7 @@ To use this connector, you'll need :
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/materialization.md) and add the required Rockset configuration values per the table below.
+To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required Rockset configuration values per the table below.
 
 ### Values
 
@@ -55,13 +55,13 @@ You can backfill large amounts of historical data into Rockset using a *bulk ing
 Before completing this workflow, make sure you have:
 * A working catalog spec including at least one Flow collection.
 * A production or [development](../../../getting-started/installation.md) environment
-::: tip
+:::tip
 The following is an intermediate workflow. As needed, refer to [this guide](../../../guides/create-dataflow.md) for the basic steps to create and deploy a catalog spec using the GitOps workflow.
 :::
 
 ### How to perform a bulk ingestion
 
-A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [materialize-s3-parquet](https://github.com/estuary/connectors/pkgs/container/materialize-s3-parquet) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switch to the Rockset Write API for the continuous materialization of new data.
+A bulk ingestion from a Flow collection into Rockset is essentially a two-step process. First, Flow writes your historical data into an S3 bucket using Estuary's [S3-Parquet materialization](https://github.com/estuary/connectors/pkgs/container/materialize-s3-parquet) connector. Once the data is caught up, it uses the Rockset connector to backfill the data from S3 into Rockset and then switches to the Rockset Write API for the continuous materialization of new data.
 
 import Mermaid from '@theme/Mermaid';
 

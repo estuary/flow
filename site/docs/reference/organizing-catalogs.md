@@ -1,15 +1,15 @@
-# Organizing a Flow Catalog
+# Organizing a Flow catalog
 
-It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files which can be managed independently. You may want to do so if:
+It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently. You may want to do so if:
 
 * You want to ensure shared collections remain easy to find
 * You use group data that's managed by different teams
-* You could benefit from DRY factoring things that are different per environment.
+* You could benefit from DRY factoring things that are different per environment
 * You need to manage sensitive credentials separately from materialization definitions
 
 ### `import`
 
-Flow's `import` directive can help you easily handle all of these scenarios while keeping your catalogs well organized. Each catalog spec file may import any number of other files, and each import may refer to either relative or an absolute URL.&#x20;
+Flow's [`import`](../concepts/import.md) directive can help you easily handle all of these scenarios while keeping your catalogs well organized. Each catalog spec file may import any number of other files, and each import may refer to either relative or an absolute URL.
 
 When you use `import` in a catalog spec, you're conceptually bringing the entirety of another catalog — as well as the schemas and typescript files it uses — into your catalog. Imports are also transitive, so when you import another catalog, you're _also_ importing everything that other catalog has imported. This allows you to keep your catalogs organized, and is flexible enough to support collaboration between separate teams and organizations.
 
@@ -76,12 +76,11 @@ acme
 ... the remainder is the same as above
 ```
 
-Each of the top-level catalog specs might import all of the collections and define an endpoint called `ourMaterializationEndpoint` that points to the desired system. The `import` block might be the same for each system, but each file may use a different configuration for the endpoint, which is used by any materializations that reference it. &#x20;
+Each of the top-level catalog specs might import all of the collections and define an endpoint called `ourMaterializationEndpoint` that points to the desired system. The `import` block might be the same for each system, but each file may use a different configuration for the endpoint, which is used by any materializations that reference it.
 
 Our configuration for our development environment will look like:
 
-{% code title="dev.flow.yaml" %}
-```yaml
+```yaml title="dev.flow.yaml"
   import:
   - customers/flow.yaml
   - products/flow.yaml
@@ -92,12 +91,10 @@ Our configuration for our development environment will look like:
     sqlite:
       path: dev-materializations.db
 ```
-{% endcode %}
 
 While production will look like:
 
-{% code title="prod.flow.yaml" %}
-```yaml
+```yaml title="prod.flow.yaml"
 import:
   - customers/flow.yaml
   - products/flow.yaml
@@ -112,7 +109,6 @@ endpoints:
       password: abc123
       warehouse: acme_production
 ```
-{% endcode %}
 
 When we want to test locally, we simply run `flowctl test dev.flow.yaml` and when we push to production we'll likely run `flowctl apply prod.flow.yaml`.
 
@@ -124,17 +120,14 @@ When working across teams, it's common for one team to provide a data product fo
 
 Again using the Acme example, let's imagine we have two teams. Team Web is responsible for Acme's website, and Team User is responsible for providing a view of Acme customers that's always up to date. Since Acme wants a responsive site that provides a good customer experience, Team Web needs to pull the most up-to-date information from Team User at any point. Let's look at Team User's collections:
 
-{% code title="teamUser.flow.yaml" %}
-```yaml
+```yaml title="teamUser.flow.yaml"
 import:
     - userProfile.flow.yaml
 ```
-{% endcode %}
 
 Which references:
 
-{% code title="userProfile.flow.yaml" %}
-```yaml
+```yaml title="userProfile.flow.yaml"
 collection:
     userProfile:
         schema:
@@ -142,22 +135,18 @@ collection:
         key:
             [/id]
 ```
-{% endcode %}
 
 Team User references files in their directory, which they actively manage in both their import and schema sections. If Team Web wants to access user data (and they have access), they can use a relative path or a URL-based path given that Team User publishes their data to a URL for access:
 
-{% code title="teamWeb.flow.yaml" %}
-```yaml
+```yaml title="teamWeb.flow.yaml"
 import:
     -http://www.acme.com/teamUser#userProfile.flow.yaml
     -webStuff.flow.yaml
 ```
-{% endcode %}
 
 Now Team Web has direct access to collections (referenced by their name) to build derived collections on top of. They can also directly import schemas:
 
-{% code title="webStuff.flow.yaml" %}
-```yaml
+```yaml title="webStuff.flow.yaml"
 collection:
     webStuff:
         schema:
@@ -165,7 +154,6 @@ collection:
         key:
             [/id]
 ```
-{% endcode %}
 
 ### Global namespace
 

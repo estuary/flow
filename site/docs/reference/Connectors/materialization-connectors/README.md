@@ -1,5 +1,5 @@
 # Materialization connectors
-Estuary's available materialization connectors are listed in this section. Each connector has a unique configuration you must follow in your [catalog specification](concepts/README.md); these will be linked below the connector name.
+Estuary's available materialization connectors are listed in this section. Each connector has a unique configuration you must follow in your [catalog specification](concepts/README.md#specifications); these will be linked below the connector name.
 
 :::info Beta
 More configurations coming to the docs soon. [Contact the team](mailto:info@estuary.dev) for more information on missing connectors.

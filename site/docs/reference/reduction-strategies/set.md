@@ -1,20 +1,21 @@
 ---
 description: Using the set reduction strategy
+sidebar_position: 5
 ---
 
 # set
 
 `set` interprets the document location as an update to a set.
 
-The location must be an object having only “add”, “intersect”, and “remove” properties. Any single “add”, “intersect”, or “remove” is always allowed.
+The location must be an object having only “add", “intersect", and “remove” properties. Any single “add", “intersect", or “remove” is always allowed.
 
-A document with “intersect” and “add” is allowed, and is interpreted as applying the intersection to the LHS set, followed by a union with the additions.
+A document with “intersect” and “add” is allowed, and is interpreted as applying the intersection to the left-hand side set, followed by a union with the additions.
 
 A document with “remove” and “add” is also allowed, and is interpreted as applying the removals to the base set, followed by a union with the additions.
 
 “remove” and “intersect” within the same document are prohibited.
 
-Set additions are deeply merged. This makes sets behave like associative maps, where the “value” of a set member can be updated by adding it to set again, with a reducible update.
+Set additions are deeply merged. This makes sets behave like associative maps, where the “value” of a set member can be updated by adding it to the set again, with a reducible update.
 
 Sets may be objects, in which case the object property serves as the set item key:
 

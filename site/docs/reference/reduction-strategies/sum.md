@@ -1,5 +1,6 @@
 ---
 description: Using the sum reduction strategy
+sidebar_position: 6
 ---
 
 # sum

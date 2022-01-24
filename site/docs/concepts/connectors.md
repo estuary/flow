@@ -127,7 +127,7 @@ to create stub configuration files for materialization connectors,
 but the remainder of the materialization must be written manually.
 :::
 
-#### Step 1: Generate a Configuration File Stub
+#### Step 1: Generate a configuration file stub
 
 In your terminal, run:
 ```console
@@ -146,7 +146,7 @@ which by default is written to the `--prefix` subdirectory of your current direc
 A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md).
 :::
 
-#### Step 2: Update your Stubbed Configuration File
+#### Step 2: Update your stubbed configuration file
 
 Open and edit the generated config file.
 It is pre-populated with configuration required by the connector,
@@ -170,12 +170,12 @@ port: 5432
 # [integer] (required)
 ```
 
-#### Step 3: Discover Resources from your Endpoint
+#### Step 3: Discover resources from your endpoint
 
-A second invocation of the same command
-finds your configuration file
-and completes the discovery workflow.
-It creates (or overwrites) a catalog source file within your directory
+Run the same command
+to use your configuration file
+to complete the discovery workflow.
+Flow creates (or overwrites) a catalog source file within your directory,
 which includes a capture definition with one or more bindings,
 definitions of collections to support each binding,
 and associated collection schemas:
@@ -242,7 +242,7 @@ You can repeat this step any number of times,
 to re-generate and update your catalog sources
 so that they reflect the endpoint's current resources.
 
-#### Step 4: Inspect and Trim your Catalog
+#### Step 4: Inspect and trim your catalog
 
 If you notice an undesired resources from the endpoint was included in the catalog spec,
 you can remove its binding and corresponding collection to remove it from your catalog.

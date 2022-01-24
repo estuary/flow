@@ -1,5 +1,6 @@
 ---
 description: Using the firstWriteWins and lastWriteWins reduction strategies
+sidebar_position: 2
 ---
 
 # firstWriteWins and lastWriteWins

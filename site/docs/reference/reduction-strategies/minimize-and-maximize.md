@@ -1,5 +1,6 @@
 ---
 description: Using the minimize and maximize reduction strategies
+sidebar_position: 4
 ---
 
 # minimize and maximize
@@ -32,9 +33,9 @@ tests:
           - { key: "key", min: 32, max: "def" }
 ```
 
-`minimize` and `maximize` can also take a `key`, which is one or more JSON pointers that are relative to the reduced location. Keys make it possible to minimize and maximize over complex types, by ordering over an extracted composite key.
+`minimize` and `maximize` can also take a `key`, which is one or more JSON pointers that are relative to the reduced location. Keys make it possible to minimize and maximize over complex types by ordering over an extracted composite key.
 
-In the event that a RHS document key equals the current LHS minimum or maximum, the documents are deeply merged. This can be used to, for example, track not just the minimum value but also the number of times it’s been seen:
+In the event that a right-hand side document key equals the current left-hand side minimum or maximum, the documents are deeply merged. This can be used to, for example, track not just the minimum value but also the number of times it’s been seen:
 
 ```yaml
 collections:
