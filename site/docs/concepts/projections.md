@@ -1,7 +1,7 @@
 # Projections
 
 Flow documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.
-However systems that Flow integrates with often model flat tables of rows and columns, without hierarchy.
+However, systems that Flow integrates with often model flat tables of rows and columns, without hierarchy.
 Others are somewhere in between.
 
 **Projections** are the means by which Flow translates between the documents
@@ -12,7 +12,7 @@ and a corresponding **field** name used as, for example, a CSV file header or SQ
 
 Many projections are inferred automatically from a collection’s JSON schema,
 using a field that is simply the JSON Pointer with its leading slash removed.
-For example a schema scalar with pointer `/myScalar` will generate a projection with field `myScalar`.
+For example, a schema scalar with pointer `/myScalar` will generate a projection with field `myScalar`.
 
 You can supplement by providing additional collection projections,
 and a document location can have more than one projection field that references it:
@@ -32,7 +32,7 @@ collections:
       "third request": /requests/2
 ```
 
-## Logical Partitions
+## Logical partitions
 
 Projections can also be used to logically partition a collection,
 specified as a longer-form variant of a projection definition:
@@ -85,17 +85,17 @@ while `pivot` identifies a _physical partition_.
 
 [Learn more about physical partitions](journals.md#physical-partitions).
 
-### Partition Selectors
+### Partition selectors
 
 When reading from a collection, Flow catalog entities like derivations, materializations,
-and tests can provide a **partition selector** which identifies the subset
+and tests can provide a **partition selector**, which identifies the subset
 of partitions that should be read from a source collection:
 
 ```yaml
 # Partition selectors are included as part of a larger entity,
 # such as a derivation or materialization.
 partitions:
-  # `include` selects partitioned fields and corresponding values which
+  # `include` selects partitioned fields and corresponding values that
   # must be matched in order for a partition to be processed.
   # All of the included fields must be matched.
   # Default: All partitions are included. type: object

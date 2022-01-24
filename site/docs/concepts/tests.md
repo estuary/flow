@@ -25,7 +25,7 @@ tests:
           - { userId: 2, greeting: "Hello Link" }
 ```
 
-A test is a sequence of one or more sequential steps, each either an `ingest` or a `verify`.
+A test is a sequence of one or more steps, each of either an `ingest` or a `verify` type.
   * `ingest` steps add one or more documents to a collection.
   * `verify` steps make assertions about the current contents of a collection.
 
@@ -65,8 +65,8 @@ tests:
 Verified documents are fully reduced, with one document for each unique key, ordered under the key's natural order.
 
 You can verify the contents of both derivations and captured collections.
-Documents given in `verify` steps do _not_ need to be comprehensive:
-it is not an error if the actual document has additional locations not present in the document to verify,
+Documents given in `verify` steps do _not_ need to be comprehensive.
+It is not an error if the actual document has additional locations not present in the document to verify,
 so long as all matched document locations are equal.
 Verified documents also do not need to validate against the collection's schema.
 They do, however, need to include all fields that are part of the collection's key.
@@ -95,7 +95,7 @@ tests:
           - { userId: 3, greeting: "Hello Pikachu" }
 ```
 
-### Partition Selectors
+### Partition selectors
 
 Verify steps may include a partition selector to
 verify only documents of a specific partition:
@@ -120,9 +120,11 @@ tests:
 
 The following tips can aid in testing large or complex derivations.
 
-### Testing Reductions
+### Testing reductions
 
-Reduction annotations are expressive and powerful, and their use should thus be tested thoroughly. An easy way to test reduction annotations on captured collections is to write a two-step test that ingests multiple documents with the same key and then verifies the result. For example, the following test might be used to verify the behavior of a simple `sum` reduction:
+Reduction annotations are expressive and powerful, and their use should thus be tested thoroughly.
+An easy way to test reduction annotations on captured collections is to write a two-step test that ingests multiple documents with the same key and then verifies the result.
+For example, the following test might be used to verify the behavior of a simple `sum` reduction:
 
 ```yaml
 tests:
@@ -141,9 +143,12 @@ tests:
           - {id: 1, value: 6}
 ```
 
-### Reusing Common Fixtures
+### Reusing common fixtures
 
-When you write a lot of tests, it can be tedious to repeat documents that are used multiple times. YAML supports [anchors and references](https://blog.daemonl.com/2016/02/yaml.html), which you can implement to re-use common documents throughout your tests. One nice pattern is to define anchors for common ingest steps in the first test, which can be re-used by subsequent tests. For example:
+When you write a lot of tests, it can be tedious to repeat documents that are used multiple times.
+YAML supports [anchors and references](https://blog.daemonl.com/2016/02/yaml.html),
+which you can implement to re-use common documents throughout your tests.
+One nice pattern is to define anchors for common ingest steps in the first test, which can be re-used by subsequent tests. For example:
 
 ```yaml
 tests:

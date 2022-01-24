@@ -5,7 +5,7 @@ that defines the structure, representation, and constraints
 of your documents.
 
 Schemas are a powerful tool for data quality.
-Flow verifies every document against its schema whenever its read or written,
+Flow verifies every document against its schema whenever it's read or written,
 which provides a strong guarantee that your collections hold only "clean" data,
 and that bugs and invalid documents are caught before they can impact downstream data products.
 
@@ -18,7 +18,7 @@ Flow uses it for all schemas defined within a Flow catalog.
 JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),
 recursion, and other complex, real-world composite types.
-Schemas can also define rich data validations like minimum & maximum values,
+Schemas can also define rich data validations like minimum and maximum values,
 regular expressions, dates, timestamps, email addresses, and other formats.
 
 Together, these features let schemas represent structure _as well as_
@@ -37,8 +37,8 @@ Flow is often able to generate suitable JSON schemas on your behalf.
 
 ### Translations
 
-A central design tenant of Flow is that users need only provide
-a model of their data _one time_, as a JSON schema.
+You must only provide Flow
+a model of a given dataset _one time_, as a JSON schema.
 Having done that, Flow leverages static inference over your schemas
 to perform many build-time validations of your catalog entities,
 helping you catch potential problems early.
@@ -55,7 +55,7 @@ Schema inference is also used to provide translations into other schema flavors:
   compile-time type checks of user lambda functions.
   These checks are immensely helpful for surfacing mismatched expectations around,
   for example, whether a field could ever be null or is misspelt —
-  which if not caught might otherwise fail later at runtime.
+  which, if not caught, might otherwise fail at runtime.
 
 ### Annotations
 
@@ -92,7 +92,7 @@ oneOf:
 Here, the activated `description` of this schema location depends
 on whether the integer is positive, negative, or zero.
 
-## Writing Schemas
+## Writing schemas
 
 Your schema can be quite permissive or as strict as you wish.
 There are a few things to know, however.
@@ -107,7 +107,7 @@ There are a few things to know, however.
   of the collection's key, and the schema must guarantee that.
 
 For example, the following collection schema would be invalid because
-the `id` field which is used as its key is not `required`,
+the `id` field, which is used as its key, is not `required`,
 so it might not actually exist in all documents:
 
 ```yaml
@@ -138,8 +138,8 @@ It's recommended to use references in order to organize your schemas for reuse.
 
 `$ref` can also be used in combination with other schema keywords
 to further refine a base schema.
-Here's an example with uses references to organize and
-further tighten the constraints of a re-used base schema:
+Here's an example that uses references to organize and
+further tighten the constraints of a reused base schema:
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
@@ -160,7 +160,7 @@ collections:
   acmeCo/positive-coordinates:
     key: [/id]
     schema:
-      # Compose in a restriction that `x` & `y` must be positive.
+      # Compose a restriction that `x` & `y` must be positive.
       $ref: schemas.yaml#/definitions/coordinate
       properties:
         x: {exclusiveMinimum: 0}
@@ -186,7 +186,7 @@ definitions:
 
   integer-coordinate:
     $ref: "#/definitions/coordinate"
-    # Compose in a restriction that `x` & `y` cannot be fractional.
+    # Compose a restriction that `x` & `y` cannot be fractional.
     properties:
       x: {type: integer}
       y: {type: integer}
@@ -207,8 +207,8 @@ but you can also use absolute URLs to a third-party schema like
 ## Reductions
 
 Flow collections have keys, and multiple documents
-may be added to collections which share a common key.
-When this happens Flow will opportunistically merge all such documents
+may be added to collections that share a common key.
+When this happens, Flow will opportunistically merge all such documents
 into a single representative document for that key through a process
 known as _reduction_.
 
@@ -216,10 +216,10 @@ Flow's default is simply to retain the most recent document of a given key,
 which is often the behavior that you're after.
 Schema `reduce` annotations allow for far more powerful behaviors.
 
-Reductions are done eagerly and continuously within Flow's runtime
+The Flow runtime performs reductions frequently and continuously
 to reduce the overall movement and cost of data transfer and storage.
 A torrent of input collection documents can often become a trickle
-of reduced updates which must be stored or materialized into your
+of reduced updates that must be stored or materialized into your
 endpoints.
 
 :::info
@@ -229,16 +229,16 @@ Every document is processed as quickly as possible, from end to end.
 
 Instead Flow uses optimistic transaction pipelining to do as much useful work as possible,
 while it awaits the commit of a previous transaction.
-This natural back-pressure affords _plenty_ of opportunity for
+This natural back-pressure affords plenty of opportunity for
 data reductions while minimizing latency.
 :::
 
-### `reduce` Annotations
+### `reduce` annotations
 
 Reduction behaviors are defined by `reduce`
 [JSON schema annotations](#annotations)
 within your document schemas.
-These annotations tell Flow of the specific reduction strategies
+These annotations provide Flow with the specific reduction strategies
 to use at your various document locations.
 
 If you're familiar with the _map_ and _reduce_ primitives present in
@@ -268,7 +268,7 @@ Learn more in the
 [reductions strategies](../../../reference/reduction-strategies/)
 reference documentation.
 
-#### Composition with Conditionals
+#### Composition with conditionals
 
 Like any other JSON Schema annotation,
 `reduce` annotations respond to schema conditionals.
@@ -281,7 +281,7 @@ oneOf:
   # If the array is non-empty, reduce by appending its items.
   - minItems: 1
     reduce: { strategy: append }
-  # Otherwise if the array is empty, reset the reduced array to be empty.
+  # Otherwise, if the array is empty, reset the reduced array to be empty.
   - maxItems: 0
     reduce: { strategy: lastWriteWins }
 
