@@ -2,16 +2,21 @@ use std::future::Future;
 use std::net::TcpListener;
 
 use axum::routing::get;
+use axum::AddExtensionLayer;
 use axum::Router;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 
+use crate::config;
 use crate::routes;
 use crate::shutdown;
 
 pub fn run(
     listener: TcpListener,
+    db: PgPool,
 ) -> anyhow::Result<impl Future<Output = Result<(), hyper::Error>>> {
     let app = Router::new()
         .route("/health_check", get(routes::health_check))
@@ -19,7 +24,8 @@ pub fn run(
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(ConcurrencyLimitLayer::new(64)),
+                .layer(ConcurrencyLimitLayer::new(64))
+                .layer(AddExtensionLayer::new(db)),
         );
 
     let server = axum::Server::from_tcp(listener)?
@@ -27,4 +33,14 @@ pub fn run(
         .with_graceful_shutdown(shutdown::signal());
 
     Ok(server)
+}
+
+pub async fn connect_to_postgres() -> PgPool {
+    let pool = PgPoolOptions::new()
+        .min_connections(1)
+        .connect(&config::settings().database.url())
+        .await
+        .expect("Failed to connect to postgres");
+
+    pool
 }
