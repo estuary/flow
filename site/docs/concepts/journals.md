@@ -6,16 +6,18 @@ You can use Flow without knowing the details of journals,
 but this section may help you better understand how Flow works.
 :::
 
-Flow collections store their data in **journals**,
-a resource resembling a file.
-Journals are part of the Gazette project:
-[see Gazette's Journal concepts page for details](
+Flow collections store their data in one or more **journals**,
+resources resembling files.
+Journals are part of the Gazette project.
+[See Gazette's Journal concepts page for details](
 https://gazette.readthedocs.io/en/latest/brokers-concepts.html#journals).
+The number of journals that comprise a given collection depends
+on how the collection is partitioned.
 
 Journals are a real-time data lake.
 Historical journal data is stored as an organized layout of
-[fragment files](#fragment-files) in cloud storage,
-which are regular files that collectively hold the journal's content.
+[fragment files](#fragment-files) in cloud storage.
+Fragment files are regular files that collectively hold the journal's content.
 Just-written data is held in a replicated buffer,
 where it is immediately available to readers.
 From there, buffers are regularly persisted
@@ -107,7 +109,7 @@ Your [storage mappings](storage-mappings.md) determine
 which of your cloud storage buckets is used
 for storage of collection fragment files.
 
-## Physical Partitions
+## Physical partitions
 
 Every logical partition of a Flow collection
 is created with a single physical partition.
@@ -133,7 +135,7 @@ encoded within
   https://gazette.readthedocs.io/en/latest/brokers-concepts.html#specifications
 ).
 
-## Fragment Files
+## Fragment files
 
 Journal fragment files each hold a slice of your collection's content,
 stored as a compressed file of newline-delimited JSON documents
@@ -163,9 +165,9 @@ This path has the following components:
 
 The supplemental **time pseudo-partitions** are not logical partitions,
 but are added to each fragment file path to facilitate
-integration with external tools that understand **Hive Layouts**.
+integration with external tools that understand **Hive layouts**.
 
-## Hive Layouts
+## Hive layouts
 
 As we've seen,
 collection fragment files are written to cloud storage

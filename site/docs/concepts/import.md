@@ -1,7 +1,13 @@
 # Imports
 
-The `import` section is a list of partial or absolute URLs
-that are always evaluated relative to the base directory of the current source file.
+Catalog spec files may include an `import` section.
+This is what allows you to organize your catalog spec across multiple
+interlinked files, and in some cases, import other resources.
+When a catalog is deployed, the imported resources are treated as part of the file
+into which they are imported.
+
+The `import` section is structured as a list of partial or absolute URLs,
+which Flow always evaluates relative to the base directory of the current source file.
 For example, these are possible imports within a collection:
 
 ```yaml
@@ -12,8 +18,8 @@ import:
   - https://example/path/flow.yaml # Uses the absolute url.
 ```
 
-The import rules are designed so that a collection doesn’t have to do anything special
-in order to be imported by another,
+The import rules flexible; a collection doesn’t have to do anything special
+to be imported by another,
 and [`flowctl`](flowctl.md) can even directly build remote sources:
 
 ```bash
@@ -21,20 +27,20 @@ and [`flowctl`](flowctl.md) can even directly build remote sources:
 $ flowctl test --source https://raw.githubusercontent.com/estuary/flow-template/main/word-counts.flow.yaml
 ```
 
-## Fetch Behavior
+## Fetch behavior
 
 Flow resolves, fetches, and validates all imports during the catalog build process,
 and then includes their fetched contents within the built catalog.
 The built catalog is thus a self-contained snapshot of all resources
 _as they were_ at the time the catalog was built.
 
-An implication is that it's both safe and recommended to directly reference
+This means it's both safe and recommended to directly reference
 an authoritative source of a resource, such as a third-party JSON schema.
 It will be fetched and verified only at catalog build time,
 and thereafter that fetched version will be used for execution,
 regardless of whether the authority URL itself later changes or errors.
 
-## Import Types
+## Import types
 
 Almost always, the `import` stanza is used to import other Flow
 catalog source files.
@@ -58,47 +64,45 @@ but these are not typically used and are needed only for advanced use cases.
 
 ## JSON Schema `$ref`
 
-JSON Schema has a `$ref` keyword for referencing a schema which may
+Certain catalog entities, like collections, commonly reference JSON schemas.
+It's not necessary to explicitly add these to the `import` section;
+they are automatically resolved and treated as an import.
+You can think of this as an analog to the JSON Schema `$ref` keyword,
+which is used to reference a schema that may
 be contained in another file.
-Similarly, various catalog source entities like collections also
-accept schema URLs.
-These schema references are implicitly resolved
-and treated as an import of the built catalog.
-It's not required to further list them in the `import` stanza.
 
-The one caveat are schemas which use the `$id` keyword
+The one exception is schemas that use the `$id` keyword
 at their root to define an alternative canonical URL.
-In this case the schema must be referenced through its canonical URL,
-and then explicitly added as a catalog import
+In this case, the schema must be referenced through its canonical URL,
+and then explicitly added to the `import` section
 with `JSON_SCHEMA` content type.
 
-## TypeScript Modules
+## TypeScript modules
 
-You may declare entities in catalog source files that use
-TypeScript lambda definitions, such as derivations.
+Certain entities in your catalog spec — typically derivations — may use
+TypeScript lambda definitions.
 These lambdas are conventionally defined in TypeScript modules
-which accompany the specific catalog source.
+that accompany the specific catalog spec file.
 Flow looks for and automatically imports TypeScript modules
-which live alongside a Flow catalog source file.
+which live alongside a Flow catalog spec file.
 
-Given a Flow catalog source at `/path/to/my.flow.yaml`,
-Flow will automatically import the TypeScript module `/path/to/my.flow.ts`.
+Given a Flow catalog spec at `/path/to/my.flow.yaml`,
+Flow automatically imports the TypeScript module `/path/to/my.flow.ts`.
 This is conventionally the module which implements all TypeScript lambdas
-related to catalog entities defined in `my.flow.yaml`,
-and you do **not** need to also add `my.flow.ts` to the `import` stanza.
+related to catalog entities defined in `my.flow.yaml`.
+You do not need to add `my.flow.ts` to the `import` stanza.
 
-However, Flow must know of all transitive TypeScript modules which
+However, Flow must know of all additional TypeScript modules that
 are part of the catalog.
-If additional modules are needed which live outside of these implicit
-modules, they must be added as a catalog import
+If other modules are needed, they must be added as a to the `import` section
 with `TYPESCRIPT_MODULE` content type.
 
-## NPM Dependencies
+## NPM dependencies
 
 Your TypeScript modules may depend on other
 [NPM packages](https://www.npmjs.com/),
 which can be be imported through the `npmDependencies`
-stanza of a Flow catalog source.
+stanza of a Flow catalog spec.
 For example, [moment](https://momentjs.com/) is a common library
 for working with times:
 
@@ -132,13 +136,13 @@ which can include local packages, GitHub repository commits, and more.
 See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
 
 During the catalog build process, Flow gathers NPM dependencies
-across all catalog sources and patches them into the catalog's
+across all catalog source files and patches them into the catalog's
 managed `package.json`.
 Flow organizes its generated TypeScript project structure
-for a seamless editing experience out of the box with VSCode
+for a seamless editing experience out of the box with VS Code
 and other common editors.
 
-## Import Paths
+## Import paths
 
 import Mermaid from '@theme/Mermaid';
 
@@ -162,7 +166,7 @@ Or they can be indirect:
         other.flow.yaml-->foo.flow.yaml;
 `}/>
 
-However the sources must still have an import path
+The sources must still have an import path
 even if referenced from a common parent.
 The following would **not** work:
 
@@ -172,7 +176,7 @@ The following would **not** work:
 		parent.flow.yaml-->bar.flow.yaml;
 `}/>
 
-These rules make your catalog sources more self contained
+These rules make your catalog sources more self-contained
 and less brittle to refactoring and reorganization.
 Consider what might otherwise happen if `foo.flow.yaml`
 were imported in another project without `bar.flow.yaml`.
