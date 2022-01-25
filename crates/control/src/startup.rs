@@ -11,7 +11,7 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 
 use crate::config;
-use crate::routes;
+use crate::controllers;
 use crate::shutdown;
 
 pub fn run(
@@ -19,8 +19,8 @@ pub fn run(
     db: PgPool,
 ) -> anyhow::Result<impl Future<Output = Result<(), hyper::Error>>> {
     let app = Router::new()
-        .route("/health_check", get(routes::health_check))
-        .route("/connectors", get(routes::list_connectors))
+        .route("/health_check", get(controllers::health_check::show))
+        .route("/connectors", get(controllers::connectors::index))
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
