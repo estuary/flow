@@ -8,14 +8,20 @@ RUN apt-get update \
   && apt-get install -y ca-certificates pkg-config libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
+# We need the SQLx tools to setup the test database.
+RUN cargo install sqlx-cli --version="0.5.10"
+
+ENV RUST_BACKTRACE=1
+
 WORKDIR /app
 
 COPY crates/control/Cargo.toml ./Cargo.lock ./
 
 # Avoid having to install/build all dependencies by copying the Cargo files and
 # making a dummy src/main.rs and empty lib.rs files.
-RUN mkdir ./src \
+RUN mkdir -p ./src/bin \
   && echo "fn main() {}" > src/main.rs \
+  && echo "fn main() {}" > src/bin/db_url.rs \
   && touch src/lib.rs \
   # TODO: figure out if there's a way to use `--locked` with these commands.
   # There seems to be an issue with building only this single Cargo.toml, but
@@ -25,11 +31,19 @@ RUN mkdir ./src \
   && rm -r src
 
 COPY crates/control/src ./src
+COPY crates/control/tests ./tests
 COPY crates/control/config ./config
 
-# This touch prevents Docker from using a cached empty main.rs file.
+# We need to be able to set the postgres host within the CI build for the tests
+# to be able to connect. Defaults to localhost for non-CI workflows.
+ARG PGHOST=127.0.0.1
+ENV CONTROL_DATABASE_HOST=${PGHOST}
+
 RUN touch src/main.rs \
-  && touch src/lib.rs \
+  # This touch prevents Docker from using a cached empty main.rs file.
+  && touch src/main.rs src/lib.rs src/bin/db_url.rs \
+  # Since the tests require a postgres connection, any `docker build` commands
+  # will the appropriate `--network` flag to access the database.
   && cargo test --locked --offline \
   && cargo clippy --locked --offline \
   && cargo install --path . --locked --offline
