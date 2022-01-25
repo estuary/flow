@@ -61,7 +61,7 @@ fn load_settings() -> Result<Settings, config::ConfigError> {
     config.merge(config::File::from(config_dir.join(app_env().as_str())).required(true))?;
 
     // Load settings from ENV_VARs
-    config.merge(config::Environment::with_prefix("CONTROL"))?;
+    config.merge(config::Environment::with_prefix("CONTROL").separator("_"))?;
 
     config.try_into()
 }
