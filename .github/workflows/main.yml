@@ -88,6 +88,23 @@ jobs:
   build_control:
     runs-on: ubuntu-20.04
 
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          # `POSTGRES_HOST` is set to `postgres`
+          POSTGRES_DB: flow
+          POSTGRES_PASSWORD: flow
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: flow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v2
         with:
@@ -107,6 +124,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
+        with:
+          driver-opts: |
+            network=host
 
       - name: Build Docker Image
         uses: docker/build-push-action@v2
