@@ -2,6 +2,6 @@
 extern crate serde_with;
 
 pub mod config;
-mod routes;
+mod controllers;
 mod shutdown;
 pub mod startup;
