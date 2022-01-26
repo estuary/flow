@@ -1,6 +1,7 @@
 use anyhow::Context;
 use doc;
 use models::tables;
+use schemalate::typescript::Mapper;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -10,10 +11,8 @@ use url::Url;
 
 mod generators;
 mod interface;
-mod typescript;
 
 use interface::{Interface, Module};
-use typescript::Mapper;
 
 pub enum WriteIntent {
     Always(String),
