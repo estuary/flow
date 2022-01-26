@@ -17,6 +17,14 @@ To use this connector, you'll need a PostgreSQL database setup with the followin
 
 ### Setup
 
+:::info
+These setup instructions are PostgreSQL instances you manage yourself. If you use a cloud-based managed service
+for your database, different setup steps are required.
+
+Instructions for setup on Amazon RDS can be found [below](#setup-postgresql-on-amazon-rds). If you use a different managed service,
+contact [Estuary support](mailto:support@estuary.dev).
+:::
+
 The simplest way to meet the above prerequisites is to change the WAL level and have the connector use a database superuser role.
 
 For a more restricted setup, create a new user with just the required permissions as detailed in the following steps:
@@ -109,3 +117,53 @@ The PostgreSQL source connector [supports SSH tunneling](../../../concepts/conne
 to allow Flow to connect to databases ports in secure networks.
 
 To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
+
+## Setup: PostgreSQL on Amazon RDS
+
+Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
+of popular relational databases, including PostgreSQL.
+
+You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
+Once configured, the connection will behave in the same way as standard PostgreSQL.
+
+1. Create a new RDS PostgreSQL instance for testing. You can
+[reference the instructions from Amazon](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.CreatingConnecting.PostgreSQL.html), but use
+**Standard create mode** to ensure you can access the required settings. Configure the following:
+  * **Engine**: PostgreSQL
+  * **DB instance size**: Dev/Test
+  * Enter a unique **DB instance identifier**, **Master username**, and **Master password** of your choosing.
+  * **DB instance class**: db.t3.micro
+  * **Public access**: Yes
+  * **Enable enhanced monitoring**: False
+2. You'll need to configure secure access to the database to enable the Flow capture.
+  Currently, Estuary supports SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+3. Enable logical replication on the database.
+
+  a. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html)
+  with the following properties:
+    * **Family**: postgres13
+    * **Type**: DB Parameter group
+    * **Name**: postgres13-logical-replication
+    * **Description**: Database with logical replication enabled
+
+  b. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html#USER_WorkingWithParamGroups.Modifying) and set `rds.logical_replication=1`.
+
+  c. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html#USER_WorkingWithParamGroups.Associating) with the database.
+
+  d. Reboot the database to allow the new parameter group to take effect.
+4. Run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table and publication.
+  ```sql
+  CREATE USER flow_capture WITH PASSWORD '<secret>';
+  GRANT rds_replication TO flow_capture;
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
+  CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+  GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  ```
+5. Configure your connector with the additional `proxy` stanza to enable the SSH tunnel.
+See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+for additional details and a sample.
+You can find the `remoteHost` and `remotePort`in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
