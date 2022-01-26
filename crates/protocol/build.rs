@@ -75,13 +75,9 @@ static TYPE_ATTRS: &'static [TypeAttrs<'static>] = &[
 ];
 
 fn main() {
-    let mut proto_include = Vec::new();
+    let mut proto_include = Vec::with_capacity(3);
 
-    let go_modules = &[
-        "go.gazette.dev/core",
-        "github.com/estuary/protocols",
-        "github.com/gogo/protobuf",
-    ];
+    let go_modules = &["go.gazette.dev/core", "github.com/gogo/protobuf"];
     for module in go_modules {
         let go_list = Command::new("go")
             .args(&["list", "-f", "{{ .Dir }}", "-m", module])
@@ -96,6 +92,13 @@ fn main() {
         let dir = str::from_utf8(&go_list.stdout).unwrap().trim_end();
         proto_include.push(Path::new(dir).to_owned());
     }
+    let repo_root = std::fs::canonicalize(
+        std::env::current_dir()
+            .expect("resolving current dir")
+            .join("../../"),
+    )
+    .expect("canonicalize repo root path");
+    proto_include.push(repo_root);
 
     println!("proto_include: {:?}", proto_include);
 
@@ -103,9 +106,9 @@ fn main() {
         proto_include[0].join("broker/protocol/protocol.proto"),
         proto_include[0].join("consumer/protocol/protocol.proto"),
         proto_include[0].join("consumer/recoverylog/recorded_op.proto"),
-        proto_include[1].join("capture/capture.proto"),
-        proto_include[1].join("flow/flow.proto"),
-        proto_include[1].join("materialize/materialize.proto"),
+        proto_include[2].join("go/protocols/flow/flow.proto"),
+        proto_include[2].join("go/protocols/capture/capture.proto"),
+        proto_include[2].join("go/protocols/materialize/materialize.proto"),
     ];
     // Tell cargo to re-run this build script if any of the protobuf files are modified.
     for path in proto_build.iter() {
