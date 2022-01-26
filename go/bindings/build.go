@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/flow/ops"
-	pc "github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
-	pm "github.com/estuary/protocols/materialize"
+	pc "github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
 )
 

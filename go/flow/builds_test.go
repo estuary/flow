@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/protocols/catalog"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 

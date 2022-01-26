@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/estuary/protocols/fdb/tuple"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/fdb/tuple"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // EncodePartitionValue appends an encoding of |value| into the

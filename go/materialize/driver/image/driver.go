@@ -9,8 +9,8 @@ import (
 
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
-	pf "github.com/estuary/protocols/flow"
-	pm "github.com/estuary/protocols/materialize"
+	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"

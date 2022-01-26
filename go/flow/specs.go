@@ -2,7 +2,7 @@ package flow
 
 import (
 	flowLabels "github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
 )
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow/ops"
-	pc "github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
+	pc "github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"

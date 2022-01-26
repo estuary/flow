@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // EncodeRange encodes the RangeSpec into the given LabelSet,

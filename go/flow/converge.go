@@ -7,7 +7,7 @@ import (
 	"math/bits"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"

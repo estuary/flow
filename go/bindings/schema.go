@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/flow/ops"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // SchemaIndex wraps a compiled JSON schema index allocated in Rust memory,

@@ -9,9 +9,9 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	flowLabels "github.com/estuary/flow/go/labels"
-	"github.com/estuary/protocols/catalog"
-	"github.com/estuary/protocols/fdb/tuple"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
+	"github.com/estuary/flow/go/protocols/fdb/tuple"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"

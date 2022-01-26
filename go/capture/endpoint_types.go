@@ -8,8 +8,8 @@ import (
 	"github.com/estuary/flow/go/capture/driver/airbyte"
 	"github.com/estuary/flow/go/capture/driver/ingest"
 	"github.com/estuary/flow/go/flow/ops"
-	pc "github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
+	pc "github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // NewDriver returns a new driver implementation for the given EndpointType.
