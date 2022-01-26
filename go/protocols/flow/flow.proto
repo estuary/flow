@@ -190,18 +190,23 @@ message Inference {
     string content_type = 3;
     // Annotated format when the projection is of "string" type.
     string format = 4;
-    // Whether the value is base64-encoded when the projection is of "string"
-    // type.
+    // Annotated Content-Encoding when the projection is of "string" type.
+    string content_encoding = 7;
+    // Is the Content-Encoding "base64" (case-invariant)?
     bool is_base64 = 5;
     // Maximum length when the projection is of "string" type. Zero for no
     // limit.
     uint32 max_length = 6;
   }
   String string = 3;
-  // The title from the schema, if provided
+  // The title from the schema, if provided.
   string title = 4;
-  // The description from the schema, if provided
+  // The description from the schema, if provided.
   string description = 5;
+  // The default value from the schema, if provided.
+  string default_json = 6 [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+  // Whether this location is marked as a secret, like a credential or password.
+  bool secret = 7;
 }
 
 message CollectionSpec {
@@ -627,7 +632,6 @@ message CombineAPI {
     DocsAndBytes right = 2;
     DocsAndBytes out = 3;
   };
-
 };
 
 // DeriveAPI is a meta-message which name spaces messages of the Derive API
@@ -733,7 +737,8 @@ message DeriveAPI {
   message Stats {
     // Stats about the invocation of update or publish lambdas.
     message InvokeStats {
-      // The total number of documents and bytes that were output from the invocations.
+      // The total number of documents and bytes that were output from the
+      // invocations.
       DocsAndBytes output = 1;
       // Sum total duration of all invocations, in seconds.
       double total_seconds = 2;
@@ -747,19 +752,22 @@ message DeriveAPI {
       InvokeStats publish = 3;
     }
     message RegisterStats {
-      // The number of new register values that were created and added to the registers database.
-      // In the future, it may be nice to also expose stats related to the size of documents stored
-      // within registers, but it's not obvious how to count updates to existing values as a result of
-      // reductions. So this lone field represents the cerservative subset of register stats that I
-      // feel confident we can and should expose as part of the user-facing stats.
+      // The number of new register values that were created and added to the
+      // registers database. In the future, it may be nice to also expose stats
+      // related to the size of documents stored within registers, but it's not
+      // obvious how to count updates to existing values as a result of
+      // reductions. So this lone field represents the cerservative subset of
+      // register stats that I feel confident we can and should expose as part
+      // of the user-facing stats.
       uint64 created = 1;
     }
 
     // Array indexed by transform_index with stats per transform.
     repeated TransformStats transforms = 1;
     RegisterStats registers = 2;
-    // The documents drained from the derive pipeline's combiner. This is not necessarily the same
-    // as the sum of all publish lambda outputs because those outputs may be further reduced.
+    // The documents drained from the derive pipeline's combiner. This is not
+    // necessarily the same as the sum of all publish lambda outputs because
+    // those outputs may be further reduced.
     DocsAndBytes output = 3;
   };
 }
@@ -844,8 +852,8 @@ message AdvanceTimeRequest { uint64 advance_seconds = 1; }
 // AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
 message AdvanceTimeResponse {}
 
-// DocsAndBytes represents a count of JSON documents, and their cumulative total size in bytes.
-// This is used by the various Stats messages.
+// DocsAndBytes represents a count of JSON documents, and their cumulative total
+// size in bytes. This is used by the various Stats messages.
 message DocsAndBytes {
   uint64 docs = 1;
   uint64 bytes = 2;
