@@ -1,0 +1,7 @@
+([]*materialize.TransactionResponse) (len=5) {
+  (*materialize.TransactionResponse)(acknowledged:<> ),
+  (*materialize.TransactionResponse)(loaded:<arena:"loaded-1loaded-2" docs_json:<end:8 > docs_json:<begin:8 end:16 > > ),
+  (*materialize.TransactionResponse)(loaded:<binding:2 arena:"loaded-3" docs_json:<end:8 > > ),
+  (*materialize.TransactionResponse)(prepared:<driver_checkpoint_json:"checkpoint" > ),
+  (*materialize.TransactionResponse)(driver_committed:<> )
+}
