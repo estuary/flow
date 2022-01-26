@@ -10,9 +10,9 @@ import (
 	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
-	"github.com/estuary/protocols/airbyte"
-	pc "github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/airbyte"
+	pc "github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/go-openapi/jsonpointer"
 	"github.com/sirupsen/logrus"
 )

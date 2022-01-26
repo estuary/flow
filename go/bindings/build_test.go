@@ -8,8 +8,8 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/materialize"
-	"github.com/estuary/protocols/catalog"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 

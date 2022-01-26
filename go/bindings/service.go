@@ -14,7 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/estuary/flow/go/flow/ops"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"

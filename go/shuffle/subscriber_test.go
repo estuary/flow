@@ -12,7 +12,7 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"

@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"

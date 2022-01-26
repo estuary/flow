@@ -9,10 +9,10 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/protocols/catalog"
-	pf "github.com/estuary/protocols/flow"
-	pm "github.com/estuary/protocols/materialize"
-	sqlDriver "github.com/estuary/protocols/materialize/sql"
+	"github.com/estuary/flow/go/protocols/catalog"
+	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
+	sqlDriver "github.com/estuary/flow/go/protocols/materialize/sql"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +38,7 @@ func TestValidations(t *testing.T) {
 		t.Run(
 			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
 			func(t *testing.T) {
-				var constraints = sqlDriver.ValidateNewSQLProjections(spec)
+				constraints := sqlDriver.ValidateNewSQLProjections(spec, false)
 				cupaloy.SnapshotT(t, constraints)
 			})
 	}

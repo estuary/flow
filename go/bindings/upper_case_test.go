@@ -8,7 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/flow/ops/testutil"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

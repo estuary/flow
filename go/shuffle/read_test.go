@@ -11,7 +11,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.gazette.dev/core/allocator"

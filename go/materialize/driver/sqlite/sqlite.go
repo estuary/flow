@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	pf "github.com/estuary/protocols/flow"
-	pm "github.com/estuary/protocols/materialize"
-	sqlDriver "github.com/estuary/protocols/materialize/sql"
+	pf "github.com/estuary/flow/go/protocols/flow"
+	pm "github.com/estuary/flow/go/protocols/materialize"
+	sqlDriver "github.com/estuary/flow/go/protocols/materialize/sql"
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	log "github.com/sirupsen/logrus"
 )

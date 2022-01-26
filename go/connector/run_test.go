@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"

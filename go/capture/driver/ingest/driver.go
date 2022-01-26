@@ -7,8 +7,8 @@ import (
 
 	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/flow/ops"
-	pc "github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
+	pc "github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // EndpointSpec is the configuration for Ingestions.

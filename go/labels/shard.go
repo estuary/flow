@@ -3,7 +3,7 @@ package labels
 import (
 	"fmt"
 
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // ShardLabeling is a parsed and validated representation of the Flow

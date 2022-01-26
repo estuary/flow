@@ -9,9 +9,9 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/flow/ops"
-	"github.com/estuary/protocols/catalog"
-	"github.com/estuary/protocols/fdb/tuple"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/catalog"
+	"github.com/estuary/flow/go/protocols/fdb/tuple"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/consumer/protocol"

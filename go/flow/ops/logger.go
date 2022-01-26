@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 )
 

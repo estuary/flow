@@ -15,7 +15,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	flowLabels "github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/nsf/jsondiff"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"

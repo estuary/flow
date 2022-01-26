@@ -15,7 +15,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/protocols/catalog"
+	"github.com/estuary/flow/go/protocols/catalog"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"google.golang.org/api/option"
 )

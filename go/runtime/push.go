@@ -6,8 +6,8 @@ import (
 	"math/rand"
 
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/protocols/capture"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/capture"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"

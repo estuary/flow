@@ -8,8 +8,8 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/protocols/fdb/tuple"
-	pf "github.com/estuary/protocols/flow"
+	"github.com/estuary/flow/go/protocols/fdb/tuple"
+	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
 // StatsFormatter creates stats documents for publishing into ops/<tenant>/stats collections.
