@@ -111,7 +111,7 @@ go-install/%: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 
 ${GOBIN}/gazette: go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
-${GOBIN}/flowctl: $(GO_BUILD_DEPS) go-install/github.com/estuary/flow/go/flowctl
+${GOBIN}/flowctl: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${GOBIN}/sops:
