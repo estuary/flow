@@ -1,8 +1,8 @@
 use super::camel_case;
 use super::interface::{Interface, Method, Module};
-use super::typescript::{ast::Context, Mapper};
 use itertools::Itertools;
 use models::tables;
+use schemalate::typescript::{ast::Context, Mapper};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -17,14 +17,12 @@ pub fn anchors_ts(
     w.push_str(ANCHORS_HEADER);
 
     for tables::NamedSchema {
-        // Use the non-#AnchorName schema URI, which coerces |mapper| to emit its full type.
-        // If we used |anchor| instead, it would map to `anchors.AnchorName`.
-        scope: schema,
-        anchor: _,
+        scope: _,
+        anchor,
         anchor_name,
     } in named_schemas.iter().sorted_by_key(|n| &n.anchor_name)
     {
-        let schema = Module::new(schema, package_dir);
+        let schema = Module::new(anchor, package_dir);
 
         writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
         write!(w, "export type {} = ", anchor_name).unwrap();

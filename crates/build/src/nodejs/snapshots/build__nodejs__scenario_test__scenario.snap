@@ -1,5 +1,6 @@
 ---
 source: crates/build/src/nodejs/scenario_test.rs
+assertion_line: 42
 expression: intents
 
 ---
@@ -82,13 +83,13 @@ expression: intents
     // Ensure module has at least one export, even if otherwise empty.
     export type __module = null;
     
-    // Generated from test://example/int-string.schema#/$defs/anAnchor.
+    // Generated from test://example/int-string.schema#AnAnchor.
     export type AnAnchor = {
         one: string;
         two?: number;
     };
     
-    // Generated from test://example/int-string.schema#/$defs/otherAnchor.
+    // Generated from test://example/int-string.schema#OtherAnchor.
     export type OtherAnchor = {
         anAnchor?: AnAnchor;
         three: string;
