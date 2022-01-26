@@ -20,6 +20,8 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
