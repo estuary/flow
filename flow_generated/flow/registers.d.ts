@@ -20,7 +20,7 @@ export type ExamplesCitiBikeLastSeen = unknown;
 // Referenced as register_schema of examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 export type ExamplesCitiBikeRidesAndRelocations = /* Station and time at which a trip began or ended */ {
     station: /* A Citi Bike Station */ {
-        geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+        geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
             latitude: number;
             longitude: number;
         };
@@ -66,7 +66,7 @@ export type ExamplesSegmentProfiles = unknown;
 export type ExamplesSegmentToggles = {
     event?: /* A segment event adds or removes a user into a segment. */ {
         event: /* V4 UUID of the event. */ string;
-        remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+        remove?: /* User is removed from the segment. May be unset or "true", but not "false" */ true;
         segment: {
             name: /* Name of the segment, scoped to the vendor ID. */ string;
             vendor: /* Vendor ID of the segment. */ number;
@@ -178,11 +178,19 @@ export type MarketingViewsWithCampaign = {
 
 // Generated from examples/derive-patterns/schema.yaml#Join.
 // Referenced as register_schema of examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
-export type PatternsInnerJoin = anchors.Join;
+export type PatternsInnerJoin = /* Document for join examples */ {
+    Key?: string;
+    LHS?: number;
+    RHS?: string[];
+};
 
 // Generated from examples/derive-patterns/schema.yaml#Join.
 // Referenced as register_schema of examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation.
-export type PatternsOneSidedJoin = anchors.Join;
+export type PatternsOneSidedJoin = /* Document for join examples */ {
+    Key?: string;
+    LHS?: number;
+    RHS?: string[];
+};
 
 // Generated from examples/derive-patterns/join-outer.flow.yaml?ptr=/collections/patterns~1outer-join/derivation/register/schema.
 // Referenced as register_schema of examples/derive-patterns/join-outer.flow.yaml#/collections/patterns~1outer-join/derivation.

@@ -1,23 +1,23 @@
 // Ensure module has at least one export, even if otherwise empty.
 export type __module = null;
 
-// Generated from examples/stock-stats/schemas/exchange.schema.yaml.
+// Generated from examples/stock-stats/schemas/exchange.schema.yaml#Exchange.
 export type Exchange = /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
 
-// Generated from examples/derive-patterns/schema.yaml#/$defs/int.
+// Generated from examples/derive-patterns/schema.yaml#Int.
 export type Int = /* A document that holds an integer */ {
     Int: number;
     Key: string;
 };
 
-// Generated from examples/derive-patterns/schema.yaml#/$defs/join.
+// Generated from examples/derive-patterns/schema.yaml#Join.
 export type Join = /* Document for join examples */ {
     Key?: string;
     LHS?: number;
     RHS?: string[];
 };
 
-// Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/output.
+// Generated from examples/soak-tests/set-ops/schema.yaml#Output.
 export type Output = /* Output merges expected and actual values for a given stream */ {
     appliedAdd?: number;
     appliedOps?: number;
@@ -35,13 +35,13 @@ export type Output = /* Output merges expected and actual values for a given str
     timestamp?: string;
 };
 
-// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/priceAndSize.
+// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#PriceAndSize.
 export type PriceAndSize = {
     price: /* Dollar price. */ number;
     size: /* Number of shares. */ number;
 };
 
-// Generated from examples/stock-stats/schemas/daily-stat.schema.yaml#/$defs/priceStats.
+// Generated from examples/stock-stats/schemas/daily-stat.schema.yaml#PriceStats.
 export type PriceStats = {
     avgD?: /* Denominator of average. */ number;
     avgN?: /* Numerator of average. */ number;
@@ -49,16 +49,16 @@ export type PriceStats = {
     low?: number;
 };
 
-// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/security.
+// Generated from examples/stock-stats/schemas/L1-tick.schema.yaml#Security.
 export type Security = /* Market security ticker name. */ string;
 
-// Generated from examples/segment/event.schema.yaml#/properties/segment.
+// Generated from examples/segment/event.schema.yaml#Segment.
 export type Segment = {
     name: /* Name of the segment, scoped to the vendor ID. */ string;
     vendor: /* Vendor ID of the segment. */ number;
 };
 
-// Generated from examples/segment/derived.schema.yaml#/$defs/detail.
+// Generated from examples/segment/derived.schema.yaml#SegmentDetail.
 export type SegmentDetail = /* Status of a user's membership within a segment. */ {
     first?: /* Time at which this user was first added to this segment. */ string;
     last: /* Time at which this user was last updated within this segment. */ string;
@@ -67,10 +67,10 @@ export type SegmentDetail = /* Status of a user's membership within a segment. *
     value?: /* Most recent associated value. */ string;
 };
 
-// Generated from examples/segment/derived.schema.yaml#/$defs/profile/properties/segments.
-export type SegmentSet = /* Status of a user's membership within a segment. */ SegmentDetail[];
+// Generated from examples/segment/derived.schema.yaml#SegmentSet.
+export type SegmentSet = SegmentDetail[];
 
-// Generated from examples/derive-patterns/schema.yaml#/$defs/string.
+// Generated from examples/derive-patterns/schema.yaml#String.
 export type String = /* A document that holds a string */ {
     Key: string;
     String: string;

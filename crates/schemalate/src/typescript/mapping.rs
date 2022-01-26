@@ -13,10 +13,8 @@ pub struct Mapper<'a> {
 }
 
 impl<'a> Mapper<'a> {
+    // Map the schema having |url| into an abstract syntax tree.
     pub fn map(&self, url: &url::Url) -> AST {
-        if let Some(anchor) = self.top_level.get(url) {
-            return AST::Anchor((*anchor).to_owned());
-        }
         let shape = match self.index.fetch(url) {
             Some(schema) => Shape::infer(schema, self.index),
             None => Shape::default(),
@@ -25,31 +23,44 @@ impl<'a> Mapper<'a> {
     }
 
     fn to_ast(&self, shape: &Shape) -> AST {
+        if let Provenance::Reference(uri) = &shape.provenance {
+            if let Some(anchor) = self.top_level.get(uri) {
+                let mut ast = AST::Anchor((*anchor).to_owned());
+
+                // Wrap with a `title` keyword comment, but not `description`.
+                if let Some(title) = &shape.title {
+                    ast = AST::Comment {
+                        body: title.clone(),
+                        of: Box::new(ast),
+                    };
+                }
+
+                return ast;
+            }
+        }
+
         let mut ast = self.to_ast_inner(shape);
 
-        if let Some(desc) = &shape.description {
-            ast = AST::Comment {
-                body: desc.clone(),
-                of: Box::new(ast),
-            };
-        }
-        if let Some(title) = &shape.title {
-            ast = AST::Comment {
-                body: title.clone(),
-                of: Box::new(ast),
-            };
+        match (&shape.title, &shape.description) {
+            (Some(title), Some(description)) => {
+                ast = AST::Comment {
+                    body: format!("{} {}", title, description),
+                    of: Box::new(ast),
+                };
+            }
+            (Some(s), None) | (None, Some(s)) => {
+                ast = AST::Comment {
+                    body: s.clone(),
+                    of: Box::new(ast),
+                };
+            }
+            (None, None) => {}
         }
 
         ast
     }
 
     fn to_ast_inner(&self, shape: &Shape) -> AST {
-        if let Provenance::Reference(uri) = &shape.provenance {
-            if let Some(anchor) = self.top_level.get(uri) {
-                return AST::Anchor((*anchor).to_owned());
-            }
-        }
-
         // Is this a trivial ANY type?
         if shape.type_ == types::ANY
             && shape.enum_.is_none()

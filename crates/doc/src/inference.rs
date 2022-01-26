@@ -558,17 +558,26 @@ impl Shape {
         let mut unevaluated_items: Option<Shape> = None;
 
         // Does this schema have any keywords which directly affect its validation
-        // or annotation result? We give a special pass to `$defs`, `title`, and
-        // `description`. We would also give a pass to `$id`, but it isn't modeled
-        // as a schema keyword.
+        // or annotation result? `$defs` and `definition` are non-operative keywords
+        // and have no effect. We would also give a pass to `$id`for the same reason,
+        // but it isn't modeled as a schema keyword.
+        //
+        // We also give a special pass to `title`, `default`, `description`,
+        // and `examples`. Technically these are annotation keywords, and
+        // change the post-validation annotation result. As a practical matter,
+        // though, Provenance is used to guide generation into static types
+        // (whether to nest/inline a definition, or reference an external definition),
+        // and excluding these keywords works better for this intended use.
         if !schema.kw.iter().all(|kw| {
             matches!(
                 kw,
                 Keyword::Application(Application::Ref(_), _)
                 | Keyword::Application(Application::Def{ .. }, _)
                 | Keyword::Application(Application::Definition{ .. }, _)
-                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
+                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Default(_)))
                 | Keyword::Annotation(Annotation::Core(CoreAnnotation::Description(_)))
+                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Examples(_)))
+                | Keyword::Annotation(Annotation::Core(CoreAnnotation::Title(_)))
                 // An in-place application doesn't *by itself* make this an inline
                 // schema. However, if the application's target is Provenance::Inline,
                 // note that it's applied intersection will promote this Shape to
@@ -2278,6 +2287,7 @@ mod test {
                             - $ref: '#/$defs/thing'
                             - $ref: '#/$defs/thing'
                         title: Just a thing.
+                        default: a-default
                     a-thing-plus:
                         $ref: '#/$defs/thing'
                         minLength: 16
@@ -2304,6 +2314,7 @@ mod test {
                                 provenance: Provenance::Reference(
                                     Url::parse("http://example/schema#/$defs/thing").unwrap(),
                                 ),
+                                default: Some(json!("a-default")),
                                 ..Shape::default()
                             },
                         },

@@ -110,7 +110,7 @@ export type ExamplesCitiBikeIdleBikes = {
     bike_id: number;
     station: /* Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -127,7 +127,7 @@ export type ExamplesCitiBikeLastSeen = {
     bike_id: /* Unique identifier for this bike */ number;
     last: /* Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -141,9 +141,9 @@ export type ExamplesCitiBikeLastSeen = {
 // Generated from examples/citi-bike/ride.schema.yaml.
 // Referenced as schema of examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides.
 export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
-    begin: /* Starting point of the trip */ /* Station and time at which a trip began or ended */ {
+    begin: /* Starting point of the trip Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -155,9 +155,9 @@ export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
     bike_id: /* Unique identifier for this bike */ number;
     birth_year?: /* Birth year of the rider */ number | null;
     duration_seconds?: /* Duration of the trip, in seconds */ number;
-    end: /* Ending point of the trip */ /* Station and time at which a trip began or ended */ {
+    end: /* Ending point of the trip Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -173,9 +173,9 @@ export type ExamplesCitiBikeRides = /* Ride within the Citi Bike system */ {
 // Generated from examples/citi-bike/rides-and-relocations.flow.yaml?ptr=/collections/examples~1citi-bike~1rides-and-relocations/schema.
 // Referenced as schema of examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations.
 export type ExamplesCitiBikeRidesAndRelocations = /* Ride within the Citi Bike system */ {
-    begin: /* Starting point of the trip */ /* Station and time at which a trip began or ended */ {
+    begin: /* Starting point of the trip Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -187,9 +187,9 @@ export type ExamplesCitiBikeRidesAndRelocations = /* Ride within the Citi Bike s
     bike_id: /* Unique identifier for this bike */ number;
     birth_year?: /* Birth year of the rider */ number | null;
     duration_seconds?: /* Duration of the trip, in seconds */ number;
-    end: /* Ending point of the trip */ /* Station and time at which a trip began or ended */ {
+    end: /* Ending point of the trip Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
-            geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+            geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
                 latitude: number;
                 longitude: number;
             };
@@ -214,7 +214,7 @@ export type ExamplesCitiBikeStations = /* A Citi Bike Station */ {
         move?: /* Bikes moved from the station */ number;
         ride?: /* Bikes ridden from the station */ number;
     };
-    geo?: /* Location of this station */ /* Geographic Location as Latitude & Longitude */ {
+    geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
         latitude: number;
         longitude: number;
     };
@@ -296,7 +296,7 @@ export type ExamplesReKeyStableEvents = /* An event enriched with a stable ID */
 // Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1events.
 export type ExamplesSegmentEvents = /* A segment event adds or removes a user into a segment. */ {
     event: /* V4 UUID of the event. */ string;
-    remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+    remove?: /* User is removed from the segment. May be unset or "true", but not "false" */ true;
     segment: {
         name: /* Name of the segment, scoped to the vendor ID. */ string;
         vendor: /* Vendor ID of the segment. */ number;
@@ -320,7 +320,7 @@ export type ExamplesSegmentMemberships = /* A user and their status within a sin
 // Generated from examples/segment/derived.schema.yaml#/$defs/profile.
 // Referenced as schema of examples/segment/flow.yaml#/collections/examples~1segment~1profiles.
 export type ExamplesSegmentProfiles = /* A user and their associated segment statuses. */ {
-    segments?: /* Status of a user's membership within a segment. */ anchors.SegmentDetail[];
+    segments?: anchors.SegmentDetail[];
     user: string;
 };
 
@@ -330,7 +330,7 @@ export type ExamplesSegmentToggles = /* A segment event adds or removes a user i
     event: /* V4 UUID of the event. */ string;
     previous: /* A segment event adds or removes a user into a segment. */ {
         event: /* V4 UUID of the event. */ string;
-        remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+        remove?: /* User is removed from the segment. May be unset or "true", but not "false" */ true;
         segment: {
             name: /* Name of the segment, scoped to the vendor ID. */ string;
             vendor: /* Vendor ID of the segment. */ number;
@@ -339,7 +339,7 @@ export type ExamplesSegmentToggles = /* A segment event adds or removes a user i
         user: /* User ID. */ string;
         value?: /* Associated value of the segmentation. */ string;
     };
-    remove?: /* User is removed from the segment. */ /* May be unset or "true", but not "false" */ true;
+    remove?: /* User is removed from the segment. May be unset or "true", but not "false" */ true;
     segment: {
         name: /* Name of the segment, scoped to the vendor ID. */ string;
         vendor: /* Vendor ID of the segment. */ number;
@@ -563,13 +563,13 @@ export type MarketingViewsWithCampaign = /* View event joined with it's campaign
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsAcmeBankLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -581,7 +581,7 @@ export type OpsAcmeBankLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsAcmeBankStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -644,7 +644,7 @@ export type OpsAcmeBankStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -657,13 +657,13 @@ export type OpsAcmeBankStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsExamplesLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -675,7 +675,7 @@ export type OpsExamplesLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsExamplesStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -738,7 +738,7 @@ export type OpsExamplesStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -751,13 +751,13 @@ export type OpsExamplesStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsMarketingLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -769,7 +769,7 @@ export type OpsMarketingLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsMarketingStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -832,7 +832,7 @@ export type OpsMarketingStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -845,13 +845,13 @@ export type OpsMarketingStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsPatternsLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -863,7 +863,7 @@ export type OpsPatternsLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsPatternsStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -926,7 +926,7 @@ export type OpsPatternsStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -939,13 +939,13 @@ export type OpsPatternsStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsSoakLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -957,7 +957,7 @@ export type OpsSoakLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsSoakStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -1020,7 +1020,7 @@ export type OpsSoakStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -1033,13 +1033,13 @@ export type OpsSoakStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsStockLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -1051,7 +1051,7 @@ export type OpsStockLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsStockStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -1114,7 +1114,7 @@ export type OpsStockStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -1127,13 +1127,13 @@ export type OpsStockStats =
 // Generated from builtin://flow/ops-log-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsTemperatureLogs =
-    /* Flow task logs */ /* Logs related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
         level: 'debug' | 'error' | 'info' | 'warn';
         message: string;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -1145,7 +1145,7 @@ export type OpsTemperatureLogs =
 // Generated from builtin://flow/ops-stats-schema.json.
 // Referenced as schema of builtin://flow/ops/generated/collections.
 export type OpsTemperatureStats =
-    /* Flow task stats */ /* Statistics related to the processing of a Flow capture, derivation, or materialization */ {
+    /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
         capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
             [k: string]: {
                 out?: {
@@ -1208,7 +1208,7 @@ export type OpsTemperatureStats =
             };
         };
         openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
-        shard: /* Flow shard id */ /* Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
             kind: /* The type of the catalog task */ 'capture' | 'derivation' | 'materialization';
             name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -1228,7 +1228,10 @@ export type PatternsInnerJoin = /* Document for join examples */ {
 
 // Generated from examples/derive-patterns/schema.yaml#Int.
 // Referenced as schema of examples/derive-patterns/inputs.flow.yaml#/collections/patterns~1ints.
-export type PatternsInts = anchors.Int;
+export type PatternsInts = /* A document that holds an integer */ {
+    Int: number;
+    Key: string;
+};
 
 // Generated from examples/derive-patterns/join-one-sided.flow.yaml?ptr=/collections/patterns~1one-sided-join/schema.
 // Referenced as schema of examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join.
@@ -1248,7 +1251,10 @@ export type PatternsOuterJoin = /* Document for join examples */ {
 
 // Generated from examples/derive-patterns/schema.yaml#String.
 // Referenced as schema of examples/derive-patterns/inputs.flow.yaml#/collections/patterns~1strings.
-export type PatternsStrings = anchors.String;
+export type PatternsStrings = /* A document that holds a string */ {
+    Key: string;
+    String: string;
+};
 
 // Generated from examples/derive-patterns/summer.flow.yaml?ptr=/collections/patterns~1sums-db/schema.
 // Referenced as schema of examples/derive-patterns/summer.flow.yaml#/collections/patterns~1sums-db.
@@ -1266,7 +1272,10 @@ export type PatternsSumsRegister = {
 
 // Generated from examples/derive-patterns/schema.yaml#Int.
 // Referenced as schema of examples/derive-patterns/zero-crossing.flow.yaml#/collections/patterns~1zero-crossing.
-export type PatternsZeroCrossing = anchors.Int;
+export type PatternsZeroCrossing = /* A document that holds an integer */ {
+    Int: number;
+    Key: string;
+};
 
 // Generated from examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
 // Referenced as schema of examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
@@ -1327,10 +1336,10 @@ export type SoakSetOpsSetsRegister = /* Output merges expected and actual values
 // Generated from examples/stock-stats/schemas/daily-stat.schema.yaml.
 // Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1daily-stats.
 export type StockDailyStats = /* Daily statistics of a market security. */ {
-    ask?: /* Low, high, and average ask price. */ anchors.PriceStats;
-    bid?: /* Low, high, and average bid price. */ anchors.PriceStats;
+    ask?: anchors.PriceStats;
+    bid?: anchors.PriceStats;
     date: string;
-    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
+    exchange: anchors.Exchange;
     first?: /* First trade of the day. */ {
         price: /* Dollar price. */ number;
         size: /* Number of shares. */ number;
@@ -1339,9 +1348,9 @@ export type StockDailyStats = /* Daily statistics of a market security. */ {
         price: /* Dollar price. */ number;
         size: /* Number of shares. */ number;
     };
-    price?: /* Low, high, and average transaction price (weighted by shares). */ anchors.PriceStats;
-    security: /* Market security ticker name. */ anchors.Security;
-    spread?: /* Low, high, and average spread of bid vs ask. */ anchors.PriceStats;
+    price?: anchors.PriceStats;
+    security: anchors.Security;
+    spread?: anchors.PriceStats;
     volume?: /* Total number of shares transacted. */ number;
 };
 
@@ -1349,11 +1358,11 @@ export type StockDailyStats = /* Daily statistics of a market security. */ {
 // Referenced as schema of examples/stock-stats/flow.yaml#/collections/stock~1ticks.
 export type StockTicks = /* Level-one market tick of a security. */ {
     _meta?: Record<string, unknown>;
-    ask?: /* Lowest current offer to sell security. */ anchors.PriceAndSize;
-    bid?: /* Highest current offer to buy security. */ anchors.PriceAndSize;
-    exchange: /* Enum of market exchange codes. */ anchors.Exchange;
-    last?: /* Completed transaction which generated this tick. */ anchors.PriceAndSize;
-    security: /* Market security ticker name. */ anchors.Security;
+    ask?: anchors.PriceAndSize;
+    bid?: anchors.PriceAndSize;
+    exchange: anchors.Exchange;
+    last?: anchors.PriceAndSize;
+    security: anchors.Security;
     time: string;
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
@@ -1367,7 +1376,7 @@ export type TemperatureAverages = /* Average temperature information for a parti
     numReadings?: number;
     sensor: /* A sensor that produces temperature readings */ {
         id: /* The unique id of this sensor */ number;
-        location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+        location?: /* GeoJSON Point The precise geographic location of the sensor */ {
             bbox?: number[];
             coordinates: number[];
             type: 'Point';
@@ -1389,7 +1398,7 @@ export type TemperatureReadings = /* A reading of a temperature from a sensor */
 // Referenced as schema of examples/temp-sensors/flow.yaml#/collections/temperature~1sensors.
 export type TemperatureSensors = /* A sensor that produces temperature readings */ {
     id: /* The unique id of this sensor */ number;
-    location?: /* GeoJSON Point */ /* The precise geographic location of the sensor */ {
+    location?: /* GeoJSON Point The precise geographic location of the sensor */ {
         bbox?: number[];
         coordinates: number[];
         type: 'Point';
