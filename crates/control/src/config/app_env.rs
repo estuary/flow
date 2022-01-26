@@ -6,10 +6,10 @@ static APP_ENV: OnceCell<AppEnv> = OnceCell::new();
 
 pub fn app_env() -> &'static AppEnv {
     APP_ENV.get_or_init(|| {
-        std::env::var("APP_ENV")
+        std::env::var("CONTROL_APP_ENV")
             .unwrap_or_else(|_| "development".into())
             .try_into()
-            .expect("To parse APP_ENV")
+            .expect("To parse CONTROL_APP_ENV")
     })
 }
 
