@@ -49,19 +49,17 @@ basic configuration options.
    depends on your organization's IT policies. Currently, Estuary doesn't provide a list of static IPs for
    whitelisting purposes, but if you require one, [contact Estuary support](mailto:support@estuary.dev).
 
-7. You can also choose a port on your localhost to use to connect to the SSH server. If you don't have a
-   reason to pick a particular point, it is recommended to set this value to `0` in the configuration.
-   This will allow Flow to dynamically pick an open port.
+7. Choose an open port on your localhost to use to connect to the SSH server.
 
 ### Configuration
 
 After you've completed the prerequisites, you should have the following parameters:
 
-* `sshEndpoint`: the endpoint, step 2
+* `sshEndpoint`: the SSH endpoint, step 2
 * `sshPrivateKeyBase64`: the encoded PEM file, step 4
 * `sshUser`: the username, step 2
-* `remoteHost`: the endpoint's host, step 5
-* `remotePort`: the endpoint's port, step 5
+* `remoteHost`: the materialization endpoint's host, step 5
+* `remotePort`: the materialization endpoint's port, step 5
 * `localPort`: the port on the localhost used to connect to the SSH server, step 7
 
 1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
