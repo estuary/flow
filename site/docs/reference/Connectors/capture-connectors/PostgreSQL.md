@@ -19,9 +19,10 @@ To use this connector, you'll need a PostgreSQL database setup with the followin
 
 :::info
 These setup instructions are PostgreSQL instances you manage yourself. If you use a cloud-based managed service
-for your database, different setup steps are required.
+for your database, different setup steps may be required.
 
-Instructions for setup on Amazon RDS can be found [below](#setup-postgresql-on-amazon-rds). If you use a different managed service,
+Instructions for setup on Amazon RDS can be found [below](#setup-postgresql-on-amazon-rds). If you use a different managed service
+and the standard steps don't work as expected,
 contact [Estuary support](mailto:support@estuary.dev).
 :::
 
@@ -127,20 +128,11 @@ of popular relational databases, including PostgreSQL.
 
 You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
 
-1. Create a new RDS PostgreSQL instance for testing. You can
-[reference the instructions from Amazon](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.CreatingConnecting.PostgreSQL.html), but if you're using AWS
-Management Console, be sure to select
-**Standard create mode** so you can access the required settings.
+1. You'll need to configure secure access to the database to enable the Flow capture.
+  Currently, Estuary supports SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
 
-  Configure the following:
-   * **Engine**: PostgreSQL
-   * **DB instance size**: Dev/Test
-   * Enter a unique **DB instance identifier**, **Master username**, and **Master password** of your choosing.
-   * **DB instance class**: db.t3.micro
-   * **Public access**: Yes
-   * **Enable enhanced monitoring**: False
-
-2. Enable logical replication on the database.
+2. Enable logical replication on your existing RDS PostgreSQL instance.
 
   a. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html)
   with the following properties:
@@ -167,14 +159,8 @@ and set up the watermarks table and publication.
   CREATE PUBLICATION flow_publication FOR ALL TABLES;
   ```
 
-4. You'll need to configure secure access to the database to enable the Flow capture.
-  Currently, Estuary supports SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
-
-5. Configure your connector as you normally would,
+4. Configure your connector as described in the [configuration](#configuration) section above,
 with the additional of the `proxy` stanza to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 You can find the `remoteHost` and `remotePort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
-
-Once configured, the connection will behave in the same way as standard PostgreSQL.
