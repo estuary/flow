@@ -4,7 +4,9 @@ This connector uses change data capture (CDC) to continuously capture updates in
 
 ## Prerequisites
 
-To use this connector, you'll need a PostgreSQL database setup with the following:
+This connector supports PostgreSQL versions 10.0 and later.
+
+You'll need a PostgreSQL database setup with the following:
 * [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
 * [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
 * A [replication slot](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS). This represents a “cursor” into the PostgreSQL write-ahead log from which change events can be read.
