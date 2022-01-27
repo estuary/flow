@@ -118,27 +118,29 @@ to allow Flow to connect to databases ports in secure networks.
 
 To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
 
-## Setup: PostgreSQL on Amazon RDS
+## PostgreSQL on Amazon RDS
 
 Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
 of popular relational databases, including PostgreSQL.
 
+### Setup
+
 You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
-Once configured, the connection will behave in the same way as standard PostgreSQL.
 
 1. Create a new RDS PostgreSQL instance for testing. You can
-[reference the instructions from Amazon](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.CreatingConnecting.PostgreSQL.html), but use
-**Standard create mode** to ensure you can access the required settings. Configure the following:
-  * **Engine**: PostgreSQL
-  * **DB instance size**: Dev/Test
-  * Enter a unique **DB instance identifier**, **Master username**, and **Master password** of your choosing.
-  * **DB instance class**: db.t3.micro
-  * **Public access**: Yes
-  * **Enable enhanced monitoring**: False
-2. You'll need to configure secure access to the database to enable the Flow capture.
-  Currently, Estuary supports SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
-3. Enable logical replication on the database.
+[reference the instructions from Amazon](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.CreatingConnecting.PostgreSQL.html), but if you're using AWS
+Management Console, be sure to select
+**Standard create mode** so you can access the required settings.
+
+  Configure the following:
+   * **Engine**: PostgreSQL
+   * **DB instance size**: Dev/Test
+   * Enter a unique **DB instance identifier**, **Master username**, and **Master password** of your choosing.
+   * **DB instance class**: db.t3.micro
+   * **Public access**: Yes
+   * **Enable enhanced monitoring**: False
+
+2. Enable logical replication on the database.
 
   a. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html)
   with the following properties:
@@ -152,7 +154,8 @@ Once configured, the connection will behave in the same way as standard PostgreS
   c. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html#USER_WorkingWithParamGroups.Associating) with the database.
 
   d. Reboot the database to allow the new parameter group to take effect.
-4. Run the following commands to create a new user for the capture with appropriate permissions,
+
+3. Run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
   ```sql
   CREATE USER flow_capture WITH PASSWORD '<secret>';
@@ -163,7 +166,15 @@ and set up the watermarks table and publication.
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication FOR ALL TABLES;
   ```
-5. Configure your connector with the additional `proxy` stanza to enable the SSH tunnel.
+
+4. You'll need to configure secure access to the database to enable the Flow capture.
+  Currently, Estuary supports SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+
+5. Configure your connector as you normally would,
+with the additional of the `proxy` stanza to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the `remoteHost` and `remotePort`in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+You can find the `remoteHost` and `remotePort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+
+Once configured, the connection will behave in the same way as standard PostgreSQL.
