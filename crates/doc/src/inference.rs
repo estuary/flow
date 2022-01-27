@@ -1036,9 +1036,8 @@ pub enum Exists {
     Must,
     /// The location may exist within the Shape, or be undefined.
     May,
-    /// The location cannot exist. For example, because it includes an
-    /// end-of-array `/-` token, or a property pattern, or some other non-
-    /// literal location token.
+    /// The location cannot exist. For example, it's outside of permitted
+    /// array bounds, or is a disallowed property, or has an impossible type.
     Cannot,
 }
 
@@ -1142,10 +1141,11 @@ impl Shape {
     }
 
     /// Produce flattened locations of nested items and properties of this Shape,
-    /// as tuples of the encoded location JSON Pointer, its shape, and Exists constraint.
-    pub fn locations(&self) -> Vec<(String, &Shape, Exists)> {
+    /// as tuples of the encoded location JSON Pointer, an indication of whether
+    /// the pointer is a pattern, its Shape, and an Exists constraint.
+    pub fn locations(&self) -> Vec<(String, bool, &Shape, Exists)> {
         let mut out = Vec::new();
-        self.locations_inner(Location::Root, Exists::Must, &mut out);
+        self.locations_inner(Location::Root, Exists::Must, false, &mut out);
         out
     }
 
@@ -1153,14 +1153,24 @@ impl Shape {
         &'s self,
         location: Location<'_>,
         exists: Exists,
-        out: &mut Vec<(String, &'s Shape, Exists)>,
+        pattern: bool,
+        out: &mut Vec<(String, bool, &'s Shape, Exists)>,
     ) {
-        out.push((location.pointer_str().to_string(), self, exists));
+        let exists = if self.type_ == types::INVALID {
+            Exists::Cannot
+        } else {
+            exists
+        };
+        out.push((location.pointer_str().to_string(), pattern, self, exists));
 
         // Traverse sub-locations of this location when it takes an object
         // or array type. As a rule, children must exist only if their parent
         // does, the parent can *only* take the applicable type, and it has
         // validations which require that the child exist.
+        //
+        // Similarly a location is a pattern if *any* parent is a pattern,
+        // so |pattern| can only become true and stay true on a path
+        // from parent to child.
 
         for ObjProperty {
             name,
@@ -1174,7 +1184,20 @@ impl Shape {
                 exists.join(Exists::May)
             };
 
-            child.locations_inner(location.push_prop(name), exists, out);
+            child.locations_inner(location.push_prop(name), exists, pattern, out);
+        }
+
+        for ObjPattern { re, shape: child } in &self.object.patterns {
+            child.locations_inner(
+                location.push_prop(re.as_str()),
+                exists.join(Exists::May),
+                true,
+                out,
+            );
+        }
+
+        if let Some(child) = &self.object.additional {
+            child.locations_inner(location.push_prop("*"), exists.join(Exists::May), true, out);
         }
 
         let ArrayShape {
@@ -1191,17 +1214,16 @@ impl Shape {
                 exists.join(Exists::May)
             };
 
-            child.locations_inner(location.push_item(index), exists, out);
+            child.locations_inner(location.push_item(index), exists, pattern, out);
         }
 
-        // As an aide to documentation of repeated items, produce an inference
-        // using '-' ("after last item" within json-pointer spec).
-        //
-        // If it becomes clear this is useful, we may add pattern properties as
-        // well as additional '*' properties, but would have to be careful to ensure
-        // there's no overlap with literal properties (which take precedence).
         if let Some(child) = array_additional {
-            child.locations_inner(location.push_end_of_array(), Exists::Cannot, out);
+            child.locations_inner(
+                location.push_end_of_array(),
+                exists.join(Exists::May),
+                true,
+                out,
+            );
         };
     }
 }
@@ -2117,44 +2139,47 @@ mod test {
             assert_eq!(expect, &actual, "case {:?}", ptr);
         }
 
-        let obj_locations = obj
-            .locations()
-            .into_iter()
-            .map(|(ptr, shape, must_exist)| (ptr, shape.type_, must_exist))
+        let obj_locations = obj.locations();
+        let obj_locations = obj_locations
+            .iter()
+            .map(|(ptr, pattern, shape, exists)| (ptr.as_ref(), *pattern, shape.type_, *exists))
             .collect::<Vec<_>>();
 
         assert_eq!(
             obj_locations,
             vec![
-                ("".to_string(), types::OBJECT, Exists::Must),
+                ("", false, types::OBJECT, Exists::Must),
                 (
-                    "/multi-type".to_string(),
+                    "/multi-type",
+                    false,
                     types::ARRAY | types::OBJECT,
                     Exists::May
                 ),
-                ("/multi-type/child".to_string(), types::STRING, Exists::May),
-                ("/parent".to_string(), types::OBJECT, Exists::Must),
-                ("/parent/40two".to_string(), types::STRING, Exists::May),
-                ("/parent/opt-child".to_string(), types::STRING, Exists::May),
-                ("/parent/req-child".to_string(), types::STRING, Exists::Must),
-                ("/prop".to_string(), types::STRING, Exists::May),
+                ("/multi-type/child", false, types::STRING, Exists::May),
+                ("/parent", false, types::OBJECT, Exists::Must),
+                ("/parent/40two", false, types::STRING, Exists::May),
+                ("/parent/opt-child", false, types::STRING, Exists::May),
+                ("/parent/req-child", false, types::STRING, Exists::Must),
+                ("/prop", false, types::STRING, Exists::May),
+                ("/pattern+", true, types::STRING, Exists::May),
+                ("/*", true, types::STRING, Exists::May),
             ]
         );
 
-        let arr_locations = arr
-            .locations()
-            .into_iter()
-            .map(|(ptr, shape, must_exist)| (ptr, shape.type_, must_exist))
+        let arr_locations = arr.locations();
+        let arr_locations = arr_locations
+            .iter()
+            .map(|(ptr, pattern, shape, exists)| (ptr.as_ref(), *pattern, shape.type_, *exists))
             .collect::<Vec<_>>();
 
         assert_eq!(
             arr_locations,
             vec![
-                ("".to_string(), types::ARRAY, Exists::Must),
-                ("/0".to_string(), types::STRING, Exists::Must),
-                ("/1".to_string(), types::STRING, Exists::Must),
-                ("/2".to_string(), types::STRING, Exists::May),
-                ("/-".to_string(), types::STRING, Exists::Cannot),
+                ("", false, types::ARRAY, Exists::Must),
+                ("/0", false, types::STRING, Exists::Must),
+                ("/1", false, types::STRING, Exists::Must),
+                ("/2", false, types::STRING, Exists::May),
+                ("/-", true, types::STRING, Exists::May),
             ]
         );
     }
