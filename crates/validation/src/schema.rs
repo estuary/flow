@@ -238,11 +238,18 @@ pub fn walk_all_schema_refs(
             .dedup()
             .collect();
 
-        // Now identify all implicit, statically known-able schema locations.
-        // These may overlap with explicit.
+        // Now identify all implicit, statically known-able schema locations
+        // which are not patterns. These may overlap with explicit.
         let implicit = shape
             .locations()
             .into_iter()
+            .filter_map(|(ptr, pattern, shape, exists)| {
+                if !pattern {
+                    Some((ptr, shape, exists))
+                } else {
+                    None // Filter locations which are patterns.
+                }
+            })
             .sorted_by(|a, b| a.0.cmp(&b.0))
             .collect::<Vec<_>>();
 

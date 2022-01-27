@@ -4505,36 +4505,6 @@ All {
         },
         Inference {
             schema: test://example/array-key.schema,
-            location: /arr/-,
-            spec: Inference {
-                types: [
-                    "object",
-                ],
-                must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/array-key.schema,
-            location: /arr/-/aKey,
-            spec: Inference {
-                types: [
-                    "integer",
-                ],
-                must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/array-key.schema,
             location: /arr/0/aKey,
             spec: Inference {
                 types: [
@@ -4629,36 +4599,6 @@ All {
                     "array",
                 ],
                 must_exist: true,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            location: /arr/-,
-            spec: Inference {
-                types: [
-                    "object",
-                ],
-                must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            location: /arr/-/aKey,
-            spec: Inference {
-                types: [
-                    "integer",
-                ],
-                must_exist: false,
                 string: None,
                 title: "",
                 description: "",
@@ -4775,59 +4715,6 @@ All {
             spec: Inference {
                 types: [
                     "array",
-                ],
-                must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/int-string-len.schema,
-            location: /arr/-,
-            spec: Inference {
-                types: [
-                    "object",
-                ],
-                must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/int-string-len.schema,
-            location: /arr/-/one,
-            spec: Inference {
-                types: [
-                    "string",
-                ],
-                must_exist: false,
-                string: Some(
-                    String {
-                        content_type: "",
-                        format: "",
-                        content_encoding: "",
-                        is_base64: false,
-                        max_length: 0,
-                    },
-                ),
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-            },
-        },
-        Inference {
-            schema: test://example/int-string-len.schema,
-            location: /arr/-/two,
-            spec: Inference {
-                types: [
-                    "integer",
                 ],
                 must_exist: false,
                 string: None,
