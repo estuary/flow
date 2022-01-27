@@ -16,8 +16,8 @@ serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value"] }
 url = "*"
 
-# Example of customizing binaries in Cargo.toml.
 [[bin]]
 name = "flowctl-schema-to-typescript"
-test = false
-bench = false
+
+[[bin]]
+name = "flowctl-schema-to-markdown"
