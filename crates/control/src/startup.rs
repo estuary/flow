@@ -20,7 +20,10 @@ pub fn run(
 ) -> anyhow::Result<impl Future<Output = Result<(), hyper::Error>>> {
     let app = Router::new()
         .route("/health_check", get(controllers::health_check::show))
-        .route("/connectors", get(controllers::connectors::index))
+        .route(
+            "/connectors",
+            get(controllers::connectors::index).post(controllers::connectors::create),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
