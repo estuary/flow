@@ -288,8 +288,7 @@ func (f *TxnClient) Prepare(flowCheckpoint pf.Checkpoint) (pf.DriverCheckpoint, 
 	defer f.tx.Unlock()
 
 	if f.tx.state != txLoadAcknowledge {
-		return pf.DriverCheckpoint{}, fmt.Errorf(
-			"client protocol error: SendPrepare is invalid in state %v", f.tx.state)
+		panic(fmt.Sprintf("client protocol error: SendPrepare is invalid in state %v", f.tx.state))
 	}
 
 	if err := WritePrepare(f.tx.client, &f.tx.staged, flowCheckpoint); err != nil {
@@ -311,13 +310,23 @@ func (f *TxnClient) Prepare(flowCheckpoint pf.Checkpoint) (pf.DriverCheckpoint, 
 // StartCommit of the prepared transaction. The CommitOps must be initialized by the caller.
 // The caller must arrange for LogCommitted to be resolved appropriately, after DriverCommitted.
 // The *TxnClient will resolve DriverCommitted & Acknowledged.
-func (f *TxnClient) StartCommit(ops CommitOps) ([]*pf.CombineAPI_Stats, error) {
+func (f *TxnClient) StartCommit(ops CommitOps) (_ []*pf.CombineAPI_Stats, __out error) {
+	// If |ops| futures are non-nil on return, we failed to send them to readLoop
+	// and must resolve them now.
+	defer func() {
+		if ops.DriverCommitted != nil {
+			ops.DriverCommitted.Resolve(__out)
+		}
+		if ops.Acknowledged != nil {
+			ops.Acknowledged.Resolve(__out)
+		}
+	}()
+
 	f.tx.Lock()
 	defer f.tx.Unlock()
 
 	if f.tx.state != txPrepare {
-		return nil, fmt.Errorf(
-			"client protocol error: StartCommit is invalid in state %v", f.tx.state)
+		panic(fmt.Sprintf("client protocol error: StartCommit is invalid in state %v", f.tx.state))
 	}
 
 	f.shared.Lock()
@@ -359,6 +368,7 @@ func (f *TxnClient) StartCommit(ops CommitOps) ([]*pf.CombineAPI_Stats, error) {
 	// Inform read loop of new CommitOps.
 	select {
 	case f.tx.commitOpsCh <- ops:
+		ops = CommitOps{} // Ownership is transferred to readLoop().
 	case <-f.rx.loopOp.Done():
 		return nil, f.rx.loopOp.Err()
 	}
@@ -542,7 +552,7 @@ func (f *TxnClient) onPrepared(prepared pf.DriverCheckpoint) error {
 
 func (f *TxnClient) onCommitOps(ops CommitOps) error {
 	if f.rx.state != rxPrepared {
-		return fmt.Errorf("client protocol error (StartCommit not expected in state %v)", f.rx.state)
+		panic(fmt.Sprintf("client protocol error (StartCommit not expected in state %v)", f.rx.state))
 	}
 
 	f.rx.commitOps = ops
