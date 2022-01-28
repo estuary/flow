@@ -1,0 +1,12 @@
+[package]
+name = "flowctl"
+version = "0.1.0"
+edition = "2021"
+
+# We should just be able to delete this whenever we want to rename the binary to plain flowctl.
+[[bin]]
+name = "flowctl-rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = {version = "3.0", features = ["derive"]}
