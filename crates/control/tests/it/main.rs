@@ -2,9 +2,9 @@ use control::config::app_env::{self, AppEnv};
 
 #[macro_use]
 extern crate ctor;
-
 #[macro_use]
 extern crate insta;
+extern crate sqlx;
 
 mod connectors;
 mod health_check;

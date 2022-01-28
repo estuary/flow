@@ -1,10 +1,15 @@
-use crate::support::spawn_app;
+use crate::support::{self, spawn_app};
 
 use serde_json::Value as JsonValue;
 
 #[tokio::test]
 async fn list_connectors_works() {
-    let server_address = spawn_app().await.expect("Failed to spawn our app.");
+    let db = support::test_db_pool(support::function_name!())
+        .await
+        .expect("Failed to acquire a database connection");
+    let server_address = spawn_app(db.clone())
+        .await
+        .expect("Failed to spawn our app.");
     let client = reqwest::Client::new();
 
     let response = client
