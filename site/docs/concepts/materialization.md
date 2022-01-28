@@ -1,3 +1,6 @@
+---
+sidebar_position: 7
+---
 # Materializations
 
 **Materializations** are the means by which Flow pushes collections into your destination **endpoints**:

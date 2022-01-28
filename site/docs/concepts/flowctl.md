@@ -1,3 +1,6 @@
+---
+sidebar_position: 5
+---
 # flowctl
 
 The `flowctl` command-line interface is used to test, develop, and deploy Flow catalogs.

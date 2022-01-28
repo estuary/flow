@@ -47,8 +47,8 @@ and it has some major implications:
 * You can capture and organize data into Flow collections
   without knowing how it will be used quite yet.
   Perform ad-hoc analysis using the collection data lake,
-  and layer in [derivations](derivations.md)
-  or [materializations](materialization.md) later,
+  and layer in [derivations](../derivations.md)
+  or [materializations](../materialization.md) later,
   or not at all.
 * If you ever decide to stop using Flow,
   your data is still yours.
@@ -58,7 +58,7 @@ and it has some major implications:
   drop their contents from the collection.
 
 Flow collections have one or more
-[logical partitions](projections.md#logical-partitions),
+[logical partitions](../projections.md#logical-partitions),
 and each logical partition has one or more
 [physical partitions](#physical-partitions).
 Every physical partition is implemented as a **journal**,
@@ -74,7 +74,7 @@ and a journal may have many [fragment files](#fragment-files).
 
 ## Specification
 
-Flow [collections](collections.md) can control some aspects of how
+Flow [collections](../collections.md) can control some aspects of how
 their contents are mapped into journals through the `journals` stanza:
 
 ```yaml
@@ -105,7 +105,7 @@ collections:
         retention: 720h
 ```
 
-Your [storage mappings](storage-mappings.md) determine
+Your [storage mappings](../storage-mappings.md) determine
 which of your cloud storage buckets is used
 for storage of collection fragment files.
 

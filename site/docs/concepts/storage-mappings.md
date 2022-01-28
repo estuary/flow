@@ -1,3 +1,6 @@
+---
+sidebar_position: 8
+---
 # Storage mappings
 
 A storage mapping defines how Flow should persist the documents of collections into cloud storage locations,

@@ -1,3 +1,6 @@
+---
+sidebar_position: 7
+---
 # Schemas
 
 Flow documents and [collections](collections.md) always have an associated schema
