@@ -10,10 +10,10 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/materialize"
-	"github.com/estuary/flow/go/shuffle"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -224,10 +224,12 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	// theoretically allow materialization stats to be published transactionally, but requires
 	// exposing new functionality in the Publisher, so it is being left for a future improvement.
 	var statsEvent = m.materializationStats(stats)
-	m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
+	_, err = m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
+	if err != nil {
+		return client.FinishedOperation(fmt.Errorf("publishing stats: %w", err))
+	}
 
-	// Wait for any |waitFor| operations. In practice this is always empty.
-	// It would contain pending journal writes, but materializations don't issue any.
+	// Wait for any |waitFor| operations. This may include a stats publish of a prior transaction.
 	for op := range waitFor {
 		if op.Err() != nil {
 			return client.FinishedOperation(fmt.Errorf("dependency failed: %w", op.Err()))
