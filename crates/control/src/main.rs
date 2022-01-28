@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     let settings = config::settings();
     let listener = TcpListener::bind(settings.application.address())?;
-    let db = startup::connect_to_postgres().await;
+    let db = startup::connect_to_postgres(&settings.database).await;
     let server = startup::run(listener, db)?;
 
     info!("Listening on http://{}", settings.application.address());
