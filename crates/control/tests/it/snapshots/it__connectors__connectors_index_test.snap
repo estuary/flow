@@ -1,0 +1,19 @@
+---
+source: crates/control/tests/it/connectors.rs
+assertion_line: 39
+expression: "response.json::<JsonValue>().await.unwrap()"
+
+---
+{
+  "data": [
+    {
+      "created_at": "[datetime]",
+      "description": "A flood greetings.",
+      "id": "[id]",
+      "name": "Hello World",
+      "owner": "Estuary Technologies",
+      "type": "source",
+      "updated_at": "[datetime]"
+    }
+  ]
+}
