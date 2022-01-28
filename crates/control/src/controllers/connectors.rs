@@ -1,32 +1,18 @@
+use axum::extract::Extension;
+use axum::response::IntoResponse;
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use hyper::StatusCode;
+use sqlx::PgPool;
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectorType {
-    Source,
-    Materialization,
-}
+use crate::controllers::Payload;
+use crate::repo::connectors as connectors_repo;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Connector {
-    description: String,
-    image: String,
-    name: String,
-    owner: String,
-    r#type: ConnectorType,
-    tags: Vec<String>,
-}
-
-pub async fn index() -> Json<Vec<Connector>> {
-    let connectors = vec![Connector {
-        description: "A flood of greetings.".to_owned(),
-        image: "ghcr.io/estuary/source-hello-world".to_owned(),
-        name: "source-hello-world".to_owned(),
-        owner: "Estuary".to_owned(),
-        r#type: ConnectorType::Source,
-        tags: vec!["dev".to_owned()],
-    }];
-
-    Json(connectors)
+pub async fn index(Extension(db): Extension<PgPool>) -> impl IntoResponse {
+    match connectors_repo::fetch_all(&db).await {
+        Ok(connectors) => (StatusCode::OK, Json(Payload::Data(connectors))),
+        Err(error) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(Payload::Error(error.to_string())),
+        ),
+    }
 }
