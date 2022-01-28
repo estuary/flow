@@ -10,7 +10,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 
-use crate::config;
+use crate::config::DatabaseSettings;
 use crate::controllers;
 use crate::shutdown;
 
@@ -35,10 +35,10 @@ pub fn run(
     Ok(server)
 }
 
-pub async fn connect_to_postgres() -> PgPool {
+pub async fn connect_to_postgres(db_settings: &DatabaseSettings) -> PgPool {
     let pool = PgPoolOptions::new()
         .min_connections(1)
-        .connect(&config::settings().database.url())
+        .connect(&db_settings.url())
         .await
         .expect("Failed to connect to postgres");
 
