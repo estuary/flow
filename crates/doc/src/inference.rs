@@ -626,7 +626,6 @@ impl Shape {
                     Annotation::Core(CoreAnnotation::Default(value)) => {
                         shape.default = Some(value.clone());
                     }
-                    Annotation::Secret(b) => shape.secret = Some(*b),
 
                     // String constraints.
                     Annotation::Core(CoreAnnotation::ContentEncoding(enc)) => {
@@ -639,6 +638,13 @@ impl Shape {
                         shape.string.format = Some(format.clone());
                     }
                     Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
+
+                    // These annotations mostly just influence the UI. Most are ignored for now,
+                    // but explicitly mentioned so that a compiler error will force us to check
+                    // here as new annotations are added.
+                    Annotation::Secret(b) => shape.secret = Some(*b),
+                    Annotation::Multiline(_) => {}
+                    Annotation::Order(_) => {}
                 },
 
                 // Array constraints.

@@ -12,6 +12,12 @@ pub enum Annotation {
     Reduce(reduce::Strategy),
     /// "secret" or "airbyte_secret" annotation keyword.
     Secret(bool),
+    /// "multiline" annotation keyword marks fields that should have a multiline text input in the
+    /// UI. This is from the airbyte spec.
+    Multiline(bool),
+    /// "order" annotation keyword, indicates the desired presentation order of fields in the UI.
+    /// This is from the airbyte spec.
+    Order(i32),
 }
 
 impl schema::Annotation for Annotation {
@@ -26,7 +32,7 @@ impl schema::Annotation for Annotation {
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
-            "reduce" | "secret" | "airbyte_secret" => true,
+            "reduce" | "secret" | "airbyte_secret" | "multiline" | "order" => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
@@ -43,9 +49,17 @@ impl schema::build::AnnotationBuilder for Annotation {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(r) => Ok(Annotation::Reduce(r)),
             },
+            "order" => match i32::deserialize(value) {
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+                Ok(i) => Ok(Annotation::Order(i)),
+            },
             "secret" | "airbyte_secret" => match bool::deserialize(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(b) => Ok(Annotation::Secret(b)),
+            },
+            "multiline" => match bool::deserialize(value) {
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+                Ok(b) => Ok(Annotation::Multiline(b)),
             },
             _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
