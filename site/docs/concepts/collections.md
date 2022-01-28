@@ -1,3 +1,6 @@
+---
+sidebar_position: 2
+---
 # Collections
 
 Flow stores data in **collections**:

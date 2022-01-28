@@ -1,3 +1,6 @@
+---
+sidebar_position: 6
+---
 # Imports
 
 Catalog spec files may include an `import` section.

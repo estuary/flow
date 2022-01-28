@@ -1,3 +1,6 @@
+---
+sidebar_position: 9
+---
 # Tests
 
 As Flow catalogs grow in breadth and scope, and as requirements change or new contributors get involved,

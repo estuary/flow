@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # Captures
 
 A **capture** is a catalog task which connects to an external data source, or endpoint
