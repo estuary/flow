@@ -159,6 +159,26 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 	cupaloy.SnapshotT(t, "COMBINER:", combiner, "TRANSACTOR:", transactor)
 }
 
+func TestOpResolutionOnError(t *testing.T) {
+	var rpc = &TxnClient{}
+	rpc.tx.state = txPrepare
+	rpc.rx.loopOp = client.NewAsyncOperation()
+	rpc.rx.loopOp.Resolve(fmt.Errorf("an error"))
+
+	// StartCommit fails because the read loop is not running.
+	var ops = CommitOps{
+		DriverCommitted: client.NewAsyncOperation(),
+		LogCommitted:    nil,
+		Acknowledged:    client.NewAsyncOperation(),
+	}
+	var _, err = rpc.StartCommit(ops)
+
+	// Expect an error was returned, and that operation futures were resolved.
+	require.EqualError(t, err, "an error")
+	require.EqualError(t, ops.DriverCommitted.Err(), "an error")
+	require.EqualError(t, ops.Acknowledged.Err(), "an error")
+}
+
 // testServer implements DriverServer.
 type testServer struct {
 	OpenRx   TransactionRequest_Open
