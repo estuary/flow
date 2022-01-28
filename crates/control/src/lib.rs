@@ -2,7 +2,9 @@
 extern crate serde_with;
 
 pub mod config;
-mod controllers;
 pub mod models;
-mod shutdown;
+pub mod repo;
 pub mod startup;
+
+mod controllers;
+mod shutdown;
