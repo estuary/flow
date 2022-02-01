@@ -25,12 +25,14 @@ func TestReadBuilding(t *testing.T) {
 		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
 		ranges                       = labels.MustParseRangeSpec(allShards[0].LabelSet)
 		shuffles                     = task.TaskShuffles()
+		drainCh                      = make(chan struct{})
 		rb, rbErr                    = NewReadBuilder(
-			nil, // Service is not used.
+			"build-id",
+			drainCh,
 			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
+			nil, // Service is not used.
 			allShards[0].Id,
 			shuffles,
-			"build-id",
 		)
 		existing = map[pb.Journal]*read{}
 	)
@@ -165,7 +167,7 @@ func TestReadBuilding(t *testing.T) {
 	existing = added
 
 	// Begin to drain the ReadBuilder.
-	rb.Drain()
+	close(drainCh)
 
 	// Expect all reads now drain.
 	added, drain, err = rb.buildReads(existing, nil)
