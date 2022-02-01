@@ -20,12 +20,12 @@ import (
 
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
-	service  *consumer.Service
+	buildID  string
+	drainCh  <-chan struct{}
 	journals flow.Journals
+	service  *consumer.Service
 	shardID  pc.ShardID
 	shuffles []*pf.Shuffle
-	buildID  string
-	drainCh  chan struct{}
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -35,13 +35,18 @@ type ReadBuilder struct {
 	members func() []*pc.ShardSpec
 }
 
-// NewReadBuilder builds a new ReadBuilder.
+// NewReadBuilder builds a new ReadBuilder of task |shuffles|
+// using the given |buildID|, |journals|, and |service|,
+// and scoped to the context of the given |shardID|.
+// When |drainCh| closes, the ReadBuilder will gracefully converge
+// to a drained state with no active reads.
 func NewReadBuilder(
-	service *consumer.Service,
+	buildID string,
+	drainCh <-chan struct{},
 	journals flow.Journals,
+	service *consumer.Service,
 	shardID pc.ShardID,
 	shuffles []*pf.Shuffle,
-	buildID string,
 ) (*ReadBuilder, error) {
 	// Prefix is the "directory" portion of the ShardID,
 	// up-to and including a final '/'.
@@ -60,13 +65,13 @@ func NewReadBuilder(
 	}
 
 	return &ReadBuilder{
-		service:  service,
+		buildID:  buildID,
+		drainCh:  drainCh,
 		journals: journals,
+		members:  members,
+		service:  service,
 		shardID:  shardID,
 		shuffles: shuffles,
-		buildID:  buildID,
-		drainCh:  make(chan struct{}),
-		members:  members,
 	}, nil
 }
 
@@ -86,16 +91,6 @@ func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 			}
 		})
 	return out, err
-}
-
-// Drain the ReadBuilder, causing it to converge to a drained state with no active reads.
-func (rb *ReadBuilder) Drain() {
-	log.WithFields(log.Fields{
-		"shard": rb.shardID,
-		"build": rb.buildID,
-	}).Debug("draining shuffled reads")
-
-	close(rb.drainCh)
 }
 
 type read struct {

@@ -13,7 +13,6 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	flowLabels "github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -110,9 +109,9 @@ func TestConsumerIntegration(t *testing.T) {
 			Name: name,
 			LabelSet: pb.MustLabelSet(
 				gazLabels.ContentType, gazLabels.ContentType_JSONLines,
-				flowLabels.Collection, "a/collection",
-				flowLabels.KeyBegin, flowLabels.KeyBeginMin,
-				flowLabels.KeyEnd, flowLabels.KeyEndMax,
+				labels.Collection, "a/collection",
+				labels.KeyBegin, labels.KeyBeginMin,
+				labels.KeyEnd, labels.KeyEndMax,
 			),
 		}))
 	}
@@ -191,7 +190,7 @@ func TestConsumerIntegration(t *testing.T) {
 			HintPrefix:        "/hints",
 			HintBackups:       1,
 			MaxTxnDuration:    time.Second,
-			LabelSet: flowLabels.EncodeRange(pf.RangeSpec{
+			LabelSet: labels.EncodeRange(pf.RangeSpec{
 				KeyBegin:    uint32((math.MaxUint32 / len(shards)) * i),
 				KeyEnd:      uint32((math.MaxUint32/len(shards))*(i+1) - 1),
 				RClockBegin: 0,
@@ -302,11 +301,12 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 	}
 
 	readBuilder, err := NewReadBuilder(
-		a.service,
+		a.buildID,
+		make(<-chan struct{}),
 		a.journals,
+		a.service,
 		shard.Spec().Id,
 		a.shuffles,
-		a.buildID,
 	)
 	if err != nil {
 		return nil, err
