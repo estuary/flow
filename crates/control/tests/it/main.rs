@@ -6,6 +6,7 @@ extern crate ctor;
 extern crate insta;
 extern crate sqlx;
 
+mod connector_images;
 mod connectors;
 mod health_check;
 mod support;

@@ -24,6 +24,14 @@ pub fn run(
             "/connectors",
             get(controllers::connectors::index).post(controllers::connectors::create),
         )
+        .route(
+            "/connectors/:connector_id/connector_images",
+            get(controllers::connectors::images),
+        )
+        .route(
+            "/connector_images",
+            get(controllers::connector_images::index).post(controllers::connector_images::create),
+        )
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
