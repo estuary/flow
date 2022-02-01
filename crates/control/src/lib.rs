@@ -7,4 +7,5 @@ pub mod repo;
 pub mod startup;
 
 mod controllers;
+mod routes;
 mod shutdown;
