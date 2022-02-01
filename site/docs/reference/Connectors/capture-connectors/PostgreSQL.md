@@ -23,7 +23,7 @@ You'll need a PostgreSQL database setup with the following:
 These setup instructions are PostgreSQL instances you manage yourself. If you use a cloud-based managed service
 for your database, different setup steps may be required.
 
-Instructions for setup on Amazon RDS can be found [below](#setup-postgresql-on-amazon-rds). If you use a different managed service
+Instructions for setup on Amazon RDS can be found [here](#postgresql-on-amazon-rds). If you use a different managed service
 and the standard steps don't work as expected,
 contact [Estuary support](mailto:support@estuary.dev).
 :::
