@@ -126,7 +126,7 @@ with collections of JSON documents.
 Others systems are table-oriented and require an up-front declaration
 of columns and types to be most useful, such as a SQL `CREATE TABLE` definition.
 
-Flow uses collection [projections](projections.md) to relate locations within
+Flow uses collection [projections](./advanced/projections.md) to relate locations within
 a hierarchical JSON document to equivalent named fields.
 A materialization can in turn select a subset of available projected fields
 where, for example, each field becomes a column in a SQL table created by
@@ -178,7 +178,7 @@ materializations:
 ## Partition selectors
 
 Partition selectors let you materialize only a subset of a collection that has
-[logical partitions](projections.md#logical-partitions).
+[logical partitions](./advanced/projections.md#logical-partitions).
 For example, you might have a large collection that is logically partitioned
 on each of your customers:
 
@@ -210,7 +210,7 @@ materializations:
             customer: [Coyote]
 ```
 
-[Learn more about partition selectors](projections.md#partition-selectors).
+[Learn more about partition selectors](./advanced/projections.md#partition-selectors).
 
 ## SQLite endpoint
 

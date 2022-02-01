@@ -6,7 +6,7 @@ You can use Flow without knowing the details of shards,
 but this section may help you better understand how Flow works.
 :::
 
-Catalog [tasks](../#tasks) — captures, derivations, and materializations —
+Catalog [tasks](../README.md#tasks) — captures, derivations, and materializations —
 are executed by one or more task **shards**.
 
 Shards are a fault-tolerant and stateful unit of execution for a catalog task,

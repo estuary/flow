@@ -58,7 +58,7 @@ and it has some major implications:
   drop their contents from the collection.
 
 Flow collections have one or more
-[logical partitions](../projections.md#logical-partitions),
+[logical partitions](./projections.md#logical-partitions),
 and each logical partition has one or more
 [physical partitions](#physical-partitions).
 Every physical partition is implemented as a **journal**,

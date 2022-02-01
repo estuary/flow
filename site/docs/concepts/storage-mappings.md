@@ -33,7 +33,7 @@ collections:
 Every Flow collection must have an associated storage mapping,
 and a catalog build will fail if multiple storage mappings have overlapping prefixes.
 
-[Learn more about logical partitions and storage](projections.md#logical-partitions).
+[Learn more about logical partitions and storage](./advanced/projections.md#logical-partitions).
 
 ## Recovery logs
 
