@@ -117,7 +117,7 @@ tests:
             platform: [Nintendo]
 ```
 
-[Learn more about partition selectors](projections.md#partition-selectors).
+[Learn more about partition selectors](./advanced/projections.md#partition-selectors).
 
 ## Tips
 

@@ -48,7 +48,7 @@ helping you catch potential problems early.
 
 Schema inference is also used to provide translations into other schema flavors:
 
-* Most [projections](projections.md) of a collection
+* Most [projections](./advanced/projections.md) of a collection
   are automatically inferred from its schema.
   Materializations use your projections to create appropriate representations
   in your endpoint system.

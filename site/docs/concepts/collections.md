@@ -271,7 +271,7 @@ collections:
 
 ```
 
-[Learn more about projections](projections.md).
+[Learn more about projections](./advanced/projections.md).
 
 ## Storage
 
@@ -291,4 +291,4 @@ it's very efficient to read collection documents as they are written.
 Derivations and materializations that source from a collection
 are notified of its new documents within milliseconds of their being published.
 
-[Learn more about journals, which provide storage for collections](./journals.md)
+[Learn more about journals, which provide storage for collections](./advanced/journals.md)

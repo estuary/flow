@@ -185,7 +185,7 @@ The **source** of a transformation is a collection.
 As documents are published into the source collection,
 they are continuously read and processed by the transformation.
 
-A [partition selector](projections.md#partition-selectors) may be provided
+A [partition selector](./advanced/projections.md#partition-selectors) may be provided
 to process only a subset of the source collection's logical partitions.
 Selectors are efficient: only partitions that match the selector are read,
 and Flow can cheaply skip over partitions that don't.
