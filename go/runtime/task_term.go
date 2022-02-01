@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -8,9 +9,9 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/shuffle"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -23,7 +24,11 @@ import (
 // taskTerm holds task state used by Capture, Derive and Materialize runtimes,
 // which is re-initialized with each revision of the associated catalog task.
 type taskTerm struct {
+	// Current ShardSpec under which the task term is running.
 	shardSpec *pf.ShardSpec
+	// The taskTerm Context wraps the Shard Context, and is further cancelled
+	// when the taskTerm's |shardSpec| has become out of date.
+	ctx context.Context
 	// Parsed and validated labels of the shard.
 	labels labels.ShardLabeling
 	// Resolved *Build of the task's build ID.
@@ -41,6 +46,17 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	var lastLabels = t.labels
 
 	t.shardSpec = shard.Spec()
+
+	// Create a term Context which is cancelled if:
+	// - The shard's Context is cancelled, or
+	// - The ShardSpec is updated.
+	// A cancellation of the term's Context doesn't invalidate the shard,
+	// but does mean the current task term is done and a new one should be started.
+	if t.ctx == nil || t.ctx.Err() != nil {
+		var cancelFn context.CancelFunc
+		t.ctx, cancelFn = context.WithCancel(shard.Context())
+		go signalOnSpecUpdate(host.Service.State.KS, shard, t.shardSpec, cancelFn)
+	}
 
 	if t.labels, err = labels.ParseShardLabels(t.shardSpec.LabelSet); err != nil {
 		return fmt.Errorf("parsing task shard: %w", err)
@@ -129,20 +145,22 @@ func (r *taskReader) initReader(
 	r.readThroughMu.Lock()
 	defer r.readThroughMu.Unlock()
 
+	// Use the taskTerm's Context.Done as the |drainCh| monitored
+	// by the ReadBuilder. When the term's context is cancelled,
+	// reads of the ReadBuilder will gracefully drain themselves and
+	// ultimately close the message channel of StartReadingMessages.
 	var err error
 	r.readBuilder, err = shuffle.NewReadBuilder(
-		host.Service,
+		term.labels.Build,
+		term.ctx.Done(),
 		host.Journals,
+		host.Service,
 		term.shardSpec.Id,
 		shuffles,
-		term.labels.Build,
 	)
 	if err != nil {
 		return fmt.Errorf("NewReadBuilder: %w", err)
 	}
-
-	// Arrange for Drain to be called if the ShardSpec is updated.
-	go signalOnSpecUpdate(host.Service.State.KS, shard, term.shardSpec, r.readBuilder.Drain)
 
 	return nil
 }

@@ -12,11 +12,11 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/shuffle"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -26,16 +26,16 @@ import (
 
 // Capture is a top-level Application which implements the capture workflow.
 type Capture struct {
-	// FlowConsumer which owns this Capture shard.
-	host *FlowConsumer
-	// delegate is a PullClient or a PushServer
+	// delegate is a pc.PullClient or a pc.PushServer
 	delegate delegate
 	// delegateEOF is set after reading a delegate EOF.
 	delegateEOF bool
-	// Store delegate for persisting local checkpoints.
-	store connectorStore
+	// FlowConsumer which owns this Capture shard.
+	host *FlowConsumer
 	// Specification under which the capture is currently running.
 	spec pf.CaptureSpec
+	// Store for persisting local checkpoints.
+	store connectorStore
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -51,11 +51,12 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 	}
 
 	return &Capture{
-		host:     host,
-		delegate: nil, // Initialized in RestoreCheckpoint.
-		store:    store,
-		spec:     pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
-		taskTerm: taskTerm{},       // Initialized in RestoreCheckpoint.
+		delegate:    nil,   // Initialized in RestoreCheckpoint.
+		delegateEOF: false, // Initialized in RestoreCheckpoint.
+		host:        host,
+		spec:        pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
+		store:       store,
+		taskTerm:    taskTerm{}, // Initialized in RestoreCheckpoint.
 	}, nil
 }
 
@@ -94,10 +95,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		"loaded specification")
 
 	if c.delegate != nil {
-		err = c.delegate.Close()
-		// Set the delegate to nil so that we don't try to close it again in Destory should
-		// something go wrong
-		c.delegate = nil
+		err, c.delegate = c.delegate.Close(), nil
 		if err != nil && !errors.Is(err, context.Canceled) {
 			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
 		}
@@ -122,14 +120,9 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		)
 	}
 
-	// Build a context to capture under, and arrange for it to be cancelled
-	// if the shard specification is updated.
-	var ctx, cancel = context.WithCancel(shard.Context())
-	go signalOnSpecUpdate(c.host.Service.State.KS, shard, c.shardSpec, cancel)
-
 	if c.spec.EndpointType == pf.EndpointType_INGEST {
 		// Create a PushServer for the specification.
-		c.delegate, err = pc.NewPushServer(ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
+		c.delegate, err = pc.NewPushServer(c.taskTerm.ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
 		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
 		}
@@ -137,7 +130,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	} else {
 		// Establish driver connection and start Pull RPC.
 		conn, err := capture.NewDriver(
-			shard.Context(),
+			c.taskTerm.ctx,
 			c.spec.EndpointType,
 			c.spec.EndpointSpecJson,
 			c.host.Config.Flow.Network,
@@ -149,7 +142,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 
 		// Open a Pull RPC stream for the capture under this context.
 		c.delegate, err = pc.OpenPull(
-			ctx,
+			c.taskTerm.ctx,
 			conn,
 			c.store.driverCheckpoint(),
 			newCombinerFn,
