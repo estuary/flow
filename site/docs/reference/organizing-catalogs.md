@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # Organizing a Flow catalog
 
 It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently. You may want to do so if:

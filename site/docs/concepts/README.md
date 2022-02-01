@@ -121,7 +121,7 @@ and fault tolerance.
 Each shard has an associated **recovery log**, which is a journal into which
 internal checkpoint states are written.
 
-[Learn more about journals](journals.md)
+[Learn more about journals](./advanced/journals.md)
 
 ***
 
@@ -272,7 +272,7 @@ Catalog tasks are created with a single shard,
 which can be repeatedly subdivided at any time — with no downtime — to
 increase the processing capacity of the task.
 
-[Learn more about shards](shards.md)
+[Learn more about shards](./advanced/shards.md)
 
 ***
 
