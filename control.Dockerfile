@@ -33,6 +33,13 @@ RUN mkdir -p ./src/bin \
 COPY crates/control/src ./src
 COPY crates/control/tests ./tests
 COPY crates/control/config ./config
+COPY crates/control/migrations ./migrations
+
+# We use the `sqlx::query!` macros to get compile-time verification of our
+# queries. This usually requires a database connection, but we can use `cargo
+# sqlx prepare` to save metadata necessary to this file.
+COPY crates/control/sqlx-data.json ./sqlx-data.json
+ENV SQLX_OFFLINE=true
 
 # We need to be able to set the postgres host within the CI build for the tests
 # to be able to connect. Defaults to localhost for non-CI workflows.
