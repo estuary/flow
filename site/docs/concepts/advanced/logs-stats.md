@@ -9,10 +9,10 @@ Access to statistics is still a work in progress. For now, this documentation de
 ## Logs
 
 Each organization, or tenant, that uses Flow has a `logs` collection under the global `ops` prefix.
-For the tenant Acme Co, it would have the name `ops/acmeCo/logs`.
+For the tenant acmeCo, it would have the name `ops/acmeCo/logs`.
 
 These can be thought of as standard application logs:
-they store information about events that occur at catalog build time.
+they store information about events that occur at runtime.
 They’re distinct from [recovery logs](./shards.md#recovery-logs), which track the state of various task shards.
 
 Regardless of how many Flow catalogs your organization has, all logs are stored in the same collection,

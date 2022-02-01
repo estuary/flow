@@ -3,7 +3,7 @@
 Your [`logs` and `stats` collections](../concepts/advanced/logs-stats.md)
 are useful for debugging and monitoring catalog tasks.
 
-:::caution
+:::info Beta
 Access to statistics is still a work in progress. For now, this documentation deals strictly with logs.
 :::
 
@@ -46,17 +46,25 @@ flowctl journals read -l name=ops/acmeCo/logs/kind=materialization/name=acmeCo%2
 You can materialize your `logs` collection to an external system.
 This is typically the preferred message if you’d like to work with logs for all tasks; in other words, the entire collection.
 
+:::caution
+Be sure to add a [partition selector](../../concepts/materialization/#partition-selectors) to exclude the logs of the materialization
+itself. Otherwise, you could trigger an infinite loop in which the connector
+materializes its own logs, logs that event, and so on.
+:::
+
 ```yaml
 acmeCo/postgres/logs:
   endpoint:
     connector:
       image: ghcr.io/estuary/materialize-webhook:dev
       config:
-        address: my.imaginarywebhook.com
+        address: my.webhook.com
   bindings:
     - resource:
         relativePath: /log/wordcount
       source: ops/acmeCo/logs
+      # Exclude the logs of this materialization to avoid an infinite loop.
+      partitions:
+        exclude:
+          name: ['acmeCo/postgres/logs']
 ```
-
-If necessary, you can also add [partition selectors](../../concepts/materialization/#partition-selectors) to only materialize logs of specific tasks.
