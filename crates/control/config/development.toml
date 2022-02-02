@@ -1,5 +1,2 @@
 # development env settings
 [application]
-
-[database]
-db_name = "control_development"

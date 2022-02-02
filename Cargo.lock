@@ -492,6 +492,7 @@ dependencies = [
  "chrono",
  "config",
  "ctor",
+ "dotenv",
  "futures",
  "hyper",
  "insta",
@@ -507,6 +508,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber 0.3.5",
+ "url",
 ]
 
 [[package]]
@@ -828,9 +830,6 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
-dependencies = [
- "serde 1.0.133",
-]
 
 [[package]]
 name = "encode_unicode"
@@ -2570,7 +2569,6 @@ version = "1.0.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee2bb9cd061c5865d345bb02ca49fcef1391741b672b54a0bf7b679badec3142"
 dependencies = [
- "indexmap",
  "itoa 1.0.1",
  "ryu",
  "serde 1.0.133",
@@ -2829,12 +2827,9 @@ dependencies = [
  "dotenv",
  "either",
  "heck 0.3.3",
- "hex",
  "once_cell",
  "proc-macro2",
  "quote",
- "serde 1.0.133",
- "serde_json",
  "sha2",
  "sqlx-core",
  "sqlx-rt",
