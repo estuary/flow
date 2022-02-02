@@ -424,6 +424,21 @@ pub mod get_hints_response {
         pub hints: ::core::option::Option<super::super::recoverylog::FsmHints>,
     }
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnassignRequest {
+    /// Shards to unassign.
+    #[prost(string, repeated, tag="1")]
+    pub shards: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Only unassign shards which have a primary in FAILED status.
+    #[prost(bool, tag="2")]
+    pub only_failed: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnassignResponse {
+    /// Status of the Unassign RPC.
+    #[prost(enumeration="Status", tag="1")]
+    pub status: i32,
+}
 /// Status is a response status code, used across Gazette Consumer RPC APIs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

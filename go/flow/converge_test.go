@@ -485,3 +485,6 @@ func (sc *mockShards) Apply(ctx context.Context, in *pc.ApplyRequest, opts ...gr
 func (sc *mockShards) GetHints(ctx context.Context, in *pc.GetHintsRequest, opts ...grpc.CallOption) (*pc.GetHintsResponse, error) {
 	panic("not implemented")
 }
+func (sc *mockShards) Unassign(ctx context.Context, in *pc.UnassignRequest, opts ...grpc.CallOption) (*pc.UnassignResponse, error) {
+	panic("not implemented")
+}
