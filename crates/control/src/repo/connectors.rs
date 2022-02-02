@@ -16,7 +16,7 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<Connector>, sqlx::Error> {
     .await
 }
 
-pub async fn fetch_one(db: &PgPool, id: i64) -> Result<Connector, sqlx::Error> {
+pub async fn fetch_one(db: &PgPool, id: Id) -> Result<Connector, sqlx::Error> {
     sqlx::query_as!(
         Connector,
         r#"
@@ -24,7 +24,7 @@ pub async fn fetch_one(db: &PgPool, id: i64) -> Result<Connector, sqlx::Error> {
     FROM connectors
     WHERE id = $1
     "#,
-        id
+        id as Id
     )
     .fetch_one(db)
     .await
@@ -35,7 +35,7 @@ pub async fn insert(db: &PgPool, input: CreateConnector) -> Result<Connector, sq
         r#"
     INSERT INTO connectors(description, name, owner, type, created_at, updated_at)
     VALUES ($1, $2, $3, $4, NOW(), NOW())
-    RETURNING id
+    RETURNING id as "id!: Id"
     "#,
         input.description,
         input.name,
