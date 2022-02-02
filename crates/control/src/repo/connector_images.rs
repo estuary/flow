@@ -32,7 +32,7 @@ pub async fn fetch_all_for_connector(
     .await
 }
 
-pub async fn fetch_one(db: &PgPool, id: i64) -> Result<ConnectorImage, sqlx::Error> {
+pub async fn fetch_one(db: &PgPool, id: Id) -> Result<ConnectorImage, sqlx::Error> {
     sqlx::query_as!(
         ConnectorImage,
         r#"
@@ -40,7 +40,7 @@ pub async fn fetch_one(db: &PgPool, id: i64) -> Result<ConnectorImage, sqlx::Err
     FROM connector_images
     WHERE id = $1
     "#,
-        id
+        id as Id
     )
     .fetch_one(db)
     .await
@@ -54,7 +54,7 @@ pub async fn insert(
         r#"
     INSERT INTO connector_images(connector_id, image, sha256, tag, created_at, updated_at)
     VALUES ($1, $2, $3, $4, NOW(), NOW())
-    RETURNING id
+    RETURNING id as "id!: Id"
     "#,
         input.connector_id as Id,
         input.image,
