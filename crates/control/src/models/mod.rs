@@ -9,11 +9,13 @@ pub mod connectors;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedIdError {
-    #[error("does not appear to be valid")]
+    #[error("id does not appear to be valid")]
     Decode,
-    #[error("unexpected length")]
+    #[error("id with an unexpected length")]
     Length,
 }
+
+static ENCODING_CONFIG: base64::Config = base64::URL_SAFE_NO_PAD;
 
 #[serde_as]
 #[derive(
@@ -35,6 +37,22 @@ impl Id {
     pub fn new(inner: i64) -> Self {
         Self(inner)
     }
+
+    /// Retrieves the raw value of the Id. Not to be directly exposed to
+    /// customers, but not a secret.
+    pub fn to_i64(&self) -> i64 {
+        self.0
+    }
+
+    /// Converts the Id value to bytes. **Must** be the inverse operation of `from_bytes`.
+    fn bytes(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
+    }
+
+    /// Converts bytes into an Id value. **Must** be the inverse operation of `bytes`.
+    fn from_bytes(bytes: [u8; 8]) -> Self {
+        Id::new(i64::from_be_bytes(bytes))
+    }
 }
 
 impl Display for Id {
@@ -42,7 +60,7 @@ impl Display for Id {
         write!(
             f,
             "{}",
-            Base64Display::with_config(&self.0.to_le_bytes(), base64::URL_SAFE_NO_PAD)
+            Base64Display::with_config(&self.bytes(), ENCODING_CONFIG)
         )
     }
 }
@@ -51,9 +69,9 @@ impl FromStr for Id {
     type Err = MalformedIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = base64::decode_config(s, base64::URL_SAFE_NO_PAD)
-            .map_err(|_| MalformedIdError::Decode)?;
-        let bytes: [u8; 8] = bytes.try_into().map_err(|_| MalformedIdError::Length)?;
-        Ok(Id::new(i64::from_le_bytes(bytes)))
+        let bytes =
+            base64::decode_config(s, ENCODING_CONFIG).map_err(|_| MalformedIdError::Decode)?;
+        let bytes = bytes.try_into().map_err(|_| MalformedIdError::Length)?;
+        Ok(Id::from_bytes(bytes))
     }
 }
