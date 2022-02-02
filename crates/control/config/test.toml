@@ -2,6 +2,3 @@
 
 [application]
 port = 0 # servers launch on a random port in test mode
-
-[database]
-db_name = "control_test"

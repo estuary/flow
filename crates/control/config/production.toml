@@ -2,11 +2,3 @@
 
 [application]
 host = "0.0.0.0"
-
-# Production database config should be provided through environment variables.
-[database]
-host = ""
-port = 0
-username = "set by production env vars"
-password = "deliberately invalid"
-db_name = "control_production"
