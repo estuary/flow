@@ -33,17 +33,17 @@ COPY crates/control/src ./src
 COPY crates/control/tests ./tests
 COPY crates/control/config ./config
 COPY crates/control/migrations ./migrations
-
-# We use the `sqlx::query!` macros to get compile-time verification of our
-# queries. This usually requires a database connection, but we can use `cargo
-# sqlx prepare` to save metadata necessary to this file.
-COPY crates/control/sqlx-data.json ./sqlx-data.json
-ENV SQLX_OFFLINE=true
+COPY crates/control/.env.test ./.env
 
 # We need to be able to set the postgres host within the CI build for the tests
 # to be able to connect. Defaults to localhost for non-CI workflows.
 ARG PGHOST=127.0.0.1
-ENV CONTROL_DATABASE_HOST=${PGHOST}
+
+# Replace the host in the DATABASE_URL. This is a hack, but SQLx macros create a
+# bootstrapping problem and require a DATABASE_URL for the project to compile at
+# all.
+RUN sed -i "s/127.0.0.1/${PGHOST}/" .env \
+  && cargo sqlx database setup
 
 RUN touch src/main.rs \
   # This touch prevents Docker from using a cached empty main.rs file.
