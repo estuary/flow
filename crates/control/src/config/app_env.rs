@@ -26,10 +26,10 @@ pub enum AppEnv {
 
 impl AppEnv {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            &AppEnv::Development => "development",
-            &AppEnv::Production => "production",
-            &AppEnv::Test => "test",
+        match *self {
+            AppEnv::Development => "development",
+            AppEnv::Production => "production",
+            AppEnv::Test => "test",
         }
     }
 }
