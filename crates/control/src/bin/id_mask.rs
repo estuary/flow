@@ -29,7 +29,7 @@ fn main() {
 }
 
 fn encode(value: String) {
-    let i = i64::from_str_radix(&value, 10).expect("Value to be an i64");
+    let i = i64::from_str(&value).expect("Value to be an i64");
     let id = Id::new(i);
     println!("{}", id);
 }
