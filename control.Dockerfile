@@ -21,7 +21,6 @@ COPY crates/control/Cargo.toml ./Cargo.lock ./
 # making a dummy src/main.rs and empty lib.rs files.
 RUN mkdir -p ./src/bin \
   && echo "fn main() {}" > src/main.rs \
-  && echo "fn main() {}" > src/bin/db_url.rs \
   && touch src/lib.rs \
   # TODO: figure out if there's a way to use `--locked` with these commands.
   # There seems to be an issue with building only this single Cargo.toml, but
@@ -48,7 +47,7 @@ ENV CONTROL_DATABASE_HOST=${PGHOST}
 
 RUN touch src/main.rs \
   # This touch prevents Docker from using a cached empty main.rs file.
-  && touch src/main.rs src/lib.rs src/bin/db_url.rs \
+  && touch src/main.rs src/lib.rs \
   # Since the tests require a postgres connection, any `docker build` commands
   # will the appropriate `--network` flag to access the database.
   && cargo test --locked --offline \
