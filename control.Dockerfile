@@ -51,7 +51,7 @@ RUN touch src/main.rs \
   # Since the tests require a postgres connection, any `docker build` commands
   # will the appropriate `--network` flag to access the database.
   && cargo test --locked --offline \
-  && cargo clippy --locked --offline \
+  && cargo clippy --locked --offline -- --deny warnings \
   && cargo install --path . --locked --offline
 
 
