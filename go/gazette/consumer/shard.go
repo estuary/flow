@@ -161,8 +161,6 @@ var transition = func(s *shard, item, assignment keyspace.KeyValue) {
 		s.wg.Add(1) // Transition standby => primary.
 		go servePrimary(s)
 	}
-	s.resolved.spec = item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-	s.resolved.assignment = assignment
 }
 
 // serveStandby recovers and tails the shard recovery log, until the Replica is

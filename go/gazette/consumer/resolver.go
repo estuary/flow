@@ -279,10 +279,25 @@ func (r *Resolver) updateLocalShards() {
 	var next = make(map[pc.ShardID]*shard, len(r.state.LocalItems))
 
 	for _, li := range r.state.LocalItems {
-		var assignment = li.Assignments[li.Index]
-		var id = pc.ShardID(li.Item.Decoded.(allocator.Item).ID)
+		var (
+			asn       = li.Assignments[li.Index]
+			id        = pc.ShardID(li.Item.Decoded.(allocator.Item).ID)
+			shard, ok = r.shards[id]
+		)
 
-		var shard, ok = r.shards[id]
+		if !ok {
+			// Local shard doesn't exist and must be created.
+		} else if p := shard.resolved.assignment; asn.Decoded.(allocator.Assignment).Slot < p.Decoded.(allocator.Assignment).Slot {
+			// Local shard is being promoted (update).
+		} else if p.Raw.CreateRevision == asn.Raw.CreateRevision {
+			// Assignment value was updated but the assignment itself is unchanged.
+		} else {
+			// Next slot is greater-or-equal to the current slot, and the assignment
+			// has a different CreateRevision. This implies a deletion of the prior
+			// assignment, and a creation of a new assignment with the given slot.
+			shard, ok = nil, false
+		}
+
 		if !ok {
 			r.wg.Add(1)
 			shard = r.newShard(li.Item) // Newly assigned shard.
@@ -298,8 +313,12 @@ func (r *Resolver) updateLocalShards() {
 		} else {
 			delete(r.shards, id) // Move from |r.shards| to |next|.
 		}
+
 		next[id] = shard
-		transition(shard, li.Item, assignment)
+		transition(shard, li.Item, asn)
+
+		shard.resolved.spec = li.Item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+		shard.resolved.assignment = asn
 	}
 
 	var prev = r.shards

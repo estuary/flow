@@ -264,10 +264,7 @@ func newTestFixtureWithIdleShard(t require.TestingT) (*testFixture, *shard, func
 	var tf, cleanup = newTestFixture(t)
 
 	var realTransition = transition
-	transition = func(s *shard, item, assignment keyspace.KeyValue) {
-		s.resolved.spec = item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
-		s.resolved.assignment = assignment
-	}
+	transition = func(s *shard, item, assignment keyspace.KeyValue) { /* No-op */ }
 	tf.allocateShard(makeShard(shardA), localID)
 
 	return tf, tf.resolver.shards[shardA], func() {
@@ -279,6 +276,15 @@ func newTestFixtureWithIdleShard(t require.TestingT) (*testFixture, *shard, func
 }
 
 func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.ProcessSpec_ID) {
+	var revision = f.allocateShardNoWait(spec, assignments...)
+
+	// Wait for the Etcd revision to be read-through by the fixture's KeySpace.
+	f.ks.Mu.RLock()
+	require.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), revision))
+	f.ks.Mu.RUnlock()
+}
+
+func (f *testFixture) allocateShardNoWait(spec *pc.ShardSpec, assignments ...pb.ProcessSpec_ID) int64 {
 	var ops []clientv3.Op
 
 	// Upsert ConsumerSpec fixtures.
@@ -328,9 +334,7 @@ func (f *testFixture) allocateShard(spec *pc.ShardSpec, assignments ...pb.Proces
 	require.NoError(f.t, err)
 	require.Equal(f.t, true, resp.Succeeded)
 
-	f.ks.Mu.RLock()
-	require.NoError(f.t, f.ks.WaitForRevision(f.tasks.Context(), resp.Header.Revision))
-	f.ks.Mu.RUnlock()
+	return resp.Header.Revision
 }
 
 func (f *testFixture) setReplicaStatus(spec *pc.ShardSpec, assignment pb.ProcessSpec_ID, slot int, code pc.ReplicaStatus_Code) {

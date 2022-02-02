@@ -283,14 +283,34 @@ func TestResolverShardTransitions(t *testing.T) {
 
 	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 
-	// Cancel |sdB|.
+	// Cancel |sB|, then immediately re-create it with the same (primary) slot.
+	// Introduce a small delay to coerce the deletion and creation to be observed together.
+	tf.ks.WatchApplyDelay = 3 * time.Millisecond
+	tf.allocateShardNoWait(makeShard(shardB))
+	tf.allocateShard(makeShard(shardB), localID)
+	tf.ks.WatchApplyDelay = 0
+
+	// Expect a new shard |newB| is created, and the prior |sB| is cancelled.
+	tf.ks.Mu.RLock()
+	var newB = tf.resolver.shards[shardB]
+	tf.ks.Mu.RUnlock()
+
+	require.True(t, sB != newB)
+	<-sB.Context().Done()
+
+	// Expect |newB| is transitioned to primary.
+	<-newB.recovery.player.Done()
+	<-newB.storeReadyCh
+	require.Nil(t, newB.Context().Err())
+
+	// Cancel |newB|.
 	tf.allocateShard(makeShard(shardB))
 
 	tf.ks.Mu.RLock()
 	require.Len(t, tf.resolver.shards, 0)
 	tf.ks.Mu.RUnlock()
 
-	<-sB.Context().Done() // Expect |sB| is cancelled.
+	<-newB.Context().Done() // Expect |newB| is cancelled.
 
 	tf.allocateShard(makeShard(shardA)) // Cleanup.
 }
