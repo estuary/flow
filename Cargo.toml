@@ -25,3 +25,4 @@ debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb" }
+dotenv = { git = "https://github.com/saterus/dotenv" }
