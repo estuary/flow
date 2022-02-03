@@ -1,0 +1,30 @@
+version: "3.7"
+
+services:
+  control:
+    image: control:dev
+    build:
+      context: ./../..
+      dockerfile: control.Dockerfile
+      network: host
+    environment:
+      DATABASE_URL: "postgres://flow:flow@127.0.0.1:5432/control_development"
+    network_mode: host
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health_check"]
+      interval: 2m
+
+  postgres:
+    image: postgres:latest
+    command: ["postgres", "-c", "wal_level=logical"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    environment:
+      POSTGRES_USER: flow
+      POSTGRES_PASSWORD: flow
+      POSTGRES_DB: control_development
+    network_mode: host
+
+volumes:
+  postgres_data: {}
