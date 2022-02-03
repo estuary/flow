@@ -492,7 +492,7 @@ dependencies = [
  "chrono",
  "config",
  "ctor",
- "dotenv",
+ "dotenv 0.15.0 (git+https://github.com/saterus/dotenv)",
  "futures",
  "hyper",
  "insta",
@@ -806,6 +806,12 @@ dependencies = [
  "tracing",
  "url",
 ]
+
+[[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
 name = "dotenv"
@@ -2823,7 +2829,7 @@ version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38e45140529cf1f90a5e1c2e561500ca345821a1c513652c8f486bbf07407cc8"
 dependencies = [
- "dotenv",
+ "dotenv 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "either",
  "heck 0.3.3",
  "once_cell",
