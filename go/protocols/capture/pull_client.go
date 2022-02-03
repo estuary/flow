@@ -89,6 +89,7 @@ func OpenPull(
 // Serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
 func (c *PullClient) Serve(startCommitFn func(error)) {
+	defer c.rpc.CloseSend()
 	var respCh = PullResponseChannel(c.rpc)
 
 	c.loop(startCommitFn,
