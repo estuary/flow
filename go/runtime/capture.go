@@ -97,10 +97,9 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if c.delegate != nil {
 		err, c.delegate = c.delegate.Close(), nil
 		if err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing previous delegate: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
 		}
-		// The error could be a context cancelation, which we should ignore
-		err = nil
+		err = nil // Clear context.Canceled.
 	}
 
 	// Closure which builds a Combiner for a specified binding.
@@ -226,12 +225,15 @@ func (c *Capture) StartReadingMessages(
 		}
 
 		// We've been notified of a terminal connector error.
+		// We always close |ch| in response, but we:
+		// * MAY wait for |minInterval| to elapse before doing so, OR
+		// * MAY propagate an error into |ch| (terminally failing the shard).
+		defer close(ch)
 
-		switch err {
-		case io.EOF:
-			// This is a graceful close of the capture. Emit a no-op message,
-			// whose purpose is only to update the tracked EOF offset,
-			// which may in turn unblock an associated shard Stat RPC.
+		// Is this is a graceful close of the capture?
+		if err == io.EOF {
+			// Emit a no-op message, whose purpose is only to update the tracked EOF
+			// offset, which may in turn unblock an associated shard Stat RPC.
 			ch <- consumer.EnvelopeOrError{
 				Envelope: message.Envelope{
 					Journal: eofJournal,
@@ -244,27 +246,28 @@ func (c *Capture) StartReadingMessages(
 				},
 			}
 
-		case context.Canceled:
-			// Don't log.
-
-		default:
-			// Remaining errors are logged but not otherwise acted upon.
-			// We'll retry the connector at its next configured poll interval.
-			c.Log(log.ErrorLevel, log.Fields{"error": err.Error()},
-				"capture connector failed (will retry)")
+			// Wait for the minimum polling interval to elapse before closing,
+			// which will drain the current task term and start another.
+			// If we didn't wait, we would drive the connector in a hot loop.
+			select {
+			case <-minTimer.C:
+				return
+			case <-c.taskTerm.ctx.Done():
+				err = c.taskTerm.ctx.Err()
+				// Fallthrough.
+			}
 		}
 
-		// Close |ch| to signal completion of the stream, which will drain the
-		// current task term and start another. But, that shouldn't happen until
-		// the configured minimum polling interval elapses.
-		select {
-		case <-minTimer.C:
-		case <-shard.Context().Done():
-			ch <- consumer.EnvelopeOrError{Error: shard.Context().Err()}
+		// Is the term context cancelled, but the shard context is not?
+		if err == context.Canceled && shard.Context().Err() == nil {
+			// Term contexts are cancelled if the task's ShardSpec changes.
+			// This is not a terminal error of the shard, and closing |ch|
+			// will begin a new task term under the updated specification.
+			return
 		}
 
-		close(ch)
-		return
+		// Propagate all other errors as terminal.
+		ch <- consumer.EnvelopeOrError{Error: err}
 	}
 
 	go c.delegate.Serve(startCommitFn)
