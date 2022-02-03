@@ -9,4 +9,24 @@ name = "flowctl-rs"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "*"
+bytes = "*"
 clap = {version = "3.0", features = ["derive"]}
+futures = "*"
+flow_cli_common = { path = "../flow_cli_common" }
+models = { path = "../models" }
+build = { path = "../build" }
+doc = { path = "../doc" }
+derive = { path = "../derive" }
+sources = { path = "../sources" }
+protocol = { path = "../protocol" }
+validation = { path = "../validation" }
+tokio = { version = "*", features = ["full"] }
+tracing = "*"
+reqwest = { version = "*", features = ["json"] }
+url = "*"
+serde_json = "*"
+
+[dev-dependencies]
+assert_cmd = "*"
+tempfile = "*"
