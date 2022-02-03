@@ -108,15 +108,11 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		"loaded specification")
 
 	if m.client != nil {
-		err = m.client.Close()
-		// Set the client to nil so that we don't try to close it again in Destroy should something
-		// go wrong
-		m.client = nil
+		err, m.client = m.client.Close(), nil
 		if err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("stopping previous client: %w", err)
+			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
 		}
-		// The error could be a context cancelation, which we should ignore
-		err = nil
+		err = nil // Clear context.Canceled.
 	}
 
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
