@@ -5,6 +5,7 @@ use std::process::Command;
 // handling, so that --help and -h are simply forwarded to the external subcommand.
 use clap::AppSettings::{AllowHyphenValues, DisableHelpFlag, NoAutoHelp};
 
+/// The name of the go-based flowctl binary. This must be on the PATH.
 const GO_FLOWCTL: &str = "flowctl";
 
 /// A simple arguments container that simply takes everything as a plain string value.
