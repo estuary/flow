@@ -77,7 +77,7 @@ fn load_settings() -> Result<Settings, config::ConfigError> {
 /// If we have a .env file to load. In production, we'll be loading k8s secrets
 /// into the env, so we won't have a .env file.
 fn load_dotenv(filename: &str) {
-    match dotenv::from_filename(filename) {
+    match dotenv::overwrite_from_filename(filename) {
         Ok(path) => {
             info!("Loaded env from {}.", path.to_str().unwrap_or(filename));
         }
