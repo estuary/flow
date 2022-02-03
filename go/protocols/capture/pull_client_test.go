@@ -114,6 +114,13 @@ func TestPullClientLifecycle(t *testing.T) {
 	// Then it closes without waiting for our Acknowledge.
 	server.DoneOp.Resolve(nil)
 
+	// Note the server-side of the RPC may now asynchronously exit,
+	// which (eventually) invalidates our ability to send Acknowledge
+	// messages. Our client will continue to attempt to send them,
+	// but swallows EOFs due to server closure, and we can't say how many
+	// Acknowledges will get through as server cancellation
+	// propagation races the following client-side commits:
+
 	// We finally get around to sending a |commitOp|, and it resolves.
 	commitOp = client.NewAsyncOperation()
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
@@ -141,6 +148,13 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, rpc.Close())
 	// A further attempt to set a LogCommitOp errors, since Read() is no longer listening.
 	require.Equal(t, io.EOF, rpc.SetLogCommitOp(client.NewAsyncOperation()))
+
+	// Consume (raced) Acknowledge messages received by the server
+	// from our client, as server cancellation propagated.
+	for server.recvAck() == nil {
+	}
+	// Expect the client closed its connection, and the server reads EOF.
+	require.Equal(t, io.EOF, server.recvAck())
 
 	// Snapshot the recorded observations of the Open and drains.
 	cupaloy.SnapshotT(t,
