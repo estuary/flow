@@ -810,8 +810,7 @@ dependencies = [
 [[package]]
 name = "dotenv"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+source = "git+https://github.com/saterus/dotenv#2057d68e833ae2714ba4df37f588d40c75bb84b0"
 
 [[package]]
 name = "dtoa"
