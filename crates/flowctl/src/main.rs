@@ -20,6 +20,7 @@ enum Subcommand {
     External(ExternalSubcommand),
 }
 
+/// External subcommands are those that are provided by the flowctl Go-based binary.
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 enum ExternalSubcommand {
@@ -48,7 +49,7 @@ enum ExternalSubcommand {
 }
 
 impl ExternalSubcommand {
-    fn subcommand_and_args(&self) -> (&'static str, &ExternalArgs) {
+    fn into_subcommand_and_args(self) -> (&'static str, ExternalArgs) {
         use ExternalSubcommand::*;
         match self {
             Api(a) => ("api", a),
@@ -73,7 +74,7 @@ enum InternalSubcommand {
     Combine(combine::CombineArgs),
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<(), anyhow::Error> {
     // calling parse will automatically handle --help and --version flags that were provided as
     // top-level arguments. If it does, then it will exit(0) automatically. This will not be the
     // case for external subcommands, though, as they handle their own --help and --version flags.
@@ -82,18 +83,15 @@ fn main() -> Result<(), std::io::Error> {
     match cli.subcommand {
         Subcommand::Internal(internal) => execute_internal_subcommand(internal),
         Subcommand::External(external) => {
-            let (subcommand, external_args) = external.subcommand_and_args();
-            let err = exec_go_flowctl(subcommand, external_args);
-            Err(err)
+            let (subcommand, external_args) = external.into_subcommand_and_args();
+            let err = exec_go_flowctl(subcommand, &external_args);
+            Err(err.into())
         }
     }
 }
 
-fn execute_internal_subcommand(subcommand: InternalSubcommand) -> Result<(), std::io::Error> {
+fn execute_internal_subcommand(subcommand: InternalSubcommand) -> Result<(), anyhow::Error> {
     match subcommand {
-        InternalSubcommand::Combine(args) => {
-            eprintln!("combine: {:?}", args);
-            Ok(())
-        }
+        InternalSubcommand::Combine(args) => combine::run(args),
     }
 }

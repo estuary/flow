@@ -10,6 +10,26 @@ pub use api::API;
 mod nodejs;
 mod ops;
 
+/// Resolves a source argument to a canonical URL. If `source` is already a url, then it's simply
+/// parsed and returned. If source is a filesystem path, then it is canonicalized and returned as a
+/// `file:///` URL. Will return an error if the filesystem path does not exist.
+pub fn source_to_url(source: &str) -> Result<Url, anyhow::Error> {
+    match Url::parse(source) {
+        Ok(url) => Ok(url),
+        Err(err) => {
+            tracing::debug!(
+                "{:?} is not a URL; assuming it's a filesystem path (parse error: {})",
+                source,
+                err
+            );
+            let source = std::fs::canonicalize(source)
+                .context(format!("finding {:?} in the local filesystem", source))?;
+            // Safe unwrap since we've canonicalized the path.
+            Ok(url::Url::from_file_path(&source).unwrap())
+        }
+    }
+}
+
 pub async fn configured_build<F, D>(
     config: protocol::flow::build_api::Config,
     fetcher: F,
@@ -19,22 +39,7 @@ where
     F: sources::Fetcher,
     D: validation::Drivers,
 {
-    let root_url = match Url::parse(&config.source) {
-        Ok(url) => url,
-        Err(err) => {
-            tracing::debug!(
-                "{:?} is not a URL; assuming it's a filesystem path (parse error: {})",
-                config.source,
-                err
-            );
-            let source = std::fs::canonicalize(&config.source).context(format!(
-                "finding {:?} in the local filesystem",
-                config.source
-            ))?;
-            // Safe unwrap since we've canonicalized the path.
-            url::Url::from_file_path(&source).unwrap()
-        }
-    };
+    let root_url = source_to_url(config.source.as_str())?;
 
     let root_spec = match flow::ContentType::from_i32(config.source_type) {
         Some(flow::ContentType::CatalogSpec) => flow::ContentType::CatalogSpec,

@@ -3,7 +3,7 @@ pub mod derive_api;
 pub mod extract_api;
 pub mod schema_api;
 
-mod combiner;
+pub mod combiner;
 mod pipeline;
 mod registers;
 
