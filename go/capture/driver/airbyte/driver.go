@@ -359,10 +359,20 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 			projections[p.Field] = p.Ptr
 		}
 
+		var primaryKey = make([][]string, 0, len(binding.Collection.KeyPtrs))
+		for _, key := range binding.Collection.KeyPtrs {
+			if ptr, err := jsonpointer.New(key); err != nil {
+				return fmt.Errorf("parsing json pointer: %w", err)
+			} else {
+				primaryKey = append(primaryKey, ptr.DecodedTokens())
+			}
+		}
+
 		catalog.Streams = append(catalog.Streams,
 			airbyte.ConfiguredStream{
 				SyncMode:            resource.SyncMode,
 				DestinationSyncMode: airbyte.DestinationSyncModeAppend,
+				PrimaryKey:          primaryKey,
 				Stream: airbyte.Stream{
 					Name:               resource.Stream,
 					Namespace:          resource.Namespace,
