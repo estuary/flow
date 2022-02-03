@@ -157,3 +157,43 @@ async fn connectors_images_test() {
         ".data.*.updated_at" => "[datetime]",
     });
 }
+
+#[tokio::test]
+async fn connectors_duplicate_insertion_test() {
+    let db = support::test_db_pool(support::function_name!())
+        .await
+        .expect("Failed to acquire a database connection");
+    let server_address = spawn_app(db.clone())
+        .await
+        .expect("Failed to spawn our app.");
+    let client = reqwest::Client::new();
+
+    let input = CreateConnector {
+        description: "Reads data from Kafka topics.".to_owned(),
+        name: "Kafka".to_owned(),
+        owner: "Estuary Technologies".to_owned(),
+        r#type: ConnectorType::Source,
+    };
+
+    let first_response = client
+        .post(format!("http://{}/connectors", server_address))
+        .json(&input)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(201, first_response.status().as_u16());
+
+    let second_response = client
+        .post(format!("http://{}/connectors", server_address))
+        .json(&input)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(400, second_response.status().as_u16());
+    assert_json_snapshot!(second_response.json::<JsonValue>().await.unwrap(), {});
+
+    let connectors = fetch_all(&db).await.expect("to insert test data");
+    assert_eq!(1, connectors.len());
+}
