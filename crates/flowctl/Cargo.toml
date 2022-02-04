@@ -23,7 +23,9 @@ protocol = { path = "../protocol" }
 validation = { path = "../validation" }
 tokio = { version = "*", features = ["full"] }
 tracing = "*"
-reqwest = { version = "*", features = ["json"] }
+# Using rustls instead of openssl makes the build process simpler since it doesn't require a C
+# compiler.
+reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
 url = "*"
 serde_json = "*"
 
