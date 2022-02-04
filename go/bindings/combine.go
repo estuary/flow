@@ -32,6 +32,7 @@ type Combine struct {
 	svc         *service
 	drained     []C.Out
 	pinnedIndex *SchemaIndex // Used from Rust.
+	metrics     combineMetrics
 }
 
 // NewCombiner builds and returns a new Combine.
@@ -62,7 +63,8 @@ func (c *Combine) Configure(
 	keyPtrs []string,
 	fieldPtrs []string,
 ) error {
-	combineConfigureCounter.Inc()
+	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
+	c.metrics = newCombineMetrics(fqn, collection)
 
 	c.pinnedIndex = index
 	c.svc.mustSendMessage(
@@ -127,7 +129,7 @@ func (c *Combine) Drain(cb CombineCallback) (*pf.CombineAPI_Stats, error) {
 	var stats pf.CombineAPI_Stats
 	var err = drainCombineToCallback(c.svc, &c.drained, cb, &stats)
 	if err == nil {
-		recordCombineDrain(&stats)
+		c.metrics.recordCombineDrain(&stats)
 	}
 	return &stats, err
 }
@@ -202,49 +204,85 @@ func newCombineSvc(logPublisher ops.Logger) (*service, error) {
 * Flow.
  */
 
-var combineConfigureCounter = promauto.NewCounter(prometheus.CounterOpts{
+var combineConfigureCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_configure_total",
 	Help: "Count of combiner configurations",
-})
+}, []string{"shard", "collection"})
 
-var combineLeftDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
+var combineLeftDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_left_docs_total",
 	Help: "Count of documents input as the left hand side of combine operations",
-})
-var combineLeftBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineLeftBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_left_bytes_total",
 	Help: "Number of bytes input as the left hand side of combine operations",
-})
-var combineRightDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineRightDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_right_docs_total",
 	Help: "Count of documents input as the right hand side of combine operations",
-})
-var combineRightBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineRightBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_right_bytes_total",
 	Help: "Number of bytes input as the right hand side of combine operations",
-})
-var combineDrainDocsCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineDrainDocsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_docs_total",
 	Help: "Count of documents drained from combiners",
-})
-var combineDrainBytesCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineDrainBytesCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_bytes_total",
 	Help: "Number of bytes drained from combiners",
-})
-var combineDrainOpsCounter = promauto.NewCounter(prometheus.CounterOpts{
+}, []string{"shard", "collection"})
+
+var combineOpsCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "flow_combine_drain_ops_total",
 	Help: "Count of number of combine operations. A single operation may combine any number of documents with any number of distinct keys.",
-})
+}, []string{"shard", "collection"})
 
-func recordCombineDrain(stats *pf.CombineAPI_Stats) {
-	combineLeftDocsCounter.Add(float64(stats.Left.Docs))
-	combineLeftBytesCounter.Add(float64(stats.Left.Bytes))
+func (m *combineMetrics) recordCombineDrain(stats *pf.CombineAPI_Stats) {
+	m.leftDocs.Add(float64(stats.Left.Docs))
+	m.leftBytes.Add(float64(stats.Left.Bytes))
 
-	combineRightDocsCounter.Add(float64(stats.Right.Docs))
-	combineRightBytesCounter.Add(float64(stats.Right.Bytes))
+	m.rightDocs.Add(float64(stats.Right.Docs))
+	m.rightBytes.Add(float64(stats.Right.Bytes))
 
-	combineDrainDocsCounter.Add(float64(stats.Out.Docs))
-	combineDrainBytesCounter.Add(float64(stats.Out.Bytes))
+	m.drainDocs.Add(float64(stats.Out.Docs))
+	m.drainBytes.Add(float64(stats.Out.Bytes))
 
-	combineDrainOpsCounter.Inc()
+	m.drainCounter.Inc()
+}
+
+type combineMetrics struct {
+	leftDocs  prometheus.Counter
+	leftBytes prometheus.Counter
+
+	rightDocs  prometheus.Counter
+	rightBytes prometheus.Counter
+
+	drainDocs  prometheus.Counter
+	drainBytes prometheus.Counter
+
+	drainCounter prometheus.Counter
+}
+
+func newCombineMetrics(fqn string, collection pf.Collection) combineMetrics {
+	var name = collection.String()
+
+	return combineMetrics{
+		leftDocs:  combineLeftDocsCounter.WithLabelValues(fqn, name),
+		leftBytes: combineLeftBytesCounter.WithLabelValues(fqn, name),
+
+		rightDocs:  combineRightDocsCounter.WithLabelValues(fqn, name),
+		rightBytes: combineRightBytesCounter.WithLabelValues(fqn, name),
+
+		drainDocs:  combineDrainDocsCounter.WithLabelValues(fqn, name),
+		drainBytes: combineDrainBytesCounter.WithLabelValues(fqn, name),
+
+		drainCounter: combineOpsCounter.WithLabelValues(fqn, name),
+	}
 }
