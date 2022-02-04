@@ -42,7 +42,8 @@ var deriveLambdaDurations = promauto.NewHistogramVec(prometheus.HistogramOpts{
 
 // Derive is an instance of the derivation workflow.
 type Derive struct {
-	svc *service
+	svc     *service
+	metrics combineMetrics
 
 	// Fields which are re-initialized with each reconfiguration.
 	runningTasks int               // Number of trampoline tasks.
@@ -123,7 +124,9 @@ func (d *Derive) Configure(
 		d.trampoline.stop()
 	}
 
-	combineConfigureCounter.Inc()
+	var collection = derivation.Collection.Collection
+	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
+	d.metrics = newCombineMetrics(fqn, collection)
 
 	d.trampoline, d.trampolineCh = newTrampolineServer(
 		context.Background(),
@@ -256,7 +259,7 @@ func (d *Derive) Drain(cb CombineCallback) (*pf.DeriveAPI_Stats, error) {
 			var stats pf.DeriveAPI_Stats
 			err = drainCombineToCallback(d.svc, &out, cb, &stats)
 			if err == nil {
-				recordDeriveDrain(&stats)
+				d.recordDeriveDrain(&stats)
 			}
 
 			return &stats, err
@@ -280,14 +283,14 @@ func (d *Derive) Drain(cb CombineCallback) (*pf.DeriveAPI_Stats, error) {
 	}
 }
 
-func recordDeriveDrain(stats *pf.DeriveAPI_Stats) {
+func (d *Derive) recordDeriveDrain(stats *pf.DeriveAPI_Stats) {
 	for _, tf := range stats.Transforms {
-		combineRightDocsCounter.Add(float64(tf.Publish.Output.Docs))
-		combineRightBytesCounter.Add(float64(tf.Publish.Output.Bytes))
+		d.metrics.rightDocs.Add(float64(tf.Publish.Output.Docs))
+		d.metrics.rightBytes.Add(float64(tf.Publish.Output.Bytes))
 	}
-	combineDrainDocsCounter.Add(float64(stats.Output.Docs))
-	combineDrainBytesCounter.Add(float64(stats.Output.Bytes))
-	combineDrainOpsCounter.Inc()
+	d.metrics.drainDocs.Add(float64(stats.Output.Docs))
+	d.metrics.drainBytes.Add(float64(stats.Output.Bytes))
+	d.metrics.drainCounter.Inc()
 }
 
 // PrepareCommit persists the current Checkpoint and RocksDB WriteBatch.
