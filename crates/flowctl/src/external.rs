@@ -17,6 +17,53 @@ pub struct ExternalArgs {
     pub args: Vec<String>,
 }
 
+/// External subcommands are those that are provided by the flowctl Go-based binary.
+#[derive(Debug, clap::Subcommand)]
+#[clap(rename_all = "kebab-case")]
+pub enum ExternalSubcommand {
+    /// Low-level APIs for automation
+    Api(ExternalArgs),
+    /// Check a Flow catalog for errors
+    Check(ExternalArgs),
+    /// Build a catalog and deploy it to a data plane
+    Deploy(ExternalArgs),
+    /// Discover available captures of an endpoint
+    Discover(ExternalArgs),
+    /// Interact with broker journals
+    Journals(ExternalArgs),
+    /// Print the catalog JSON schema
+    JsonSchema(ExternalArgs),
+    /// Print combined configuration and exit
+    PrintConfig(ExternalArgs),
+    /// Serve a component of Flow
+    Serve(ExternalArgs),
+    /// Interact with consumer shards
+    Shards(ExternalArgs),
+    /// Run an ephemeral, temporary local data plane
+    TempDataPlane(ExternalArgs),
+    /// Locally test a Flow catalog
+    Test(ExternalArgs),
+}
+
+impl ExternalSubcommand {
+    pub fn into_subcommand_and_args(self) -> (&'static str, ExternalArgs) {
+        use ExternalSubcommand::*;
+        match self {
+            Api(a) => ("api", a),
+            Check(a) => ("check", a),
+            Deploy(a) => ("deploy", a),
+            Discover(a) => ("discover", a),
+            Journals(a) => ("journals", a),
+            JsonSchema(a) => ("json-schema", a),
+            PrintConfig(a) => ("print-config", a),
+            Serve(a) => ("serve", a),
+            Shards(a) => ("shards", a),
+            TempDataPlane(a) => ("temp-data-plane", a),
+            Test(a) => ("test", a),
+        }
+    }
+}
+
 /// Executes the given external subcommand. This function will not return unless there's an error.
 /// In the normal case, the current process will be replaced by the process of the subcommand.
 /// This is to remove a seemingly uncessary parent process from the hierarchy, since Go flowctl
