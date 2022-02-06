@@ -1,6 +1,5 @@
 use derive::combiner::Combiner;
 use doc::{ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
-use flow_cli_common::{init_logging, LogArgs, OrBail};
 use futures::future::LocalBoxFuture;
 use models::tables::SchemaDoc;
 use protocol::flow::build_api;
@@ -9,8 +8,6 @@ use url::Url;
 
 #[derive(Debug, clap::Args)]
 pub struct CombineArgs {
-    #[clap(flatten)]
-    log: LogArgs,
     #[clap(flatten)]
     build_source: SchemaAndKeySource,
     /// Maximum number of documents to add to the combiner before draining it. If 0, then there is no maximum
@@ -41,12 +38,10 @@ pub struct SchemaAndKeySource {
 
 pub fn run(
     CombineArgs {
-        log,
         build_source,
         max_docs,
     }: CombineArgs,
 ) -> Result<(), anyhow::Error> {
-    init_logging(&log);
     let (index, schema_url, key_pointers) = get_indexed_schemas_and_key(build_source)?;
 
     let mut combiner = Combiner::new(schema_url, key_pointers.into());
@@ -156,7 +151,7 @@ fn get_indexed_schemas_and_key(
         anyhow::bail!("catalog build failed");
     }
 
-    let idx = build_schema_index(output.schema_docs.as_slice());
+    let idx = build_schema_index(output.schema_docs.as_slice())?;
 
     let (schema_url, key_pointers) = if schema.is_none() {
         for coll in output.collections.iter() {
@@ -198,14 +193,14 @@ fn get_indexed_schemas_and_key(
     Ok((idx, schema_url, key_pointers))
 }
 
-fn build_schema_index(schema_docs: &[SchemaDoc]) -> SchemaIndex<'static> {
+fn build_schema_index(schema_docs: &[SchemaDoc]) -> Result<SchemaIndex<'static>, anyhow::Error> {
     let mut index_builder = SchemaIndexBuilder::new();
-    let all_compiled = SchemaDoc::compile_all(schema_docs).or_bail("failed to compile schemas");
+    let all_compiled = SchemaDoc::compile_all(schema_docs)?;
     for compiled in all_compiled {
         let leaked = Box::leak(Box::new(compiled));
-        index_builder.add(leaked).or_bail("failed to index schema");
+        index_builder.add(leaked)?;
     }
-    index_builder.into_index()
+    Ok(index_builder.into_index())
 }
 
 pub struct NoOpDrivers;
