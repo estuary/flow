@@ -1,8 +1,9 @@
 use doc::{inference::Shape, Schema, SchemaIndexBuilder};
+use flow_cli_common::NoArgs;
 use json::schema::build::build_schema;
 use url::Url;
 
-fn main() -> anyhow::Result<()> {
+pub fn run(_: NoArgs) -> anyhow::Result<()> {
     let dom: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
     let curi = Url::parse("https://example/schema").unwrap();
     let root: Schema = build_schema(curi, &dom).unwrap();

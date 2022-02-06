@@ -19,6 +19,7 @@ build = { path = "../build" }
 doc = { path = "../doc" }
 derive = { path = "../derive" }
 sources = { path = "../sources" }
+schemalate = { path = "../schemalate" }
 protocol = { path = "../protocol" }
 validation = { path = "../validation" }
 tokio = { version = "*", features = ["full"] }
