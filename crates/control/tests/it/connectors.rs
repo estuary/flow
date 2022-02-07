@@ -22,7 +22,7 @@ async fn connectors_index_test() {
         CreateConnector {
             description: "A flood greetings.".to_owned(),
             name: "Hello World".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         },
     )
@@ -63,7 +63,7 @@ async fn connectors_create_test() {
         .json(&CreateConnector {
             description: "Reads data from Kafka topics.".to_owned(),
             name: "Kafka".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         })
         .send()
@@ -96,7 +96,7 @@ async fn connectors_images_test() {
         CreateConnector {
             description: "A flood greetings.".to_owned(),
             name: "Hello World".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         },
     )
@@ -121,7 +121,7 @@ async fn connectors_images_test() {
         CreateConnector {
             description: "Reads from a Kafka topic".to_owned(),
             name: "Kafka".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         },
     )
@@ -171,7 +171,7 @@ async fn connectors_duplicate_insertion_test() {
     let input = CreateConnector {
         description: "Reads data from Kafka topics.".to_owned(),
         name: "Kafka".to_owned(),
-        owner: "Estuary Technologies".to_owned(),
+        maintainer: "Estuary Technologies".to_owned(),
         r#type: ConnectorType::Source,
     };
 

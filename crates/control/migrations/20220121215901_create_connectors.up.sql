@@ -3,7 +3,7 @@ CREATE TABLE connectors (
   PRIMARY KEY (id),
   "type" TEXT NOT NULL,
   "name" TEXT NOT NULL,
-  "owner" TEXT NOT NULL,
+  "maintainer" TEXT NOT NULL,
   "description" TEXT NOT NULL,
   "created_at" TIMESTAMPTZ NOT NULL,
   "updated_at" TIMESTAMPTZ NOT NULL
