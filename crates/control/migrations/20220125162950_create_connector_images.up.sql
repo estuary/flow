@@ -11,4 +11,3 @@ CREATE TABLE connector_images (
 
 CREATE INDEX idx_connector_images_image ON connector_images("image");
 CREATE UNIQUE INDEX idx_connector_images_image_tag ON connector_images("image", "tag");
-CREATE UNIQUE INDEX idx_connector_images_sha256 ON connector_images("sha256");
