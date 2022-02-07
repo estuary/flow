@@ -40,6 +40,9 @@ pub enum AppError {
     #[error("subprocess error")]
     Subprocess(#[from] SubprocessError),
 
+    #[error("json serialization error")]
+    Serde(#[from] serde_json::Error),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -51,6 +54,7 @@ impl IntoResponse for AppError {
             AppError::Sqlx(sqlx::Error::Database(_e)) => StatusCode::BAD_REQUEST,
             AppError::Sqlx(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Subprocess(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Serde(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Other(_e) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
