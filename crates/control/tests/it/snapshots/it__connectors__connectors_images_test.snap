@@ -1,6 +1,6 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 151
+assertion_line: 153
 expression: "response.json::<JsonValue>().await.unwrap()"
 
 ---
@@ -9,9 +9,9 @@ expression: "response.json::<JsonValue>().await.unwrap()"
     {
       "connector_id": "[id]",
       "created_at": "[datetime]",
+      "digest": "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600",
       "id": "[id]",
-      "image": "ghcr.io/estuary/source-hello-world",
-      "sha256": "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600",
+      "name": "ghcr.io/estuary/source-hello-world",
       "tag": "01fb856",
       "updated_at": "[datetime]"
     }
