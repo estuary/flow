@@ -17,6 +17,12 @@ pub enum MalformedIdError {
 
 static ENCODING_CONFIG: base64::Config = base64::URL_SAFE_NO_PAD;
 
+/// `Id` is a transparent wrapper around our non-sequential Postgres keys. We
+/// wish to expose these Id values as base64 encoded values. This wrapper
+/// handles all these serialization and deserialization concerns.
+///
+/// When creating a new Postgres-backed record or relationship, it is expected
+/// to use `Id` for primary and foreign keys.
 #[serde_as]
 #[derive(
     Clone,
