@@ -16,10 +16,10 @@ pub struct ConnectorImage {
     pub created_at: DateTime<Utc>,
     /// Primary key for this record.
     pub id: Id,
-    /// The path to this image. Eg. `ghcr.io/estuary/source-hello-world`.
-    pub image: String,
+    /// The full name to this image, including registry. Eg. `ghcr.io/estuary/source-hello-world`.
+    pub name: String,
     /// The full sha256 sum which uniquely identifies this image.
-    pub sha256: String,
+    pub digest: String,
     /// The specific tag we are exposing as canonical for this image.
     pub tag: String,
     /// When this record was last updated.
@@ -32,7 +32,7 @@ pub struct ConnectorImage {
 #[derive(Debug, Deserialize, FromRow, Serialize)]
 pub struct CreateConnectorImage {
     pub connector_id: Id,
-    pub image: String,
-    pub sha256: String,
+    pub name: String,
+    pub digest: String,
     pub tag: String,
 }

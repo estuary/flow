@@ -8,7 +8,7 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<ConnectorImage>, sqlx::Error> 
     sqlx::query_as!(
         ConnectorImage,
         r#"
-    SELECT id as "id!: Id", connector_id as "connector_id!: Id", image, sha256, tag, created_at, updated_at
+    SELECT id as "id!: Id", connector_id as "connector_id!: Id", name, digest, tag, created_at, updated_at
     FROM connector_images
     "#
     )
@@ -23,7 +23,7 @@ pub async fn fetch_all_for_connector(
     sqlx::query_as!(
         ConnectorImage,
         r#"
-    SELECT id as "id!: Id", connector_id as "connector_id!: Id", image, sha256, tag, created_at, updated_at
+    SELECT id as "id!: Id", connector_id as "connector_id!: Id", name, digest, tag, created_at, updated_at
     FROM connector_images
     WHERE connector_id = $1
     "#, connector_id as Id
@@ -36,7 +36,7 @@ pub async fn fetch_one(db: &PgPool, id: Id) -> Result<ConnectorImage, sqlx::Erro
     sqlx::query_as!(
         ConnectorImage,
         r#"
-    SELECT id as "id!: Id", connector_id as "connector_id!: Id", image, sha256, tag, created_at, updated_at
+    SELECT id as "id!: Id", connector_id as "connector_id!: Id", name, digest, tag, created_at, updated_at
     FROM connector_images
     WHERE id = $1
     "#,
@@ -52,13 +52,13 @@ pub async fn insert(
 ) -> Result<ConnectorImage, sqlx::Error> {
     sqlx::query!(
         r#"
-    INSERT INTO connector_images(connector_id, image, sha256, tag, created_at, updated_at)
+    INSERT INTO connector_images(connector_id, name, digest, tag, created_at, updated_at)
     VALUES ($1, $2, $3, $4, NOW(), NOW())
     RETURNING id as "id!: Id"
     "#,
         input.connector_id as Id,
-        input.image,
-        input.sha256,
+        input.name,
+        input.digest,
         input.tag
     )
     .fetch_one(db)

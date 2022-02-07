@@ -107,8 +107,8 @@ async fn connectors_images_test() {
         &db,
         CreateConnectorImage {
             connector_id: connector.id,
-            image: "ghcr.io/estuary/source-hello-world".to_owned(),
-            sha256: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
+            name: "ghcr.io/estuary/source-hello-world".to_owned(),
+            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
             tag: "01fb856".to_owned(),
         },
     )
@@ -132,8 +132,8 @@ async fn connectors_images_test() {
         &db,
         CreateConnectorImage {
             connector_id: other_connector.id,
-            image: "ghcr.io/estuary/source-kafka".to_owned(),
-            sha256: "34affba1ac24d67035309c64791e7c7b2f01fd26a934d91da16e262427b88a78".to_owned(),
+            name: "ghcr.io/estuary/source-kafka".to_owned(),
+            digest: "34affba1ac24d67035309c64791e7c7b2f01fd26a934d91da16e262427b88a78".to_owned(),
             tag: "01fb856".to_owned(),
         },
     )
