@@ -22,7 +22,7 @@ async fn connector_images_index_test() {
         CreateConnector {
             description: "A flood greetings.".to_owned(),
             name: "Hello World".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         },
     )
@@ -33,8 +33,8 @@ async fn connector_images_index_test() {
         &db,
         CreateConnectorImage {
             connector_id: connector.id,
-            image: "ghcr.io/estuary/source-hello-world".to_owned(),
-            sha256: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
+            name: "ghcr.io/estuary/source-hello-world".to_owned(),
+            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
             tag: "01fb856".to_owned(),
         },
     )
@@ -76,7 +76,7 @@ async fn connector_images_create_test() {
         CreateConnector {
             description: "A flood greetings.".to_owned(),
             name: "Hello World".to_owned(),
-            owner: "Estuary Technologies".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
             r#type: ConnectorType::Source,
         },
     )
@@ -87,8 +87,8 @@ async fn connector_images_create_test() {
         .post(format!("http://{}/connector_images", server_address))
         .json(&CreateConnectorImage {
             connector_id: connector.id,
-            image: "ghcr.io/estuary/source-hello-world".to_owned(),
-            sha256: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
+            name: "ghcr.io/estuary/source-hello-world".to_owned(),
+            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
             tag: "01fb856".to_owned(),
         })
         .send()
