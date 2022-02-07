@@ -30,7 +30,7 @@ pub struct Connector {
     /// User-facing name for this connector. Meant to be a short alternative to the full image path.
     pub name: String,
     /// User-facing name of who publishes this connector.
-    pub owner: String,
+    pub maintainer: String,
     /// Connectors must be either a source or materialization.
     pub r#type: ConnectorType,
     /// When this record was last updated.
@@ -46,7 +46,7 @@ pub struct CreateConnector {
     /// User-facing name for this connector. Meant to be a short alternative to the full image path.
     pub name: String,
     /// User-facing name of who publishes this connector.
-    pub owner: String,
+    pub maintainer: String,
     /// Connectors must be either a source or materialization.
     pub r#type: ConnectorType,
 }

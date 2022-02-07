@@ -10,8 +10,8 @@ expression: "response.json::<JsonValue>().await.unwrap()"
       "created_at": "[datetime]",
       "description": "A flood greetings.",
       "id": "[id]",
+      "maintainer": "Estuary Technologies",
       "name": "Hello World",
-      "owner": "Estuary Technologies",
       "type": "source",
       "updated_at": "[datetime]"
     }
