@@ -26,8 +26,13 @@ fn connectors_routes() -> Router {
 }
 
 fn connector_images_routes() -> Router {
-    Router::new().route(
-        "/connector_images",
-        get(controllers::connector_images::index).post(controllers::connector_images::create),
-    )
+    Router::new()
+        .route(
+            "/connector_images",
+            get(controllers::connector_images::index).post(controllers::connector_images::create),
+        )
+        .route(
+            "/connector_images/:image_id",
+            get(controllers::connector_images::spec),
+        )
 }
