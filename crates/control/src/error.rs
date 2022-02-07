@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::string::FromUtf8Error;
 
 use axum::response::IntoResponse;
 use axum::Json;
@@ -36,6 +37,9 @@ pub enum AppError {
     #[error("database error")]
     Sqlx(#[from] sqlx::Error),
 
+    #[error("subprocess error")]
+    Subprocess(#[from] SubprocessError),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -46,6 +50,7 @@ impl IntoResponse for AppError {
             AppError::Sqlx(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             AppError::Sqlx(sqlx::Error::Database(_e)) => StatusCode::BAD_REQUEST,
             AppError::Sqlx(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Subprocess(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Other(_e) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -60,4 +65,18 @@ impl IntoResponse for AppError {
 
         (status, body).into_response()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SubprocessError {
+    #[error("subprocess failed with status {status}")]
+    Failure {
+        status: std::process::ExitStatus,
+        stdout: String,
+        stderr: String,
+    },
+    #[error("subprocess encountered io error")]
+    IO(#[from] std::io::Error),
+    #[error("subprocess output was not UTF8")]
+    Utf8(#[from] FromUtf8Error),
 }
