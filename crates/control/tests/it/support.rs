@@ -85,6 +85,7 @@ async fn create_test_db(
         .port(db_settings.port)
         .username(&db_settings.username)
         .password(&db_settings.password)
+        .database("postgres")
         .connect()
         .await?;
 
