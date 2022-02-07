@@ -45,6 +45,7 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
     2. If using an earlier version:
 
     ```sql
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
     GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
     GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
     ```
