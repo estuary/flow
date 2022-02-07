@@ -9,8 +9,8 @@ expression: "response.json::<JsonValue>().await.unwrap()"
     "created_at": "[datetime]",
     "description": "Reads data from Kafka topics.",
     "id": "[id]",
+    "maintainer": "Estuary Technologies",
     "name": "Kafka",
-    "owner": "Estuary Technologies",
     "type": "source",
     "updated_at": "[datetime]"
   }
