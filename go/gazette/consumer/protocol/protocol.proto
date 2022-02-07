@@ -448,11 +448,16 @@ message UnassignRequest {
   repeated string shards = 1 [ (gogoproto.casttype) = "ShardID" ];
   // Only unassign shards which have a primary in FAILED status.
   bool only_failed = 2;
+  // Avoids actually removing any shard assignments, but the response will
+  // report which shards would have been affected.
+  bool dry_run = 3;
 }
 
 message UnassignResponse {
   // Status of the Unassign RPC.
   Status status = 1;
+  // Shards which had assignments removed.
+  repeated string shards = 2 [ (gogoproto.casttype) = "ShardID" ];
 }
 
 // Shard is the Consumer service API for interacting with Shards. Applications

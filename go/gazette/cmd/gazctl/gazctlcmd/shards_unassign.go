@@ -34,32 +34,29 @@ func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 	if listResp.Status != pc.Status_OK {
 		return fmt.Errorf("unexpected listShard status: %v", listResp.Status.String())
 	}
-	var shards = listResp.Shards
+	var ctx = context.Background()
+	var client = pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx))
 
-	if !cmd.DryRun {
-		var ctx = context.Background()
-		var client = pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx))
-
-		resp, err := client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
-			Shards:     shardIds(shards),
-			OnlyFailed: cmd.Failed,
-		})
-		if err != nil {
-			return fmt.Errorf("unassigning shard: %w", err)
-		} else if err := resp.Validate(); err != nil {
-			return fmt.Errorf("invalid response: %w", err)
-		}
+	unassignResp, err := client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
+		Shards:     shardIds(listResp.Shards),
+		OnlyFailed: cmd.Failed,
+		DryRun:     cmd.DryRun,
+	})
+	if err != nil {
+		return fmt.Errorf("unassigning shard: %w", err)
+	} else if err := unassignResp.Validate(); err != nil {
+		return fmt.Errorf("invalid response: %w", err)
 	}
 
-	if len(shards) == 0 {
+	if len(unassignResp.Shards) == 0 {
 		log.Warn("No shards assignments were modified. Use `shards list -l SELECTOR` to test your selector.")
 	} else {
-		if listResp.Status != pc.Status_OK {
-			return fmt.Errorf("unexpected listShard status: %v", listResp.Status.String())
-		}
-
-		for _, shard := range listResp.Shards {
-			log.Infof("Successfully unassigned shard: id=%v. Previous status=%v, previous route members=%v", shard.Spec.Id.String(), shard.Status, shard.Route.Members)
+		for _, shardId := range unassignResp.Shards {
+			for _, origShard := range listResp.Shards {
+				if shardId == origShard.Spec.Id {
+					log.Infof("Successfully unassigned shard: id=%v. Previous status=%v, previous route members=%v", origShard.Spec.Id.String(), origShard.Status, origShard.Route.Members)
+				}
+			}
 		}
 	}
 

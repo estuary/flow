@@ -262,16 +262,26 @@ func newTestFixture(t require.TestingT) (*testFixture, func()) {
 
 func newTestFixtureWithIdleShard(t require.TestingT) (*testFixture, *shard, func()) {
 	var tf, cleanup = newTestFixture(t)
+	var restoreShardTransitions = disableShardTransitions()
 
-	var realTransition = transition
-	transition = func(s *shard, item, assignment keyspace.KeyValue) { /* No-op */ }
 	tf.allocateShard(makeShard(shardA), localID)
 
 	return tf, tf.resolver.shards[shardA], func() {
 		tf.allocateShard(makeShard(shardA)) // Remove assignment.
-
-		transition = realTransition
+		restoreShardTransitions()
 		cleanup()
+	}
+}
+
+func disableShardTransitions() (reset func()) {
+	var realTransition = transition
+
+	transition = func(s *shard, item, assignment keyspace.KeyValue) {
+		// No-op
+	}
+
+	return func() {
+		transition = realTransition
 	}
 }
 
@@ -338,7 +348,12 @@ func (f *testFixture) allocateShardNoWait(spec *pc.ShardSpec, assignments ...pb.
 }
 
 func (f *testFixture) setReplicaStatus(spec *pc.ShardSpec, assignment pb.ProcessSpec_ID, slot int, code pc.ReplicaStatus_Code) {
-	var status = pc.ReplicaStatus{Code: code}
+	var errors []string
+	if code == pc.ReplicaStatus_FAILED {
+		// ReplicaStatus will validate that Errors is set for FAILED replicas.
+		errors = []string{"Replica explicitly FAILED by setReplicaStatus"}
+	}
+	var status = pc.ReplicaStatus{Code: code, Errors: errors}
 
 	var asn = allocator.Assignment{
 		ItemID:          spec.Id.String(),

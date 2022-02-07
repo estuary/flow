@@ -185,7 +185,10 @@ func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (
 }
 
 func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
-	var resp = &pc.UnassignResponse{Status: pc.Status_OK}
+	var resp = &pc.UnassignResponse{
+		Status: pc.Status_OK,
+		Shards: make([]pc.ShardID, 0),
+	}
 
 	if err := req.Validate(); err != nil {
 		return resp, err
@@ -201,10 +204,12 @@ func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (
 	for _, shard := range req.Shards {
 		assignments := state.Assignments.Prefixed(allocator.ItemAssignmentsPrefix(state.KS, shard.String()))
 		primaryAssignment, primaryKv, err := findAssignmentAtSlot(assignments, 0)
-		if err != nil {
-			return resp, err
-		} else if req.OnlyFailed && primaryAssignment.AssignmentValue.(*pc.ReplicaStatus).Code != pc.ReplicaStatus_FAILED {
+		if req.OnlyFailed && (err == errNoAssignmentFound || primaryAssignment.AssignmentValue.(*pc.ReplicaStatus).Code != pc.ReplicaStatus_FAILED) {
+			// We're only removing failed shards, and this one does not qualify.
 			continue
+		} else if err != nil {
+			// There's currently no assignment for this shard, which is unexpected. Bail out and let the user sort it out.
+			return resp, err
 		}
 
 		if item, found := allocator.LookupItem(state.KS, shard.String()); !found {
@@ -218,6 +223,12 @@ func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (
 		var key = allocator.AssignmentKey(state.KS, primaryAssignment)
 		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", primaryKv.Raw.ModRevision))
 		ops = append(ops, clientv3.OpDelete(key))
+
+		resp.Shards = append(resp.Shards, shard)
+	}
+
+	if req.DryRun {
+		return resp, nil
 	}
 
 	etcdResp, err := srv.Etcd.Txn(ctx).If(cmp...).Then(ops...).Commit()
@@ -366,5 +377,7 @@ func findAssignmentAtSlot(assignments keyspace.KeyValues, targetSlot int) (alloc
 		}
 	}
 
-	return allocator.Assignment{}, keyspace.KeyValue{}, fmt.Errorf("no assignment found")
+	return allocator.Assignment{}, keyspace.KeyValue{}, errNoAssignmentFound
 }
+
+var errNoAssignmentFound = fmt.Errorf("no assignment found")
