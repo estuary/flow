@@ -93,11 +93,11 @@ impl<I: Iterator<Item = ParseResult>> Iterator for ParseErrorBuffer<I> {
                 return Some(Err(ParseError::ErrorLimitExceeded(self.threshold)));
             } else {
                 let item = self.advance()?;
-                if item.is_ok() {
-                    return Some(item);
-                } else {
-                    tracing::warn!(error=?item.unwrap_err(), "failed to parse row");
+                if let Err(err) = item.as_ref() {
+                    tracing::warn!(error=?err, "failed to parse row");
                     continue;
+                } else {
+                    return Some(item);
                 }
             }
         }
