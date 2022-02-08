@@ -1,5 +1,5 @@
 use crate::controllers;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 
 pub fn routes() -> Router {
@@ -34,5 +34,9 @@ fn connector_images_routes() -> Router {
         .route(
             "/connector_images/:image_id",
             get(controllers::connector_images::spec),
+        )
+        .route(
+            "/connector_images/:image_id/discovery",
+            post(controllers::connector_images::discovery),
         )
 }

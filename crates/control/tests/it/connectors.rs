@@ -244,3 +244,51 @@ async fn connectors_spec_test() {
     assert_eq!(200, response.status().as_u16());
     assert_json_snapshot!(response.json::<JsonValue>().await.unwrap());
 }
+
+#[tokio::test]
+async fn connectors_discovery_test() {
+    let db = support::test_db_pool(support::function_name!())
+        .await
+        .expect("Failed to acquire a database connection");
+    let server_address = spawn_app(db.clone())
+        .await
+        .expect("Failed to spawn our app.");
+    let client = reqwest::Client::new();
+
+    let connector = insert(
+        &db,
+        CreateConnector {
+            description: "A flood greetings.".to_owned(),
+            name: "Hello World".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
+            r#type: ConnectorType::Source,
+        },
+    )
+    .await
+    .expect("to insert test data");
+
+    let image = insert_image(
+        &db,
+        CreateConnectorImage {
+            connector_id: connector.id,
+            name: "ghcr.io/estuary/source-hello-world".to_owned(),
+            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
+            tag: "01fb856".to_owned(),
+        },
+    )
+    .await
+    .expect("to insert test data");
+
+    let response = client
+        .post(format!(
+            "http://{}/connector_images/{}/discovery",
+            server_address, image.id
+        ))
+        .json(&serde_json::json!({"greetings": 10}))
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap());
+}
