@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 
-	sf "github.com/estuary/connectors/network-proxy-service/sshforwarding"
+	sf "github.com/estuary/flow/go/network-proxy/sshforwarding"
 )
 
 // Configuration set based on sshforwarding/test_sshd_configs/docker-compose.yaml.

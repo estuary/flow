@@ -24,7 +24,7 @@ WORKDIR  = ${ROOTDIR}/.build
 PKGDIR = ${WORKDIR}/package
 # All invocations can reference installed tools, Rust, and Go binaries.
 # Each takes precedence over the configured $PATH
-PATH := ${RUSTBIN}:${GOBIN}:${PATH}
+PATH := ${RUSTBIN}:${RUST_MUSL_BIN}:${GOBIN}:${PATH}
 
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
@@ -58,7 +58,9 @@ GO_BUILD_TAGS += json1
 GO_BUILD_DEPS = \
 	${RUSTBIN}/libbindings.a \
 	${RUSTBIN}/librocks-exp/librocksdb.a \
-	crates/bindings/flow_bindings.h
+	crates/bindings/flow_bindings.h \
+	${RUST_MUSL_BIN}/flow-parser \
+	${RUST_MUSL_BIN}/flow-network-proxy
 
 ##########################################################################
 # Build rules:
@@ -130,10 +132,15 @@ ${RUSTBIN}/librocks-exp/librocksdb.a:
 ${RUSTBIN}/flowctl-rs:
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p flowctl
 
+# Statically linked binaries using MUSL:
+
 .PHONY: ${RUST_MUSL_BIN}/flow-parser
 ${RUST_MUSL_BIN}/flow-parser:
 	FLOW_VERSION=${VERSION} cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
 
+.PHONY: ${RUST_MUSL_BIN}/flow-network-proxy
+${RUST_MUSL_BIN}/flow-network-proxy:
+	FLOW_VERSION=${VERSION} cargo build --target x86_64-unknown-linux-musl --release --locked -p network-proxy
 
 ########################################################################
 # Final output packaging:
@@ -143,6 +150,7 @@ PACKAGE_TARGETS = \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flowctl-rs \
 	${PKGDIR}/bin/flow-parser \
+	${PKGDIR}/bin/flow-network-proxy \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
 
@@ -164,8 +172,11 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 	cp ${GOBIN}/gazette $@
 ${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs
 	cp ${RUSTBIN}/flowctl-rs $@
+# The following binaries are statically linked, so come from a different subdirectory
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser
 	cp ${RUST_MUSL_BIN}/flow-parser $@
+${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy
+	cp ${RUST_MUSL_BIN}/flow-network-proxy $@
 
 ##########################################################################
 # Make targets used by CI:
@@ -199,9 +210,6 @@ rust-build:
 rust-test:
 	FLOW_VERSION=${VERSION} cargo test --release --locked
 
-.PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
-	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
 go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
@@ -218,6 +226,13 @@ end-to-end-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops
 
 flow.schema.json: ${GOBIN}/flowctl
 	${GOBIN}/flowctl json-schema > $@
+
+##########################################################################
+# Make targets used in local development:
+
+.PHONY: go-test-fast
+go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
+	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you
