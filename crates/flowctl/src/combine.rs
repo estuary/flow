@@ -154,12 +154,6 @@ fn get_indexed_schemas_and_key(
     let idx = build_schema_index(output.schema_docs.as_slice())?;
 
     let (schema_url, key_pointers) = if schema.is_none() {
-        for coll in output.collections.iter() {
-            eprintln!("collection: {:?}", coll);
-        }
-        for coll in output.built_collections.iter() {
-            eprintln!("built_collection: {:?}", coll);
-        }
         let target_collection = collection.as_ref().unwrap();
         let resolved_collection = output
             .built_collections
