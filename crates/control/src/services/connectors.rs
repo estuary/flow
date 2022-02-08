@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use tokio::process::Command;
 
 pub fn spec(image: &str) -> Command {
@@ -6,6 +8,20 @@ pub fn spec(image: &str) -> Command {
         .arg("spec")
         .arg("--image")
         .arg(image)
+        .arg("--network")
+        .arg("host");
+
+    cmd
+}
+
+pub fn discovery(image: &str, config_path: &Path) -> Command {
+    let mut cmd = Command::new("flowctl");
+    cmd.arg("api")
+        .arg("discover")
+        .arg("--image")
+        .arg(image)
+        .arg("--config")
+        .arg(config_path)
         .arg("--network")
         .arg("host");
 
