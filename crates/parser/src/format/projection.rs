@@ -154,7 +154,7 @@ pub fn build_projections(config: &ParseConfig) -> Result<Projections, BuildError
     let mut results = BTreeMap::new();
     let mut case_i_results = BTreeMap::new();
 
-    for (pointer, _, _) in shape.locations() {
+    for (pointer, _, _, _) in shape.locations() {
         let target_location = Rc::new(Pointer::from_str(pointer.as_str()));
         for resolved_field in derive_field_names(pointer.as_str()) {
             case_i_results.insert(lowercase(&resolved_field), target_location.clone());
