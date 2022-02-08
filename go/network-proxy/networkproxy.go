@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	sf "github.com/estuary/connectors/network-proxy-service/sshforwarding"
+	sf "github.com/estuary/flow/go/network-proxy/sshforwarding"
 )
 
 const ProgramName = "network-proxy-service"
