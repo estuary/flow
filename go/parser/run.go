@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const ProgramName = "parser"
+const ProgramName = "flow-parser"
 
 // ParseStream invokes the parser using the given config file and Reader of data to parse.
 // The callback is called as JSON documents are emitted by the parser, and receives
