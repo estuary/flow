@@ -1,0 +1,37 @@
+---
+source: crates/control/tests/it/connectors.rs
+assertion_line: 293
+expression: "response.json::<JsonValue>().await.unwrap()"
+
+---
+{
+  "data": {
+    "bindings": [
+      {
+        "documentSchema": {
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "count",
+            "message"
+          ],
+          "type": "object"
+        },
+        "keyPtrs": [
+          "/count"
+        ],
+        "recommendedName": "greetings",
+        "resourceSpec": {
+          "stream": "greetings",
+          "syncMode": "incremental"
+        }
+      }
+    ]
+  }
+}
