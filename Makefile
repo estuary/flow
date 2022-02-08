@@ -15,6 +15,7 @@ GOBIN = $(shell go env GOPATH)/bin
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
 CARGO_TARGET_DIR ?= ${ROOTDIR}/target
 RUSTBIN = ${CARGO_TARGET_DIR}/release
+RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
 # Location to place intermediate files and output artifacts
 # during the build process. Note the go tool ignores directories
 # with leading '.' or '_'.
@@ -129,6 +130,10 @@ ${RUSTBIN}/librocks-exp/librocksdb.a:
 ${RUSTBIN}/flowctl-rs:
 	FLOW_VERSION=${VERSION} cargo build --release --locked -p flowctl
 
+.PHONY: ${RUST_MUSL_BIN}/flow-parser
+${RUST_MUSL_BIN}/flow-parser:
+	FLOW_VERSION=${VERSION} cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
+
 
 ########################################################################
 # Final output packaging:
@@ -137,6 +142,7 @@ PACKAGE_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flowctl-rs \
+	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
 
@@ -158,6 +164,8 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 	cp ${GOBIN}/gazette $@
 ${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs
 	cp ${RUSTBIN}/flowctl-rs $@
+${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser
+	cp ${RUST_MUSL_BIN}/flow-parser $@
 
 ##########################################################################
 # Make targets used by CI:
