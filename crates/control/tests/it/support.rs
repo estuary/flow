@@ -8,6 +8,8 @@ use sqlx::{ConnectOptions, PgPool};
 use control::config::{self, DatabaseSettings};
 use control::startup;
 
+pub mod redactor;
+
 /// Returns the full name of the function where it is invoked. This includes the module path to the function.
 ///
 /// Ex. `"acme::anvils::drop_from_a_great_height"`
