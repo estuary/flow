@@ -77,7 +77,7 @@ jobs:
       - run: cargo check
       - run: make rust-test
       - run: make go-test-ci
-      - run: make catalog-test
+      - run: make package catalog-test
       - run: make end-to-end-test
 
       - name: Tidy up, and ensure that generated files are unchanged.
@@ -89,11 +89,22 @@ jobs:
         shell: bash
 
       # Package and push images.
-      - run: make package
       - run: make docker-image
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
+
+      - if: ${{ github.ref == 'refs/heads/master' }}
+        name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            This is the latest development build, which gets updated on every successful build of the master branch.
+          draft: true
+          prerelease: true
+          tag_name: dev
+          generate_release_notes: false
+          files: .build/package/flow-x86-linux.tar.gz
 
       # Cleanup in preparation for populating the build cache.
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
