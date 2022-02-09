@@ -167,3 +167,33 @@ with the additional of the `proxy` stanza to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 You can find the `remoteHost` and `remotePort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+
+## TOASTed values
+
+PostgreSQL has a hard page size limit, usually 8 KB, for performance reasons.
+If your tables contain values that exceed the limit, those values can't be stored directly.
+PostgreSQL uses [TOAST](https://www.postgresql.org/docs/current/storage-toast.html) (The Oversized-Attribute Storage Technique) to
+store them separately.
+
+TOASTed values can sometimes present a challenge for systems that rely on the PostgreSQL write-ahead log (WAL), like this connector.
+If a change event occurs on a row that contains a TOASTed value, _but the TOASTed value itself is unchanged_, it is omitted from the WAL.
+As a result, the connector sees a row update with a missing value, which can cause catalog tasks to fail if not handled properly.
+
+The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](../../../concepts/connectors.md#flowctl-discover)
+or use the [Flow UI](../../../concepts/connectors.md#flow-ui) to create your capture.
+It uses [merge](../../reduction-strategies/merge.md) [reductions](../../../concepts/schemas.md#reductions)
+to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
+
+However, due to the event-driven nature of certain tasks in Flow, it's still possible to see failures downstream in your data flow, specifically:
+
+- When you materialize the captured data to another system using a connector that requires [delta updates](../../../concepts/materialization.md#delta-updates)
+- When you perform a [derivation](../../../concepts/derivations.md) that uses TOASTed values
+
+### Troubleshooting
+
+If you encounter an issue that you suspect is due to TOASTed values, try the following:
+
+- Ensure your collection's schema is using the merge [reduction strategy](../../../concepts/schemas.md#reduce-annotations).
+- [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
+WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
+- [Contact Estuary support](mailto:support@estuary.dev) for assistance.
