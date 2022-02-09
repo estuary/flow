@@ -128,11 +128,13 @@ func (t *taskTerm) destroy() {
 }
 
 type taskReader struct {
+	// Coordinator of shuffled reads for this task.
+	coordinator *shuffle.Coordinator
 	// Builder of reads under the current task configuration.
 	readBuilder *shuffle.ReadBuilder
-	// readThroughMu guards an update of readBuilder from a
-	// concurrent read it from ReadThrough().
-	readThroughMu sync.Mutex
+	// mu guards an update of taskReader (within initReader),
+	// from concurrent reads via ReadThrough() or Coordinator().
+	mu sync.Mutex
 }
 
 func (r *taskReader) initReader(
@@ -141,9 +143,17 @@ func (r *taskReader) initReader(
 	shuffles []*pf.Shuffle,
 	host *FlowConsumer,
 ) error {
-	// Guard against a raced call to ReadThrough().
-	r.readThroughMu.Lock()
-	defer r.readThroughMu.Unlock()
+	// Guard against a raced call to ReadThrough() or Coordinator().
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Coordinator will shed reads upon |term.ctx| cancellation.
+	r.coordinator = shuffle.NewCoordinator(
+		term.ctx,
+		host.Builds,
+		term.LogPublisher,
+		shard.JournalClient(),
+	)
 
 	// Use the taskTerm's Context.Done as the |drainCh| monitored
 	// by the ReadBuilder. When the term's context is cancelled,
@@ -154,6 +164,7 @@ func (r *taskReader) initReader(
 		term.labels.Build,
 		term.ctx.Done(),
 		host.Journals,
+		term.LogPublisher,
 		host.Service,
 		term.shardSpec.Id,
 		shuffles,
@@ -166,20 +177,22 @@ func (r *taskReader) initReader(
 }
 
 // StartReadingMessages delegates to shuffle.StartReadingMessages.
-func (r *taskReader) StartReadingMessages(shard consumer.Shard, cp pc.Checkpoint,
-	tp *flow.Timepoint, ch chan<- consumer.EnvelopeOrError) {
-
-	log.WithFields(log.Fields{
-		"shard": shard.Spec().Id,
-	}).Debug("starting to read messages")
-
+func (r *taskReader) StartReadingMessages(
+	shard consumer.Shard,
+	cp pc.Checkpoint,
+	tp *flow.Timepoint,
+	ch chan<- consumer.EnvelopeOrError,
+) {
 	shuffle.StartReadingMessages(shard.Context(), r.readBuilder, cp, tp, ch)
 }
 
 // ReplayRange delegates to shuffle's StartReplayRead.
-func (r *taskReader) ReplayRange(shard consumer.Shard, journal pb.Journal,
-	begin pb.Offset, end pb.Offset) message.Iterator {
-
+func (r *taskReader) ReplayRange(
+	shard consumer.Shard,
+	journal pb.Journal,
+	begin pb.Offset,
+	end pb.Offset,
+) message.Iterator {
 	return shuffle.StartReplayRead(shard.Context(), r.readBuilder, journal, begin, end)
 }
 
@@ -190,11 +203,21 @@ func (r *taskReader) ReplayRange(shard consumer.Shard, journal pb.Journal,
 // We must guard against a concurrent invocation.
 func (r *taskReader) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 	// Lock to guard against a raced call to initTerm().
-	r.readThroughMu.Lock()
+	r.mu.Lock()
 	var rb = r.readBuilder
-	r.readThroughMu.Unlock()
+	r.mu.Unlock()
 
 	return rb.ReadThrough(offsets)
+}
+
+// Coordinator implements shuffle.Store.Coordinator
+func (r *taskReader) Coordinator() *shuffle.Coordinator {
+	// Lock to guard against a raced call to initTerm().
+	r.mu.Lock()
+	var c = r.coordinator
+	r.mu.Unlock()
+
+	return c
 }
 
 func signalOnSpecUpdate(ks *keyspace.KeySpace, shard consumer.Shard, spec *pf.ShardSpec, cb func()) {
