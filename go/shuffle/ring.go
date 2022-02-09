@@ -9,9 +9,10 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -22,16 +23,23 @@ import (
 type Coordinator struct {
 	builds *flow.BuildService
 	ctx    context.Context
+	logger ops.Logger
 	mu     sync.Mutex
 	rings  map[*ring]struct{}
 	rjc    pb.RoutedJournalClient
 }
 
 // NewCoordinator returns a new *Coordinator using the given clients.
-func NewCoordinator(ctx context.Context, rjc pb.RoutedJournalClient, builds *flow.BuildService) *Coordinator {
+func NewCoordinator(
+	ctx context.Context,
+	builds *flow.BuildService,
+	logger ops.Logger,
+	rjc pb.RoutedJournalClient,
+) *Coordinator {
 	return &Coordinator{
 		builds: builds,
 		ctx:    ctx,
+		logger: logger,
 		rings:  make(map[*ring]struct{}),
 		rjc:    rjc,
 	}
@@ -69,22 +77,25 @@ func (c *Coordinator) Subscribe(
 	}
 
 	// We must create a new ring.
-	// It's lifetime is tied to the Coordinator, *not* the subscriber,
-	// but it cancels itself when the final subscriber hangs up.
-	var ringCtx, cancel = context.WithCancel(c.ctx)
-
-	var ring = &ring{
-		coordinator:  c,
-		ctx:          ringCtx,
-		cancel:       cancel,
-		subscriberCh: make(chan subscriber, 1),
-		shuffle:      sub.Shuffle,
-	}
+	var ring = newRing(c, sub.Shuffle)
 	ring.subscriberCh <- sub
 
 	c.rings[ring] = struct{}{}
 	go ring.serve()
+}
 
+func newRing(c *Coordinator, shuffle pf.JournalShuffle) *ring {
+	// A ring's lifetime is tied to the Coordinator, *not* a subscriber,
+	// but a ring cancels itself when the final subscriber hangs up.
+	var ringCtx, cancel = context.WithCancel(c.ctx)
+
+	return &ring{
+		coordinator:  c,
+		ctx:          ringCtx,
+		cancel:       cancel,
+		subscriberCh: make(chan subscriber, 1),
+		shuffle:      shuffle,
+	}
 }
 
 // Ring coordinates a read over a single journal on behalf of a
@@ -102,18 +113,19 @@ type ring struct {
 }
 
 func (r *ring) onSubscribe(sub subscriber) {
-	r.log().WithFields(log.Fields{
-		"range":       &sub.Range,
-		"offset":      sub.Offset,
-		"endOffset":   sub.EndOffset,
-		"subscribers": len(r.subscribers),
-	}).Debug("adding shuffle ring subscriber")
-
 	// Prune before adding to ensure we remove a now-cancelled
 	// parent range before adding a replacement child range.
 	r.subscribers.prune()
-
 	var rr = r.subscribers.add(sub)
+
+	r.log(logrus.DebugLevel,
+		"added shuffle ring subscriber",
+		"endOffset", sub.EndOffset,
+		"offset", sub.Offset,
+		"range", sub.Range.String(),
+		"subscribers", len(r.subscribers),
+	)
+
 	if rr == nil {
 		return // This subscriber doesn't require starting a new read.
 	}
@@ -124,15 +136,17 @@ func (r *ring) onSubscribe(sub subscriber) {
 	if len(r.readChans) == 1 && rr.EndOffset != 0 {
 		panic("top-most read cannot have EndOffset")
 	}
-	go readDocuments(r.ctx, r.coordinator.rjc, *rr, readCh)
+	go r.readDocuments(readCh, *rr)
 
-	log.WithFields(log.Fields{
-		"journal":    r.shuffle.Journal,
-		"subscriber": &sub.Range,
-		"offset":     rr.Offset,
-		"endOffset":  rr.EndOffset,
-		"reads":      len(r.readChans),
-	}).Debug("started journal read")
+	if rr.EndOffset != 0 {
+		r.log(logrus.DebugLevel,
+			"started a catch-up journal read for new subscriber",
+			"endOffset", rr.EndOffset,
+			"offset", rr.Offset,
+			"range", sub.Range.String(),
+			"reads", len(r.readChans),
+		)
+	}
 }
 
 func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extractor) {
@@ -140,10 +154,10 @@ func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extracto
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 
-		log.WithFields(log.Fields{
-			"journal": r.shuffle.Journal,
-			"reads":   len(r.readChans),
-		}).Debug("completed catch-up journal read")
+		r.log(logrus.DebugLevel,
+			"completed catch-up journal read",
+			"reads", len(r.readChans),
+		)
 		return
 	}
 
@@ -171,12 +185,13 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 		if staged.TerminalError == "" {
 			staged.TerminalError = err.Error()
 		}
-		r.log().WithFields(log.Fields{
-			"err":         err,
-			"offset":      staged.Offsets,
-			"readThrough": staged.ReadThrough,
-			"writeHead":   staged.WriteHead,
-		}).Error("failed to extract from documents")
+		r.log(logrus.ErrorLevel,
+			"failed to extract from documents",
+			"error", err,
+			"offset", staged.Offsets,
+			"readThrough", staged.ReadThrough,
+			"writeHead", staged.WriteHead,
+		)
 		return
 	}
 
@@ -189,7 +204,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 }
 
 func (r *ring) serve() {
-	r.log().Debug("started shuffle ring service")
+	r.log(logrus.DebugLevel, "started shuffle ring")
 
 	var (
 		build                = r.coordinator.builds.Open(r.shuffle.BuildId)
@@ -257,41 +272,63 @@ loop:
 		sub.callback(nil, r.ctx.Err())
 	}
 
-	r.log().Debug("stopped shuffle ring service")
+	r.log(logrus.DebugLevel, "stopped shuffle ring")
 }
 
-func (r *ring) log() *log.Entry {
-	return log.WithFields(log.Fields{
-		"journal":     r.shuffle.Journal,
+func (r *ring) log(lvl logrus.Level, message string, extra ...interface{}) {
+	if lvl > r.coordinator.logger.Level() {
+		return
+	}
+
+	var fields = logrus.Fields{
+		"build":       r.shuffle.BuildId,
 		"coordinator": r.shuffle.Coordinator,
+		"journal":     r.shuffle.Journal,
 		"replay":      r.shuffle.Replay,
-	})
+	}
+	for i := 0; i < len(extra); i += 2 {
+		fields[extra[i].(string)] = extra[i+1]
+	}
+
+	// Logging is best-effort.
+	_ = r.coordinator.logger.Log(lvl, fields, message)
 }
 
 // readDocuments pumps reads from a journal into the provided channel,
 // which must have a buffer of size one. Documents are merged into a
 // channel-buffered ShuffleResponse (up to a limit).
-func readDocuments(
-	ctx context.Context,
-	rjc pb.RoutedJournalClient,
-	req pb.ReadRequest,
-	ch chan *pf.ShuffleResponse,
-) {
+func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (__out error) {
 	defer close(ch)
+
+	r.log(logrus.DebugLevel,
+		"started reading journal documents",
+		"endOffset", req.EndOffset,
+		"offset", req.Offset,
+	)
 
 	// Start reading in non-blocking mode. This ensures we'll minimally send an opening
 	// ShuffleResponse, which informs the client of whether we're tailing the journal
 	// (and further responses may block).
 	req.Block = false
-	req.DoNotProxy = !rjc.IsNoopRouter()
+	req.DoNotProxy = !r.coordinator.rjc.IsNoopRouter()
 
-	var rr = client.NewRetryReader(ctx, rjc, req)
+	var rr = client.NewRetryReader(r.ctx, r.coordinator.rjc, req)
 	var br = bufio.NewReader(rr)
 	var offset = rr.AdjustedOffset(br)
 
 	// Size of the Arena and DocsJson of the ShuffleResponse last written to |ch|.
 	// These are used to plan capacity of future ShuffleResponse allocations.
 	var lastArena, lastDocs = 0, 0
+
+	defer func() {
+		r.log(logrus.DebugLevel,
+			"finished reading journal documents",
+			"endOffset", req.EndOffset,
+			"error", __out,
+			"offset", offset,
+			"startOffset", req.Offset,
+		)
+	}()
 
 	for {
 		var line, err = message.UnpackLine(br)
@@ -300,28 +337,40 @@ func readDocuments(
 		case nil:
 			// We read a line.
 		case io.EOF:
-			return // Reached EndOffset, all done!
+			return err // Reached EndOffset, all done!
 		case context.Canceled:
-			return // All done.
+			return err // All done.
 		case io.ErrNoProgress:
 			// bufio.Reader generates these when a read is restarted multiple
 			// times with no actual bytes read (e.x. because the journal is idle).
 			// It's safe to ignore.
+			r.log(logrus.DebugLevel,
+				"multiple journal reads occurred without any progress",
+				"endOffset", req.EndOffset,
+				"offset", offset,
+				"startOffset", req.Offset,
+			)
 			line, err = nil, nil
 		case client.ErrOffsetJump:
-			// Occurs when fragments are removed from the middle of the journal.
-			log.WithFields(log.Fields{
-				"journal": rr.Journal,
-				"from":    offset,
-				"to":      rr.AdjustedOffset(br),
-			}).Warn("source journal offset jump")
-
+			// Offset jumps occur when fragments are removed from the middle of a journal.
+			r.log(logrus.WarnLevel,
+				"source journal offset jump",
+				"from", offset,
+				"to", rr.AdjustedOffset(br),
+			)
 			line, err, offset = nil, nil, rr.AdjustedOffset(br)
 		default:
 			if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
 				// Non-blocking read cannot make further progress.
 				// Continue reading, now with blocking reads.
 				line, err, rr.Reader.Request.Block = nil, nil, true
+
+				r.log(logrus.DebugLevel,
+					"switched to blocking journal read",
+					"endOffset", req.EndOffset,
+					"offset", offset,
+					"startOffset", req.Offset,
+				)
 			}
 			// Other possible |err| types will be passed through as a
 			// ShuffleResponse.TerminalError, sent to |ch|.
@@ -353,8 +402,8 @@ func readDocuments(
 				ReadThrough: out.ReadThrough,
 				WriteHead:   out.WriteHead,
 			}:
-			case <-ctx.Done():
-				return
+			case <-r.ctx.Done():
+				return r.ctx.Err()
 			}
 
 			// Pop it again, for us to extend. This cannot block but we may not
@@ -400,7 +449,7 @@ func readDocuments(
 		ch <- out
 
 		if err != nil {
-			return
+			return err
 		}
 	}
 }

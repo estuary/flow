@@ -25,8 +25,6 @@ import (
 type Materialize struct {
 	// Client of the active driver transactions RPC.
 	client *pm.TxnClient
-	// Coordinator of shuffled reads for this materialization shard.
-	coordinator *shuffle.Coordinator
 	// FlowConsumer which owns this Materialize shard.
 	host *FlowConsumer
 	// Store delegate for persisting local checkpoints.
@@ -49,7 +47,6 @@ var _ Application = (*Materialize)(nil)
 
 // NewMaterializeApp returns a new Materialize, which implements Application.
 func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Builds)
 	var store, err = newConnectorStore(recorder)
 	if err != nil {
 		return nil, fmt.Errorf("newConnectorStore: %w", err)
@@ -58,7 +55,6 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	var statsPublisher = message.NewPublisher(shard.JournalClient(), &clock)
 
 	var out = &Materialize{
-		coordinator:    coordinator,
 		host:           host,
 		store:          store,
 		statsPublisher: statsPublisher,
@@ -270,11 +266,6 @@ func (m *Materialize) Destroy() {
 
 // Implementing shuffle.Store for Materialize
 var _ shuffle.Store = (*Materialize)(nil)
-
-// Coordinator implements shuffle.Store.Coordinator
-func (m *Materialize) Coordinator() *shuffle.Coordinator {
-	return m.coordinator
-}
 
 // Implementing runtime.Application for Materialize
 var _ Application = (*Materialize)(nil)

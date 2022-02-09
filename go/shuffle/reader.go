@@ -9,7 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -136,10 +136,11 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			// Other errors indicate a broken stream, but may be retried.
 
 			// Stream is broken, but may be retried.
-			r.log().WithFields(log.Fields{
-				"err":     err,
-				"attempt": attempt,
-			}).Warn("failed to receive shuffled replay read (will retry)")
+			r.log(logrus.WarnLevel,
+				"shuffled replay read failed (will retry)",
+				"error", err,
+				"attempt", attempt,
+			)
 			attempt++
 
 			begin, r = r.req.Offset, nil
@@ -177,7 +178,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
 		if r.readDelay != 0 && readTime > g.wallTime {
-			r.log().WithField("until", readTime).Debug("gated reads of journal")
+			r.log(logrus.DebugLevel, "gated documents of journal", "until", readTime)
 
 			g.gated = append(g.gated, r)
 			continue
@@ -259,7 +260,9 @@ func (g *governor) poll(ctx context.Context) error {
 			// shard assignments change and the read is restarted against
 			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
-				r.log().WithField("err", err).Warn("shuffled read failed (will retry)")
+				r.log(logrus.WarnLevel, "shuffled read failed (will retry)", "error", err)
+			} else {
+				r.log(logrus.DebugLevel, "shuffled read has drained")
 			}
 
 			// Clear tracking state for this drained read.
@@ -317,7 +320,7 @@ func (g *governor) onTick() error {
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
-		r.log().WithField("now", g.wallTime).Debug("un-gated reads of journal")
+		r.log(logrus.DebugLevel, "un-gated documents of journal", "now", g.wallTime)
 		heap.Push(&g.queued, r)
 	}
 	g.gated = g.gated[:0]
@@ -348,7 +351,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range drain {
-		r.log().Debug("read is no longer active; draining")
+		r.log(logrus.DebugLevel, "cancelled shuffled read marked for draining")
 		r.cancel()
 	}
 
