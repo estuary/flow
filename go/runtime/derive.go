@@ -7,7 +7,6 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/shuffle"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -22,8 +21,6 @@ import (
 type Derive struct {
 	// Derive binding that's used for the life of the derivation shard.
 	binding *bindings.Derive
-	// Coordinator of shuffled reads for this derivation shard.
-	coordinator *shuffle.Coordinator
 	// FlowConsumer which owns this Derive shard.
 	host *FlowConsumer
 	// Instrumented RocksDB recorder.
@@ -42,15 +39,12 @@ var _ Application = (*Derive)(nil)
 
 // NewDeriveApp builds and returns a *Derive Application.
 func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
-	var coordinator = shuffle.NewCoordinator(shard.Context(), shard.JournalClient(), host.Builds)
-
 	var derive = &Derive{
-		binding:     nil, // Lazily initialized.
-		coordinator: coordinator,
-		host:        host,
-		recorder:    recorder,
-		taskTerm:    taskTerm{},
-		taskReader:  taskReader{},
+		binding:    nil, // Lazily initialized.
+		host:       host,
+		recorder:   recorder,
+		taskTerm:   taskTerm{},
+		taskReader: taskReader{},
 	}
 	return derive, nil
 }
@@ -257,9 +251,6 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 func (d *Derive) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
 	logTxnFinished(d.LogPublisher, op)
 }
-
-// Coordinator returns the shard's *shuffle.Coordinator.
-func (d *Derive) Coordinator() *shuffle.Coordinator { return d.coordinator }
 
 // ClearRegistersForTest delegates the request to its worker.
 func (d *Derive) ClearRegistersForTest() error {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -49,10 +50,17 @@ func TestReadingDocuments(t *testing.T) {
 		Arena:     make(pf.Arena, 1),
 	}
 
-	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
+	var coordinator = NewCoordinator(ctx, nil, ops.StdLogger(), bk.Client())
+	var ring = newRing(coordinator, pf.JournalShuffle{
+		Journal:     "a/journal",
+		BuildId:     "a-build",
+		Coordinator: "a-coordinator",
+	})
+
+	go ring.readDocuments(ch, pb.ReadRequest{
 		Journal:   "a/journal",
 		EndOffset: app.Response.Commit.End,
-	}, ch)
+	})
 
 	// Sleep a moment to allow the request to start & tickle back-pressure
 	// handling. This may not always be enough time. That's okay, the behavior
@@ -81,10 +89,10 @@ func TestReadingDocuments(t *testing.T) {
 	// Case: Start a read that's at the current write head.
 	ch = make(chan *pf.ShuffleResponse, 1)
 
-	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
+	go ring.readDocuments(ch, pb.ReadRequest{
 		Journal: "a/journal",
 		Offset:  app.Response.Commit.End,
-	}, ch)
+	})
 
 	// Expect an initial ShuffleResponse which informs us that we're tailing the live log.
 	require.Equal(t, &pf.ShuffleResponse{
@@ -107,11 +115,11 @@ func TestReadingDocuments(t *testing.T) {
 	// Case: Start a read which errors. Expect it's passed through, then the channel is closed.
 	ch = make(chan *pf.ShuffleResponse, 1)
 
-	go readDocuments(ctx, bk.Client(), pb.ReadRequest{
+	go ring.readDocuments(ch, pb.ReadRequest{
 		Journal:   "a/journal",
 		Offset:    0,
 		EndOffset: 20, // EOF unexpectedly, in the middle of a message.
-	}, ch)
+	})
 
 	out = <-ch
 	require.Equal(t, "unexpected EOF", out.TerminalError)
@@ -126,14 +134,16 @@ func TestReadingDocuments(t *testing.T) {
 }
 
 func TestDocumentExtraction(t *testing.T) {
-	var r = ring{
-		shuffle: pf.JournalShuffle{
-			Shuffle: &pf.Shuffle{
-				SourceUuidPtr: "/_meta/uuid",
-				ShuffleKeyPtr: []string{"/foo", "/bar"},
-			},
+	var coordinator = NewCoordinator(context.Background(), nil, ops.StdLogger(), nil)
+	var r = newRing(coordinator, pf.JournalShuffle{
+		Journal:     "a/journal",
+		BuildId:     "a-build",
+		Coordinator: "a-coordinator",
+		Shuffle: &pf.Shuffle{
+			SourceUuidPtr: "/_meta/uuid",
+			ShuffleKeyPtr: []string{"/foo", "/bar"},
 		},
-	}
+	})
 
 	var staged pf.ShuffleResponse
 	staged.DocsJson = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
