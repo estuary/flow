@@ -1,6 +1,6 @@
 ---
-source: crates/control/tests/it/connectors.rs
-assertion_line: 251
+source: crates/control/tests/it/connector_images.rs
+assertion_line: 158
 expression: redactor.response_json(response).await.unwrap()
 
 ---
