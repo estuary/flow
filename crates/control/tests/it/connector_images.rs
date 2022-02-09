@@ -7,7 +7,7 @@ use crate::support::redactor::Redactor;
 use crate::support::{self, spawn_app};
 
 #[tokio::test]
-async fn connector_images_index_test() {
+async fn index_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -57,7 +57,7 @@ async fn connector_images_index_test() {
 }
 
 #[tokio::test]
-async fn connector_images_create_test() {
+async fn create_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -109,7 +109,7 @@ async fn connector_images_create_test() {
 }
 
 #[tokio::test]
-async fn connectors_show_test() {
+async fn show_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -162,7 +162,7 @@ async fn connectors_show_test() {
 }
 
 #[tokio::test]
-async fn connectors_spec_test() {
+async fn spec_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -216,7 +216,7 @@ async fn connectors_spec_test() {
 }
 
 #[tokio::test]
-async fn connectors_discovery_test() {
+async fn discovery_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
