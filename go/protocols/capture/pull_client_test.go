@@ -47,12 +47,14 @@ func TestPullClientLifecycle(t *testing.T) {
 	// |captured|, and reduces the driver checkpoint into |reducedCheckpoint|.
 	// It models the caller's expected behavior of producing captured documents
 	// into a collection upon notification.
-	var drain = func() {
+	var drain = func() string {
 		var combiner = rpc.Combiners()[0].(*pf.MockCombiner)
+		var n = len(combiner.Combined)
 		captured = append(captured, combiner.Combined...)
 		combiner.Combined = nil
 
 		require.NoError(t, reducedCheckpoint.Reduce(rpc.DriverCheckpoint()))
+		return fmt.Sprintf("%d => %s", n, string(reducedCheckpoint.DriverCheckpointJson))
 	}
 
 	var startCommitCh = make(chan error)
@@ -63,7 +65,7 @@ func TestPullClientLifecycle(t *testing.T) {
 
 	// Expect Read notified our callback.
 	require.NoError(t, <-startCommitCh)
-	drain()
+	require.Equal(t, `2 => {"a":1}`, drain())
 
 	// Tell Read of a pending log commit.
 	var commitOp = client.NewAsyncOperation()
@@ -84,7 +86,7 @@ func TestPullClientLifecycle(t *testing.T) {
 
 	// We were notified that the next commit is ready.
 	require.NoError(t, <-startCommitCh)
-	drain()
+	require.Equal(t, `3 => {"a":1,"b":1}`, drain())
 
 	commitOp = client.NewAsyncOperation()
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
@@ -95,13 +97,13 @@ func TestPullClientLifecycle(t *testing.T) {
 	server.sendCheckpoint(map[string]int{"a": 2})
 
 	require.NoError(t, <-startCommitCh)
-	drain()
+	require.Equal(t, `0 => {"a":2,"b":1}`, drain())
 
 	// Lower the threshold under which we'll combine multiple checkpoints of documents.
 	// Of the three following checkpoints, the first and second but not third will
 	// be combined into one commit.
 	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
-	combinerByteThreshold = 16
+	combinerByteThreshold = 20 // Characters plus enclosing quotes.
 
 	// While this commit runs, the server sends more documents and checkpoints.
 	server.sendDocs(0, "six", "seven")
@@ -126,17 +128,17 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
 	commitOp.Resolve(nil)
 
-	// Expect we're notified of a 2nd to last commit, which rolls up two checkpoints.
+	// Expect we're notified of a 2nd to last commit.
 	require.NoError(t, <-startCommitCh)
-	drain()
+	require.Equal(t, `4 => {"a":2,"b":2,"c":1}`, drain())
 
 	commitOp = client.NewAsyncOperation()
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
 	commitOp.Resolve(nil)
 
-	// Final commit.
+	// Final commit, which rolls up two checkpoints
 	require.NoError(t, <-startCommitCh)
-	drain()
+	require.Equal(t, `1 => {"a":2,"b":2,"c":1,"d":1}`, drain())
 
 	commitOp = client.NewAsyncOperation()
 	require.NoError(t, rpc.SetLogCommitOp(commitOp))
