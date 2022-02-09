@@ -92,13 +92,49 @@ func (c *PullClient) Serve(startCommitFn func(error)) {
 	defer c.rpc.CloseSend()
 	var respCh = PullResponseChannel(c.rpc)
 
+	var onResp = func(rx PullResponseError, ok bool) (drained bool, err error) {
+		if !ok {
+			respCh = nil // Don't select again.
+			return true, nil
+		} else if rx.Error != nil {
+			return false, rx.Error
+		} else if err := rx.Validate(); err != nil {
+			return false, err
+		}
+
+		switch {
+		case rx.Documents != nil:
+			if err := c.onDocuments(*rx.Documents); err != nil {
+				return false, fmt.Errorf("onDocuments: %w", err)
+			}
+		case rx.Checkpoint != nil:
+			if err := c.onCheckpoint(*rx.Checkpoint); err != nil {
+				return false, fmt.Errorf("onCheckpoint: %w", err)
+			}
+		default:
+			return false, fmt.Errorf("read unexpected response: %v", rx)
+		}
+
+		return respCh == nil, nil
+	}
+
 	c.loop(startCommitFn,
 		func(full bool) (drained bool, err error) {
 			var maybeRespCh <-chan PullResponseError
+
+			// If we're not full, prefer to include more
+			// ready responses in the current transaction.
 			if !full {
-				maybeRespCh = respCh
+				select {
+				case rx, ok := <-respCh:
+					return onResp(rx, ok)
+				default:
+					maybeRespCh = respCh
+				}
 			}
 
+			// We don't have a ready response.
+			// Block for a response OR a commit operation.
 			select {
 			case <-c.maybeLogCommittedOp():
 				if err = c.onLogCommitted(); err != nil {
@@ -112,27 +148,7 @@ func (c *PullClient) Serve(startCommitFn func(error)) {
 				}
 
 			case rx, ok := <-maybeRespCh:
-				if !ok {
-					respCh = nil // Don't select again.
-					return true, nil
-				} else if rx.Error != nil {
-					return false, rx.Error
-				} else if err := rx.Validate(); err != nil {
-					return false, err
-				}
-
-				switch {
-				case rx.Documents != nil:
-					if err := c.onDocuments(*rx.Documents); err != nil {
-						return false, fmt.Errorf("onDocuments: %w", err)
-					}
-				case rx.Checkpoint != nil:
-					if err := c.onCheckpoint(*rx.Checkpoint); err != nil {
-						return false, fmt.Errorf("onCheckpoint: %w", err)
-					}
-				default:
-					return false, fmt.Errorf("read unexpected response: %v", rx)
-				}
+				return onResp(rx, ok)
 			}
 
 			return respCh == nil, nil
