@@ -2,6 +2,9 @@
 #  https://brokenco.de/2020/01/08/faster-rust-linking.html
 [build]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+# This default target is used whenever there isn't an explicit --target passed on the command line.
+# See the comment in Makefile for an explanation of why this is important.
+target = "x86_64-unknown-linux-gnu"
 
 # This just provides a default value for FLOW_VERSION during development, so that you can compile
 # without this being set. If FLOW_VERSION is defined, then this has no effect.
