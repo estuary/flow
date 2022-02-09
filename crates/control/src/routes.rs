@@ -33,6 +33,10 @@ fn connector_images_routes() -> Router {
         )
         .route(
             "/connector_images/:image_id",
+            get(controllers::connector_images::show),
+        )
+        .route(
+            "/connector_images/:image_id/spec",
             get(controllers::connector_images::spec),
         )
         .route(
