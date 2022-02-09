@@ -74,7 +74,7 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: make rust-build
+      - run: cargo check
       - run: make rust-test
       - run: make go-test-ci
       - run: make catalog-test

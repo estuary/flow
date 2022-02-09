@@ -202,14 +202,9 @@ print-versions:
 .PHONY: install-tools
 install-tools: ${GOBIN}/etcd ${GOBIN}/sops
 
-.PHONY: rust-build
-rust-build:
-	FLOW_VERSION=${VERSION} cargo build --release --locked
-
 .PHONY: rust-test
 rust-test:
 	FLOW_VERSION=${VERSION} cargo test --release --locked
-
 
 .PHONY: go-test-ci
 go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
