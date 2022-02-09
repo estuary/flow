@@ -9,7 +9,7 @@ use crate::support::redactor::Redactor;
 use crate::support::{self, spawn_app};
 
 #[tokio::test]
-async fn connectors_index_test() {
+async fn index_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -46,7 +46,7 @@ async fn connectors_index_test() {
 }
 
 #[tokio::test]
-async fn connectors_create_test() {
+async fn create_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -84,7 +84,7 @@ async fn connectors_create_test() {
 }
 
 #[tokio::test]
-async fn connectors_images_test() {
+async fn images_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -162,7 +162,7 @@ async fn connectors_images_test() {
 }
 
 #[tokio::test]
-async fn connectors_duplicate_insertion_test() {
+async fn duplicate_insertion_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
