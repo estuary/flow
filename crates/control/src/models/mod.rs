@@ -59,6 +59,12 @@ impl Id {
     fn from_bytes(bytes: [u8; 8]) -> Self {
         Id::new(i64::from_be_bytes(bytes))
     }
+
+    /// An Id that does not correspond to a persisted resource, but rather is a
+    /// one-time use identifier. Nonces must not be reused.
+    pub fn nonce() -> Self {
+        Id::new(rand::random())
+    }
 }
 
 impl Display for Id {
@@ -79,5 +85,11 @@ impl FromStr for Id {
             base64::decode_config(s, ENCODING_CONFIG).map_err(|_| MalformedIdError::Decode)?;
         let bytes = bytes.try_into().map_err(|_| MalformedIdError::Length)?;
         Ok(Id::from_bytes(bytes))
+    }
+}
+
+impl From<Id> for String {
+    fn from(id: Id) -> Self {
+        id.to_string()
     }
 }
