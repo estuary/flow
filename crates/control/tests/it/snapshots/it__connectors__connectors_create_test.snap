@@ -1,17 +1,25 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 74
-expression: "response.json::<JsonValue>().await.unwrap()"
+assertion_line: 80
+expression: redactor.response_json(response).await.unwrap()
 
 ---
 {
   "data": {
-    "created_at": "[datetime]",
-    "description": "Reads data from Kafka topics.",
-    "id": "[id]",
-    "maintainer": "Estuary Technologies",
-    "name": "Kafka",
-    "type": "source",
-    "updated_at": "[datetime]"
+    "attributes": {
+      "created_at": "[datetime]",
+      "description": "Reads data from Kafka topics.",
+      "id": "[c1]",
+      "maintainer": "Estuary Technologies",
+      "name": "Kafka",
+      "type": "source",
+      "updated_at": "[datetime]"
+    },
+    "id": "[c1]",
+    "links": {
+      "images": "http://127.0.0.1:0/connectors/[c1]/connector_images",
+      "self": "http://127.0.0.1:0/connectors/[c1]"
+    },
+    "type": "connector"
   }
 }

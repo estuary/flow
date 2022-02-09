@@ -1,48 +1,58 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 245
-expression: "response.json::<JsonValue>().await.unwrap()"
+assertion_line: 304
+expression: redactor.response_json(response).await.unwrap()
 
 ---
 {
   "data": {
-    "documentationURL": "",
-    "endpointSpecSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "greetings": {
-          "default": "1000",
-          "description": "Number of greeting documents to produce when running in non-tailing mode",
-          "title": "Number of Greetings",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "greetings"
-      ],
-      "title": "Hello World Source Spec",
-      "type": "object"
-    },
-    "resourceSpecSchema": {
-      "$schema": "http://json-schema.org/draft-04/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "namespace": {
-          "type": "string"
+    "attributes": {
+      "documentationURL": "",
+      "endpointSpecSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "greetings": {
+            "default": "1000",
+            "description": "Number of greeting documents to produce when running in non-tailing mode",
+            "title": "Number of Greetings",
+            "type": "integer"
+          }
         },
-        "stream": {
-          "type": "string"
-        },
-        "syncMode": {
-          "type": "string"
-        }
+        "required": [
+          "greetings"
+        ],
+        "title": "Hello World Source Spec",
+        "type": "object"
       },
-      "required": [
-        "stream",
-        "syncMode"
-      ],
-      "type": "object"
+      "resourceSpecSchema": {
+        "$schema": "http://json-schema.org/draft-04/schema#",
+        "additionalProperties": false,
+        "properties": {
+          "namespace": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "syncMode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stream",
+          "syncMode"
+        ],
+        "type": "object"
+      },
+      "type": "capture"
     },
-    "type": "capture"
+    "id": "[nonce]",
+    "links": {
+      "connector": "http://127.0.0.1:0/connectors/[c1]",
+      "discovery": "http://127.0.0.1:0/connector_images/[i1]/discovery",
+      "image": "http://127.0.0.1:0/connector_images/[i1]",
+      "self": "http://127.0.0.1:0/connector_images/[i1]/spec"
+    },
+    "type": "connector_spec"
   }
 }

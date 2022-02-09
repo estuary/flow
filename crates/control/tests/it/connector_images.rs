@@ -1,10 +1,9 @@
-use serde_json::Value as JsonValue;
-
 use control::models::connector_images::CreateConnectorImage;
 use control::models::connectors::{ConnectorType, CreateConnector};
 use control::repo::connector_images::{fetch_all, insert};
 use control::repo::connectors::insert as insert_connector;
 
+use crate::support::redactor::Redactor;
 use crate::support::{self, spawn_app};
 
 #[tokio::test]
@@ -29,7 +28,7 @@ async fn connector_images_index_test() {
     .await
     .expect("to insert test data");
 
-    insert(
+    let image = insert(
         &db,
         CreateConnectorImage {
             connector_id: connector.id,
@@ -48,11 +47,12 @@ async fn connector_images_index_test() {
         .expect("Failed to execute request.");
 
     assert!(response.status().is_success());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.*.id" => "[id]",
-        ".data.*.connector_id" => "[id]",
-        ".data.*.created_at" => "[datetime]",
-        ".data.*.updated_at" => "[datetime]",
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.*.attributes.created_at" => "[datetime]",
+        ".data.*.attributes.updated_at" => "[datetime]",
     });
 }
 
@@ -95,14 +95,15 @@ async fn connector_images_create_test() {
         .await
         .expect("Failed to execute request.");
 
-    assert_eq!(201, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.id" => "[id]",
-        ".data.connector_id" => "[id]",
-        ".data.created_at" => "[datetime]",
-        ".data.updated_at" => "[datetime]",
-    });
-
     let images = fetch_all(&db).await.expect("to insert test data");
     assert_eq!(1, images.len());
+
+    assert_eq!(201, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(images[0].id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
 }

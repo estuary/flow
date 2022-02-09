@@ -1,19 +1,31 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 153
-expression: "response.json::<JsonValue>().await.unwrap()"
+assertion_line: 158
+expression: redactor.response_json(response).await.unwrap()
 
 ---
 {
   "data": [
     {
-      "connector_id": "[id]",
-      "created_at": "[datetime]",
-      "digest": "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600",
-      "id": "[id]",
-      "name": "ghcr.io/estuary/source-hello-world",
-      "tag": "01fb856",
-      "updated_at": "[datetime]"
+      "attributes": {
+        "connector_id": "[c1]",
+        "created_at": "[datetime]",
+        "digest": "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600",
+        "id": "[i1]",
+        "name": "ghcr.io/estuary/source-hello-world",
+        "tag": "01fb856",
+        "updated_at": "[datetime]"
+      },
+      "id": "[i1]",
+      "links": {
+        "connector": "http://127.0.0.1:0/connectors/[c1]",
+        "self": "http://127.0.0.1:0/connector_images/[i1]",
+        "spec": "http://127.0.0.1:0/connector_images/[i1]/spec"
+      },
+      "type": "connector_image"
     }
-  ]
+  ],
+  "links": {
+    "self": "http://127.0.0.1:0/connectors/[c1]/connector_images"
+  }
 }
