@@ -1,37 +1,44 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 293
-expression: "response.json::<JsonValue>().await.unwrap()"
+assertion_line: 359
+expression: redactor.response_json(response).await.unwrap()
 
 ---
 {
   "data": {
-    "bindings": [
-      {
-        "documentSchema": {
-          "properties": {
-            "count": {
-              "type": "integer"
+    "attributes": {
+      "bindings": [
+        {
+          "documentSchema": {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
             },
-            "message": {
-              "type": "string"
-            }
+            "required": [
+              "count",
+              "message"
+            ],
+            "type": "object"
           },
-          "required": [
-            "count",
-            "message"
+          "keyPtrs": [
+            "/count"
           ],
-          "type": "object"
-        },
-        "keyPtrs": [
-          "/count"
-        ],
-        "recommendedName": "greetings",
-        "resourceSpec": {
-          "stream": "greetings",
-          "syncMode": "incremental"
+          "recommendedName": "greetings",
+          "resourceSpec": {
+            "stream": "greetings",
+            "syncMode": "incremental"
+          }
         }
-      }
-    ]
+      ]
+    },
+    "id": "[nonce]",
+    "links": {
+      "image": "http://127.0.0.1:0/connector_images/[i1]"
+    },
+    "type": "discovered_bindings"
   }
 }

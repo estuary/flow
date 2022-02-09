@@ -5,6 +5,7 @@ use control::models::connectors::{ConnectorType, CreateConnector};
 use control::repo::connector_images::insert as insert_image;
 use control::repo::connectors::{fetch_all, insert};
 
+use crate::support::redactor::Redactor;
 use crate::support::{self, spawn_app};
 
 #[tokio::test]
@@ -17,7 +18,7 @@ async fn connectors_index_test() {
         .expect("Failed to spawn our app.");
     let client = reqwest::Client::new();
 
-    insert(
+    let connector = insert(
         &db,
         CreateConnector {
             description: "A flood greetings.".to_owned(),
@@ -36,10 +37,11 @@ async fn connectors_index_test() {
         .expect("Failed to execute request.");
 
     assert!(response.status().is_success());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.*.id" => "[id]",
-        ".data.*.created_at" => "[datetime]",
-        ".data.*.updated_at" => "[datetime]",
+
+    let redactor = Redactor::default().redact(connector.id, "c1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.*.attributes.created_at" => "[datetime]",
+        ".data.*.attributes.updated_at" => "[datetime]",
     });
 }
 
@@ -70,15 +72,15 @@ async fn connectors_create_test() {
         .await
         .expect("Failed to execute request.");
 
-    assert_eq!(201, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.id" => "[id]",
-        ".data.created_at" => "[datetime]",
-        ".data.updated_at" => "[datetime]",
-    });
-
     let connectors = fetch_all(&db).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
+
+    assert_eq!(201, response.status().as_u16());
+    let redactor = Redactor::default().redact(connectors[0].id, "c1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
 }
 
 #[tokio::test]
@@ -103,7 +105,7 @@ async fn connectors_images_test() {
     .await
     .expect("to insert test data");
 
-    insert_image(
+    let image = insert_image(
         &db,
         CreateConnectorImage {
             connector_id: connector.id,
@@ -150,11 +152,12 @@ async fn connectors_images_test() {
         .expect("Failed to execute request.");
 
     assert_eq!(200, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.*.id" => "[id]",
-        ".data.*.connector_id" => "[id]",
-        ".data.*.created_at" => "[datetime]",
-        ".data.*.updated_at" => "[datetime]",
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.*.attributes.created_at" => "[datetime]",
+        ".data.*.attributes.updated_at" => "[datetime]",
     });
 }
 
@@ -199,7 +202,7 @@ async fn connectors_duplicate_insertion_test() {
 }
 
 #[tokio::test]
-async fn connectors_spec_test() {
+async fn connectors_show_test() {
     let db = support::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
@@ -242,7 +245,67 @@ async fn connectors_spec_test() {
         .expect("Failed to execute request.");
 
     assert_eq!(200, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
+}
+
+#[tokio::test]
+async fn connectors_spec_test() {
+    let db = support::test_db_pool(support::function_name!())
+        .await
+        .expect("Failed to acquire a database connection");
+    let server_address = spawn_app(db.clone())
+        .await
+        .expect("Failed to spawn our app.");
+    let client = reqwest::Client::new();
+
+    let connector = insert(
+        &db,
+        CreateConnector {
+            description: "A flood greetings.".to_owned(),
+            name: "Hello World".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
+            r#type: ConnectorType::Source,
+        },
+    )
+    .await
+    .expect("to insert test data");
+
+    let image = insert_image(
+        &db,
+        CreateConnectorImage {
+            connector_id: connector.id,
+            name: "ghcr.io/estuary/source-hello-world".to_owned(),
+            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
+            tag: "01fb856".to_owned(),
+        },
+    )
+    .await
+    .expect("to insert test data");
+
+    let response = client
+        .get(format!(
+            "http://{}/connector_images/{}/spec",
+            server_address, image.id
+        ))
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(200, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.id" => "[nonce]",
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
 }
 
 #[tokio::test]
@@ -290,5 +353,12 @@ async fn connectors_discovery_test() {
         .expect("Failed to execute request.");
 
     assert_eq!(200, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.id" => "[nonce]",
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
 }
