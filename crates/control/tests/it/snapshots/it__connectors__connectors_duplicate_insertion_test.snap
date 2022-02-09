@@ -5,8 +5,10 @@ expression: "second_response.json::<JsonValue>().await.unwrap()"
 
 ---
 {
-  "error": {
-    "detail": "error returned from database: duplicate key value violates unique constraint \"idx_connectors_name\"",
-    "title": "database error"
-  }
+  "errors": [
+    {
+      "detail": "error returned from database: duplicate key value violates unique constraint \"idx_connectors_name\"",
+      "title": "database error"
+    }
+  ]
 }

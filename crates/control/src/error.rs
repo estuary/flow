@@ -6,29 +6,7 @@ use axum::Json;
 use hyper::StatusCode;
 use tracing::error;
 
-// TODO: Can't use the Payload wrapper as is, as inside `into_response`, we
-// don't have a type for `Data` in `Payload<Data>`. I'm sure there's a way to
-// model this differently that would work, but this is expedient.
-#[derive(Debug, Serialize)]
-pub struct ErrorWrapper {
-    error: ProblemDetails,
-}
-
-impl ErrorWrapper {
-    pub fn new(error: ProblemDetails) -> Self {
-        Self { error }
-    }
-}
-
-// TODO: Remove/rework how error details are used/constructed after initial
-// development phase. This is currently the full error message details. This
-// level of detail is not appropriate for end users, but is probably helpful for
-// developers in the short term.
-#[derive(Debug, Serialize)]
-pub struct ProblemDetails {
-    title: String,
-    detail: Option<String>,
-}
+use crate::controllers::json_api::{PayloadError, ProblemDetails};
 
 /// Application errors that can be automatically turned into an appropriate HTTP
 /// response.
@@ -66,7 +44,7 @@ impl IntoResponse for AppError {
             error!(status = ?status, message = ?self, details = ?self.source());
         }
 
-        let body = Json(ErrorWrapper::new(ProblemDetails {
+        let body = Json(PayloadError::new(ProblemDetails {
             title: self.to_string(),
             detail: self.source().map(ToString::to_string),
         }));
