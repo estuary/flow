@@ -22,6 +22,18 @@ jobs:
           submodules: true
       - name: Install protobuf compiler (it's not already included in CI runner)
         run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
+        # This weird installation method is taken from this comment:
+        # https://github.com/actions-rs/toolchain/issues/126#issuecomment-782989659
+        # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
+      - name: Install rust toolchain
+        run: rustup show
+
+        # Provides musl-gcc and musl-g++ wrappers and related components, which are required for
+        # Rust musl builds that have native C dependencies.
+      - name: Install MUSL
+        run: sudo apt-get install -y musl-tools
+
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:

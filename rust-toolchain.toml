@@ -1,0 +1,4 @@
+[toolchain]
+channel = "1.58"
+profile = "default"
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
