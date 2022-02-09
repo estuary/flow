@@ -1,0 +1,8 @@
+.vscode
+
+# Generated when starting the testing sshd service locally.
+sshforwarding/test_sshd_configs/config/custom-services.d
+sshforwarding/test_sshd_configs/config/.ssh
+sshforwarding/test_sshd_configs/config/logs
+sshforwarding/test_sshd_configs/config/sshd.pid
+sshforwarding/test_sshd_configs/config/ssh_host_keys
