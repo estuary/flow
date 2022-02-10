@@ -16,6 +16,7 @@ pub struct Settings {
 pub struct ApplicationSettings {
     pub host: String,
     pub port: u16,
+    pub cors: CorsSettings,
 }
 
 impl ApplicationSettings {
@@ -39,6 +40,17 @@ impl DatabaseSettings {
             "postgres://{}:{}@{}:{}/{}",
             self.username, self.password, self.host, self.port, self.db_name
         )
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CorsSettings {
+    pub allowed_origins: Vec<String>,
+}
+
+impl CorsSettings {
+    pub fn allowed_origins(&self) -> &[String] {
+        self.allowed_origins.as_ref()
     }
 }
 
