@@ -1,0 +1,1 @@
+{"properties":{"arr":{"properties":{"one":{"type":"keyword","ignore_above":256},"two":{"type":"long"}}},"bit":{"type":"boolean"},"int":{"type":"long"},"len":{"type":"long"},"str":{"type":"keyword","ignore_above":256}}}

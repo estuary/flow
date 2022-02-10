@@ -1,0 +1,20 @@
+[package]
+name = "schema-builder"
+version = "0.1.0"
+authors = ["Jixiang Jiang <jixiang@estuary.dev>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+base64="*"
+indexmap= { version = "*", features = ["serde"]}
+serde = "*"
+serde_json = "*"
+thiserror = "*"
+tracing = "*"
+tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}
+url = "*"
+
+doc = { git = "https://github.com/estuary/flow" }
+json = { git = "https://github.com/estuary/flow", package="json"}
