@@ -74,7 +74,7 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: cargo check
+      - run: cargo check --release
       - run: make rust-test
       - run: make go-test-ci
       - run: make package catalog-test
@@ -100,7 +100,7 @@ jobs:
         with:
           body: |
             This is the latest development build, which gets updated on every successful build of the master branch.
-          draft: true
+          draft: false
           prerelease: true
           tag_name: dev
           generate_release_notes: false
