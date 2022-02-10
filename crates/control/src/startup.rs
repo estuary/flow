@@ -5,10 +5,10 @@ use axum::AddExtensionLayer;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
-use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 
 use crate::config::DatabaseSettings;
+use crate::cors;
 use crate::routes::routes;
 use crate::shutdown;
 
@@ -16,12 +16,11 @@ pub fn run(
     listener: TcpListener,
     db: PgPool,
 ) -> anyhow::Result<impl Future<Output = Result<(), hyper::Error>>> {
-    let app = routes().layer(
-        ServiceBuilder::new()
-            .layer(TraceLayer::new_for_http())
-            .layer(ConcurrencyLimitLayer::new(64))
-            .layer(AddExtensionLayer::new(db)),
-    );
+    let app = routes()
+        .layer(cors::cors_layer())
+        .layer(TraceLayer::new_for_http())
+        .layer(ConcurrencyLimitLayer::new(64))
+        .layer(AddExtensionLayer::new(db));
 
     let server = axum::Server::from_tcp(listener)?
         .serve(app.into_make_service())
