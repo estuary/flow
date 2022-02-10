@@ -7,6 +7,7 @@ pub mod repo;
 pub mod startup;
 
 mod controllers;
+mod cors;
 mod error;
 mod routes;
 mod services;
