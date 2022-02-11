@@ -25,7 +25,7 @@ pub enum Error {
     #[error("unsupported Flow schema in elastic search, details: {message}, shape: {shape:?}")]
     UnSupportedError {
         message: &'static str,
-        shape: Box<dyn fmt::Debug>,
+        shape: Box<dyn fmt::Debug + Send + Sync>,
     },
     #[error("unable to override elastic search schema, details: {message}, overriding_schema: {overriding_schema}, pointer: {pointer}")]
     OverridePointerError {

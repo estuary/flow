@@ -5,9 +5,14 @@
 #[derive(Debug, clap::Args)]
 pub struct LogArgs {
     /// The log verbosity. Can be one of trace|debug|info|warn|error|off
-    #[clap(long = "log.level", default_value = "warn", group = "logging")]
+    #[clap(
+        long = "log.level",
+        default_value = "warn",
+        group = "logging",
+        global = true
+    )]
     pub level: String,
-    #[clap(long = "log.format", arg_enum, group = "logging")]
+    #[clap(long = "log.format", arg_enum, group = "logging", global = true)]
     pub format: Option<LogFormat>,
 }
 
@@ -28,7 +33,9 @@ fn default_log_format() -> LogFormat {
     if atty::is(atty::Stream::Stderr) {
         LogFormat::Color
     } else {
-        LogFormat::Text
+        // If running non-interactively, default to JSON so that programatic users don't have to
+        // always specify that.
+        LogFormat::Json
     }
 }
 
