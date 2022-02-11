@@ -8,6 +8,8 @@ use clap::AppSettings::{AllowHyphenValues, DisableHelpFlag, NoAutoHelp};
 /// The name of the go-based flowctl binary. This must be on the PATH.
 const GO_FLOWCTL: &str = "flowctl";
 
+const FLOW_SCHEMALATE: &str = "flow-schemalate";
+
 /// A simple arguments container that simply takes everything as a plain string value.
 /// This is used by all the external subcommands to allow all their argument parsing to be handled
 /// by the external binary.
@@ -20,7 +22,7 @@ pub struct ExternalArgs {
 /// External subcommands are those that are provided by the flowctl Go-based binary.
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
-pub enum ExternalSubcommand {
+pub enum FlowctlGoSubcommand {
     /// Low-level APIs for automation
     Api(ExternalArgs),
     /// Check a Flow catalog for errors
@@ -45,9 +47,9 @@ pub enum ExternalSubcommand {
     Test(ExternalArgs),
 }
 
-impl ExternalSubcommand {
+impl FlowctlGoSubcommand {
     pub fn into_subcommand_and_args(self) -> (&'static str, ExternalArgs) {
-        use ExternalSubcommand::*;
+        use FlowctlGoSubcommand::*;
         match self {
             Api(a) => ("api", a),
             Check(a) => ("check", a),
@@ -71,6 +73,15 @@ impl ExternalSubcommand {
 pub fn exec_go_flowctl(subcommand: &str, args: &ExternalArgs) -> std::io::Error {
     Command::new(GO_FLOWCTL)
         .arg(subcommand)
+        .args(args.args.as_slice())
+        .exec()
+}
+
+/// Executes `flow-schemalate` with the given arguments. This function will not return unless
+/// there's an error starting that process. In the normal case, the current process will be
+/// replaced by the process of the subcommand.
+pub fn exec_flow_schemalate(args: &ExternalArgs) -> std::io::Error {
+    Command::new(FLOW_SCHEMALATE)
         .args(args.args.as_slice())
         .exec()
 }

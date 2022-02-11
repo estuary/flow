@@ -139,6 +139,10 @@ ${RUSTBIN}/flowctl-rs:
 
 # Statically linked binaries using MUSL:
 
+.PHONY: ${RUST_MUSL_BIN}/flow-schemalate
+${RUST_MUSL_BIN}/flow-schemalate:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
+
 .PHONY: ${RUST_MUSL_BIN}/flow-parser
 ${RUST_MUSL_BIN}/flow-parser:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
@@ -155,6 +159,7 @@ PACKAGE_TARGETS = \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flowctl-rs \
 	${PKGDIR}/bin/flow-parser \
+	${PKGDIR}/bin/flow-schemalate \
 	${PKGDIR}/bin/flow-network-proxy \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
@@ -182,6 +187,8 @@ ${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
 ${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs
 	cp ${RUSTBIN}/flowctl-rs $@
 # The following binaries are statically linked, so come from a different subdirectory
+${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate
+	cp ${RUST_MUSL_BIN}/flow-schemalate $@
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser
 	cp ${RUST_MUSL_BIN}/flow-parser $@
 ${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy

@@ -7,3 +7,6 @@ pub mod markdown;
 /// Generates Typescript types that serialize/deserialize into/from JSON that validates against the
 /// schema.
 pub mod typescript;
+
+/// Generates Elasticsearch schemas.
+pub mod elasticsearch;

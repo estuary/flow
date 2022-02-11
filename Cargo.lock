@@ -1178,7 +1178,6 @@ dependencies = [
  "models",
  "protocol",
  "reqwest",
- "schemalate",
  "serde_json",
  "sources",
  "tempfile",
@@ -1613,6 +1612,7 @@ checksum = "bc633605454125dec4b66843673f01c7df2b89479b32e0ed634e43a91cff62a5"
 dependencies = [
  "autocfg",
  "hashbrown",
+ "serde 1.0.133",
 ]
 
 [[package]]
@@ -3073,11 +3073,14 @@ dependencies = [
  "clap 3.0.13",
  "doc 0.0.0",
  "flow_cli_common",
+ "indexmap",
  "json 0.0.0",
  "lazy_static",
  "regex",
  "serde 1.0.133",
  "serde_json",
+ "thiserror",
+ "tracing",
  "url",
 ]
 

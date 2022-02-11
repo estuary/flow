@@ -47,6 +47,15 @@ pub struct ESTypeOverride {
     pub es_type: ESBasicType,
 }
 
+/// The `FromStr` impl is used by clap to parse argument values.
+impl std::str::FromStr for ESTypeOverride {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
+}
+
 impl ESFieldType {
     pub fn apply_type_override(mut self, es_override: &ESTypeOverride) -> Result<Self, Error> {
         let pointer = &es_override.pointer;

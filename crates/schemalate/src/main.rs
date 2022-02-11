@@ -1,0 +1,49 @@
+use clap::Parser;
+use flow_cli_common::{init_logging, LogArgs};
+
+/// Schemalate (Schema + Translate) generates things from JSON schemas.
+///
+/// Each subcommand reads a JSON schema from stdin and writes its output to stdout. Some
+/// subcommands have additional arguments to control the generated output.
+#[derive(Debug, clap::Parser)]
+#[clap(author, name = "flow-schemalate", version = env!("FLOW_VERSION"))]
+struct Args {
+    #[clap(subcommand)]
+    subcommand: Subcommand,
+
+    #[clap(flatten)]
+    log_args: LogArgs,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Subcommand {
+    /// Generates Typescript types that serialize/deserialize into/from JSON that validates against the
+    /// schema.
+    Typescript(schemalate::typescript::Args),
+    /// Generates Markdown documentation of the fields in a schema.
+    Markdown,
+    /// Generates an Elasticsearch schema
+    ElasticsearchSchema(schemalate::elasticsearch::Args),
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    let Args {
+        subcommand,
+        log_args,
+    } = Args::parse();
+    init_logging(&log_args);
+    run_subcommand(subcommand)
+}
+
+fn run_subcommand(subcommand: Subcommand) -> Result<(), anyhow::Error> {
+    let result = match subcommand {
+        Subcommand::Markdown => schemalate::markdown::run(),
+        Subcommand::Typescript(ts_args) => schemalate::typescript::run(ts_args),
+        Subcommand::ElasticsearchSchema(es_args) => schemalate::elasticsearch::run(es_args),
+    };
+
+    if let Err(err) = result.as_ref() {
+        tracing::error!(error = ?err, "subcommand failed");
+    }
+    result
+}
