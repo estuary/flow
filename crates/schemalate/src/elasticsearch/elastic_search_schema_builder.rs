@@ -5,25 +5,23 @@ use doc::inference::{ArrayShape, ObjShape, Shape};
 use doc::Annotation;
 use indexmap::IndexMap;
 use json::schema::{self, index::IndexBuilder, types};
-use serde_json::json;
 use serde_json::Value;
 
 pub const DEFAULT_IGNORE_ABOVE: u16 = 256;
 // TODO(jixiang) replace the bundle url with https://estuary.dev/api/collections/<name>/<build-id>/schema for managed services.
 pub const FAKE_BUNDLE_URL: &str = "https://fake-bundle-schema.estuary.io";
 
-pub fn build_elastic_schema(schema_json: &[u8]) -> Result<ESFieldType, Error> {
+pub fn build_elastic_schema(schema_json: &Value) -> Result<ESFieldType, Error> {
     build_elastic_schema_with_overrides(schema_json, &[])
 }
 
 pub fn build_elastic_schema_with_overrides(
-    schema_json: &[u8],
+    schema: &Value,
     es_type_overrides: &[ESTypeOverride],
 ) -> Result<ESFieldType, Error> {
     let schema_uri =
         url::Url::parse(FAKE_BUNDLE_URL).expect("parse should not fail on hard-coded url");
 
-    let schema: Value = serde_json::from_slice(schema_json)?;
     let schema = schema::build::build_schema::<Annotation>(schema_uri, &schema)?;
 
     let mut index = IndexBuilder::new();
@@ -125,6 +123,7 @@ fn build_from_array(shape: &ArrayShape) -> Result<ESFieldType, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn check_schema_error_error(actual_error: &Error, expected_error_message: &str) {
         assert!(matches!(actual_error, Error::UnSupportedError { .. }));
@@ -135,7 +134,7 @@ mod tests {
 
     fn run_and_check_override_error(
         pointer: &str,
-        schema_json: &[u8],
+        schema_json: &Value,
         expected_error_message: &str,
     ) {
         let overrides = [ESTypeOverride {
@@ -158,60 +157,55 @@ mod tests {
 
     #[test]
     fn test_build_elastic_search_schema_with_error() {
-        assert!(matches!(
-            build_elastic_schema(b"A bad json schema").unwrap_err(),
-            Error::SchemaJsonParsing { .. }
-        ));
-
-        let empty_schema_json = br#" { } "#;
+        let empty_schema_json = json!({});
         check_schema_error_error(
-            &build_elastic_schema(empty_schema_json).unwrap_err(),
+            &build_elastic_schema(&empty_schema_json).unwrap_err(),
             UNSUPPORTED_MULTIPLE_OR_UNSPECIFIED_TYPES,
         );
 
-        let multiple_types_schema_json = br#"{"type": ["integer", "string"]}"#;
+        let multiple_types_schema_json = json!({"type": ["integer", "string"]});
         check_schema_error_error(
-            &build_elastic_schema(multiple_types_schema_json).unwrap_err(),
+            &build_elastic_schema(&multiple_types_schema_json).unwrap_err(),
             UNSUPPORTED_MULTIPLE_OR_UNSPECIFIED_TYPES,
         );
 
-        let int_schema_json = br#"{"type": "integer"}"#;
+        let int_schema_json = json!({"type": "integer"});
         check_schema_error_error(
-            &build_elastic_schema(int_schema_json).unwrap_err(),
+            &build_elastic_schema(&int_schema_json).unwrap_err(),
             UNSUPPORTED_NON_ARRAY_OR_OBJECTS,
         );
 
-        let multiple_field_types_schema_json = br#" {"type": "object", "properties": { "mul_type": {"type": ["boolean", "integer"] } } }"#;
+        let multiple_field_types_schema_json = json!({"type": "object", "properties": { "mul_type": {"type": ["boolean", "integer"] } } });
         check_schema_error_error(
-            &build_elastic_schema(multiple_field_types_schema_json).unwrap_err(),
+            &build_elastic_schema(&multiple_field_types_schema_json).unwrap_err(),
             UNSUPPORTED_MULTIPLE_OR_UNSPECIFIED_TYPES,
         );
 
-        let object_additional_field_schema_json = br#"
+        let object_additional_field_schema_json = json!(
           {"type": "object", "additionalProperties": {"type": "integer"}, "properties": {"int": {"type": "integer"}}}
-        "#;
+        );
         check_schema_error_error(
-            &build_elastic_schema(object_additional_field_schema_json).unwrap_err(),
+            &build_elastic_schema(&object_additional_field_schema_json).unwrap_err(),
             UNSUPPORTED_OBJECT_ADDITIONAL_FIELDS,
         );
 
         let tuple_field_schema_json =
-            br#"{"type": "array", "items": [{"type": "string"}, {"type": "integer"}]}"#;
+            json!({"type": "array", "items": [{"type": "string"}, {"type": "integer"}]});
         check_schema_error_error(
-            &build_elastic_schema(tuple_field_schema_json).unwrap_err(),
+            &build_elastic_schema(&tuple_field_schema_json).unwrap_err(),
             UNSUPPORTED_TUPLE,
         );
 
-        let simple_array_schema_json = br#"{"type": "array", "items": {"type": "string"}}"#;
+        let simple_array_schema_json = json!({"type": "array", "items": {"type": "string"}});
         check_schema_error_error(
-            &build_elastic_schema(simple_array_schema_json).unwrap_err(),
+            &build_elastic_schema(&simple_array_schema_json).unwrap_err(),
             UNSUPPORTED_NON_ARRAY_OR_OBJECTS,
         );
     }
 
     #[test]
     fn test_build_elastic_search_schema_all_types() {
-        let schema_json = br#"
+        let schema_json = json!(
         {
             "properties":{
                 "str": {"type": "string"},
@@ -222,7 +216,7 @@ mod tests {
                 "num_or_null": {"type": ["number", "null"] },
                 "bool": {"type": "boolean"},
                 "bool_or_null": {"type": ["boolean", "null"]},
-                "enum": {"enum": [1,2,3]},
+                "enum": {"enum": [1i32,2i32,3i32]},
                 "array_of_ints": {"type": "array", "items": {"type": "integer"}},
                 "array_of_objs": {"type": "array", "items": {"type": "object", "properties": {"arr_field": {"type": "string"}}}},
                 "nested": {"type": "object", "required": [], "properties": {"nested_field": {"type": ["null", "integer"]}}}
@@ -230,10 +224,9 @@ mod tests {
             },
             "required":["str"],
             "type":"object"
-        }
-        "#;
+        });
 
-        let actual = build_elastic_schema(schema_json).unwrap();
+        let actual = build_elastic_schema(&schema_json).unwrap();
         assert_eq!(
             serde_json::to_value(&actual).unwrap(),
             json!({
@@ -257,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_build_elastic_search_schema_with_reference() {
-        let schema_json = br#"{
+        let schema_json = json!({
             "$defs": {
                 "__flowInline1":{
                     "$defs":{
@@ -290,12 +283,11 @@ mod tests {
                 "len":{"type": "integer"}
             },
             "required":["len"]
-        }"#;
+        });
 
-        let actual = build_elastic_schema(schema_json).unwrap();
+        let actual = build_elastic_schema(&schema_json).unwrap();
 
         assert_eq!(
-            serde_json::to_value(&actual).unwrap(),
             json!({ "properties": {
                     "arr":{
                         "properties": {
@@ -308,13 +300,14 @@ mod tests {
                     "len": { "type": "long" },
                     "str": { "type": "keyword", "ignore_above": 256}
                 }
-            })
+            }),
+            serde_json::to_value(&actual).unwrap(),
         );
     }
 
     #[test]
     fn test_build_elastic_search_schema_with_override() {
-        let schema_json = br#"
+        let schema_json = json!(
         {
             "properties":{
                 "str": {"type": "string"},
@@ -325,19 +318,18 @@ mod tests {
             },
             "required":["str"],
             "type":"object"
-        }
-        "#;
+        });
 
-        run_and_check_override_error("", schema_json, POINTER_EMPTY);
-        run_and_check_override_error("/missing_field", schema_json, POINTER_MISSING_FIELD);
+        run_and_check_override_error("", &schema_json, POINTER_EMPTY);
+        run_and_check_override_error("/missing_field", &schema_json, POINTER_MISSING_FIELD);
         run_and_check_override_error(
             "/nested/nested_field/aa",
-            schema_json,
+            &schema_json,
             POINTER_WRONG_FIELD_TYPE,
         );
 
         let actual = build_elastic_schema_with_overrides(
-            schema_json,
+            &schema_json,
             &[
                 ESTypeOverride {
                     pointer: "/str".to_string(),
@@ -380,7 +372,7 @@ mod tests {
                                 "fields": {
                                     "keyword": {
                                         "type": "keyword",
-                                        "ignore_above": 300
+                                        "ignore_above": 300i32
                                     }
                                 }
                             }
