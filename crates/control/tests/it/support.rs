@@ -2,6 +2,7 @@ use std::io::Error as IoError;
 use std::net::TcpListener;
 use std::process::{Command, Output as ProcessOutput};
 
+use serde::Serialize;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{ConnectOptions, PgPool};
 
@@ -10,6 +11,64 @@ use control::startup;
 
 pub mod factory;
 pub mod redactor;
+
+/// Creates a `TestContext` with the appropriate test name prefilled.
+macro_rules! test_context {
+    () => {
+        crate::support::TestContext::new(support::function_name!()).await
+    };
+}
+pub(crate) use test_context;
+
+pub struct TestContext {
+    pub test_name: &'static str,
+    server_address: String,
+    db: PgPool,
+    http: reqwest::Client,
+}
+
+impl TestContext {
+    pub async fn new(test_name: &'static str) -> Self {
+        let db = test_db_pool(test_name)
+            .await
+            .expect("Failed to acquire a database connection");
+        let server_address = spawn_app(db.clone())
+            .await
+            .expect("Failed to spawn our app.");
+        let http = reqwest::Client::new();
+
+        Self {
+            test_name,
+            server_address,
+            db,
+            http,
+        }
+    }
+
+    pub async fn get(&self, path: &str) -> reqwest::Response {
+        self.http
+            .get(format!("http://{}{}", &self.server_address, &path))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn post<P>(&self, path: &str, payload: &P) -> reqwest::Response
+    where
+        P: Serialize + ?Sized,
+    {
+        self.http
+            .post(format!("http://{}{}", &self.server_address, &path))
+            .json(payload)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub fn db(&self) -> &PgPool {
+        &self.db
+    }
+}
 
 /// Returns the full name of the function where it is invoked. This includes the module path to the function.
 ///
