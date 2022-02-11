@@ -367,11 +367,11 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 			// Fall through to send to channel.
 
 		case <-timer.C:
-			if queue > 10 { // Log values > 1s.
+			if queue > 13 { // Log values > 8s.
 				r.log(logrus.DebugLevel,
 					"backpressure timer elapsed on a slow shuffle read",
 					"queue", queue,
-					"backoff", dur,
+					"backoff", dur.Seconds(),
 				)
 			}
 			// Fall through to send to channel.

@@ -154,10 +154,12 @@ func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extracto
 		// Reader at the top of the read stack has exited.
 		r.readChans = r.readChans[:len(r.readChans)-1]
 
-		r.log(logrus.DebugLevel,
-			"completed catch-up journal read",
-			"reads", len(r.readChans),
-		)
+		if len(r.readChans) != 0 {
+			r.log(logrus.DebugLevel,
+				"completed catch-up journal read",
+				"reads", len(r.readChans),
+			)
+		}
 		return
 	}
 
