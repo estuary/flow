@@ -634,8 +634,8 @@ func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
 }
 
 // readChannelCapacity is sized so that sendReadResult will overflow and
-// cancel the read after ~65 seconds of no progress (1<<15 + 1<<14 + 1<<13 ... millis).
-var readChannelCapacity = 17
+// cancel the read after ~35 minutes of no progress (1<<20 + 1<<19 + 1<<18 ... millis).
+var readChannelCapacity = 22
 
 func backoff(attempt int) time.Duration {
 	// The choices of backoff time reflect that we're usually waiting for the
