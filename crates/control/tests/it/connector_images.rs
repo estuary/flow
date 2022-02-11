@@ -1,27 +1,19 @@
 use control::repo::connector_images::fetch_all;
 
 use crate::support::redactor::Redactor;
-use crate::support::{self, factory, spawn_app};
+use crate::support::{self, factory, test_context};
 
 #[tokio::test]
 async fn index_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
-    let connector = factory::HelloWorldConnector.create(&db).await;
-    let image = factory::HelloWorldImage.create(&db, &connector).await;
+    // Act
+    let response = t.get("/connector_images").await;
 
-    let response = client
-        .get(format!("http://{}/connector_images", server_address))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert!(response.status().is_success());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
@@ -34,32 +26,17 @@ async fn index_test() {
 
 #[tokio::test]
 async fn create_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
-
-    assert!(fetch_all(&db)
-        .await
-        .expect("to insert test data")
-        .is_empty());
-
-    let connector = factory::HelloWorldConnector.create(&db).await;
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
     let input = factory::HelloWorldImage.attrs(&connector);
 
-    let response = client
-        .post(format!("http://{}/connector_images", server_address))
-        .json(&input)
-        .send()
-        .await
-        .expect("Failed to execute request.");
+    // Act
+    let response = t.post("/connector_images", &input).await;
 
-    let images = fetch_all(&db).await.expect("to insert test data");
+    // Assert
+    let images = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, images.len());
-
     assert_eq!(201, response.status().as_u16());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
@@ -72,26 +49,15 @@ async fn create_test() {
 
 #[tokio::test]
 async fn show_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
-    let connector = factory::HelloWorldConnector.create(&db).await;
-    let image = factory::HelloWorldImage.create(&db, &connector).await;
+    // Act
+    let response = t.get(&format!("/connector_images/{}", &image.id)).await;
 
-    let response = client
-        .get(format!(
-            "http://{}/connector_images/{}",
-            server_address, image.id
-        ))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert_eq!(200, response.status().as_u16());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
@@ -104,26 +70,17 @@ async fn show_test() {
 
 #[tokio::test]
 async fn spec_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
-    let connector = factory::HelloWorldConnector.create(&db).await;
-    let image = factory::HelloWorldImage.create(&db, &connector).await;
+    // Act
+    let response = t
+        .get(&format!("/connector_images/{}/spec", &image.id))
+        .await;
 
-    let response = client
-        .get(format!(
-            "http://{}/connector_images/{}/spec",
-            server_address, image.id
-        ))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert_eq!(200, response.status().as_u16());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
@@ -137,27 +94,21 @@ async fn spec_test() {
 
 #[tokio::test]
 async fn discovery_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
+    let config = serde_json::json!({"greetings": 10});
 
-    let connector = factory::HelloWorldConnector.create(&db).await;
-    let image = factory::HelloWorldImage.create(&db, &connector).await;
+    // Act
+    let response = t
+        .post(
+            &format!("/connector_images/{}/discovery", &image.id),
+            &config,
+        )
+        .await;
 
-    let response = client
-        .post(format!(
-            "http://{}/connector_images/{}/discovery",
-            server_address, image.id
-        ))
-        .json(&serde_json::json!({"greetings": 10}))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert_eq!(200, response.status().as_u16());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")

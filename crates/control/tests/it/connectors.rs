@@ -1,31 +1,21 @@
 use serde_json::Value as JsonValue;
 
-use control::models::connectors::{ConnectorType, CreateConnector};
 use control::repo::connectors::fetch_all;
 
 use crate::support::redactor::Redactor;
-use crate::support::{self, factory, spawn_app};
+use crate::support::{self, factory, test_context};
 
 #[tokio::test]
 async fn index_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
 
-    let connector = factory::HelloWorldConnector.create(&db).await;
+    // Act
+    let response = t.get("/connectors").await;
 
-    let response = client
-        .get(format!("http://{}/connectors", server_address))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert!(response.status().is_success());
-
     let redactor = Redactor::default().redact(connector.id, "c1");
     assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
         ".data.*.attributes.created_at" => "[datetime]",
@@ -35,34 +25,16 @@ async fn index_test() {
 
 #[tokio::test]
 async fn create_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
+    let input = factory::KafkaConnector.attrs();
 
-    assert!(fetch_all(&db)
-        .await
-        .expect("to insert test data")
-        .is_empty());
+    // Act
+    let response = t.post("/connectors", &input).await;
 
-    let response = client
-        .post(format!("http://{}/connectors", server_address))
-        .json(&CreateConnector {
-            description: "Reads data from Kafka topics.".to_owned(),
-            name: "Kafka".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        })
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
-    let connectors = fetch_all(&db).await.expect("to insert test data");
+    // Assert
+    let connectors = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
-
     assert_eq!(201, response.status().as_u16());
     let redactor = Redactor::default().redact(connectors[0].id, "c1");
     assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
@@ -73,30 +45,21 @@ async fn create_test() {
 
 #[tokio::test]
 async fn images_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
-
-    let connector = factory::HelloWorldConnector.create(&db).await;
-    let image = factory::HelloWorldImage.create(&db, &connector).await;
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
     // These are just another connector and image that should not be returned in the results.
-    let other_connector = factory::KafkaConnector.create(&db).await;
-    let _other_image = factory::KafkaImage.create(&db, &other_connector).await;
+    let other_connector = factory::KafkaConnector.create(t.db()).await;
+    let _other_image = factory::KafkaImage.create(t.db(), &other_connector).await;
 
-    let response = client
-        .get(format!(
-            "http://{}/connectors/{}/connector_images",
-            server_address, connector.id
-        ))
-        .send()
-        .await
-        .expect("Failed to execute request.");
+    // Act
+    let response = t
+        .get(&format!("/connectors/{}/connector_images", &connector.id))
+        .await;
 
+    // Assert
     assert_eq!(200, response.status().as_u16());
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
@@ -109,35 +72,18 @@ async fn images_test() {
 
 #[tokio::test]
 async fn duplicate_insertion_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
-
+    // Arrange
+    let t = test_context!();
     let input = factory::KafkaConnector.attrs();
 
-    let first_response = client
-        .post(format!("http://{}/connectors", server_address))
-        .json(&input)
-        .send()
-        .await
-        .expect("Failed to execute request.");
+    // Act
+    let first_response = t.post("/connectors", &input).await;
+    let second_response = t.post("/connectors", &input).await;
 
+    // Assert
     assert_eq!(201, first_response.status().as_u16());
-
-    let second_response = client
-        .post(format!("http://{}/connectors", server_address))
-        .json(&input)
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
     assert_eq!(400, second_response.status().as_u16());
     assert_json_snapshot!(second_response.json::<JsonValue>().await.unwrap(), {});
-
-    let connectors = fetch_all(&db).await.expect("to insert test data");
+    let connectors = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
 }
