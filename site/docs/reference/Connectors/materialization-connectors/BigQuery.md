@@ -1,7 +1,8 @@
-This Flow connector materializes Flow collections into Google BigQuery datasets. It allows both standard and [delta updates](../../../concepts/materialization.md#delta-updates).
+This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.
+It allows both standard and [delta updates](../../../concepts/materialization.md#delta-updates).
 
-The connector uses a service account to materialize to BigQuery by way of tables in Google Cloud Storage (GCS).
-These tables act as a temporary staging area for data storage and retrieval.
+The connector uses your Google Cloud service account to materialize to BigQuery tables by way of tables in a Google Cloud Storage (GCS) bucket.
+The tables in the bucket act as a temporary staging area for data storage and retrieval.
 
 `ghcr.io/estuary/materialize-bigquery:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
@@ -20,22 +21,31 @@ To use this connector, you'll need:
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a BigQuery materialization, which will direct one or more of your Flow collections to your desired BigQuery datasets. Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required BigQuery configuration values per the table below.
+To use this connector, begin with a Flow catalog that has at least one collection.
+You'll add a BigQuery materialization, which will direct one or more of your Flow collections to your desired tables within a BigQuery dataset.
+Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required BigQuery configuration values per the table below.
+
+This configuration assumes a working knowledge of resource organization in BigQuery.
+You can find introductory documentation in the [BigQuery docs](https://cloud.google.com/bigquery/docs/resource-hierarchy).
 
 ### Values
 
 | Value | Name | Type | Required/Default | Details |
 |-------|------|------|---------| --------|
-| `ProjectID`| Project ID | String | Required | The project ID for the Google Cloud Storage bucket and BigQuery dataset|
-| `Dataset` | Dataset | String | Required | ??????|
-| `Region` | Region | String | Required | The GCS region |
-| `Bucket` | Bucket | string | Required | Name of the GCS bucket |
-| `BucketPath` | Bucket Path | String | Required | Base path to the GCS bucket |
-| `CredentialsFile` | Credentials File | String | * | Path to a JSON service account file |
-| `CredentialsJSON` | Credentials JSON | Byte | * | Base64-encoded string of the full service account file |
+| `project_id`| Project ID | String | Required | The project ID for the Google Cloud Storage bucket and BigQuery dataset|
+| `billing_project_id` | Billing project ID | String | Same as `project_id` | The project ID to which these operations are billed in BigQuery* |
+| `dataset` | Dataset | String | Required | Name of the target BigQuery dataset |
+| `region` | Region | String | Required | The GCS region |
+| `bucket` | Bucket | string | Required | Name of the GCS bucket |
+| `bucket_path` | Bucket Path | String | Required | Base path within the GCS bucket |
+| `credentials_file` | Credentials File | String | ** | Path to a JSON service account file |
+| `credentials_json` | Credentials JSON | Byte | ** | Base64-encoded string of the full service account file |
 
-*One of `CredentialsFile` or `CredentialsJSON` is required. If both are provided, the connector will try
-to use `CredentialsFile` first.
+*Typically, you want this to be the same as `project_id` (the default).
+To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
+
+**One of `credentials_file` or `credentials_json` is required. If both are provided, the connector will try
+to use `credentials_file` first.
 
 ### Sample
 
@@ -46,13 +56,17 @@ materializations:
 	  endpoint:
   	    connector:
     	    config:
-               FILL IN HERE!!!!!!!!!!!!!!
+              project_ID: our-bigquery-project
+              dataset: materialized-data
+              region: US
+              bucket: our-gcs-bucket
+              bucket_path: bucket-path/
+              credentials_file: /workspace/secret/credentials.json
     	    image: ghcr.io/estuary/materialize-bigquery:dev
 	# If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:
   	- resource:
-      	workspace: ${namespace_name}
-      	collection: ${table_name}
+      	table: ${table_name}
     source: ${tenant}/${source_collection}
     ```
