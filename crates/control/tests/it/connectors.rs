@@ -1,12 +1,10 @@
-use control::models::connector_images::CreateConnectorImage;
 use serde_json::Value as JsonValue;
 
 use control::models::connectors::{ConnectorType, CreateConnector};
-use control::repo::connector_images::insert as insert_image;
-use control::repo::connectors::{fetch_all, insert};
+use control::repo::connectors::fetch_all;
 
 use crate::support::redactor::Redactor;
-use crate::support::{self, spawn_app};
+use crate::support::{self, factory, spawn_app};
 
 #[tokio::test]
 async fn index_test() {
@@ -18,17 +16,7 @@ async fn index_test() {
         .expect("Failed to spawn our app.");
     let client = reqwest::Client::new();
 
-    let connector = insert(
-        &db,
-        CreateConnector {
-            description: "A flood greetings.".to_owned(),
-            name: "Hello World".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        },
-    )
-    .await
-    .expect("to insert test data");
+    let connector = factory::HelloWorldConnector.create(&db).await;
 
     let response = client
         .get(format!("http://{}/connectors", server_address))
@@ -93,54 +81,12 @@ async fn images_test() {
         .expect("Failed to spawn our app.");
     let client = reqwest::Client::new();
 
-    let connector = insert(
-        &db,
-        CreateConnector {
-            description: "A flood greetings.".to_owned(),
-            name: "Hello World".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        },
-    )
-    .await
-    .expect("to insert test data");
-
-    let image = insert_image(
-        &db,
-        CreateConnectorImage {
-            connector_id: connector.id,
-            name: "ghcr.io/estuary/source-hello-world".to_owned(),
-            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
-            tag: "01fb856".to_owned(),
-        },
-    )
-    .await
-    .expect("to insert test data");
+    let connector = factory::HelloWorldConnector.create(&db).await;
+    let image = factory::HelloWorldImage.create(&db, &connector).await;
 
     // These are just another connector and image that should not be returned in the results.
-    let other_connector = insert(
-        &db,
-        CreateConnector {
-            description: "Reads from a Kafka topic".to_owned(),
-            name: "Kafka".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        },
-    )
-    .await
-    .expect("to insert test data");
-
-    insert_image(
-        &db,
-        CreateConnectorImage {
-            connector_id: other_connector.id,
-            name: "ghcr.io/estuary/source-kafka".to_owned(),
-            digest: "34affba1ac24d67035309c64791e7c7b2f01fd26a934d91da16e262427b88a78".to_owned(),
-            tag: "01fb856".to_owned(),
-        },
-    )
-    .await
-    .expect("to insert test data");
+    let other_connector = factory::KafkaConnector.create(&db).await;
+    let _other_image = factory::KafkaImage.create(&db, &other_connector).await;
 
     let response = client
         .get(format!(
@@ -171,12 +117,7 @@ async fn duplicate_insertion_test() {
         .expect("Failed to spawn our app.");
     let client = reqwest::Client::new();
 
-    let input = CreateConnector {
-        description: "Reads data from Kafka topics.".to_owned(),
-        name: "Kafka".to_owned(),
-        maintainer: "Estuary Technologies".to_owned(),
-        r#type: ConnectorType::Source,
-    };
+    let input = factory::KafkaConnector.attrs();
 
     let first_response = client
         .post(format!("http://{}/connectors", server_address))
