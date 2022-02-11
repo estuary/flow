@@ -59,3 +59,39 @@
 // PolledList, which is an important building-block for applications scaling to
 // multiple journals.
 package client
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	appendBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_append_bytes_total",
+		Help: "Total number of journal bytes appended.",
+	}, []string{"journal"})
+	readBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_read_bytes_total",
+		Help: "Total number of journal bytes read.",
+	}, []string{"journal"})
+	fragmentOpen = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_fragment_open_total",
+		Help: "Total number of journal fragments opened for reading.",
+	}, []string{"journal", "codec"})
+	fragmentOpenBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_fragment_open_bytes_total",
+		Help: "Aggregate uncompressed bytes of journal fragments opened for reading.",
+	}, []string{"journal", "codec"})
+	fragmentOpenContentLength = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_fragment_open_content_length_total",
+		Help: "Aggregate content-length of journal fragments opened for reading.",
+	}, []string{"journal", "codec"})
+	readFragmentBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_read_fragment_bytes_total",
+		Help: "Total number of journal fragment bytes read, excluding discarded bytes.",
+	}, []string{"journal", "codec"})
+	discardFragmentBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "gazette_discard_fragment_bytes_total",
+		Help: "Total number of journal fragment bytes discarded while seeking to desired offset.",
+	}, []string{"journal", "codec"})
+)

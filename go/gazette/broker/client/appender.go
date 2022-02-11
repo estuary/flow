@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,9 +30,10 @@ type Appender struct {
 	Request  pb.AppendRequest  // AppendRequest of the Append.
 	Response pb.AppendResponse // AppendResponse sent by broker.
 
-	ctx    context.Context
-	client pb.RoutedJournalClient  // Client against which Read is dispatched.
-	stream pb.Journal_AppendClient // Server stream.
+	ctx     context.Context
+	client  pb.RoutedJournalClient  // Client against which Read is dispatched.
+	counter prometheus.Counter      // Counter of appended bytes.
+	stream  pb.Journal_AppendClient // Server stream.
 }
 
 // NewAppender returns an initialized Appender of the given AppendRequest.
@@ -40,6 +42,7 @@ func NewAppender(ctx context.Context, client pb.RoutedJournalClient, req pb.Appe
 		Request: req,
 		ctx:     ctx,
 		client:  client,
+		counter: appendBytes.WithLabelValues(req.Journal.String()),
 	}
 	return a
 }
@@ -66,6 +69,7 @@ func (a *Appender) Write(p []byte) (n int, err error) {
 	if err != nil {
 		err = mapGRPCCtxErr(a.ctx, err)
 	}
+	a.counter.Add(float64(n))
 	return
 }
 

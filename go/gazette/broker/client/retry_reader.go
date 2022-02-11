@@ -84,6 +84,7 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			Response: rr.Reader.Response,
 			ctx:      rr.Reader.ctx,
 			client:   rr.Reader.client,
+			counter:  rr.Reader.counter,
 		}
 
 		var squelch bool

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.gazette.dev/core/broker/codecs"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
@@ -39,10 +40,11 @@ type Reader struct {
 	Request  pb.ReadRequest  // ReadRequest of the Reader.
 	Response pb.ReadResponse // Most recent ReadResponse from broker.
 
-	ctx    context.Context
-	client pb.RoutedJournalClient // Client against which Read is dispatched.
-	stream pb.Journal_ReadClient  // Server stream.
-	direct io.ReadCloser          // Directly opened Fragment URL.
+	ctx     context.Context
+	client  pb.RoutedJournalClient // Client against which Read is dispatched.
+	counter prometheus.Counter     // Counter of read bytes.
+	stream  pb.Journal_ReadClient  // Server stream.
+	direct  io.ReadCloser          // Directly opened Fragment URL.
 }
 
 // NewReader returns an initialized Reader of the given ReadRequest.
@@ -51,6 +53,7 @@ func NewReader(ctx context.Context, client pb.RoutedJournalClient, req pb.ReadRe
 		Request: req,
 		ctx:     ctx,
 		client:  client,
+		counter: readBytes.WithLabelValues(req.Journal.String()),
 	}
 	return r
 }
@@ -76,6 +79,7 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 			_ = r.direct.Close()
 		}
 		r.Request.Offset += int64(n)
+		r.counter.Add(float64(n))
 		return
 	}
 
@@ -83,6 +87,7 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 	if l, d := len(r.Response.Content), int(r.Request.Offset-r.Response.Offset); l != 0 && l > d {
 		n = copy(p, r.Response.Content[d:])
 		r.Request.Offset += int64(n)
+		r.counter.Add(float64(n))
 		return
 	}
 
@@ -255,6 +260,15 @@ func OpenFragmentURL(ctx context.Context, fragment pb.Fragment, offset int64, ur
 
 		fragment.CompressionCodec = pb.CompressionCodec_GZIP // Decompress client-side.
 	}
+
+	// Record metrics related to opening the fragment.
+	var labels = fragmentLabels(fragment)
+	fragmentOpen.With(labels).Inc()
+	fragmentOpenBytes.With(labels).Add(float64(fragment.End - fragment.Begin))
+	if resp.ContentLength != -1 {
+		fragmentOpenContentLength.With(labels).Add(float64(resp.ContentLength))
+	}
+
 	return NewFragmentReader(resp.Body, fragment, offset)
 }
 
@@ -272,6 +286,7 @@ func NewFragmentReader(rc io.ReadCloser, fragment pb.Fragment, offset int64) (*F
 		raw:      rc,
 		Fragment: fragment,
 		Offset:   fragment.Begin,
+		counter:  discardFragmentBytes.With(fragmentLabels(fragment)),
 	}
 
 	// Attempt to seek to |offset| within the fragment.
@@ -280,6 +295,9 @@ func NewFragmentReader(rc io.ReadCloser, fragment pb.Fragment, offset int64) (*F
 		_ = fr.Close()
 		return nil, err
 	}
+	// We've finished discarding required bytes.
+	fr.counter = readFragmentBytes.With(fragmentLabels(fragment))
+
 	return fr, nil
 }
 
@@ -288,8 +306,9 @@ type FragmentReader struct {
 	pb.Fragment       // Fragment being read.
 	Offset      int64 // Next journal offset to be read, in range [Begin, End).
 
-	decomp io.ReadCloser
-	raw    io.ReadCloser
+	decomp  io.ReadCloser
+	raw     io.ReadCloser
+	counter prometheus.Counter
 }
 
 // Read returns the next bytes of decompressed Fragment content. When Read
@@ -310,6 +329,7 @@ func (fr *FragmentReader) Read(p []byte) (n int, err error) {
 		// Did we read EOF before the reaching Fragment.End?
 		err = io.ErrUnexpectedEOF
 	}
+	fr.counter.Add(float64(n))
 	return
 }
 
@@ -360,6 +380,13 @@ func mapGRPCCtxErr(ctx context.Context, err error) error {
 		return ctx.Err()
 	}
 	return err
+}
+
+func fragmentLabels(fragment pb.Fragment) prometheus.Labels {
+	return prometheus.Labels{
+		"journal": fragment.Journal.String(),
+		"codec":   fragment.CompressionCodec.String(),
+	}
 }
 
 var (
