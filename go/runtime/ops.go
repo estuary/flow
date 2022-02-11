@@ -236,6 +236,16 @@ func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{
 }
 
 func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
+	// Literalize `error` implementations, as they're otherwise ignored by `encoding/json`.
+	// See: https://github.com/sirupsen/logrus/issues/137
+	if m, ok := fields.(logrus.Fields); ok {
+		for k, v := range m {
+			if e, ok := v.(error); ok {
+				m[k] = e.Error()
+			}
+		}
+	}
+
 	var event = LogEvent{
 		Meta: Meta{
 			UUID: string(pf.DocumentUUIDPlaceholder),
@@ -266,16 +276,6 @@ func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface
 	// capacity. This helps apply back pressure on shards that do a lot of verbose logging.
 	p.governerCh <- op
 	return nil
-}
-
-// constMapper provides a message.MappingFunc that always returns the same journal and content type.
-type constMapper struct {
-	journal            pb.Journal
-	journalContentType string
-}
-
-func (m *constMapper) Map(msg message.Mappable) (pb.Journal, string, error) {
-	return m.journal, m.journalContentType, nil
 }
 
 // validateOpsCollection ensures that the collection spec has the expected partition fields.
