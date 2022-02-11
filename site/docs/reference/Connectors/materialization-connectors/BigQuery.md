@@ -1,5 +1,5 @@
 This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.
-It allows both standard and [delta updates](../../../concepts/materialization.md#delta-updates).
+It allows both standard and [delta updates](#delta-updates).
 
 The connector uses your Google Cloud service account to materialize to BigQuery tables by way of tables in a Google Cloud Storage (GCS) bucket.
 The tables in the bucket act as a temporary staging area for data storage and retrieval.
@@ -69,4 +69,25 @@ materializations:
   	- resource:
       	table: ${table_name}
     source: ${tenant}/${source_collection}
-    ```
+```
+
+## Delta updates
+
+This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+The default is to use standard updates.
+
+Enabling delta updates can significantly reduce Flow's resource usage, making it a good way to
+reduce cost when materializing extremely large datasets.
+If you're certain that all events will have unique keys, enabling delta updates is a simple way to improve
+performance with no effect on the output.
+However, enabling delta updates is not suitable for all workflows, as the resulting table in BigQuery won't be fully reduced.
+
+You can enable delta updates on a per-binding basis:
+
+```yaml
+    bindings:
+  	- resource:
+      	table: ${table_name}
+        delta_updates: true
+    source: ${tenant}/${source_collection}
+```
