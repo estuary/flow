@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime/pprof"
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
@@ -88,6 +89,12 @@ func newRing(c *Coordinator, shuffle pf.JournalShuffle) *ring {
 	// A ring's lifetime is tied to the Coordinator, *not* a subscriber,
 	// but a ring cancels itself when the final subscriber hangs up.
 	var ringCtx, cancel = context.WithCancel(c.ctx)
+
+	ringCtx = pprof.WithLabels(ringCtx, pprof.Labels(
+		"build", shuffle.BuildId,
+		"journal", shuffle.Journal.String(),
+		"replay", fmt.Sprint(shuffle.Replay),
+	))
 
 	return &ring{
 		coordinator:  c,
@@ -206,6 +213,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 }
 
 func (r *ring) serve() {
+	pprof.SetGoroutineLabels(r.ctx)
 	r.log(logrus.DebugLevel, "started shuffle ring")
 
 	var (
@@ -302,6 +310,12 @@ func (r *ring) log(lvl logrus.Level, message string, extra ...interface{}) {
 func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (__out error) {
 	defer close(ch)
 
+	pprof.SetGoroutineLabels(
+		pprof.WithLabels(r.ctx, pprof.Labels(
+			"endOffset", fmt.Sprint(req.EndOffset),
+			"offset", fmt.Sprint(req.Offset),
+		)),
+	)
 	r.log(logrus.DebugLevel,
 		"started reading journal documents",
 		"endOffset", req.EndOffset,

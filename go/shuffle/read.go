@@ -3,6 +3,7 @@ package shuffle
 import (
 	"context"
 	"fmt"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -247,6 +248,15 @@ func (r *read) start(
 	}
 
 	r.log(logrus.DebugLevel, "started shuffle read", "attempt", attempt)
+
+	ctx = pprof.WithLabels(ctx, pprof.Labels(
+		"build", r.req.Shuffle.BuildId,
+		"journal", r.req.Shuffle.Journal.String(),
+		"replay", fmt.Sprint(r.req.Shuffle.Replay),
+		"endOffset", fmt.Sprint(r.req.EndOffset),
+		"offset", fmt.Sprint(r.req.Offset),
+	))
+
 	r.ctx, r.cancel = context.WithCancel(ctx)
 	r.ch = make(chan *pf.ShuffleResponse, readChannelCapacity)
 	r.drainedCh = make(chan struct{}, 1)
@@ -285,6 +295,7 @@ func (r *read) start(
 		ctx = pb.WithDispatchRoute(r.ctx, resolution.Header.Route, resolution.Header.ProcessId)
 
 		go func() (err error) {
+			pprof.SetGoroutineLabels(r.ctx)
 			defer func() {
 				// Deliver final non-nil error.
 				_ = r.sendReadResult(nil, err, wakeCh)
