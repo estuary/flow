@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -73,7 +74,12 @@ type shard struct {
 }
 
 func newShard(svc *Service, item keyspace.KeyValue) *shard {
-	var ctx, cancel = context.WithCancel(context.Background())
+	var spec = item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+
+	var ctx, cancel = context.WithCancel(
+		pprof.WithLabels(context.Background(), pprof.Labels(
+			"shard", spec.Id.String(),
+		)))
 
 	var s = &shard{
 		svc:          svc,
@@ -84,7 +90,7 @@ func newShard(svc *Service, item keyspace.KeyValue) *shard {
 		primary:      client.NewAsyncOperation(),
 	}
 	s.resolved.fqn = string(item.Raw.Key)
-	s.resolved.spec = item.Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)
+	s.resolved.spec = spec
 	s.resolved.RWMutex = &svc.State.KS.Mu
 
 	// We grab this value only once (since RecoveryLog()'s value may change in
@@ -166,6 +172,8 @@ var transition = func(s *shard, item, assignment keyspace.KeyValue) {
 // serveStandby recovers and tails the shard recovery log, until the Replica is
 // cancelled or promoted to primary.
 func serveStandby(s *shard) (err error) {
+	pprof.SetGoroutineLabels(s.ctx)
+
 	// Defer a trap which logs and updates Etcd status based on exit error.
 	defer func() {
 		if err != nil && s.ctx.Err() == nil {
@@ -210,6 +218,8 @@ func serveStandby(s *shard) (err error) {
 // servePrimary completes playback of the recovery log,
 // performs initialization, and runs consumer transactions.
 func servePrimary(s *shard) (err error) {
+	pprof.SetGoroutineLabels(s.ctx)
+
 	// Defer a trap which logs and updates Etcd status based on exit error.
 	defer func() {
 		s.primary.Resolve(err)
