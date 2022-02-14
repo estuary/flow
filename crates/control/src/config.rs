@@ -1,10 +1,11 @@
+use std::path::Path;
+
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
 pub mod app_env;
 
 pub use app_env::app_env;
-use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
@@ -54,55 +55,31 @@ impl CorsSettings {
     }
 }
 
+static SETTINGS: OnceCell<Settings> = OnceCell::new();
 pub fn settings() -> &'static Settings {
-    static SETTINGS: OnceCell<Settings> = OnceCell::new();
+    SETTINGS
+        .get()
+        .expect("to have initialized SETTINGS via `load_settings`")
+}
 
-    SETTINGS.get_or_init(|| {
-        load_dotenv(".env");
-        load_dotenv(&format!(".env.{}", app_env().as_str()));
-        load_settings().expect("Failed to load settings")
+pub fn load_settings<P>(config_path: P) -> Result<&'static Settings, ::config::ConfigError>
+where
+    P: AsRef<Path>,
+{
+    SETTINGS.get_or_try_init(|| {
+        let mut config = config::Config::default();
+
+        // Load app_env-specific settings
+        config.merge(config::File::from(config_path.as_ref()).required(true))?;
+
+        // Parse the DATABASE_URL env var for database settings
+        merge_database_url(&mut config).expect("to parse the database url");
+
+        // Load settings from ENV_VARs
+        config.merge(config::Environment::with_prefix("CONTROL").separator("__"))?;
+
+        config.try_into()
     })
-}
-
-fn load_settings() -> Result<Settings, config::ConfigError> {
-    let mut config = config::Config::default();
-
-    // TODO: Allow passing a configuration directory as a CLI arg
-    let current_dir = std::env::current_dir().expect("The current directory to be available");
-    let config_dir = current_dir.join("config");
-
-    // Load base settings
-    config.merge(config::File::from(config_dir.join("base")).required(true))?;
-
-    // Load app_env-specific settings
-    config.merge(config::File::from(config_dir.join(app_env().as_str())).required(true))?;
-
-    // Parse the DATABASE_URL env var for database settings
-    merge_database_url(&mut config).expect("to parse the database url");
-
-    // Load settings from ENV_VARs
-    config.merge(config::Environment::with_prefix("CONTROL").separator("__"))?;
-
-    config.try_into()
-}
-
-/// If we have a .env file to load. In production, we'll be loading k8s secrets
-/// into the env, so we won't have a .env file.
-fn load_dotenv(filename: &str) {
-    match dotenv::overwrite_from_filename(filename) {
-        Ok(path) => {
-            info!("Loaded env from {}.", path.to_str().unwrap_or(filename));
-        }
-        Err(dotenv::Error::LineParse(contents, line_num)) => {
-            panic!(
-                "Found a {} file, but it was malformed on Line {}: {}",
-                filename, line_num, contents
-            )
-        }
-        Err(e) => {
-            info!("No {} file found: {}", filename, e)
-        }
-    };
 }
 
 /// SQLx expects the DATABASE_URL in the env, and this makes constructing it in

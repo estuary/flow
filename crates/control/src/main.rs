@@ -1,22 +1,24 @@
 use std::net::TcpListener;
 
-use tracing::info;
+use control::config::app_env::{self, AppEnv};
 
 use control::config;
 use control::startup;
 
+/// Runs the development server. This sets a few defaults:
+/// * Runs in `AppEnv::Development` mode
+/// * Loads application configuration from `config/development.toml`
+/// * Connects to a local postgres database. This is necessary for compilation.
+///
+/// See `tests/it/main.rs` to launch the server in test mode.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    app_env::force_env(AppEnv::Development);
 
-    info!("Running in {} mode", config::app_env().as_str());
-
-    let settings = config::settings();
+    let settings = config::load_settings("config/development.toml")?;
     let listener = TcpListener::bind(settings.application.address())?;
     let db = startup::connect_to_postgres(&settings.database).await;
     let server = startup::run(listener, db)?;
-
-    info!("Listening on http://{}", settings.application.address());
 
     // The server runs until it receives a shutdown signal.
     server.await?;
