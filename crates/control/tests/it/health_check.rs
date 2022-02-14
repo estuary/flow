@@ -3,7 +3,7 @@ use crate::support::spawn_app;
 
 #[tokio::test]
 async fn health_check_works() {
-    let db = support::test_db_pool(support::function_name!())
+    let db = support::test_database::test_db_pool(support::function_name!())
         .await
         .expect("Failed to acquire a database connection");
     let server_address = spawn_app(db).await.expect("Failed to spawn our app.");
