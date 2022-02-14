@@ -24,11 +24,11 @@ pub const FLOW_SCHEMALATE: &str = "flow-schemalate";
 #[clap(rename_all = "kebab-case")]
 pub enum Subcommand {
     #[clap(flatten)]
+    FlowctlGo(FlowctlGoSubcommand), // delegated to the go flowctl binary
+    #[clap(flatten)]
     Internal(InternalSubcommand), // Executed as a function call
     /// Read the logs collections of Flow tasks
     Logs(logs::Args), // delegated to flowctl journals read
-    #[clap(flatten)]
-    FlowctlGo(FlowctlGoSubcommand), // delegated to the go flowctl binary
     /// Tools for generating various things from JSON schemas
     Schemalate(ExternalArgs), // delegated to the flow-schemalate binary
 }
@@ -56,12 +56,12 @@ pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> 
     use Subcommand::*;
 
     match subcommand {
-        Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
-        Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         FlowctlGo(external) => {
             let args = external.into_flowctl_args();
             Ok(Success::Exec(ExecExternal::from((GO_FLOWCTL, args))))
         }
+        Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
+        Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         Schemalate(args) => Ok(Success::Exec(ExecExternal::from((
             FLOW_SCHEMALATE,
             args.args,
