@@ -7,9 +7,8 @@ use clap::AppSettings::{AllowHyphenValues, DisableHelpFlag, NoAutoHelp};
 
 pub use logging::{init_logging, LogArgs, LogFormat};
 
-/// A simple arguments container that simply takes everything as a plain string value.
-/// This is used by external subcommands to allow all their argument parsing to be handled
-/// by the external binary by simply accepting all arguments verbatim.
+/// An arguments container that accepts all arguments verbatim. This is used by external
+/// subcommands to allow all their argument parsing to be handled by the external binary.
 #[derive(Debug, clap::Args)]
 #[clap(setting = NoAutoHelp | DisableHelpFlag | AllowHyphenValues)]
 pub struct ExternalArgs {
