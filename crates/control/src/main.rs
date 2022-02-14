@@ -19,6 +19,7 @@ struct Args {
 /// * Loads application configuration from `config/development.toml`
 /// * Connects to a local postgres database. This is necessary for compilation.
 ///
+/// See `cmd/serve.rs` to launch the server in end-user/production mode.
 /// See `tests/it/main.rs` to launch the server in test mode.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
