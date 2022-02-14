@@ -288,6 +288,8 @@ func TestResolverShardTransitions(t *testing.T) {
 	tf.ks.WatchApplyDelay = 3 * time.Millisecond
 	tf.allocateShardNoWait(makeShard(shardB))
 	tf.allocateShard(makeShard(shardB), localID)
+
+	expectStatusCode(t, tf.state, pc.ReplicaStatus_PRIMARY)
 	tf.ks.WatchApplyDelay = 0
 
 	// Expect a new shard |newB| is created, and the prior |sB| is cancelled.
