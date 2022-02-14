@@ -1,5 +1,7 @@
 use crate::go_flowctl::GO_FLOWCTL;
 use flow_cli_common::ExecExternal;
+use models::build::encode_resource_path;
+use protocol::labels;
 
 #[derive(clap::Args, Debug)]
 #[clap(global_setting(clap::AppSettings::TrailingVarArg))]
@@ -7,59 +9,53 @@ pub struct LogsArgs {
     #[clap(flatten)]
     task: TaskSelector,
     /// All other arguments are forwarded to `flowctl journals read`
+    ///
+    /// See `flowctl journal read --help` for a list of additional arguments.
     #[clap(allow_hyphen_values = true, value_name = "flowctl journals read args")]
     other: Vec<String>,
 }
 
 impl LogsArgs {
     pub fn try_into_exec_external(self) -> anyhow::Result<ExecExternal> {
-        use models::build::encode_resource_path;
         use std::fmt::Write;
-
         let LogsArgs { task, other } = self;
-        let tenant = task.tenant_name()?;
-        let mut prefix = format!("prefix=ops/{}/logs/", tenant);
 
-        // This long sequence of conditionals should be better expressed as a match against enum
-        // variants once https://github.com/clap-rs/clap/issues/2621 is resolved.
-        if let Some(c) = task.capture.as_ref() {
+        let tenant = task.tenant_name()?;
+
+        let mut selector = String::new();
+
+        write!(&mut selector, "{}=ops/{}/logs", labels::COLLECTION, tenant).unwrap();
+
+        // Select the proper partition for a specific task, if given
+        if let Some(task_name) = task.task.as_deref() {
+            let encoded_name = encode_resource_path(&[task_name]);
             write!(
-                &mut prefix,
-                "kind=capture/name={}/",
-                encode_resource_path(&[c])
+                &mut selector,
+                ",{}{}={}",
+                labels::FIELD_PREFIX,
+                "name",
+                encoded_name
             )
             .unwrap();
-        } else if let Some(d) = task.derivation.as_ref() {
+        }
+
+        // Select the proper partition for a specific type of task, if given
+        if let Some(task_type) = task.task_type {
             write!(
-                &mut prefix,
-                "kind=derivation/name={}/",
-                encode_resource_path(&[d])
+                &mut selector,
+                ",{}{}={}",
+                labels::FIELD_PREFIX,
+                "kind",
+                task_type.label_value(),
             )
             .unwrap();
-        } else if let Some(m) = task.materialization.as_ref() {
-            write!(
-                &mut prefix,
-                "kind=materialization/name={}/",
-                encode_resource_path(&[m])
-            )
-            .unwrap();
-        } else if task.all_captures.is_some() {
-            prefix.push_str("kind=capture/");
-        } else if task.all_derivations.is_some() {
-            prefix.push_str("kind=derivation/");
-        } else if task.all_materializations.is_some() {
-            prefix.push_str("kind=materialization/");
-        } else if task.all.is_some() {
-            // nothing to do here
-        } else {
-            unreachable!();
         }
 
         let mut args = vec![
             "journals".to_owned(),
             "read".to_owned(),
-            "-l".to_owned(),
-            prefix,
+            "--selector".to_owned(),
+            selector,
         ];
         args.extend(other);
         Ok(ExecExternal::from((GO_FLOWCTL, args)))
@@ -68,49 +64,48 @@ impl LogsArgs {
 
 /// Selects one or more Flow tasks within a single tenant.
 #[derive(clap::Args, Debug, Default, Clone)]
-#[clap(group = clap::ArgGroup::new("task-selector").multiple(false).required(true))]
 pub struct TaskSelector {
-    /// Read the logs of the given capture
-    #[clap(long, group = "task-selector")]
-    capture: Option<String>,
-    /// Read the logs of the given derivation
-    #[clap(long, group = "task-selector")]
-    derivation: Option<String>,
-    /// Read the logs of the given materialization
-    #[clap(long, group = "task-selector")]
-    materialization: Option<String>,
+    /// Read the logs of the task with the given name
+    #[clap(long, conflicts_with_all(&["task_type", "tenant"]), required_unless_present("tenant"))]
+    task: Option<String>,
 
-    /// Read the logs of all captures within the given tenant
-    #[clap(long, group = "task-selector")]
-    all_captures: Option<String>,
-    /// Read the logs of all derivations within the given tenant
-    #[clap(long, group = "task-selector")]
-    all_derivations: Option<String>,
-    /// Read the logs of all materializations within the given tenant
-    #[clap(long, group = "task-selector")]
-    all_materializations: Option<String>,
+    /// Read the logs of all tasks with the given type
+    ///
+    /// Requires the `--tenant <tenant>` argument
+    #[clap(long, arg_enum, requires("tenant"))]
+    task_type: Option<TaskType>,
 
-    /// Read the logs of all tasks within the given tenant
-    #[clap(long, group = "task-selector")]
-    all: Option<String>,
+    /// Read the logs of tasks within the given tenant
+    ///
+    /// The `--task-type` may also be specified to limit the selection to only tasks of the given
+    /// type. Without a `--task-type`, it will return all logs from all tasks in the tenant.
+    #[clap(long)]
+    tenant: Option<String>,
+}
+
+#[derive(Debug, clap::ArgEnum, PartialEq, Eq, Clone, Copy)]
+pub enum TaskType {
+    Capture,
+    Derivation,
+    Materialization,
+}
+
+impl TaskType {
+    fn label_value(&self) -> &'static str {
+        match self {
+            TaskType::Capture => "capture",
+            TaskType::Derivation => "derivation",
+            TaskType::Materialization => "materialization",
+        }
+    }
 }
 
 impl TaskSelector {
     pub fn tenant_name(&self) -> Result<&str, anyhow::Error> {
-        for opt in &[
-            &self.capture,
-            &self.derivation,
-            &self.materialization,
-            &self.all_captures,
-            &self.all_derivations,
-            &self.all_materializations,
-            &self.all,
-        ] {
-            if let Some(n) = opt.as_ref() {
-                return Ok(tenant(n.as_str()));
-            }
-        }
-        Err(anyhow::anyhow!("missing required task selector argument"))
+        self.tenant
+            .as_deref()
+            .or_else(|| self.task.as_deref().map(tenant))
+            .ok_or_else(|| anyhow::anyhow!("missing required task selector argument"))
     }
 }
 
@@ -129,52 +124,41 @@ mod test {
     fn logs_translates_into_journals_read_commands() {
         assert_logs_command(
             TaskSelector {
-                capture: Some(String::from("acmeCo/test/capture")),
+                task: Some(String::from("acmeCo/test/capture")),
                 ..Default::default()
             },
-            "prefix=ops/acmeCo/logs/kind=capture/name=acmeCo%2Ftest%2Fcapture/",
+            "estuary.dev/collection=ops/acmeCo/logs,estuary.dev/field/name=acmeCo%2Ftest%2Fcapture",
         );
         assert_logs_command(
             TaskSelector {
-                derivation: Some(String::from("acmeCo/test/derivation")),
-                ..Default::default()
+                task_type: Some(TaskType::Capture),
+                tenant: Some("acmeCo".to_owned()),
+                task: None,
             },
-            "prefix=ops/acmeCo/logs/kind=derivation/name=acmeCo%2Ftest%2Fderivation/",
+            "estuary.dev/collection=ops/acmeCo/logs,estuary.dev/field/kind=capture",
         );
         assert_logs_command(
             TaskSelector {
-                materialization: Some(String::from("acmeCo/test/materialization")),
-                ..Default::default()
+                task_type: Some(TaskType::Derivation),
+                tenant: Some("acmeCo".to_owned()),
+                task: None,
             },
-            "prefix=ops/acmeCo/logs/kind=materialization/name=acmeCo%2Ftest%2Fmaterialization/",
+            "estuary.dev/collection=ops/acmeCo/logs,estuary.dev/field/kind=derivation",
         );
         assert_logs_command(
             TaskSelector {
-                all_captures: Some(String::from("acmeCo")),
-                ..Default::default()
+                task_type: Some(TaskType::Materialization),
+                tenant: Some("acmeCo".to_owned()),
+                task: None,
             },
-            "prefix=ops/acmeCo/logs/kind=capture/",
+            "estuary.dev/collection=ops/acmeCo/logs,estuary.dev/field/kind=materialization",
         );
         assert_logs_command(
             TaskSelector {
-                all_derivations: Some(String::from("acmeCo")),
+                tenant: Some(String::from("acmeCo")),
                 ..Default::default()
             },
-            "prefix=ops/acmeCo/logs/kind=derivation/",
-        );
-        assert_logs_command(
-            TaskSelector {
-                all_materializations: Some(String::from("acmeCo")),
-                ..Default::default()
-            },
-            "prefix=ops/acmeCo/logs/kind=materialization/",
-        );
-        assert_logs_command(
-            TaskSelector {
-                all: Some(String::from("acmeCo")),
-                ..Default::default()
-            },
-            "prefix=ops/acmeCo/logs/",
+            "estuary.dev/collection=ops/acmeCo/logs",
         );
     }
 
@@ -192,7 +176,7 @@ mod test {
             vec![
                 "journals",
                 "read",
-                "-l",
+                "--selector",
                 expected_label_selector,
                 "an extra arg",
             ],
