@@ -1156,6 +1156,7 @@ dependencies = [
 name = "flow_cli_common"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "atty",
  "clap 3.0.13",
  "tracing",
@@ -1176,6 +1177,7 @@ dependencies = [
  "flow_cli_common",
  "futures",
  "models",
+ "percent-encoding",
  "protocol",
  "reqwest",
  "serde_json",

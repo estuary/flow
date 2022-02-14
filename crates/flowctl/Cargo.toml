@@ -9,10 +9,6 @@ name = "flowctl-rs"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "*"
-bytes = "*"
-clap = {version = "3.0", features = ["derive"]}
-futures = "*"
 flow_cli_common = { path = "../flow_cli_common" }
 models = { path = "../models" }
 build = { path = "../build" }
@@ -21,6 +17,12 @@ derive = { path = "../derive" }
 sources = { path = "../sources" }
 protocol = { path = "../protocol" }
 validation = { path = "../validation" }
+
+anyhow = "*"
+bytes = "*"
+clap = {version = "3.0", features = ["derive"]}
+futures = "*"
+percent-encoding = "*"
 tokio = { version = "*", features = ["full"] }
 tracing = "*"
 # Using rustls instead of openssl makes the build process simpler since it doesn't require a C
