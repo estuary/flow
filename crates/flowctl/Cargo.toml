@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 build = { path = "../build" }
+control = { path = "../control" }
 derive = { path = "../derive" }
 doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }

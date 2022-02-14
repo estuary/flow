@@ -12,7 +12,9 @@ async-trait = "0.1.52"
 axum = "0.4.3"
 base64 = "0.13.0"
 chrono = "0.4.19"
+clap = { version = "3.0.13", features = ["derive"] }
 config = "0.11.0"
+flow_cli_common = { path = "../flow_cli_common" }
 futures = "0.3.19"
 hyper = { version = "0.14.16", features = ["full"] }
 once_cell = "1.9.0"

@@ -49,6 +49,8 @@ pub struct InternalSubcommandArgs<T: clap::Args + std::fmt::Debug> {
 pub enum InternalSubcommand {
     /// Reduce JSON documents by key and print the results to stdout
     Combine(InternalSubcommandArgs<combine::CombineArgs>),
+    /// Manage a Flow Control Plane.
+    ControlPlane(InternalSubcommandArgs<control::cmd::ControlPlaneArgs>),
 }
 
 pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> {
@@ -61,6 +63,7 @@ pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> 
             Ok(Success::Exec(ExecExternal::from((GO_FLOWCTL, args))))
         }
         Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
+        Internal(ControlPlane(args)) => run_internal(args, control::cmd::run).map(Into::into),
         Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         Schemalate(args) => Ok(Success::Exec(ExecExternal::from((
             FLOW_SCHEMALATE,
