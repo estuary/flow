@@ -1,12 +1,25 @@
+use hyper::header;
 use hyper::Method;
 use tower_http::cors::{self, AnyOr, Origin};
 
 use crate::config::settings;
 
+// Safe Header List from https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header
+static ALLOWED_HEADERS: &[header::HeaderName] = &[
+    header::CACHE_CONTROL,
+    header::CONTENT_LANGUAGE,
+    header::CONTENT_LENGTH,
+    header::CONTENT_TYPE,
+    header::EXPIRES,
+    header::LAST_MODIFIED,
+    header::PRAGMA,
+];
+
 pub fn cors_layer() -> cors::CorsLayer {
     let configured_origins = settings().application.cors.allowed_origins();
 
     cors::CorsLayer::new()
+        .allow_headers(ALLOWED_HEADERS.to_vec())
         .allow_methods(vec![Method::GET, Method::POST, Method::OPTIONS])
         .allow_origin(allowed_origins(configured_origins))
 }
