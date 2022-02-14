@@ -88,10 +88,10 @@ var (
 	}, []string{"journal", "codec"})
 	readFragmentBytes = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gazette_read_fragment_bytes_total",
-		Help: "Total number of journal fragment bytes read, excluding discarded bytes.",
+		Help: "Total number of uncompressed journal fragment bytes read, excluding discarded bytes.",
 	}, []string{"journal", "codec"})
 	discardFragmentBytes = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "gazette_discard_fragment_bytes_total",
-		Help: "Total number of journal fragment bytes discarded while seeking to desired offset.",
+		Help: "Total number of uncompressed journal fragment bytes discarded while seeking to desired offset.",
 	}, []string{"journal", "codec"})
 )
