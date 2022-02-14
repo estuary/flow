@@ -9,6 +9,8 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -76,6 +78,13 @@ func newGovernor(rb *ReadBuilder, cp pc.Checkpoint, tp *flow.Timepoint) *governo
 // serveDocuments repeatedly drives governor.next() to deliver documents into |ch|.
 func (g *governor) serveDocuments(ctx context.Context, ch chan<- consumer.EnvelopeOrError) {
 	defer close(ch)
+
+	defer func() {
+		// Clean up remaining metrics for reads still active at time of terminal error.
+		for _, r := range g.active {
+			g.setPollState(r, pollStateIdle)
+		}
+	}()
 
 	// Prime with an initial convergence pass.
 	if err := g.onConverge(ctx); err != errPollAgain {
@@ -178,9 +187,10 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 		var readTime = r.resp.UuidParts[r.resp.Index].Clock + r.readDelay
 
 		if r.readDelay != 0 && readTime > g.wallTime {
-			r.log(logrus.DebugLevel, "gated documents of journal", "until", readTime)
-
 			g.gated = append(g.gated, r)
+			g.setPollState(r, pollStateGated)
+
+			r.log(logrus.DebugLevel, "gated documents of journal", "until", readTime)
 			continue
 		}
 
@@ -191,6 +201,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 			heap.Push(&g.queued, r)
 		} else {
 			g.pending[r] = struct{}{}
+			g.setPollState(r, pollStatePending)
 			g.mustPoll = true
 		}
 		return env, nil
@@ -268,6 +279,7 @@ func (g *governor) poll(ctx context.Context) error {
 			// Clear tracking state for this drained read.
 			delete(g.pending, r)
 			delete(g.active, r.req.Shuffle.Journal)
+			g.setPollState(r, pollStateIdle)
 			// Perserve the journal offset for a possible restart of the read.
 			g.idle[r.req.Shuffle.Journal] = r.req.Offset
 
@@ -286,6 +298,7 @@ func (g *governor) poll(ctx context.Context) error {
 			// Successful read. Queue it for consumption.
 			delete(g.pending, r)
 			delete(g.attempts, r.spec.Name)
+			g.setPollState(r, pollStateReady)
 			heap.Push(&g.queued, r)
 		}
 	}
@@ -320,8 +333,9 @@ func (g *governor) onTick() error {
 	// Re-add all gated reads to |queued|, to be re-evaluated
 	// against the updated |wallTime|, and poll() again.
 	for _, r := range g.gated {
-		r.log(logrus.DebugLevel, "un-gated documents of journal", "now", g.wallTime)
 		heap.Push(&g.queued, r)
+		g.setPollState(r, pollStateReady)
+		r.log(logrus.DebugLevel, "un-gated documents of journal", "now", g.wallTime)
 	}
 	g.gated = g.gated[:0]
 
@@ -348,6 +362,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 
 		// Mark that we must poll a response from this *read.
 		g.pending[r] = struct{}{}
+		g.setPollState(r, pollStatePending)
 	}
 
 	for _, r := range drain {
@@ -369,4 +384,26 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 	// Converge interrupts a current poll(), so we always poll again.
 	return errPollAgain
+}
+
+var pollState = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "flow_shuffle_poll_state",
+		Help: "Polled state of a shard's ongoing journal read. 1 is pending, 2 is gated, 3 is ready.",
+	}, []string{"shard", "journal"},
+)
+
+const (
+	pollStateIdle    = 0
+	pollStatePending = 1
+	pollStateGated   = 2
+	pollStateReady   = 3
+)
+
+func (g *governor) setPollState(r *read, state float64) {
+	if state == pollStateIdle {
+		pollState.DeleteLabelValues(g.rb.shardID.String(), r.req.Shuffle.Journal.String())
+	} else {
+		pollState.WithLabelValues(g.rb.shardID.String(), r.req.Shuffle.Journal.String()).Set(state)
+	}
 }
