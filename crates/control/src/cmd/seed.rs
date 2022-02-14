@@ -1,23 +1,29 @@
 //! Seed some data into the development database. Useful for getting started
 //! quickly after cloning or after a database reset.
-
 use sqlx::PgPool;
 
-use control::config;
-use control::models::connector_images::CreateConnectorImage;
-use control::models::connectors::{ConnectorType, CreateConnector};
-use control::repo::connector_images::insert;
-use control::repo::connectors::insert as insert_connector;
-use control::startup;
+use crate::cmd::{async_runtime, ConfigArgs};
+use crate::config;
+use crate::models::connector_images::CreateConnectorImage;
+use crate::models::connectors::{ConnectorType, CreateConnector};
+use crate::repo::connector_images::insert;
+use crate::repo::connectors::insert as insert_connector;
+use crate::startup;
 
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
+#[derive(clap::Args, Debug)]
+pub struct Args {
+    #[clap(flatten)]
+    config: ConfigArgs,
+}
 
-    let settings = config::settings();
-    let db = startup::connect_to_postgres(&settings.database).await;
+pub fn run(args: Args) -> anyhow::Result<()> {
+    config::load_settings(args.config.config_path)?;
+    let runtime = async_runtime()?;
 
-    seed_connectors(&db).await.expect("to seed connectors");
+    runtime.block_on(async move {
+        let db = startup::connect_to_postgres(&config::settings().database).await;
+        seed_connectors(&db).await
+    })
 }
 
 async fn seed_connectors(db: &PgPool) -> Result<(), anyhow::Error> {
