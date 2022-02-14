@@ -123,7 +123,7 @@ pub async fn test_db_pool(test_db_name: &str) -> anyhow::Result<PgPool> {
 }
 
 /// Creates a sandboxed test database for this specific test by using the
-/// primary "control_test" database as a template. Returns new
+/// primary "control_development" database as a template. Returns new
 /// `DatabaseSettings` configured to connect to this new database.
 ///
 /// The new database name includes the test name to support identification,
@@ -169,7 +169,7 @@ async fn create_test_db(
     })
 }
 
-/// Easily invoke sqlx cli commands to help managed the test database.
+/// Easily invoke sqlx cli commands to help manage the database for the tests.
 pub(crate) struct TestDatabase {
     url: String,
 }
@@ -179,10 +179,6 @@ impl TestDatabase {
         TestDatabase {
             url: config::settings().database.url(),
         }
-    }
-
-    pub(crate) fn drop(&self) -> Result<ProcessOutput, IoError> {
-        self.run_sqlx(&["database", "drop", "-y"])
     }
 
     pub(crate) fn setup(&self) -> Result<ProcessOutput, IoError> {
