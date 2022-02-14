@@ -16,14 +16,12 @@ mod support;
 #[ctor]
 fn setup() {
     app_env::force_env(AppEnv::Test);
-
-    let test_db = support::TestDatabase::new();
-
-    // Dropping the database may not be possible, as it may not yet exist, but this is okay.
-    let _ = test_db.drop();
+    control::config::load_settings("config/test.toml").expect("to load configuration file");
 
     // Setup will create the database and run all migrations.
-    test_db.setup().expect("To setup the database");
+    support::TestDatabase::new()
+        .setup()
+        .expect("To setup the database");
 }
 
 /// Teardown runs exactly once after all tests have run. This allows the test

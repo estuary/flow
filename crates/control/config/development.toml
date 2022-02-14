@@ -1,2 +1,21 @@
 # development env settings
 [application]
+host = "127.0.0.1"
+port = 3000
+
+[application.cors]
+allowed_origins = ["*"]
+
+[database]
+# Due to limitations in SQLx, development database settings are ALSO stored in
+# the `.env` file. If you change one, you're going to need to change the other.
+# It's useful to have them here so that users can point to this config file
+# without exporting a DATABASE_URL for use with flowctl-rs.
+#
+# Any individual value can be overridden by environment variables.
+# Example: `export CONTROL_DATABASE_HOST=example.com`
+host = "localhost"
+port = 5432
+username = "flow"
+password = "flow"
+db_name = "control_development"
