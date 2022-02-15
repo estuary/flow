@@ -177,14 +177,15 @@ store them separately.
 
 TOASTed values can sometimes present a challenge for systems that rely on the PostgreSQL write-ahead log (WAL), like this connector.
 If a change event occurs on a row that contains a TOASTed value, _but the TOASTed value itself is unchanged_, it is omitted from the WAL.
-As a result, the connector sees a row update with a missing value, which can cause catalog tasks to fail if not handled properly.
+As a result, the connector emits a row update with the a value omitted, which might cause
+unexpected results in downstream catalog tasks if adjustments are not made.
 
 The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](../../../concepts/connectors.md#flowctl-discover)
 or use the [Flow UI](../../../concepts/connectors.md#flow-ui) to create your capture.
 It uses [merge](../../reduction-strategies/merge.md) [reductions](../../../concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
-However, due to the event-driven nature of certain tasks in Flow, it's still possible to see failures downstream in your data flow, specifically:
+However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
 
 - When you materialize the captured data to another system using a connector that requires [delta updates](../../../concepts/materialization.md#delta-updates)
 - When you perform a [derivation](../../../concepts/derivations.md) that uses TOASTed values
