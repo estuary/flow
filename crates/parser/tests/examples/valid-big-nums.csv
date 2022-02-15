@@ -1,0 +1,4 @@
+ride_id,rideable_type,started_at,ended_at,start_station_name,start_station_id,end_station_name,end_station_id,start_lat,start_lng,end_lat,end_lng,member_casual
+41668E5136117226,docked_bike,2021-02-17 21:02:52,2021-02-17 21:27:45,Vesey Pl & River Terrace,5297.02,W 44 St & 11 Ave,6756.05,40.715337,-74.016583,40.762009,-73.996975,member
+27645122E0710202,docked_bike,2021-02-15 04:34:16,2021-02-15 04:38:56,Madison St & Clinton St,5190.07,E 2 St & Avenue A,5553.10,40.71269,-73.987763,40.72307749068673,-73.98583620786667,member
+328543E267201124,docked_bike,2021-02-14 16:07:35,2021-02-14 16:31:30,Fulton St & Broadway,5175.08,E 2 St & Avenue A,5553.10,40.711066,-74.009447,40.72307749068673,-73.98583620786667,member

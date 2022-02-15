@@ -10,6 +10,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -97,7 +98,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, bk.Client(), builds)
+	var coordinator = NewCoordinator(apiCtx, builds, ops.StdLogger(), bk.Client())
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -147,7 +148,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		}, nil
 	}
 	var replayRead = &read{
-		spec: *journalSpec,
+		logger: ops.StdLogger(),
+		spec:   *journalSpec,
 		req: pf.ShuffleRequest{
 			Shuffle:   shuffle,
 			Range:     range_,
@@ -197,7 +199,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	badShuffle.SourceSchemaUri += "/does/not/exist"
 
 	var badRead = &read{
-		spec: *journalSpec,
+		logger: ops.StdLogger(),
+		spec:   *journalSpec,
 		req: pf.ShuffleRequest{
 			Shuffle:   badShuffle,
 			Range:     range_,

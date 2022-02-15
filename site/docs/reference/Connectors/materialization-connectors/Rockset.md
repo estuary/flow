@@ -4,7 +4,7 @@ This Flow connector materializes [delta updates](../../../concepts/materializati
 
 ## Prerequisites
 
-To use this connector, you'll need :
+To use this connector, you'll need:
 * An existing catalog spec that includes at least one collection with its schema specified
 * A Rockset account with an [API key generated](https://rockset.com/docs/rest-api/#createapikey) from the web UI
 * A Rockset workspace

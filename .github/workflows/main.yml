@@ -22,6 +22,18 @@ jobs:
           submodules: true
       - name: Install protobuf compiler (it's not already included in CI runner)
         run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
+        # This weird installation method is taken from this comment:
+        # https://github.com/actions-rs/toolchain/issues/126#issuecomment-782989659
+        # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
+      - name: Install rust toolchain
+        run: rustup show
+
+        # Provides musl-gcc and musl-g++ wrappers and related components, which are required for
+        # Rust musl builds that have native C dependencies.
+      - name: Install MUSL
+        run: sudo apt-get install -y musl-tools
+
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
@@ -62,10 +74,10 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: make rust-build
+      - run: cargo check --release
       - run: make rust-test
       - run: make go-test-ci
-      - run: make catalog-test
+      - run: make package catalog-test
       - run: make end-to-end-test
 
       - name: Tidy up, and ensure that generated files are unchanged.
@@ -77,11 +89,22 @@ jobs:
         shell: bash
 
       # Package and push images.
-      - run: make package
       - run: make docker-image
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
+
+      - if: ${{ github.ref == 'refs/heads/master' }}
+        name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            This is the latest development build, which gets updated on every successful build of the master branch.
+          draft: false
+          prerelease: true
+          tag_name: dev
+          generate_release_notes: false
+          files: .build/package/flow-x86-linux.tar.gz
 
       # Cleanup in preparation for populating the build cache.
       - run: cargo install cargo-cache --no-default-features --features ci-autoclean
