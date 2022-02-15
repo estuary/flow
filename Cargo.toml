@@ -2,22 +2,6 @@
 resolver = "2"
 members = [ "crates/*"]
 
-default-members = [
-  "crates/allocator",
-  "crates/bindings",
-  "crates/build",
-  # Deliberately exclude the `control` crate from top level cargo commands.
-  "crates/derive",
-  "crates/doc",
-  "crates/json",
-  "crates/librocks-exp",
-  "crates/models",
-  "crates/protocol",
-  "crates/sources",
-  "crates/tuple",
-  "crates/validation"
-]
-
 [profile.release]
 incremental = true
 debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
