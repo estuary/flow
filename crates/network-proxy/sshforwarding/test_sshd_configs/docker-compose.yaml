@@ -1,0 +1,22 @@
+version: "3.7"
+
+services:
+  openssh-server:
+    image: lscr.io/linuxserver/openssh-server
+    container_name: openssh-server
+    volumes:
+      - type: bind
+        source: ./config
+        target: /config
+      - type: bind
+        source: ./keys
+        target: /keys
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PUBLIC_KEY_FILE=/keys/id_rsa.pub
+      - SUDO_ACCESS=false
+      - PASSWORD_ACCESS=false
+      - USER_NAME=flowssh
+    network_mode: "host"
+    restart: unless-stopped
