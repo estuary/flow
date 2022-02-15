@@ -1,0 +1,325 @@
+{
+  "db": "PostgreSQL",
+  "1864581faf06211a1e3ec87f4e34d4226e436753eb3c9a727be81bd8416e9190": {
+    "query": "\n    INSERT INTO connectors(description, name, maintainer, type, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "43a818614048bb56286970171a6fee296a0e478ab9b0405eed1859a626c1b469": {
+    "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "description",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "maintainer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "type!: ConnectorType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "564d36833d5414461e13c74ae6e28a66d82a19cee559ccdfff21a58675ec571a": {
+    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "connector_id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "digest",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "tag",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "86a83f1836a131cfd95ef2a502b72ee9fe8511971fa2e0bd87318909900e5d9d": {
+    "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "description",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "maintainer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "type!: ConnectorType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "cc23a335f0edd9c023f0d273fa607eddb1f0f396a70c8fdc7a9bbc3e6b96fd06": {
+    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE connector_id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "connector_id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "digest",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "tag",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "dde789d293f768613e90ba39b6a50ad9536ed2e7d1e3e3837f498a45e44ff1a7": {
+    "query": "\n    INSERT INTO connector_images(connector_id, name, digest, tag, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "fac7bf5d60a084057e81bda5622056288bfd384d2a169da70cc28bdd437b6beb": {
+    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "connector_id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "digest",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "tag",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  }
+}
