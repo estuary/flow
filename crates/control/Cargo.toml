@@ -39,3 +39,9 @@ ctor = "0.1.21"
 insta = { version = "1.10.0", features = ["redactions"] }
 
 [features]
+integration_tests = []
+default = []
+
+[[test]]
+name = "it"
+required-features = ["integration_tests"]
