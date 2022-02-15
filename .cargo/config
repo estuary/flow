@@ -10,3 +10,4 @@ target = "x86_64-unknown-linux-gnu"
 # without this being set. If FLOW_VERSION is defined, then this has no effect.
 [env]
 FLOW_VERSION = "dev"
+SQLX_OFFLINE = "true"
