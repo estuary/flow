@@ -100,6 +100,7 @@ jobs:
         with:
           body: |
             This is the latest development build, which gets updated on every successful build of the master branch.
+          target_commitish: ${{ github.sha }}
           draft: false
           prerelease: true
           tag_name: dev
