@@ -1,7 +1,7 @@
 This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.
 It allows both standard and [delta updates](#delta-updates).
 
-The connector uses your Google Cloud service account to materialize to BigQuery tables by way of tables in a Google Cloud Storage (GCS) bucket.
+The connector uses your Google Cloud service account to materialize to BigQuery tables by way of files in a Google Cloud Storage (GCS) bucket.
 The tables in the bucket act as a temporary staging area for data storage and retrieval.
 
 `ghcr.io/estuary/materialize-bigquery:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
@@ -10,7 +10,7 @@ The tables in the bucket act as a temporary staging area for data storage and re
 
 To use this connector, you'll need:
 
-* An existing catalog spec that includes at least one collection with its schema specified
+* An existing catalog spec that includes at least one collection
 * A [new Google Cloud Storage bucket](https://cloud.google.com/storage/docs/creating-buckets) in the same region as the BigQuery destination dataset.
 * A Google Cloud [service account](https://cloud.google.com/docs/authentication/getting-started) with a key file generated and the following roles:
     * [`roles/bigquery.dataEditor`](https://cloud.google.com/bigquery/docs/access-control#bigquery.dataEditor) on the destination dataset
@@ -38,14 +38,10 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 | `region` | Region | String | Required | The GCS region |
 | `bucket` | Bucket | string | Required | Name of the GCS bucket |
 | `bucket_path` | Bucket Path | String | Required | Base path within the GCS bucket |
-| `credentials_file` | Credentials File | String | ** | Path to a JSON service account file |
-| `credentials_json` | Credentials JSON | Byte | ** | Base64-encoded string of the full service account file |
+| `credentials_json` | Credentials JSON | Byte | Required | Base64-encoded string of the full service account file |
 
 *Typically, you want this to be the same as `project_id` (the default).
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
-
-**One of `credentials_file` or `credentials_json` is required. If both are provided, the connector will try
-to use `credentials_file` first.
 
 ### Sample
 
@@ -61,7 +57,7 @@ materializations:
               region: US
               bucket: our-gcs-bucket
               bucket_path: bucket-path/
-              credentials_file: /workspace/secret/credentials.json
+              credentials_json: SSBqdXN0IHdhbm5hIHRlbGwgeW91IGhvdyBJJ20gZmVlbGluZwpHb3R0YSBtYWtlIHlvdSB1bmRlcnN0YW5kCk5ldmVyIGdvbm5hIGdpdmUgeW91IHVwCk5ldmVyIGdvbm5hIGxldCB5b3UgZG93bgpOZXZlciBnb25uYSBydW4gYXJvdW5kIGFuZCBkZXNlcnQgeW91Ck5ldmVyIGdvbm5hIG1ha2UgeW91IGNyeQpOZXZlciBnb25uYSBzYXkgZ29vZGJ5ZQpOZXZlciBnb25uYSB0ZWxsIGEgbGllIGFuZCBodXJ0IHlvdQ==
     	    image: ghcr.io/estuary/materialize-bigquery:dev
 	# If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
@@ -76,8 +72,7 @@ materializations:
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
-Enabling delta updates can significantly reduce Flow's resource usage, making it a good way to
-reduce cost when materializing extremely large datasets.
+Enabling delta updates will prevent Flow from querying for documents in your BigQuery table, which can reduce latency and costs for large datasets.
 If you're certain that all events will have unique keys, enabling delta updates is a simple way to improve
 performance with no effect on the output.
 However, enabling delta updates is not suitable for all workflows, as the resulting table in BigQuery won't be fully reduced.
