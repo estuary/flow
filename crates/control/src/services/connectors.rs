@@ -28,7 +28,7 @@ pub fn discovery(image: &str, config_path: &Path) -> Command {
     cmd
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "flowctl"))]
 mod test {
     use super::*;
     use crate::error::SubprocessError;
