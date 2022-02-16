@@ -5,20 +5,20 @@ use protocol::labels;
 
 #[derive(clap::Args, Debug)]
 #[clap(global_setting(clap::AppSettings::TrailingVarArg))]
-pub struct LogsArgs {
+pub struct Args {
     #[clap(flatten)]
-    task: TaskSelector,
+    pub task: TaskSelector,
     /// All other arguments are forwarded to `flowctl journals read`
     ///
     /// See `flowctl journal read --help` for a list of additional arguments.
     #[clap(allow_hyphen_values = true, value_name = "flowctl journals read args")]
-    other: Vec<String>,
+    pub other: Vec<String>,
 }
 
-impl LogsArgs {
+impl Args {
     pub fn try_into_exec_external(self) -> anyhow::Result<ExecExternal> {
         use std::fmt::Write;
-        let LogsArgs { task, other } = self;
+        let Args { task, other } = self;
 
         let tenant = task.tenant_name()?;
 
@@ -67,20 +67,20 @@ impl LogsArgs {
 pub struct TaskSelector {
     /// Read the logs of the task with the given name
     #[clap(long, conflicts_with_all(&["task_type", "tenant"]), required_unless_present("tenant"))]
-    task: Option<String>,
+    pub task: Option<String>,
 
     /// Read the logs of all tasks with the given type
     ///
     /// Requires the `--tenant <tenant>` argument
     #[clap(long, arg_enum, requires("tenant"))]
-    task_type: Option<TaskType>,
+    pub task_type: Option<TaskType>,
 
     /// Read the logs of tasks within the given tenant
     ///
     /// The `--task-type` may also be specified to limit the selection to only tasks of the given
     /// type. Without a `--task-type`, it will return all logs from all tasks in the tenant.
     #[clap(long)]
-    tenant: Option<String>,
+    pub tenant: Option<String>,
 }
 
 #[derive(Debug, clap::ArgEnum, PartialEq, Eq, Clone, Copy)]
@@ -101,7 +101,7 @@ impl TaskType {
 }
 
 impl TaskSelector {
-    pub fn tenant_name(&self) -> Result<&str, anyhow::Error> {
+    fn tenant_name(&self) -> Result<&str, anyhow::Error> {
         self.tenant
             .as_deref()
             .or_else(|| self.task.as_deref().map(tenant))
@@ -163,7 +163,7 @@ mod test {
     }
 
     fn assert_logs_command(selector: TaskSelector, expected_label_selector: &str) {
-        let args = LogsArgs {
+        let args = Args {
             task: selector.clone(),
             // Any extra arguments should be appended to whatever is generated
             other: vec![String::from("an extra arg")],
