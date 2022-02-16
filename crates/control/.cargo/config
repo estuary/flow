@@ -1,3 +1,3 @@
 [alias]
-test-it = "test --features integration_tests"
-review-it = "insta test --features integration_tests --review"
+test-all = "test --all-features"
+review-all = "insta test --all-features --review"
