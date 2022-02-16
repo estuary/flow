@@ -26,7 +26,7 @@ pub enum Subcommand {
     #[clap(flatten)]
     Internal(InternalSubcommand), // Executed as a function call
     /// Read the logs collections of Flow tasks
-    Logs(logs::LogsArgs), // delegated to flowctl journals read
+    Logs(logs::Args), // delegated to flowctl journals read
     #[clap(flatten)]
     FlowctlGo(FlowctlGoSubcommand), // delegated to the go flowctl binary
     /// Tools for generating various things from JSON schemas
