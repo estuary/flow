@@ -64,9 +64,7 @@ GO_BUILD_TAGS += json1
 GO_BUILD_DEPS = \
 	${RUSTBIN}/libbindings.a \
 	${RUSTBIN}/librocks-exp/librocksdb.a \
-	crates/bindings/flow_bindings.h \
-	${RUST_MUSL_BIN}/flow-parser \
-	${RUST_MUSL_BIN}/flow-network-proxy
+	crates/bindings/flow_bindings.h
 
 ##########################################################################
 # Build rules:
@@ -154,17 +152,25 @@ ${RUST_MUSL_BIN}/flow-network-proxy:
 ########################################################################
 # Final output packaging:
 
-PACKAGE_TARGETS = \
+RUST_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flowctl-rs \
-	${PKGDIR}/bin/flow-parser \
-	${PKGDIR}/bin/flow-schemalate \
-	${PKGDIR}/bin/flow-network-proxy \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
 
-${PKGDIR}/flow-x86-linux.tar.gz: $(PACKAGE_TARGETS)
+MUSL_TARGETS = \
+	${PKGDIR}/bin/flow-parser \
+	${PKGDIR}/bin/flow-schemalate \
+	${PKGDIR}/bin/flow-network-proxy \
+
+.PHONY: rust-binaries
+rust-binaries: $(RUST_TARGETS)
+
+.PHONY: musl-binaries
+musl-binaries: $(MUSL_TARGETS)
+
+${PKGDIR}/flow-x86-linux.tar.gz: $(RUST_TARGETS) $(MUSL_TARGETS)
 	rm -f $@
 	cd ${PKGDIR}/bin && tar -zcf ../flow-x86-linux.tar.gz *
 
@@ -174,24 +180,24 @@ package: ${PKGDIR}/flow-x86-linux.tar.gz
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/etcd: ${PKGDIR} ${GOBIN}/etcd
+${PKGDIR}/bin/etcd: ${GOBIN}/etcd | ${PKGDIR}
 	cp ${GOBIN}/etcd $@
-${PKGDIR}/bin/sops: ${PKGDIR} ${GOBIN}/sops
+${PKGDIR}/bin/sops: ${GOBIN}/sops | ${PKGDIR}
 	cp ${GOBIN}/sops $@
-${PKGDIR}/bin/flowctl:     ${PKGDIR} ${GOBIN}/flowctl
+${PKGDIR}/bin/flowctl: ${GOBIN}/flowctl | ${PKGDIR}
 	cp ${GOBIN}/flowctl $@
-${PKGDIR}/bin/gazctl: ${PKGDIR} ${GOBIN}/gazctl
+${PKGDIR}/bin/gazctl: ${GOBIN}/gazctl | ${PKGDIR}
 	cp ${GOBIN}/gazctl $@
-${PKGDIR}/bin/gazette: ${PKGDIR} ${GOBIN}/gazette
+${PKGDIR}/bin/gazette: ${GOBIN}/gazette | ${PKGDIR}
 	cp ${GOBIN}/gazette $@
-${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs
+${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs | ${PKGDIR}
 	cp ${RUSTBIN}/flowctl-rs $@
 # The following binaries are statically linked, so come from a different subdirectory
-${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate
+${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
-${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser
+${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
-${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy
+${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-network-proxy $@
 
 ##########################################################################
@@ -216,33 +222,37 @@ print-versions:
 		&& rustc --version \
 
 .PHONY: install-tools
-install-tools: ${GOBIN}/etcd ${GOBIN}/sops
+install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-test
 rust-test:
-	cargo test --release --locked
+	cargo test --release --locked --workspace --exclude parser --exclude network-proxy --exclude schemalate
+
+.PHONY: musl-test
+musl-test:
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-proxy --package schemalate
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
+go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	GORACE="halt_on_error=1" \
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops flow.schema.json
-	${GOBIN}/flowctl test --source examples/local-sqlite.flow.yaml $(ARGS)
+catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+	${PKGDIR}/bin/flowctl test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: ${GOBIN}/flowctl ${GOBIN}/gazette ${GOBIN}/etcd ${GOBIN}/sops
-	PATH="${PATH}:${GOBIN}" ./tests/run-end-to-end.sh
+end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+	PATH="${PATH}:${PKGDIR}/bin" ./tests/run-end-to-end.sh
 
-flow.schema.json: ${GOBIN}/flowctl
-	${GOBIN}/flowctl json-schema > $@
+flow.schema.json: | ${PKGDIR}/bin/flowctl
+	${PKGDIR}/bin/flowctl json-schema > $@
 
 ##########################################################################
 # Make targets used in local development:
 
 .PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) ${GOBIN}/etcd ${GOBIN}/sops
+go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the

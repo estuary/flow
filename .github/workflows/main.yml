@@ -10,10 +10,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_CACHE_VERSION: 0.8.2
+  CARGO_SQLX_VERSION: 0.5.10
 
 jobs:
-  build_flow:
+  flowctl:
     runs-on: ubuntu-20.04
+    env:
+      SQLX_OFFLINE: true
 
     steps:
       - uses: actions/checkout@v2
@@ -28,11 +32,6 @@ jobs:
         # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
       - name: Install rust toolchain
         run: rustup show
-
-        # Provides musl-gcc and musl-g++ wrappers and related components, which are required for
-        # Rust musl builds that have native C dependencies.
-      - name: Install MUSL
-        run: sudo apt-get install -y musl-tools
 
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
@@ -62,8 +61,11 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/registry/index
             ~/.cargo/git/db
+            ~/.cargo/bin
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v2
+          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-glibc-cargo-
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -74,11 +76,227 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: cargo check --release
       - run: make rust-test
       - run: make go-test-ci
-      - run: make package catalog-test
-      - run: make end-to-end-test
+      - run: make rust-binaries
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: flowctl_binaries
+          path: |
+            .build/package/bin/*
+
+      # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
+      - run: |
+          if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
+            cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
+          fi
+        shell: bash
+
+      # Cleanup in preparation for populating the build cache.
+      - run: cargo cache --autoclean
+
+  musl:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+        # This weird installation method is taken from this comment:
+        # https://github.com/actions-rs/toolchain/issues/126#issuecomment-782989659
+        # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
+      - name: Install rust toolchain
+        run: rustup show
+
+        # Provides musl-gcc and musl-g++ wrappers and related components, which are required for
+        # Rust musl builds that have native C dependencies.
+      - name: Install MUSL
+        run: sudo apt-get install -y musl-tools
+
+      - run: make extra-ci-runner-setup
+      - run: make print-versions
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Cache/Restore Rust dependencies.
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-musl-cargo-
+
+      # Build and test all the things.
+      - run: make musl-test
+      - run: make musl-binaries
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: musl_binaries
+          path: |
+            .build/package/bin/*
+
+      # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
+      - run: |
+          cargo cache --version
+          echo "$CARGO_CACHE_VERSION"
+          if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
+            cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
+          fi
+        shell: bash
+
+      # Cleanup in preparation for populating the build cache.
+      - run: cargo cache --autoclean
+
+  stage2:
+    runs-on: ubuntu-20.04
+    needs: [flowctl, musl]
+    env:
+      DATABASE_URL: postgres://flow:flow@localhost:5432/control_template
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          # POSTGRES_HOST: When running jobs on a runner machine (as opposed to
+          # within Docker), the postgres instance is exposed on localhost.
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: flow
+          POSTGRES_PASSWORD: flow
+          POSTGRES_DB: control_template
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install rust toolchain
+        run: rustup show
+      - run: make extra-ci-runner-setup
+      - run: make print-versions
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@master
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Login to GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Download Stage1 Binaries
+        uses: actions/download-artifact@v2
+        with:
+          path: artifacts
+
+      - name: Move Artifacts to PKGBIN
+        run: |
+          mkdir -p .build/package/bin && \
+          mv artifacts/*/* .build/package/bin
+
+      # Downloaded artifacts lose their prior permission settings
+      - name: Adjust stage1_binaries permissions
+        run: |
+          chmod +x .build/package/bin/*
+
+      - name: Add PKGDIR/bin to PATH
+        run: echo "$GITHUB_WORKSPACE/.build/package/bin" >> $GITHUB_PATH
+
+      - name: Cache/Restore Rust dependencies.
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-glibc-cargo-
+
+      # Use to the cached version of sqlx if it exists. Saves minutes installing it.
+      - run: |
+          if [[ $(cargo sqlx --version) != "cargo-sqlx $CARGO_SQLX_VERSION" ]]; then
+            cargo install sqlx-cli --version="$CARGO_SQLX_VERSION"
+          fi
+        shell: bash
+
+      # Run these checks and tests from the crates/control directory to work
+      # around poor sqlx support for workspaces and to prevent recompiling many
+      # crates over again due to conflicting feature resolution.
+      - name: Setup Control Database
+        run: cargo sqlx database setup
+        working-directory: ./crates/control
+      - name: Verify SQLx Query Cache
+        run: cargo sqlx prepare --check -- --lib --release --all-features
+        working-directory: ./crates/control
+      - name: Control Tests
+        run: cargo test --lib --test it --release --all-features
+        working-directory: ./crates/control
+
+      # Use make's `-o` flag to mark the binary artifacts they depend on as
+      # "very old", which prevents Make from attempting to rebuild them from
+      # scratch. This prevents us from recompiling them again here.
+      - name: make catalog-test
+        run: |
+          make catalog-test \
+          -o .build/package/bin/etcd \
+          -o .build/package/bin/flowctl \
+          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-network-proxy \
+          -o .build/package/bin/flow-parser \
+          -o .build/package/bin/flow-schemalate \
+          -o .build/package/bin/gazette \
+          -o .build/package/bin/sops
+
+      - name: make end-to-end-test
+        run: |
+          make end-to-end-test \
+          -o .build/package/bin/etcd \
+          -o .build/package/bin/flowctl \
+          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-network-proxy \
+          -o .build/package/bin/flow-parser \
+          -o .build/package/bin/flow-schemalate \
+          -o .build/package/bin/gazette \
+          -o .build/package/bin/sops
+
+      - name: make package (tar only)
+        run: |
+          make .build/package/flow-x86-linux.tar.gz \
+          -o .build/package/bin/etcd \
+          -o .build/package/bin/flowctl \
+          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-network-proxy \
+          -o .build/package/bin/flow-parser \
+          -o .build/package/bin/flow-schemalate \
+          -o .build/package/bin/gazette \
+          -o .build/package/bin/sops
 
       - name: Tidy up, and ensure that generated files are unchanged.
         run: |
@@ -107,74 +325,12 @@ jobs:
           generate_release_notes: false
           files: .build/package/flow-x86-linux.tar.gz
 
+      # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
+      - run: |
+          if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
+            cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
+          fi
+        shell: bash
+
       # Cleanup in preparation for populating the build cache.
-      - run: cargo install cargo-cache --no-default-features --features ci-autoclean
-      - run: cargo-cache
-
-  build_control:
-    runs-on: ubuntu-20.04
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          # `POSTGRES_HOST` is set to `postgres`
-          POSTGRES_DB: flow
-          POSTGRES_PASSWORD: flow
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: flow
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Prepare
-        id: prep
-        run: |
-          TAG=$(echo $GITHUB_SHA | head -c7)
-          echo ::set-output name=tag::${TAG}
-
-      - name: Login to GitHub container registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            docker login --username ${{ github.actor }} --password-stdin ghcr.io
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-        with:
-          driver-opts: |
-            network=host
-
-      - name: Build Docker Image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: control.Dockerfile
-          load: true
-          tags: ghcr.io/estuary/control:test
-
-      - name: Push control image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: control.Dockerfile
-          push: true
-          tags: ghcr.io/estuary/control:${{ steps.prep.outputs.tag }}
-
-      - name: Push control image with 'dev' tag
-        if: ${{ github.event_name == 'push' }}
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: control.Dockerfile
-          push: true # See 'if' above
-          tags: ghcr.io/estuary/control:dev
+      - run: cargo cache --autoclean
