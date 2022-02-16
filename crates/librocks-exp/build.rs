@@ -40,4 +40,7 @@ fn main() {
         let dest = dest_dir.join("include");
         std::os::unix::fs::symlink(&src, &dest).unwrap();
     }
+    // Tell cargo to re-run this build script if it is changed. Without any rerun-if-changed tags,
+    // this build script will be re-run on every build.
+    println!("cargo:rerun-if-changed=build.rs");
 }
