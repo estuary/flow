@@ -52,14 +52,14 @@ SET PERSIST binlog_row_metadata = 'FULL';
 There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the MySQL source connector.
 
 ### Values
-| Value | Name | Type | Required/Default | Details |
+| Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `address` | Address | string | Required | IP address and port of the database host |
-| `user` | User | string | Required | Database user to connect as |
-| `password` | Password | string | Required | Password for the specified database user |
-| `dbname` | Database name | string | Required | Name of the database to connect to |
-| `server_id` | Server ID | int | Required | Server ID for replication |
-| `watermarks_table`| Watermarks Table | string | `"flow.watermarks"` | The name of the table used for watermark writes during backfills |
+| `address` | Address | IP address and port of the database host | String | Required |
+| `user` | User | Database user to connect as | String | Required |
+| `password` | Password | Password for the specified database user | string | Required |
+| `dbname` | Database name | Name of the database to connect to | string | Required |
+| `server_id` | Server ID | Server ID for replication | int | Required |
+| `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills | string | `"flow.watermarks"` |
 
 ### Sample
 A minimal capture definition within the catalog spec will look like the following:
