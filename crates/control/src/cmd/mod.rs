@@ -5,6 +5,7 @@ use tokio::runtime::Runtime;
 pub mod id_mask;
 pub mod seed;
 pub mod serve;
+pub mod setup;
 
 #[derive(clap::Args, Debug)]
 pub struct ControlPlaneArgs {
@@ -20,6 +21,8 @@ pub enum Cmd {
     Seed(seed::Args),
     /// Runs the api server.
     Serve(serve::Args),
+    /// Setup a new Control Plane
+    Setup(setup::Args),
 }
 
 pub fn run(args: ControlPlaneArgs) -> anyhow::Result<()> {
@@ -27,6 +30,7 @@ pub fn run(args: ControlPlaneArgs) -> anyhow::Result<()> {
         Cmd::IdMask(args) => id_mask::run(args),
         Cmd::Seed(args) => seed::run(args),
         Cmd::Serve(args) => serve::run(args),
+        Cmd::Setup(args) => setup::run(args),
     }
 }
 
