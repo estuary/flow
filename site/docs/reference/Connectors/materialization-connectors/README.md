@@ -17,7 +17,7 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * Configuration
   * Package — ghcr.io/estuary/materialize-elasticsearch:dev
 * Google BigQuery
-  * Configuration
+  * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:dev
 * PostgreSQL
   * Configuration

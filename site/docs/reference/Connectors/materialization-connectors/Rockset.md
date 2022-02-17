@@ -18,13 +18,13 @@ To use this connector, begin with a Flow catalog that has at least one **collect
 
 ### Values
 
-| Value | Name | Type | Required/Default | Details |
+| Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `api_key` | API Key | String | Required | Rockset API key generated from the web UI. |
-| `HttpLogging` | HTTP Logging | bool | false | Enable verbose logging of the HTTP calls to the Rockset API |
-| `MaxConcurrentRequests` | Maximum Concurrent Requests | int | 1 | The upper limit on how many concurrent requests will be sent to Rockset. |
-| `workspace` | Workspace | String | Required | For each binding, name of the Rockset workspace |
-| `collection` | Rockset collection | String | Required| For each binding, the name of the destination Rockset table |
+| `api_key` | API Key | Rockset API key generated from the web UI. | String | Required |
+| `HttpLogging` | HTTP Logging | Enable verbose logging of the HTTP calls to the Rockset API | bool | false |
+| `MaxConcurrentRequests` | Maximum Concurrent Requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
+| `workspace` | Workspace | For each binding, name of the Rockset workspace | String | Required |
+| `collection` | Rockset collection | For each binding, the name of the destination Rockset table | String | Required|
 
 ### Sample
 

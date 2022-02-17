@@ -76,16 +76,16 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 ### Values
 
-| Value | Name | Type | Required/Default | Details |
+| Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `database` | Database | string | `"postgres"` | Logical database name to capture from. |
-| `host` | Host | String | Required | Host name of the database to connect to. |
-| `port` | Port | uint16 | `5432` | Port on which to connect to the database. |
-| `user` | User | String | Required | Database user to use. |
-| `password` | Password | string | Required | User password configured within the database. |
-| `publication_name` | Publication Name | string | `"flow_publication"` | The name of the PostgreSQL publication to replicate from |
-| `slot_name` | Replication Slot Name | string | `"flow_slot"` | The name of the PostgreSQL replication slot to replicate from |
-| `watermarks_table` | Watermarks Table | string | `"public.flow_watermarks"` | The name of the table used for watermark writes during backfills |
+| `database` | Database | Logical database name to capture from. | String | `"postgres"` |
+| `host` | Host | Host name of the database to connect to. | String | Required | 
+| `port` | Port | Port on which to connect to the database. | uint16 | `5432` |
+| `user` | User | Database user to use. | String | Required |
+| `password` | Password | User password configured within the database. | String | Required |
+| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from | String | `"flow_publication"` |
+| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from | String | `"flow_slot"` |
+| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills | String | `"public.flow_watermarks"` |
 
 ### Sample
 

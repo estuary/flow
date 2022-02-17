@@ -1,3 +1,5 @@
+# Google BigQuery
+
 This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.
 It allows both standard and [delta updates](#delta-updates).
 
@@ -30,15 +32,15 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 
 ### Values
 
-| Value | Name | Type | Required/Default | Details |
+| Value | Name| Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `project_id`| Project ID | String | Required | The project ID for the Google Cloud Storage bucket and BigQuery dataset|
-| `billing_project_id` | Billing project ID | String | Same as `project_id` | The project ID to which these operations are billed in BigQuery* |
-| `dataset` | Dataset | String | Required | Name of the target BigQuery dataset |
-| `region` | Region | String | Required | The GCS region |
-| `bucket` | Bucket | string | Required | Name of the GCS bucket |
-| `bucket_path` | Bucket Path | String | Required | Base path within the GCS bucket |
-| `credentials_json` | Credentials JSON | Byte | Required | Base64-encoded string of the full service account file |
+| `project_id`| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset| String | Required |
+| `billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery* | String | Same as `project_id` |
+| `dataset` | Dataset | Name of the target BigQuery dataset | String | Required |
+| `region` | Region | The GCS region | String | Required |
+| `bucket` | Bucket | Name of the GCS bucket | String | Required |
+| `bucket_path` | Bucket Path | Base path within the GCS bucket | String | Required |
+| `credentials_json` | Credentials JSON | Base64-encoded string of the full service account file | Byte | Required |
 
 *Typically, you want this to be the same as `project_id` (the default).
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
