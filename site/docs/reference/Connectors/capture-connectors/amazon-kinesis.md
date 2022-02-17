@@ -3,13 +3,13 @@ sidebar_position: 1
 ---
 # Amazon Kinesis
 
-This connector captures streaming data from Amazon Kinesis.
+This connector captures data from Amazon Kinesis streams.
 
 `ghcr.io/estuary/source-kinesis:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
-Maybe: setup IAM user to securely generate access key and secret access key https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/get-set-up-for-amazon-ec2.html#create-an-iam-user 
+Maybe: setup IAM user to securely generate access key and secret access key https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/get-set-up-for-amazon-ec2.html#create-an-iam-user
 
 ## Configuration
 
