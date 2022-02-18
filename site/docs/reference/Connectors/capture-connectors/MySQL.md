@@ -13,6 +13,8 @@ To use this connector, you'll need a MySQL database setup with the following:
 * [`binlog_row_metadata`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_row_metadata)
   system variable set to `FULL`.
   - Note that this can be done on a dedicated replica even if the primary database has it set to `MINIMAL`.
+* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) of at at least seven days.
+If possible, it's recommended to keep the default setting of 2592000 seconds (30 days).
 * A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
@@ -46,6 +48,10 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 3. Configure the binary log to record complete table metadata.
 ```sql
 SET PERSIST binlog_row_metadata = 'FULL';
+```
+4. Configure the binary log to retain data for at least seven days, if previously set lower.
+```sql
+SET PERSIST binlog_expire_logs_seconds = 604800;
 ```
 
 ## Configuration
