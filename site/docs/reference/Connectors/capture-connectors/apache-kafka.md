@@ -9,42 +9,34 @@ This connector captures streaming data from Apache Kafka topics.
 
 ## Prerequisites
 
-OLIVIA WIP - need more context
-
 * A Kafka cluster with:
-    * A `config.json` file matching the layout of the spec command (???)
-    * [bootstrap.servers](https://kafka.apache.org/documentation/#producerconfigs_bootstrap.servers) configured so that clients may connect via the desired host and port (this one makes sense)
-* One or more Kafka topics within the cluster from which you'd like to capture data. For each:
-    * A `catalog.json` file to allow Flow to properly discover data from Kafka
+  * [bootstrap.servers](https://kafka.apache.org/documentation/#producerconfigs_bootstrap.servers) configured so that clients may connect via the desired host and port
+  * An authentication mechanism of choice set up (highly recommended for production environments)
+  * Connection security enabled with TLS (highly recommended for production environments)
 
-### `catalog.json` setup
+### Authentication and connection security
 
-(explanation about why this is needed and the layout here)
+Neither authentication nor connection security are enabled by default in your Kafka cluster, but both are important considerations.
+Similarly, Flow's Kafka connectors do not strictly require authentication or connection security mechanisms.
+You may choose to omit them for local development and testing; however, both are strongly encouraged for production environments.
 
-```json
-{
-  "streams": [
-    {
-      "name": "topic-name",
-      "json_schema": {
-        "type": "object"
-      }
-    }
-  ],
-  "estuary.dev/tail": true,
-  "estuary.dev/range": {
-    "begin": "00000000",
-    "end": "ffffffff"
-  }
-}
-```
+A wide [variety of authentication methods](https://kafka.apache.org/documentation/#security_overview) are available in Kafka clusters.
+All SASL methods are permissable for clusters used with Flow, so long as connection details are provided.
+When authentication details are not provided, the client connection will attempt to use PLAINTEXT (insecure) protocol.
 
-### Setup
+If you don't already have authentication enabled on your cluster, Estuary recommends [SASL/SCRAM](https://kafka.apache.org/documentation/#security_sasl_scram).
+With SCRAM, you set up a username and password, making it analogous to the traditional authentication mechanisms
+you use in other applications.
 
-(alternative to the above. Assumption is only catalog.json will need excessive elaboration; otherwise, can doc each component here)
--config.json example
--catalog.json example
--bootstrap server
+For connection security, Estuary recommends that you enable TLS encryption for your SASL mechanism of choice,
+as well as all other components of your cluster.
+Note that because TLS replaced now-deprecated SSL encryption, Kafka still uses the acronym "SSL" to refer to TLS encryption.
+See [Confluent's documentation](https://docs.confluent.io/platform/current/kafka/authentication_ssl.html) for details.
+
+:::info Beta
+TLS encryption is currently the only supported connection security mechanism for this connector.
+Other connection security methods may be enabled in the future.
+:::
 
 ## Configuration
 
@@ -52,16 +44,14 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 ### Values
 
-(TODO: break out authentication info into another section once you understand it)
-
 | Value | Name | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `authentication`| Authentication | The connection details for authenticating a client connection to Kafka via SASL. When not provided, the client connection will attempt to use PLAINTEXT (insecure) protocol. This must only be used in development or test environments. | null, object | * |
-| `authentication/mechanism` | Mechanism | The SASL Mechanism describes how to exchange and authenticate client servers. For secure communication, TLS is required for all supported mechanisms.For more information about the Simple Authentication and Security Layer (SASL), see RFC 4422: https://datatracker.ietf.org/doc/html/rfc4422 For more information about Salted Challenge Response Authentication Mechanism (SCRAM), see RFC 7677. https://datatracker.ietf.org/doc/html/rfc7677 | string |  |
-| `authentication/password` |  |  | string |  |
-| `authentication/username` |  |  | string | |
 | `bootstrap_servers` | Bootstrap servers | The initial servers in the Kafka cluster to connect to. The Kafka client will be informed of the rest of the cluster nodes by connecting to one of these nodes. | array | Required |
-| `tls`| TLS | The TLS connection settings. | string | "system_certificates" |
+| `tls`| TLS | TLS connection settings | string | "system_certificates" |
+| `authentication`| Authentication | Connection details used to authenticate a client connection to Kafka via SASL | null, object | |
+| `authentication/mechanism` | Mechanism | SASL mechanism describing how to exchange and authenticate client servers | string |  |
+| `authentication/password` | Password | Password, if applicable for the authentication mechanism chosen | string | |
+| `authentication/username` | Username | Username, if applicable for the authentication mechanism chosen | string | |
 
 ### Sample
 ```YAML
@@ -73,13 +63,13 @@ captures:
         config:
             bootstrap_servers: localhost:9093
             tls: system_certificates
-            authentication:
+            authentication: #FOR REVIEW: need semi-realistic example values
                 mechanism:
                 username:
                 password:
     bindings:
       - resource:
-           namespace: ${STREAM_NAMESPACE} #maybe delete this Olivia!!!!!!
+           namespace: ${STREAM_NAMESPACE} #FOR REVIEW: does namespace matter?/What does it do here?
            stream: ${STREAM_NAME}
            syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
