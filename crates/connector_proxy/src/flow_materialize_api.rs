@@ -4,6 +4,8 @@ use protocol::materialize::{
     TransactionResponse, ValidateRequest, ValidateResponse,
 };
 
+// The optional APIs that a materialize plugin implement to intercept and handle the requests/responses of
+// any operations of the FlowMaterialize protocol.
 #[allow(unused_variables)]
 #[rustfmt::skip]
 pub trait FlowMaterializePlugin: Send + Sync {
@@ -23,6 +25,8 @@ pub trait FlowMaterializePlugin: Send + Sync {
     fn on_transactions_response( &self, response: &mut TransactionResponse) -> Result<(), Error> { Ok(()) }
 }
 
+// The APIs that a materialize connector runner are required to implement for adapting the FlowMaterialize protocol to the
+// native protocol that the connector supports.
 #[rustfmt::skip]
 pub trait FlowMaterialize {
     fn do_spec( &self, entrypoint: Vec<String>, plugins: Vec<Box<dyn FlowMaterializePlugin>>) -> Result<(), Error>;
