@@ -79,7 +79,7 @@ There are various ways to configure and implement connectors. See [connectors](.
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `database` | Database | Logical database name to capture from. | String | `"postgres"` |
-| `host` | Host | Host name of the database to connect to. | String | Required | 
+| `host` | Host | Host name of the database to connect to. | String | Required |
 | `port` | Port | Port on which to connect to the database. | uint16 | `5432` |
 | `user` | User | Database user to use. | String | Required |
 | `password` | Password | User password configured within the database. | String | Required |
@@ -127,9 +127,9 @@ To set up and configure your SSH server, see the [guide](../../../../guides/conn
 Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
 of popular relational databases, including PostgreSQL.
 
-### Setup
-
 You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
+
+### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Currently, Estuary supports SSH tunneling to allow this.
@@ -150,7 +150,7 @@ You can use this connector for PostgreSQL instances on RDS, but the setup requir
 
   d. Reboot the database to allow the new parameter group to take effect.
 
-3. Run the following commands to create a new user for the capture with appropriate permissions,
+3. In the PostgreSQL client, run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
   ```sql
   CREATE USER flow_capture WITH PASSWORD '<secret>';
