@@ -23,6 +23,83 @@
       ]
     }
   },
+  "188a2bbd7aa46f19a264c31684d140a1c7fcb0122756899ad017c94c0c01c0ae": {
+    "query": "\n    INSERT INTO accounts(display_name, email, name, norm_name, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "3c02dffff1a042147b4f60a5c5f83f89761240e49a51f8ea402676af87b4aa82": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, norm_name, created_at, updated_at\n    FROM accounts\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "display_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "email",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "norm_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "43a818614048bb56286970171a6fee296a0e478ab9b0405eed1859a626c1b469": {
     "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    ",
     "describe": {
@@ -216,6 +293,62 @@
         {
           "ordinal": 4,
           "name": "tag",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "cef350e896defdfbda04c188e7921e5b03e140f64b8ecfa1a8f598962b94ebd9": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, norm_name, created_at, updated_at\n    FROM accounts\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "display_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "email",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "norm_name",
           "type_info": "Text"
         },
         {
