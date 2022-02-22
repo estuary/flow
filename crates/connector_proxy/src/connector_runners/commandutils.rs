@@ -6,11 +6,12 @@ use byteorder::{ByteOrder, LittleEndian};
 use std::io::{Read, Write};
 use std::process::{Child, Command, ExitStatus, Stdio};
 
+// Start the proxied connector as a process.
 pub fn invoke_connector(
     entrypoint: Vec<String>,
     stdin: Stdio,
     stdout: Stdio,
-    cmd: &str,
+    operation: &str,
 ) -> Result<Child, Error> {
     if entrypoint.len() == 0 {
         return Err(Error::EmptyEntrypointError);
@@ -20,16 +21,19 @@ pub fn invoke_connector(
         .stdout(stdout)
         .stderr(Stdio::inherit())
         .args(&entrypoint[1..])
-        .arg(cmd)
+        .arg(operation)
         .spawn()
         .map_err(|e| e.into())
 }
 
+// Intercept the data flow from in_stream to out_stream,
+// decode and handle the proto messesage (of type T) of the starting part of the stream.
 fn handle_stream<T: Message + std::default::Default>(
     in_stream: &mut (impl Read + std::marker::Send),
     out_stream: &mut (impl Write + std::marker::Send),
     handlers: &Vec<Box<dyn Fn(&mut T) -> Result<(), Error>>>,
 ) -> Result<(), Error> {
+    // Deserialize the proto message.
     let mut length_buf: [u8; 4] = [0; 4];
     if let Err(_) = in_stream.read_exact(&mut length_buf) {
         // Not enough to fill a vector of 4 bytes.
@@ -43,10 +47,12 @@ fn handle_stream<T: Message + std::default::Default>(
     in_stream.read_exact(&mut message_buf)?;
     let mut message = T::decode(&message_buf[..])?;
 
+    // Process the deserialized message.
     for handler in handlers {
         handler(&mut message)?;
     }
 
+    // Serialize the processed message and to out_stream.
     let mut outbuf: Vec<u8> = Vec::new();
     message.encode(&mut outbuf)?;
 

@@ -12,6 +12,9 @@ pub enum Error {
     #[error("command execution failed: {0}.")]
     CommandExecutionError(String),
 
+    #[error("duplicated key: {0}.")]
+    DuplicatedKeyError(&'static str),
+
     #[error("Entrypoint is an empty string.")]
     EmptyEntrypointError,
 

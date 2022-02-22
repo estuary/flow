@@ -4,6 +4,8 @@ use protocol::capture::{
     SpecRequest, SpecResponse, ValidateRequest, ValidateResponse,
 };
 
+// The optional APIs that a capture plugin implement to intercept and handle the requests/responses of
+// any operations of the FlowCapture protocol.
 #[allow(unused_variables)]
 #[rustfmt::skip]
 pub trait FlowCapturePlugin: Send + Sync {
@@ -26,6 +28,8 @@ pub trait FlowCapturePlugin: Send + Sync {
     fn on_pull_response(&self, response: &mut PullResponse) -> Result<(), Error> { Ok(()) }
 }
 
+// The APIs that a capture connector runner are required to implement for adapting the FlowCapture protocol to the
+// native protocol that the connector supports.
 #[rustfmt::skip]
 pub trait FlowCapture {
     fn do_spec( &self, entrypoint: Vec<String>, plugins: Vec<Box<dyn FlowCapturePlugin>>) -> Result<(), Error>;

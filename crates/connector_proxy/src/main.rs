@@ -30,7 +30,7 @@ pub enum FlowCaptureOperation {
 }
 
 #[derive(Debug, ArgEnum, Clone)]
-pub enum FlowCaptureConnectorProtocol {
+pub enum CaptureConnectorProtocol {
     Airbyte,
     FlowCapture,
 }
@@ -39,9 +39,9 @@ pub enum FlowCaptureConnectorProtocol {
 struct ProxyFlowCapture {
     /// The protocol that the connector is implemented in.
     #[clap(arg_enum)]
-    connector_protocol: FlowCaptureConnectorProtocol,
+    connector_protocol: CaptureConnectorProtocol,
 
-    /// The operation (in the Flow runtime Capture Protocol) that is being proxied.
+    /// The operation (in the FlowCapture Protocol) that is being proxied.
     #[clap(arg_enum)]
     operation: FlowCaptureOperation,
 }
@@ -56,7 +56,7 @@ pub enum FlowMaterializeOperation {
 }
 
 #[derive(Debug, ArgEnum, Clone)]
-pub enum FlowMaterializeConnectorProtocol {
+pub enum MaterializeConnectorProtocol {
     FlowMaterialize,
 }
 
@@ -64,8 +64,8 @@ pub enum FlowMaterializeConnectorProtocol {
 struct ProxyFlowMaterialize {
     /// The protocol that the connector is implemented in.
     #[clap(arg_enum)]
-    connector_protocol: FlowMaterializeConnectorProtocol,
-    /// The operation (in the Flow runtime Materialize Protocol) that is being proxied.
+    connector_protocol: MaterializeConnectorProtocol,
+    /// The operation (in the FlowMaterialize Protocol) that is being proxied.
     #[clap(arg_enum)]
     operation: FlowMaterializeOperation,
 }
@@ -93,6 +93,15 @@ pub struct Args {
     log_args: LogArgs,
 }
 
+// The connector proxy is a service between Flow Runtime and connectors. It adapts the protocol of the Flow Runtime to
+// to protocol of the connector, and allows additional functionalities to be triggered during the communications.
+// 1. The protocol of Flow Runtime is determined by proxyCommand,
+//    "proxy-flow-capture" and "proxy-flow-materialize" for FlowCapture and FlowMaterialize protocols, respectively.
+// 2. The connector_runners are adapters that translate the Flow Runtime protocols to the native protocols of different connectors. The
+//    APIs of the adaptors are specified in flow_capture_api::FlowCapture and flow_materialize_api::FlowMaterialize.
+// 3. A plugin adds an additional functionality that affect multiple operations during the communication. E.g. network proxy needs
+//    to modify the spec response to add the network proxy specs, and starts the network proxy for the rest commands. A plugin API is
+//    specified in flow_capture_api::FlowCapturePlugin and flow_materialize_api::FlowMaterializePlugin.
 fn main() {
     let Args {
         connector_entrypoint,
@@ -117,12 +126,12 @@ fn proxy_flow_materialize(
     connector_entrypoint: Vec<String>,
 ) -> Result<(), Error> {
     let connector_runner: Box<dyn FlowMaterialize> = match m.connector_protocol {
-        FlowMaterializeConnectorProtocol::FlowMaterialize => {
+        MaterializeConnectorProtocol::FlowMaterialize => {
             Box::new(FlowMaterializeConnectorRunner {})
         }
     };
 
-    // make plugins optional.
+    // TODO: make the plugins optional.
     let plugins: Vec<Box<dyn FlowMaterializePlugin>> = vec![Box::new(NetworkProxyPlugin {})];
 
     match m.operation {
@@ -141,10 +150,11 @@ fn proxy_flow_materialize(
         }
     }
 }
+
 fn proxy_flow_capture(c: ProxyFlowCapture, connector_entrypoint: Vec<String>) -> Result<(), Error> {
     let connector_runner: Box<dyn FlowCapture> = match c.connector_protocol {
-        FlowCaptureConnectorProtocol::Airbyte => Box::new(AirbyteSourceConnectorRunner {}),
-        FlowCaptureConnectorProtocol::FlowCapture => Box::new(FlowCaptureConnectorRunner {}),
+        CaptureConnectorProtocol::Airbyte => Box::new(AirbyteSourceConnectorRunner {}),
+        CaptureConnectorProtocol::FlowCapture => Box::new(FlowCaptureConnectorRunner {}),
     };
 
     let plugins: Vec<Box<dyn FlowCapturePlugin>> = vec![Box::new(NetworkProxyPlugin {})];

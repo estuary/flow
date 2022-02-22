@@ -4,8 +4,11 @@ use crate::flow_capture_api::{FlowCapture, FlowCapturePlugin};
 
 use std::process::Stdio;
 
+// AirbyteSourceConnectorRunner runs capture connectors in Airbyte protocols.
+// https://github.com/estuary/flow/tree/master/go/protocols/airbyte
 pub struct AirbyteSourceConnectorRunner {}
 
+// TODO: support JSON protocols in https://github.com/estuary/flow/blob/master/go/capture/driver/airbyte/driver.go
 impl FlowCapture for AirbyteSourceConnectorRunner {
     fn do_spec(
         &self,
