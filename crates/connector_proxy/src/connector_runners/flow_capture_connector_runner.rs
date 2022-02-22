@@ -8,6 +8,9 @@ use crate::plugin_handlers;
 use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
+
+// FlowCaptureConnetorRunner runs capture connectors in Flow Capture protocol.
+// https://github.com/estuary/flow/blob/master/go/protocols/capture/capture.proto
 pub struct FlowCaptureConnectorRunner {}
 
 impl FlowCapture for FlowCaptureConnectorRunner {

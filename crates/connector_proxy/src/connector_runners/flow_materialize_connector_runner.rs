@@ -7,6 +7,8 @@ use crate::plugin_handlers;
 
 use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, ValidateRequest};
 
+// FlowMaterializeConnectorRunner runs materialize connectors in Flow materialize protocol.
+// https://github.com/estuary/flow/blob/master/go/protocols/materialize/materialize.proto
 pub struct FlowMaterializeConnectorRunner {}
 
 impl FlowMaterialize for FlowMaterializeConnectorRunner {

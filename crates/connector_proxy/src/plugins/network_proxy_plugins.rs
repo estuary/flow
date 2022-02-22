@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::flow_capture_api::FlowCapturePlugin;
 use crate::flow_materialize_api::FlowMaterializePlugin;
-use crate::plugins::jsonutils::{create_root_schema, extract_subobject};
+use crate::plugins::jsonutils::{create_root_schema, remove_subobject};
 
 use network_proxy::interface::NetworkProxyConfig;
 
@@ -16,8 +16,10 @@ impl NetworkProxyPlugin {
         let network_proxy_schema = create_root_schema::<NetworkProxyConfig>();
 
         let mut ond_schema: RootSchema = serde_json::from_str(endpoint_spec_schema_str)?;
-        // TODO: what if NETWORK_PROXY_KEY already exists?
         if let Some(ref mut o) = &mut ond_schema.schema.object {
+            if o.as_ref().properties.contains_key(NETWORK_PROXY_KEY) {
+                return Err(Error::DuplicatedKeyError(NETWORK_PROXY_KEY));
+            }
             o.as_mut().properties.insert(
                 NETWORK_PROXY_KEY.to_string(),
                 Schema::Object(network_proxy_schema.schema),
@@ -26,6 +28,8 @@ impl NetworkProxyPlugin {
         serde_json::to_string_pretty(&ond_schema).map_err(Into::into)
     }
 
+    // Start the network proxy. A flag will be sent to the channel of tx once the network proxy
+    // is prepared to accept requests.
     #[tokio::main]
     async fn start_network_proxy(
         config: NetworkProxyConfig,
@@ -60,7 +64,7 @@ impl NetworkProxyPlugin {
 
         let endpoint_spec_json = serde_json::from_str(endpoint_spec_json_str)?;
         let (network_proxy_config, endpoint_spec_json) =
-            extract_subobject(endpoint_spec_json, NETWORK_PROXY_KEY);
+            remove_subobject(endpoint_spec_json, NETWORK_PROXY_KEY);
 
         let network_proxy_config: NetworkProxyConfig = match network_proxy_config {
             None => return Ok(endpoint_spec_json_str.to_string()),
@@ -70,7 +74,7 @@ impl NetworkProxyPlugin {
         let (tx, rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
         std::thread::spawn(|| Self::start_network_proxy(network_proxy_config, tx));
 
-        // Block until network proxy is ready;
+        // Block for 5 seconds until network proxy is ready;
         if let Err(_) = rx.recv_timeout(std::time::Duration::from_secs(5)) {
             return Err(Error::ChannelTimeoutError);
         };
