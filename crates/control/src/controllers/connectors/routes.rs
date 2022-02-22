@@ -1,21 +1,17 @@
-use crate::config::settings;
+use crate::controllers::url_for;
 use crate::models::Id;
 
 pub fn index() -> String {
-    prefixed("/connectors")
+    url_for("/connectors")
 }
 
 pub fn show(connector_id: Id) -> String {
-    prefixed(format!("/connectors/{}", connector_id.to_string()))
+    url_for(format!("/connectors/{}", connector_id.to_string()))
 }
 
 pub fn images(connector_id: Id) -> String {
-    prefixed(format!(
+    url_for(format!(
         "/connectors/{}/connector_images",
         connector_id.to_string()
     ))
-}
-
-fn prefixed(path: impl Into<String>) -> String {
-    format!("http://{}{}", settings().application.address(), path.into())
 }
