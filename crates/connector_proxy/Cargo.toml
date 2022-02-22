@@ -1,0 +1,29 @@
+[package]
+name = "connector_proxy"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "flow-connector-proxy"
+path = "src/main.rs"
+
+[dependencies]
+doc = { path = "../doc", version = "0.0.0" }
+flow_cli_common = { path = "../flow_cli_common" }
+network-proxy = { path = "../network-proxy", version = "0.1.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+
+async-trait="*"
+bytes = "*"
+byteorder="*"
+clap = { version = "^3", features = ["derive"] }
+prost = "*"
+schemars = "*"
+serde = { version = "*", features = ["derive"]}
+serde_json = "*"
+structopt = "*"
+strum = "*"
+strum_macros = "*"
+thiserror = "*"
+tokio = { version = "1.15.0", features = ["full"] }
+tracing="*"
