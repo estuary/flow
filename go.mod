@@ -6,6 +6,10 @@ require (
 	cloud.google.com/go/storage v1.18.2
 	github.com/alecthomas/jsonschema v0.0.0-20210818095345-1014919a589c
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
+	github.com/containerd/containerd v1.5.9 // indirect
+	github.com/docker/distribution v2.8.0+incompatible // indirect
+	github.com/docker/docker v20.10.12+incompatible // indirect
+	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/fatih/color v1.7.0
 	github.com/go-openapi/jsonpointer v0.19.3
