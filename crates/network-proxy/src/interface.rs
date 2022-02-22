@@ -1,20 +1,20 @@
-use super::sshforwarding::{SshForwardingConfig, SshForwarding};
 use super::networkproxy::NetworkProxy;
+use super::sshforwarding::{SshForwarding, SshForwardingConfig};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub enum NetworkProxyConfig {
-    SshForwarding(SshForwardingConfig)
+    SshForwarding(SshForwardingConfig),
 }
 
 impl NetworkProxyConfig {
-  pub fn new_proxy(self) -> Box<dyn NetworkProxy> {
+    pub fn new_proxy(self) -> Box<dyn NetworkProxy> {
         match self {
-            NetworkProxyConfig::SshForwarding(config) =>
-                Box::new(SshForwarding::new(config))
+            NetworkProxyConfig::SshForwarding(config) => Box::new(SshForwarding::new(config)),
         }
     }
 }
