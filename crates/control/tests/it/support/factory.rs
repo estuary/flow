@@ -1,7 +1,9 @@
 use sqlx::PgPool;
 
+use control::models::accounts::{Account, NewAccount};
 use control::models::connector_images::{ConnectorImage, NewConnectorImage};
 use control::models::connectors::{Connector, ConnectorType, NewConnector};
+use control::repo::accounts::insert as insert_account;
 use control::repo::connector_images::insert as insert_image;
 use control::repo::connectors::insert as insert_connector;
 
@@ -76,6 +78,24 @@ impl KafkaImage {
 
     pub async fn create(&self, db: &PgPool, connector: &Connector) -> ConnectorImage {
         insert_image(&db, self.attrs(connector))
+            .await
+            .expect("to insert test data")
+    }
+}
+
+pub struct BatmanAccount;
+
+impl BatmanAccount {
+    pub fn attrs(&self) -> NewAccount {
+        NewAccount {
+            display_name: "Bruce Wayne".to_owned(),
+            email: "batman@batcave.test".to_owned(),
+            name: "batman".to_owned(),
+        }
+    }
+
+    pub async fn create(&self, db: &PgPool) -> Account {
+        insert_account(db, self.attrs())
             .await
             .expect("to insert test data")
     }
