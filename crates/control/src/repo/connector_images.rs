@@ -1,7 +1,7 @@
 use futures::TryFutureExt;
 use sqlx::PgPool;
 
-use crate::models::connector_images::{ConnectorImage, CreateConnectorImage};
+use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
 use crate::models::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<ConnectorImage>, sqlx::Error> {
@@ -46,10 +46,7 @@ pub async fn fetch_one(db: &PgPool, id: Id) -> Result<ConnectorImage, sqlx::Erro
     .await
 }
 
-pub async fn insert(
-    db: &PgPool,
-    input: CreateConnectorImage,
-) -> Result<ConnectorImage, sqlx::Error> {
+pub async fn insert(db: &PgPool, input: NewConnectorImage) -> Result<ConnectorImage, sqlx::Error> {
     sqlx::query!(
         r#"
     INSERT INTO connector_images(connector_id, name, digest, tag, created_at, updated_at)
