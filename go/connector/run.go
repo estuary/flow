@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -20,6 +21,59 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
+
+type DockerRunCommandBuilder struct {
+	image     string
+	args      []string
+	imageArgs []string
+}
+
+func NewDockerRunCommandBuilder(image string) *DockerRunCommandBuilder {
+	return &DockerRunCommandBuilder{
+		image:     image,
+		args:      []string{},
+		imageArgs: []string{},
+	}
+}
+
+func (dcb *DockerRunCommandBuilder) SetInteractive(i bool) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--interactive=%s", strconv.FormatBool(i)))
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) setCleanup(c bool) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--rm=%s", strconv.FormatBool(c)))
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) SetEntrypoint(entrypoint string) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--entrypoint=%s", entrypoint))
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) SetNetwork(networkName string) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--network=%s", networkName))
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) SetLogDriver(driverName string) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, "--log-driver", driverName)
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) AddMount(hostPath string, containerPath string) *DockerRunCommandBuilder {
+	dcb.imageArgs = append(dcb.imageArgs, "--mount", fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) AddArgs(args []string) *DockerRunCommandBuilder {
+	dcb.args = append(dcb.args, args...)
+	return dcb
+}
+
+func (dcb *DockerRunCommandBuilder) Build() []string {
+	return append(append(append([]string{"docker", "run"}, dcb.imageArgs...), dcb.image), dcb.args...)
+}
 
 // Run the given Docker |image| with |args|.
 //
@@ -46,35 +100,12 @@ import (
 // a bounded prefix of the container's stderr output.
 func Run(
 	ctx context.Context,
-	image string,
-	networkName string,
-	args []string,
+	cmdBuilder *DockerRunCommandBuilder,
 	jsonFiles map[string]json.RawMessage,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
 ) error {
-	var imageArgs = []string{
-		"docker",
-		"run",
-		"--interactive",
-		"--rm",
-		// Tell docker not to persist any container stdout/stderr output.
-		// Containers may write _lots_ of output to std streams, and docker's
-		// logging drivers may persist all or some of that to disk, which could
-		// easily exhaust all available disk space. The default logging driver
-		// does this. Setting the log driver here means that we don't rely on
-		// any user-defined docker configuration for this, but it also means
-		// that running `docker logs` to see the output of a connector will not
-		// work. This is acceptable, since all of the stderr output is logged
-		// into the ops collections.
-		"--log-driver",
-		"none",
-	}
-
-	if networkName != "" {
-		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
-	}
 
 	var tempdir, err = ioutil.TempDir("", "connector-files")
 	if err != nil {
@@ -89,9 +120,7 @@ func Run(
 		if err := unix.Mkfifo(hostPath, 0644); err != nil {
 			return fmt.Errorf("creating fifo %s: %w", hostPath, err)
 		}
-		imageArgs = append(imageArgs,
-			"--mount",
-			fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
+		cmdBuilder.AddMount(hostPath, containerPath)
 
 		// |timeout| must account for startup delays due to image pulls.
 		// TODO(johnny): run `docker pull` first if this is a problem.
@@ -102,9 +131,19 @@ func Run(
 			}
 		}(hostPath, data)
 	}
-	args = append(append(imageArgs, image), args...)
 
-	return runCommand(ctx, args, writeLoop, output, logger)
+	// Set LogDriver to be "none" to tell docker not to persist any container
+	// stdout/stderr output.
+	// Containers may write _lots_ of output to std streams, and docker's
+	// logging drivers may persist all or some of that to disk, which could
+	// easily exhaust all available disk space. The default logging driver
+	// does this. Setting the log driver here means that we don't rely on
+	// any user-defined docker configuration for this, but it also means
+	// that running `docker logs` to see the output of a connector will not
+	// work. This is acceptable, since all of the stderr output is logged
+	// into the ops collections.
+	var cmd = cmdBuilder.SetInteractive(true).setCleanup(true).SetLogDriver("none").Build()
+	return runCommand(ctx, cmd, writeLoop, output, logger)
 }
 
 // fifoSend writes |data| into a named FIFO at |path| with a |timeout|.
