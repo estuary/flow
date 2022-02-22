@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use base64::display::Base64Display;
 
+pub mod accounts;
 pub mod connector_images;
 pub mod connectors;
 
