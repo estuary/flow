@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use crate::error::AppError;
 use crate::models::connectors::Connector;
-use crate::models::connectors::CreateConnector;
+use crate::models::connectors::NewConnector;
 use crate::models::Id;
 use crate::repo::connector_images as images_repo;
 use crate::repo::connectors as connectors_repo;
@@ -23,7 +23,7 @@ pub async fn index(Extension(db): Extension<PgPool>) -> Result<impl IntoResponse
 
 pub async fn create(
     Extension(db): Extension<PgPool>,
-    Json(input): Json<CreateConnector>,
+    Json(input): Json<NewConnector>,
 ) -> Result<impl IntoResponse, AppError> {
     let connector = connectors_repo::insert(&db, input).await?;
 
