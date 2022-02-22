@@ -61,6 +61,10 @@ impl ApplicationSettings {
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+
+    pub fn base_url(&self) -> String {
+        format!("http://{}", self.address())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
