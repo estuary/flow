@@ -9,7 +9,14 @@ This connector captures data from Amazon Kinesis streams.
 
 ## Prerequisites
 
-Maybe: setup IAM user to securely generate access key and secret access key https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/get-set-up-for-amazon-ec2.html#create-an-iam-user
+You'll need one or more Amazon Kinesis streams. For a given capture, all streams must:
+
+* Contain JSON data only
+* Be accessible from a single root user or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html) in AWS
+* Be in the same [AWS region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html#concepts-available-regions)
+
+You'll also need the AWS **access key** and **secret access key** for the user.
+See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
 
 ## Configuration
 
@@ -19,9 +26,9 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 | Value | Name| Description | Type | Required/Default |
 |---|---|---|---|---|
-| `awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to Kinesis | string | Required |
-| `awsSecretAccessKey`| AWS Secret Access Key | Part of the AWS credentials that will be used to connect to Kinesis | string | Required |
-| `endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you're capturing from a kinesis-compatible API that isn't provided by AWS | string | |
+| `awsAccessKeyId` | AWS Access Key ID | AWS credential used to connect to Kinesis | string | Required |
+| `awsSecretAccessKey`| AWS Secret Access Key | AWS credential used to connect to Kinesis | string | Required |
+| `endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Useful if you're capturing from a kinesis-compatible API that isn't provided by AWS. | string | |
 | `region` | AWS Region | The name of the AWS region where the Kinesis stream is located | string | `"us-east-1"`, Required |
 
 ### Sample
@@ -37,11 +44,10 @@ captures:
         config:
           awsAccessKeyId: "example-aws-access-key-id"
           awsSecretAccessKey: "example-aws-secret-access-key"
-          endpoint: "https://example-endpoint.amazonaws.com"
           region: "us-east-1"
     bindings:
       - resource:
-          namespace: ${STREAM_NAMESPACE} #maybe delete this Olivia!!!!!!
+          namespace: ${STREAM_NAMESPACE} #FOR REVIEW: does namespace matter?/What does it do here?
           stream: ${STREAM_NAME}
           syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}

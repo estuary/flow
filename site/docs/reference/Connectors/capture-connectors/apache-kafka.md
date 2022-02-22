@@ -20,7 +20,7 @@ Neither authentication nor connection security are enabled by default in your Ka
 Similarly, Flow's Kafka connectors do not strictly require authentication or connection security mechanisms.
 You may choose to omit them for local development and testing; however, both are strongly encouraged for production environments.
 
-A wide [variety of authentication methods](https://kafka.apache.org/documentation/#security_overview) are available in Kafka clusters.
+A wide [variety of authentication methods](https://kafka.apache.org/documentation/#security_overview) is available in Kafka clusters.
 All SASL methods are permissable for clusters used with Flow, so long as connection details are provided.
 When authentication details are not provided, the client connection will attempt to use PLAINTEXT (insecure) protocol.
 
@@ -47,14 +47,14 @@ There are various ways to configure and implement connectors. See [connectors](.
 | Value | Name | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `bootstrap_servers` | Bootstrap servers | The initial servers in the Kafka cluster to connect to. The Kafka client will be informed of the rest of the cluster nodes by connecting to one of these nodes. | array | Required |
-| `tls`| TLS | TLS connection settings | string | "system_certificates" |
+| `tls`| TLS | TLS connection settings | string | `"system_certificates"` |
 | `authentication`| Authentication | Connection details used to authenticate a client connection to Kafka via SASL | null, object | |
 | `authentication/mechanism` | Mechanism | SASL mechanism describing how to exchange and authenticate client servers | string |  |
 | `authentication/password` | Password | Password, if applicable for the authentication mechanism chosen | string | |
 | `authentication/username` | Username | Username, if applicable for the authentication mechanism chosen | string | |
 
 ### Sample
-```YAML
+```yaml
 captures:
   ${TENANT}/${CAPTURE_NAME}:
     endpoint:
@@ -73,5 +73,4 @@ captures:
            stream: ${STREAM_NAME}
            syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
-
 ```
