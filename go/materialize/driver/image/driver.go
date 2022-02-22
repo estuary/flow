@@ -70,9 +70,18 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 		"operation":        "spec",
 	})
 
+	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName)
+	if proxy, err := connector.NewProxy(source.Image, connector.ProxyFlowMaterialize, connector.FlowMaterialize, logger); err != nil {
+		return nil, err
+	} else if err = proxy.PrepareToRun(ctx, "spec", cb); err != nil {
+		return nil, err
+	} else {
+		defer proxy.Cleanup()
+	}
+
 	var resp *pm.SpecResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
-		[]string{"spec"},
+	err = connector.Run(ctx,
+		cb,
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
 			defer connector.ZeroBytes(decrypted)
@@ -115,9 +124,18 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 		"operation":        "validate",
 	})
 
+	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName)
+	if proxy, err := connector.NewProxy(source.Image, connector.ProxyFlowMaterialize, connector.FlowMaterialize, logger); err != nil {
+		return nil, err
+	} else if err = proxy.PrepareToRun(ctx, "validate", cb); err != nil {
+		return nil, err
+	} else {
+		defer proxy.Cleanup()
+	}
+
 	var resp *pm.ValidateResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
-		[]string{"validate"},
+	err = connector.Run(ctx,
+		cb,
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
 			defer connector.ZeroBytes(decrypted)
@@ -170,9 +188,18 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 		"operation":        "apply",
 	})
 
+	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName)
+	if proxy, err := connector.NewProxy(source.Image, connector.ProxyFlowMaterialize, connector.FlowMaterialize, logger); err != nil {
+		return nil, err
+	} else if err = proxy.PrepareToRun(ctx, variant, cb); err != nil {
+		return nil, err
+	} else {
+		defer proxy.Cleanup()
+	}
+
 	var resp *pm.ApplyResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
-		[]string{variant},
+	err = connector.Run(ctx,
+		cb,
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
 			defer connector.ZeroBytes(decrypted)
@@ -222,11 +249,18 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		"operation":        "transactions",
 	})
 
+	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName)
+	if proxy, err := connector.NewProxy(source.Image, connector.ProxyFlowMaterialize, connector.FlowMaterialize, logger); err != nil {
+		return err
+	} else if err = proxy.PrepareToRun(stream.Context(), "transactions", cb); err != nil {
+		return err
+	} else {
+		defer proxy.Cleanup()
+	}
+
 	return connector.Run(
 		stream.Context(),
-		source.Image,
-		d.networkName,
-		[]string{"transactions"},
+		cb,
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error { return protoWriteLoop(stream, open, w) },
 		connector.NewProtoOutput(
