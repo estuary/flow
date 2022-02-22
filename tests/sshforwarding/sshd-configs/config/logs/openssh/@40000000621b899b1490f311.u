@@ -1,0 +1,15 @@
+2022-02-27 14:17:30.264591289  Server listening on 0.0.0.0 port 2222.
+2022-02-27 14:17:30.264597511  Server listening on :: port 2222.
+2022-02-27 14:19:14.282481220  Received signal 15; terminating.
+2022-02-27 14:19:18.526199474  Server listening on 0.0.0.0 port 2222.
+2022-02-27 14:19:18.526207626  Server listening on :: port 2222.
+2022-02-27 14:19:20.770729926  Accepted publickey for flowssh from 127.0.0.1 port 53810 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:19:32.737424329  Accepted publickey for flowssh from 127.0.0.1 port 53812 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:19:33.722073020  Accepted publickey for flowssh from 127.0.0.1 port 53814 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:22:32.756756159  Received signal 15; terminating.
+2022-02-27 14:22:36.901651044  Server listening on 0.0.0.0 port 2222.
+2022-02-27 14:22:36.901658052  Server listening on :: port 2222.
+2022-02-27 14:22:38.824297185  Accepted publickey for flowssh from 127.0.0.1 port 53816 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:22:50.199860625  Accepted publickey for flowssh from 127.0.0.1 port 53818 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:22:51.152630799  Accepted publickey for flowssh from 127.0.0.1 port 53820 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
+2022-02-27 14:23:15.673462378  Received signal 15; terminating.
