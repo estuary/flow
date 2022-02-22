@@ -1,7 +1,7 @@
 use futures::TryFutureExt;
 use sqlx::PgPool;
 
-use crate::models::connectors::{Connector, ConnectorType, CreateConnector};
+use crate::models::connectors::{Connector, ConnectorType, NewConnector};
 use crate::models::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<Connector>, sqlx::Error> {
@@ -30,7 +30,7 @@ pub async fn fetch_one(db: &PgPool, id: Id) -> Result<Connector, sqlx::Error> {
     .await
 }
 
-pub async fn insert(db: &PgPool, input: CreateConnector) -> Result<Connector, sqlx::Error> {
+pub async fn insert(db: &PgPool, input: NewConnector) -> Result<Connector, sqlx::Error> {
     sqlx::query!(
         r#"
     INSERT INTO connectors(description, name, maintainer, type, created_at, updated_at)
