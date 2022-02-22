@@ -129,7 +129,7 @@ sqlite3 ${OUTPUT_DB} >> ${ACTUAL} <<EOF
         name = 'examples/source-hello-world'
 EOF
 echo 'greetings from psql:' >> ${ACTUAL}
-docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -e PGPASSWORD=flow postgres psql -w -U flow -d flow -c 'SELECT message, count FROM greetings ORDER BY count;' --csv -P pager=off >> ${ACTUAL}
+docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow -c 'SELECT message, count FROM greetings ORDER BY count;' --csv -P pager=off >> ${ACTUAL}
 
 # Clean up the activated catalog.
 flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."
