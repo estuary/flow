@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// A naive implementation for building docker run commands to start connectors.
 type DockerRunCommandBuilder struct {
 	image     string
 	args      []string
@@ -47,17 +48,23 @@ func (dcb *DockerRunCommandBuilder) setCleanup(c bool) *DockerRunCommandBuilder 
 }
 
 func (dcb *DockerRunCommandBuilder) SetEntrypoint(entrypoint string) *DockerRunCommandBuilder {
-	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--entrypoint=%s", entrypoint))
+	if entrypoint != "" {
+		dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--entrypoint=%s", entrypoint))
+	}
 	return dcb
 }
 
 func (dcb *DockerRunCommandBuilder) SetNetwork(networkName string) *DockerRunCommandBuilder {
-	dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--network=%s", networkName))
+	if networkName != "" {
+		dcb.imageArgs = append(dcb.imageArgs, fmt.Sprintf("--network=%s", networkName))
+	}
 	return dcb
 }
 
 func (dcb *DockerRunCommandBuilder) SetLogDriver(driverName string) *DockerRunCommandBuilder {
-	dcb.imageArgs = append(dcb.imageArgs, "--log-driver", driverName)
+	if driverName != "" {
+		dcb.imageArgs = append(dcb.imageArgs, "--log-driver", driverName)
+	}
 	return dcb
 }
 
