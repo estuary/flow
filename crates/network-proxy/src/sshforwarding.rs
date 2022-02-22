@@ -1,10 +1,10 @@
-use super::logging::Must;
 use super::errors::Error;
 use super::networkproxy::NetworkProxy;
 
 use async_trait::async_trait;
 use base64::decode;
 use futures::pin_mut;
+use schemars::JsonSchema;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thrussh::{client::{Handle, Session}, client};
@@ -16,15 +16,21 @@ use tokio::net::tcp::{ReadHalf};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct SshForwardingConfig {
+    /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]
     pub ssh_endpoint: String,
+    /// User name to connect to the remote SSH server.
     pub ssh_user: String,
+    /// Base64-encoded private Key to connect to the remote SSH server.
     pub ssh_private_key_base64: String,
+    /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
     pub remote_host: String,
+    /// Port of the remote destination.
     pub remote_port: u16,
+    /// Local port to start the SSH tunnel.
     pub local_port: u16,
 }
 
@@ -97,7 +103,10 @@ impl NetworkProxy for SshForwarding {
                 self.config.remote_port as u32,
                 "127.0.0.1", 0).await?;
             tokio::task::spawn(async move {
-                tunnel_streaming(forward_stream, bastion_channel).await.or_bail("tunnel_handle failed.");
+                if let Err(err) = tunnel_streaming(forward_stream, bastion_channel).await {
+                    tracing::error!(error = ?err, "tunnel_streaming failed.");
+                    std::process::exit(1);
+                }
             });
         }
     }
@@ -153,7 +162,7 @@ async fn tunnel_streaming(mut forward_stream: TcpStream, mut bastion_channel: cl
                         forward_stream_write.write(data).await?;
                     },
                     // Ignore the other control messages, keep polling.
-                    msg => { tracing::info!("SSH control message: {:?}", msg)} 
+                    msg => { tracing::info!("SSH control message: {:?}", msg)}
                 }
             }
         }
