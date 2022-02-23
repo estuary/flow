@@ -26,7 +26,7 @@ mime = "*"
 num-bigint = "*"
 schemars = "*"
 serde = {version = "*", features=["derive"]}
-serde_json = {version = "*", features = ["raw_value", "arbitrary_precision"]}
+serde_json = {version = "*", features = ["raw_value"]}
 structopt = "*"
 tempfile = "*"
 thiserror = "*"
