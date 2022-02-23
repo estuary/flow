@@ -4,8 +4,8 @@ use tower_http::cors::{self, AnyOr, Origin};
 
 use crate::config::settings;
 
-// Safe Header List from https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header
 static ALLOWED_HEADERS: &[header::HeaderName] = &[
+    // Safe Header List from https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header
     header::CACHE_CONTROL,
     header::CONTENT_LANGUAGE,
     header::CONTENT_LENGTH,
@@ -13,6 +13,8 @@ static ALLOWED_HEADERS: &[header::HeaderName] = &[
     header::EXPIRES,
     header::LAST_MODIFIED,
     header::PRAGMA,
+    // Headers we need for the function of the API
+    header::AUTHORIZATION,
 ];
 
 pub fn cors_layer() -> cors::CorsLayer {
