@@ -1,23 +1,6 @@
 version: "3.7"
 
 services:
-  control:
-    image: control:dev
-    build:
-      context: ./../..
-      dockerfile: control.Dockerfile
-      network: host
-    environment:
-      DATABASE_URL: "postgres://flow:flow@127.0.0.1:5432/control_development"
-    network_mode: host
-    depends_on:
-      - postgres
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health_check"]
-      interval: 2m
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-
   postgres:
     image: postgres:latest
     command: ["postgres", "-c", "wal_level=logical"]
