@@ -7,6 +7,7 @@ use base64::display::Base64Display;
 pub mod accounts;
 pub mod connector_images;
 pub mod connectors;
+pub mod credentials;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedIdError {
