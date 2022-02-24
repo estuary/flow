@@ -7,6 +7,8 @@ use serde::Serialize;
 use sqlx::PgPool;
 use tokio::time::Instant;
 
+use crate::context::AppContext;
+
 #[serde_as]
 #[derive(Debug, Serialize)]
 pub struct HealthCheck {
@@ -16,10 +18,10 @@ pub struct HealthCheck {
     db_ping_seconds: Option<Duration>,
 }
 
-pub async fn show(Extension(db): Extension<PgPool>) -> Json<HealthCheck> {
+pub async fn show(Extension(ctx): Extension<AppContext>) -> Json<HealthCheck> {
     Json(HealthCheck {
         current_time: Utc::now(),
-        db_ping_seconds: ping(&db).await,
+        db_ping_seconds: ping(ctx.db()).await,
     })
 }
 

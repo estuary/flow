@@ -1,5 +1,7 @@
 use std::net::TcpListener;
 
+use control::context::AppContext;
+use control::services::builds_root::init_builds_root;
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -96,12 +98,13 @@ pub async fn spawn_app(db: PgPool) -> anyhow::Result<String> {
     let addr = listener.local_addr()?.to_string();
 
     let builds_root_uri = url::Url::parse(&format!("file://{}/", std::env::temp_dir().display()))?;
-    let (put_builds, fetch_builds) = startup::init_builds_root(&config::BuildsRootSettings {
+    let (put_builds, fetch_builds) = init_builds_root(&config::BuildsRootSettings {
         uri: builds_root_uri,
     })?;
+    let ctx = AppContext::new(db, put_builds, fetch_builds);
 
     // Tokio runs an executor for each test, so this server will shut down at the end of the test.
-    let server = startup::run(listener, db, put_builds, fetch_builds)?;
+    let server = startup::run(listener, ctx)?;
     let _ = tokio::spawn(server);
 
     Ok(addr)
