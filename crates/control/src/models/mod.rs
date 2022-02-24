@@ -8,6 +8,7 @@ pub mod accounts;
 pub mod connector_images;
 pub mod connectors;
 pub mod credentials;
+pub mod sessions;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MalformedIdError {
