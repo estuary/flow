@@ -165,8 +165,8 @@ dependencies = [
  "serde 1.0.133",
  "serde_json",
  "snap",
- "strum",
- "strum_macros",
+ "strum 0.18.0",
+ "strum_macros 0.18.0",
  "thiserror",
  "typed-builder",
  "uuid",
@@ -674,8 +674,8 @@ dependencies = [
  "serde 1.0.133",
  "serde_json",
  "structopt",
- "strum",
- "strum_macros",
+ "strum 0.18.0",
+ "strum_macros 0.18.0",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -722,6 +722,7 @@ dependencies = [
  "serde_with",
  "sha2 0.10.2",
  "sqlx",
+ "strum 0.24.0",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3706,6 +3707,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57bd81eb48f4c437cadc685403cad539345bf703d78e63707418431cecd4522b"
 
 [[package]]
+name = "strum"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e96acfc1b70604b8b2f1ffa4c57e59176c7dbb05d556c71ecd2f5498a1dee7f8"
+dependencies = [
+ "strum_macros 0.24.0",
+]
+
+[[package]]
 name = "strum_macros"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3714,6 +3724,19 @@ dependencies = [
  "heck 0.3.3",
  "proc-macro2",
  "quote",
+ "syn",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6878079b17446e4d3eba6192bb0a2950d5b14f0ed8424b852310e5a94345d0ef"
+dependencies = [
+ "heck 0.4.0",
+ "proc-macro2",
+ "quote",
+ "rustversion",
  "syn",
 ]
 

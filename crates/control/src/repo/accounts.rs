@@ -49,3 +49,18 @@ pub async fn insert(db: &PgPool, input: NewAccount) -> Result<Account, sqlx::Err
     .and_then(|row| fetch_one(db, row.id))
     .await
 }
+
+pub async fn find_by_name(db: &PgPool, name: &str) -> Result<Option<Account>, sqlx::Error> {
+    sqlx::query_as!(
+        Account,
+        r#"
+    SELECT id as "id!: Id", display_name, email, name, unique_name, created_at, updated_at
+    FROM accounts
+    WHERE name = $1
+    LIMIT 1
+    "#,
+        name
+    )
+    .fetch_optional(db)
+    .await
+}
