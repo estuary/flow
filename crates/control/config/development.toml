@@ -2,6 +2,7 @@
 [application]
 host = "127.0.0.1"
 port = 3000
+connector_network = "host"
 
 [application.cors]
 allowed_origins = ["*"]
