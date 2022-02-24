@@ -18,6 +18,7 @@ pub struct ApplicationSettings {
     pub host: String,
     pub port: u16,
     pub cors: CorsSettings,
+    pub connector_network: String,
 }
 
 impl ApplicationSettings {

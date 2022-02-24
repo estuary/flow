@@ -2,14 +2,11 @@ use std::path::Path;
 
 use tokio::process::Command;
 
+use crate::config::settings;
+
 pub fn spec(image: &str) -> Command {
     let mut cmd = Command::new("flowctl");
-    cmd.arg("api")
-        .arg("spec")
-        .arg("--image")
-        .arg(image)
-        .arg("--network")
-        .arg("host");
+    cmd.arg("api").arg("spec").arg("--image").arg(image);
 
     cmd
 }
@@ -23,7 +20,7 @@ pub fn discovery(image: &str, config_path: &Path) -> Command {
         .arg("--config")
         .arg(config_path)
         .arg("--network")
-        .arg("host");
+        .arg(&settings().application.connector_network);
 
     cmd
 }
