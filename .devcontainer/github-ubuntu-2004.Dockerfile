@@ -122,8 +122,9 @@ RUN locale-gen ${LOCALE}
 RUN useradd flow --create-home --shell /usr/sbin/nologin \
     && echo flow ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/flow \
     && chmod 0440 /etc/sudoers.d/flow
-# Go binaries built by `flow` should be on the PATH.
-ENV PATH=/home/flow/go/bin:$PATH
+
+# Binaries built by `flow` should be on the PATH.
+ENV PATH=/workspace/.build/package/bin:$PATH
 
 # Adapted from: https://github.com/microsoft/vscode-dev-containers/tree/main/containers/docker-from-docker#adding-the-user-to-a-docker-group
 COPY docker-debian.sh /tmp
