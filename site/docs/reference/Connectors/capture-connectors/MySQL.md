@@ -93,6 +93,13 @@ captures:
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
+## Connecting to secure networks
+
+The MySQL source connector [supports SSH tunneling](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+to allow Flow to connect to databases ports in secure networks.
+
+To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
+
 ## MySQL on Amazon RDS
 
 Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
@@ -106,7 +113,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
 ### Setup
 
-1. #TO FACT CHECK You'll need to configure secure access to the database to enable the Flow capture.
+1. You'll need to configure secure access to the database to enable the Flow capture.
   Currently, Estuary supports SSH tunneling to allow this.
   Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
 
