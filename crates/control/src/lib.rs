@@ -7,6 +7,7 @@ pub mod models;
 pub mod repo;
 pub mod startup;
 
+mod context;
 mod controllers;
 mod cors;
 mod error;
