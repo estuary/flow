@@ -13,12 +13,15 @@ pub struct Settings {
     pub database: DatabaseSettings,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct ApplicationSettings {
     pub host: String,
     pub port: u16,
     pub cors: CorsSettings,
     pub connector_network: String,
+    #[serde_as(deserialize_as = "serde_with::Bytes")]
+    pub secret_key_base: Vec<u8>,
 }
 
 impl ApplicationSettings {
