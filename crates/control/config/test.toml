@@ -3,6 +3,7 @@
 host = "127.0.0.1"
 port = 0 # servers launch on a random port in test mode
 connector_network = "host"
+secret_key_base = "too short for production"
 
 [application.cors]
 allowed_origins = ["*"]
