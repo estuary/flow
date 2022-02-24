@@ -154,6 +154,62 @@
       ]
     }
   },
+  "4b3539ce8e0957dbe681fe1f670e54b83647a82645cf73f6723b92f28962f5de": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, norm_name, created_at, updated_at\n    FROM accounts\n    WHERE name = $1\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "display_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "email",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "norm_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "519ad7895f092f1731aef839940bbad23127f0ed3973a998105a797f95431a71": {
     "query": "\n    INSERT INTO credentials(\n        account_id,\n        expires_at,\n        issuer,\n        last_authorized_at,\n        session_token,\n        subject,\n        created_at,\n        updated_at\n    )\n    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
     "describe": {
@@ -393,6 +449,74 @@
         ]
       },
       "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "d15338f785aceb4a2d02118f760c54cd755f54486308e7a6a9d47250f9acd90e": {
+    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
         false,
         false,
         false,

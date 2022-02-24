@@ -1,0 +1,20 @@
+---
+source: crates/control/tests/it/sessions.rs
+assertion_line: 33
+expression: redactor.response_json(response).await.unwrap()
+
+---
+{
+  "data": {
+    "attributes": {
+      "account_id": "[a1]",
+      "expires_at": "[datetime]",
+      "token": "[session_token]"
+    },
+    "id": "[nonce]",
+    "links": {
+      "account": "http://127.0.0.1:0/accounts/[a1]"
+    },
+    "type": "session"
+  }
+}
