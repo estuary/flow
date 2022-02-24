@@ -30,16 +30,19 @@ RUN apt update -y \
       less \
       libclang-12-dev \
       libncurses5-dev \
+      libprotobuf-dev \
       libreadline-dev \
       libssl-dev \
       lld-12 \
       locales \
+      musl-tools \
       net-tools \
       netcat \
       npm \
       openssh-client  \
       pkg-config \
       postgresql-client \
+      protobuf-compiler \
       psmisc \
       sqlite3 \
       strace \
