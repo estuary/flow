@@ -21,10 +21,10 @@ Similarly, Flow's Kafka connectors do not strictly require authentication or con
 You may choose to omit them for local development and testing; however, both are strongly encouraged for production environments.
 
 A wide [variety of authentication methods](https://kafka.apache.org/documentation/#security_overview) is available in Kafka clusters.
-All SASL methods are permissable for clusters used with Flow, so long as connection details are provided.
+Flow supports SASL/SCRAM-SHA-256, SASL/SCRAM-SHA-512, and SASL/PLAIN. Behavior using other authentication methods is not guaranteed.
 When authentication details are not provided, the client connection will attempt to use PLAINTEXT (insecure) protocol.
 
-If you don't already have authentication enabled on your cluster, Estuary recommends [SASL/SCRAM](https://kafka.apache.org/documentation/#security_sasl_scram).
+If you don't already have authentication enabled on your cluster, Estuary recommends either of listed [SASL/SCRAM](https://kafka.apache.org/documentation/#security_sasl_scram) methods.
 With SCRAM, you set up a username and password, making it analogous to the traditional authentication mechanisms
 you use in other applications.
 
@@ -61,15 +61,14 @@ captures:
       connector:
         image: ghcr.io/estuary/source-kafka:dev
         config:
-            bootstrap_servers: localhost:9093
+            bootstrap_servers: [localhost:9093]
             tls: system_certificates
-            authentication: #FOR REVIEW: need semi-realistic example values
-                mechanism:
-                username:
-                password:
+            authentication:
+                mechanism: SCRAM-SHA-512
+                username: bruce.wayne
+                password: definitely-not-batman
     bindings:
       - resource:
-           namespace: ${STREAM_NAMESPACE} #FOR REVIEW: does namespace matter?/What does it do here?
            stream: ${STREAM_NAME}
            syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
