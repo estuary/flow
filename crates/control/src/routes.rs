@@ -8,6 +8,7 @@ pub fn routes() -> Router {
         .merge(connectors_routes())
         .merge(connector_images_routes())
         .merge(health_check_routes())
+        .merge(sessions_routes())
 }
 
 fn accounts_routes() -> Router {
@@ -53,4 +54,8 @@ fn connector_images_routes() -> Router {
 
 fn health_check_routes() -> Router {
     Router::new().route("/health_check", get(controllers::health_check::show))
+}
+
+fn sessions_routes() -> Router {
+    Router::new().route("/sessions/:issuer", post(controllers::sessions::create))
 }

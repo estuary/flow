@@ -83,3 +83,29 @@ fn random_token() -> String {
     rand::thread_rng().fill_bytes(&mut bytes[..]);
     Base64Display::with_config(bytes.as_ref(), base64::URL_SAFE_NO_PAD).to_string()
 }
+
+pub async fn find_by_account(
+    db: &PgPool,
+    account_id: Id,
+) -> Result<Option<Credential>, sqlx::Error> {
+    sqlx::query_as!(
+        Credential,
+        r#"
+    SELECT id as "id!: Id",
+           account_id as "account_id!: Id",
+           expires_at,
+           issuer,
+           last_authorized_at,
+           session_token,
+           subject,
+           created_at,
+           updated_at
+    FROM credentials
+    WHERE account_id = $1
+    LIMIT 1
+    "#,
+        account_id as Id
+    )
+    .fetch_optional(db)
+    .await
+}
