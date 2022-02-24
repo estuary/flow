@@ -2,6 +2,8 @@ use std::net::TcpListener;
 
 use crate::cmd::{async_runtime, ConfigArgs};
 use crate::config;
+use crate::context::AppContext;
+pub use crate::services::builds_root::init_builds_root;
 use crate::startup;
 
 #[derive(clap::Args, Debug)]
@@ -24,8 +26,10 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
 async fn serve(listener: TcpListener) -> anyhow::Result<()> {
     let db = startup::connect_to_postgres(&config::settings().database).await;
-    let (put_builds, fetch_builds) = startup::init_builds_root(&config::settings().builds_root)?;
-    let server = startup::run(listener, db, put_builds, fetch_builds)?;
+    let (put_builds, fetch_builds) = init_builds_root(&config::settings().builds_root)?;
+    let ctx = AppContext::new(db, put_builds, fetch_builds);
+
+    let server = startup::run(listener, ctx)?;
 
     // The server runs until it receives a shutdown signal.
     server.await?;
