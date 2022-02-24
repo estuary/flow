@@ -10,6 +10,7 @@ mod accounts;
 mod connector_images;
 mod connectors;
 mod health_check;
+mod sessions;
 mod support;
 
 /// Setup runs exactly once before any tests run. This allows the test suite to
