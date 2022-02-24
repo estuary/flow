@@ -250,7 +250,7 @@ dependencies = [
  "blowfish",
  "crypto-mac",
  "pbkdf2",
- "sha2",
+ "sha2 0.9.9",
  "zeroize",
 ]
 
@@ -343,6 +343,15 @@ name = "block-buffer"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4152116fd6e9dadb291ae18fc1ec3575ed6d84c29642d97890f4b4a3417297e4"
+dependencies = [
+ "generic-array 0.14.5",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf7fe51849ea569fd452f37822f606a5cabb684dc918707a0193fd4664ff324"
 dependencies = [
  "generic-array 0.14.5",
 ]
@@ -701,6 +710,7 @@ dependencies = [
  "ctor",
  "flow_cli_common",
  "futures",
+ "hmac 0.12.1",
  "hyper",
  "insta",
  "once_cell",
@@ -710,6 +720,7 @@ dependencies = [
  "serde 1.0.133",
  "serde_json",
  "serde_with",
+ "sha2 0.10.2",
  "sqlx",
  "tempfile",
  "thiserror",
@@ -871,6 +882,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57952ca27b5e3606ff4dd79b0020231aaf9d6aa76dc05fd30137538c50bd3ce8"
+dependencies = [
+ "generic-array 0.14.5",
+ "typenum",
+]
+
+[[package]]
 name = "crypto-mac"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1025,6 +1046,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
  "generic-array 0.14.5",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
+dependencies = [
+ "block-buffer 0.10.2",
+ "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -1538,6 +1570,15 @@ checksum = "2a2a2320eb7ec0ebe8da8f744d7812d9fc4cb4d09344ac01898dbcb6a20ae69b"
 dependencies = [
  "crypto-mac",
  "digest 0.9.0",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.3",
 ]
 
 [[package]]
@@ -2449,9 +2490,9 @@ checksum = "d95f5254224e617595d2cc3cc73ff0a5eaf2637519e25f03388154e9378b6ffa"
 dependencies = [
  "base64ct",
  "crypto-mac",
- "hmac",
+ "hmac 0.11.0",
  "password-hash",
- "sha2",
+ "sha2 0.9.9",
 ]
 
 [[package]]
@@ -3319,6 +3360,7 @@ version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad6056b4cb69b6e43e3a0f055def223380baecc99da683884f205bf347f7c4b3"
 dependencies = [
+ "base64",
  "chrono",
  "rustversion",
  "serde 1.0.133",
@@ -3385,6 +3427,17 @@ dependencies = [
  "cpufeatures",
  "digest 0.9.0",
  "opaque-debug 0.3.0",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55deaec60f81eefe3cce0dc50bda92d6d8e88f2a27df7c5033b42afeb1ed2676"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest 0.10.3",
 ]
 
 [[package]]
@@ -3527,7 +3580,7 @@ dependencies = [
  "futures-util",
  "hashlink",
  "hex",
- "hmac",
+ "hmac 0.11.0",
  "indexmap",
  "itoa 1.0.1",
  "libc",
@@ -3542,7 +3595,7 @@ dependencies = [
  "serde 1.0.133",
  "serde_json",
  "sha-1 0.9.8",
- "sha2",
+ "sha2 0.9.9",
  "smallvec",
  "sqlformat",
  "sqlx-rt",
@@ -3570,7 +3623,7 @@ dependencies = [
  "quote",
  "serde 1.0.133",
  "serde_json",
- "sha2",
+ "sha2 0.9.9",
  "sqlx-core",
  "sqlx-rt",
  "syn",
@@ -3820,7 +3873,7 @@ dependencies = [
  "log",
  "openssl",
  "rand 0.8.4",
- "sha2",
+ "sha2 0.9.9",
  "thiserror",
  "thrussh-keys",
  "thrussh-libsodium",
@@ -3842,7 +3895,7 @@ dependencies = [
  "data-encoding",
  "dirs 3.0.2",
  "futures",
- "hmac",
+ "hmac 0.11.0",
  "log",
  "md5",
  "num-bigint 0.4.3",
@@ -3852,7 +3905,7 @@ dependencies = [
  "rand 0.8.4",
  "serde 1.0.133",
  "serde_derive",
- "sha2",
+ "sha2 0.9.9",
  "thiserror",
  "thrussh-libsodium",
  "tokio",

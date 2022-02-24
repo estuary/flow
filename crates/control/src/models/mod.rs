@@ -53,7 +53,7 @@ impl Id {
     }
 
     /// Converts the Id value to bytes. **Must** be the inverse operation of `from_bytes`.
-    fn bytes(&self) -> [u8; 8] {
+    pub(crate) fn bytes(&self) -> [u8; 8] {
         self.0.to_be_bytes()
     }
 
