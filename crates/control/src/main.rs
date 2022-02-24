@@ -4,6 +4,8 @@ use std::net::TcpListener;
 
 use control::config;
 use control::config::app_env::{self, AppEnv};
+use control::context::AppContext;
+use control::services::builds_root::init_builds_root;
 use control::startup;
 
 /// Runs the control plane api server in development mode.
@@ -31,8 +33,10 @@ async fn main() -> anyhow::Result<()> {
     let settings = config::load_settings("config/development.toml")?;
     let listener = TcpListener::bind(settings.application.address())?;
     let db = startup::connect_to_postgres(&settings.database).await;
-    let (put_builds, fetch_builds) = startup::init_builds_root(&settings.builds_root)?;
-    let server = startup::run(listener, db, put_builds, fetch_builds)?;
+    let (put_builds, fetch_builds) = init_builds_root(&settings.builds_root)?;
+    let ctx = AppContext::new(db, put_builds, fetch_builds);
+
+    let server = startup::run(listener, ctx)?;
 
     // The server runs until it receives a shutdown signal.
     server.await?;
