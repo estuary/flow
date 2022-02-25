@@ -9,7 +9,8 @@ default-run = "control"
 [dependencies]
 anyhow = "1.0.52"
 async-trait = "0.1.52"
-axum = "0.4.3"
+axum = "0.4.6"
+axum-macros = "0.1.1"
 base64 = "0.13.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = { version = "3.0.13", features = ["derive"] }
@@ -26,20 +27,19 @@ serde = { version = "1.0.133", features = ["derive"] }
 serde_json = { version = "1.0.74", features = ["raw_value"] }
 serde_with = { version = "1.11.0", features = ["base64", "chrono"] }
 sha2 = "0.10.2"
-sqlx = { version = "0.5.10", features = [ "chrono", "offline", "postgres", "runtime-tokio-rustls" ] }
+sqlx = { version = "0.5.11", features = [ "chrono", "offline", "postgres", "runtime-tokio-rustls" ] }
 strum = { version = "0.24.0", features = ["derive"] }
 tempfile = "3.3.0"
 thiserror = "1.0.30"
 tokio = { version = "1.15.0", features = ["full"] }
 tower = { version = "0.4.11", features = ["limit"] }
-tower-http = { version = "0.2.0", features = ["cors", "trace"] }
+tower-http = { version = "0.2.2", features = ["cors", "trace"] }
 tracing = "0.1.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = {version = "2.2.2", features = ["serde"]}
 validator = {version = "*", features = ["derive"]}
 
 [dev-dependencies]
-axum-debug = "0.3.2"
 ctor = "0.1.21"
 insta = { version = "1.10.0", features = ["redactions"] }
 
