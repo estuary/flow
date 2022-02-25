@@ -1,4 +1,5 @@
 use crate::controllers;
+use crate::middleware::sessions::validate_authentication_token;
 use axum::routing::{get, post};
 use axum::Router;
 
@@ -7,6 +8,7 @@ pub fn routes() -> Router {
         .merge(accounts_routes())
         .merge(connectors_routes())
         .merge(connector_images_routes())
+        .layer(axum::middleware::from_fn(validate_authentication_token))
         .merge(health_check_routes())
         .merge(sessions_routes())
 }
