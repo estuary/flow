@@ -83,6 +83,24 @@ impl KafkaImage {
     }
 }
 
+pub struct AdminAccount;
+
+impl AdminAccount {
+    pub fn attrs(&self) -> NewAccount {
+        NewAccount {
+            display_name: "Admin".to_owned(),
+            email: "admin@site.test".to_owned(),
+            name: "admin".to_owned(),
+        }
+    }
+
+    pub async fn create(&self, db: &PgPool) -> Account {
+        insert_account(db, self.attrs())
+            .await
+            .expect("to insert test data")
+    }
+}
+
 pub struct BatmanAccount;
 
 impl BatmanAccount {
@@ -91,6 +109,24 @@ impl BatmanAccount {
             display_name: "Bruce Wayne".to_owned(),
             email: "batman@batcave.test".to_owned(),
             name: "batman".to_owned(),
+        }
+    }
+
+    pub async fn create(&self, db: &PgPool) -> Account {
+        insert_account(db, self.attrs())
+            .await
+            .expect("to insert test data")
+    }
+}
+
+pub struct JokerAccount;
+
+impl JokerAccount {
+    pub fn attrs(&self) -> NewAccount {
+        NewAccount {
+            display_name: "Joker".to_owned(),
+            email: "joker@batcave.test".to_owned(),
+            name: "joker".to_owned(),
         }
     }
 

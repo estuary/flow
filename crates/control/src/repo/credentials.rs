@@ -109,3 +109,31 @@ pub async fn find_by_account(
     .fetch_optional(db)
     .await
 }
+
+pub async fn fetch_by_account_and_session_token(
+    db: &PgPool,
+    account_id: Id,
+    session_token: &str,
+) -> Result<Credential, sqlx::Error> {
+    sqlx::query_as!(
+        Credential,
+        r#"
+    SELECT id as "id!: Id",
+           account_id as "account_id!: Id",
+           expires_at,
+           issuer,
+           last_authorized_at,
+           session_token,
+           subject,
+           created_at,
+           updated_at
+    FROM credentials
+    WHERE account_id = $1 AND session_token = $2
+    LIMIT 1
+    "#,
+        account_id as Id,
+        session_token,
+    )
+    .fetch_one(db)
+    .await
+}

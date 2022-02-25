@@ -8,7 +8,9 @@ use crate::support::{self, factory, test_context};
 #[tokio::test]
 async fn index_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let connector = factory::HelloWorldConnector.create(t.db()).await;
 
     // Act
@@ -26,7 +28,9 @@ async fn index_test() {
 #[tokio::test]
 async fn create_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let input = factory::KafkaConnector.attrs();
 
     // Act
@@ -46,7 +50,9 @@ async fn create_test() {
 #[tokio::test]
 async fn images_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let connector = factory::HelloWorldConnector.create(t.db()).await;
     let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
@@ -73,7 +79,9 @@ async fn images_test() {
 #[tokio::test]
 async fn duplicate_insertion_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let input = factory::KafkaConnector.attrs();
 
     // Act
