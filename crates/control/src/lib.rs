@@ -9,8 +9,8 @@ pub mod startup;
 
 mod context;
 mod controllers;
-mod cors;
 mod error;
+mod middleware;
 mod routes;
 mod services;
 mod shutdown;
