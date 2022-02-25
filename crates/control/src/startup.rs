@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::config::{self, DatabaseSettings};
 use crate::context::AppContext;
-use crate::cors;
+use crate::middleware::cors;
 use crate::routes::routes;
 use crate::shutdown;
 
