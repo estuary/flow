@@ -10,7 +10,7 @@ pub mod services;
 pub mod startup;
 
 mod controllers;
-mod cors;
 mod error;
+mod middleware;
 mod routes;
 mod shutdown;
