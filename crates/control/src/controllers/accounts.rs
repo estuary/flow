@@ -6,6 +6,7 @@ use hyper::StatusCode;
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::middleware::sessions::CurrentAccount;
 use crate::models::accounts::Account;
 use crate::models::accounts::NewAccount;
 use crate::models::Id;
@@ -32,8 +33,13 @@ pub async fn create(
 pub async fn show(
     Extension(ctx): Extension<AppContext>,
     Path(account_id): Path<Id>,
+    CurrentAccount(current_account): CurrentAccount,
 ) -> Result<impl IntoResponse, AppError> {
-    let account = accounts_repo::fetch_one(ctx.db(), account_id).await?;
+    if account_id == current_account.id {
+        let account = accounts_repo::fetch_one(ctx.db(), account_id).await?;
 
-    Ok((StatusCode::OK, view::show(account)))
+        Ok((StatusCode::OK, view::show(account)))
+    } else {
+        Err(AppError::AccessDenied)
+    }
 }
