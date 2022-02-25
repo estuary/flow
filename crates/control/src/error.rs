@@ -13,6 +13,9 @@ use crate::services::sessions::SessionError;
 /// response.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    #[error("access denied")]
+    AccessDenied,
+
     #[error("io error")]
     Io(#[from] std::io::Error),
 
@@ -35,6 +38,7 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
+            &AppError::AccessDenied => StatusCode::FORBIDDEN,
             AppError::Io(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Serde(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Session(_e) => StatusCode::BAD_REQUEST,
