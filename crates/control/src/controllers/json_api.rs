@@ -71,9 +71,9 @@ pub struct ProblemDetails {
 /// about the response.
 #[derive(Debug, Serialize)]
 pub struct PayloadError {
-    errors: Vec<ProblemDetails>,
+    pub errors: Vec<ProblemDetails>,
     #[serde(skip_serializing_if = "Links::is_empty")]
-    links: Links,
+    pub links: Links,
 }
 
 impl PayloadError {
