@@ -3,13 +3,15 @@ use std::net::TcpListener;
 use axum::body::Body;
 use axum::http::{header, Request};
 use axum::response::Response;
-use axum::Router;
+use axum::{AddExtensionLayer, Router};
 use serde::Serialize;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
 use control::config;
 use control::context::AppContext;
+use control::middleware::sessions::CurrentAccount;
+use control::models::accounts::Account;
 use control::services::builds_root::init_builds_root;
 use control::startup::{self, FetchBuilds, PutBuilds};
 
@@ -29,6 +31,7 @@ pub struct TestContext {
     pub test_name: &'static str,
     db: PgPool,
     app: Router,
+    auth: Option<AddExtensionLayer<CurrentAccount>>,
 }
 
 impl TestContext {
@@ -40,8 +43,21 @@ impl TestContext {
         let app_context = AppContext::new(db.clone(), put_builds, fetch_builds);
         let app = startup::app(app_context.clone());
 
-        Self { test_name, db, app }
+        Self {
+            test_name,
+            db,
+            app,
+            auth: None,
+        }
     }
+
+    pub fn login(&mut self, account: Account) {
+        self.auth = Some(AddExtensionLayer::new(CurrentAccount(account)));
+    }
+
+    // pub fn logout(&mut self) {
+    //     self.auth = None;
+    // }
 
     pub async fn get(&self, path: &str) -> Response {
         let req = Request::builder()
@@ -80,7 +96,11 @@ impl TestContext {
     }
 
     pub fn app(&self) -> Router {
-        self.app.clone()
+        if let Some(auth) = &self.auth {
+            self.app.clone().layer(auth)
+        } else {
+            self.app.clone()
+        }
     }
 }
 

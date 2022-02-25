@@ -10,7 +10,7 @@ use crate::models::Id;
 ///
 /// An `Account` is a Rust representation of the Postgres database understanding
 /// of the account.
-#[derive(Debug, Deserialize, FromRow, Serialize)]
+#[derive(Clone, Debug, Deserialize, FromRow, Serialize)]
 pub struct Account {
     /// When this record was created.
     pub created_at: DateTime<Utc>,
