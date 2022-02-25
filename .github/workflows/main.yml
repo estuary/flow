@@ -151,8 +151,6 @@ jobs:
 
       # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
       - run: |
-          cargo cache --version
-          echo "$CARGO_CACHE_VERSION"
           if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
             cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
           fi
