@@ -24,7 +24,8 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
 async fn serve(listener: TcpListener) -> anyhow::Result<()> {
     let db = startup::connect_to_postgres(&config::settings().database).await;
-    let server = startup::run(listener, db)?;
+    let (put_builds, fetch_builds) = startup::init_builds_root(&config::settings().builds_root)?;
+    let server = startup::run(listener, db, put_builds, fetch_builds)?;
 
     // The server runs until it receives a shutdown signal.
     server.await?;
