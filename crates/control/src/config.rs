@@ -11,6 +11,15 @@ pub use app_env::app_env;
 pub struct Settings {
     pub application: ApplicationSettings,
     pub database: DatabaseSettings,
+    pub builds_root: BuildsRootSettings,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BuildsRootSettings {
+    /// The URI of the builds root, where build databases will be stored. In production, this will
+    /// always be a `gs://` URI for GCS. When running locally, this may be a `file:///` URI. No
+    /// other URI schemes are currently supported.
+    pub uri: url::Url,
 }
 
 #[derive(Debug, Deserialize)]

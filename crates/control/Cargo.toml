@@ -19,6 +19,7 @@ futures = "0.3.19"
 hyper = { version = "0.14.16", features = ["full"] }
 once_cell = "1.9.0"
 rand = "0.8.4"
+rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 reqwest = { version = "0.11.9", features = ["json"] }
 serde = { version = "1.0.133", features = ["derive"] }
 serde_json = { version = "1.0.74", features = ["raw_value"] }
@@ -31,7 +32,7 @@ tower = { version = "0.4.11", features = ["limit"] }
 tower-http = { version = "0.2.0", features = ["cors", "trace"] }
 tracing = "0.1.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = "2.2.2"
+url = {version = "2.2.2", features = ["serde"]}
 
 [dev-dependencies]
 axum-debug = "0.3.2"
