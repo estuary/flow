@@ -32,6 +32,8 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 
 ### Values
 
+#### Endpoint
+
 | Value | Name| Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `project_id`| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset| String | Required |
@@ -44,6 +46,13 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 
 *Typically, you want this to be the same as `project_id` (the default).
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
+
+#### Bindings
+
+| Value | Name | Description | Type | Required/Default |
+|-------|------|------|---------| --------|
+| `table` | Table | Table name | string | Required |
+| `delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean | false |
 
 ### Sample
 

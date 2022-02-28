@@ -58,6 +58,9 @@ SET PERSIST binlog_expire_logs_seconds = 604800;
 There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the MySQL source connector.
 
 ### Values
+
+#### Endpoint
+
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `address` | Address | IP address and port of the database host | String | Required |
@@ -66,6 +69,14 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `dbname` | Database name | Name of the database to connect to | string | Required |
 | `server_id` | Server ID | Server ID for replication | int | Required |
 | `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills | string | `"flow.watermarks"` |
+
+#### Bindings
+
+| Value | Name | Description | Type | Required/Default |
+|-------|------|------|---------| --------|
+| `namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
+| `stream` | Stream | Table name | string | Required |
+| `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 A minimal capture definition within the catalog spec will look like the following:
@@ -92,3 +103,5 @@ captures:
 
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
+
+[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
