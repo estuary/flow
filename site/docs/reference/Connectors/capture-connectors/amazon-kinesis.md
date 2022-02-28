@@ -18,6 +18,12 @@ You'll need one or more Amazon Kinesis streams. For a given capture, all streams
 You'll also need the AWS **access key** and **secret access key** for the user.
 See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
 
+:::info Beta
+Your root or IAM user in AWS must have appropriate [permissions](https://aws.amazon.com/iam/features/manage-permissions/).
+Additional details will be added to this article soon.
+In the meantime, you can [contact Estuary Support](mailto:support@estuary.dev) if you encounter unexpected behavior.
+:::
+
 ## Configuration
 
 There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the Amazon Kinesis source connector.
@@ -47,7 +53,6 @@ captures:
           region: "us-east-1"
     bindings:
       - resource:
-          namespace: ${STREAM_NAMESPACE} #FOR REVIEW: does namespace matter?/What does it do here?
           stream: ${STREAM_NAME}
           syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
