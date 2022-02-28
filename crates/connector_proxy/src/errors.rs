@@ -1,11 +1,5 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("channel send error: {source:?}.")]
-    ChannelSendError {
-        #[from]
-        source: std::sync::mpsc::SendError<bool>,
-    },
-
     #[error("channel timeout in receiving messages after 5 seconds.")]
     ChannelTimeoutError,
 
@@ -18,6 +12,9 @@ pub enum Error {
     #[error("Entrypoint is an empty string.")]
     EmptyEntrypointError,
 
+    #[error("unable to parse the inspect file.")]
+    InvalidImageInspectFile,
+
     #[error("missing process io pipes.")]
     MissingIOPipe,
 
@@ -27,39 +24,39 @@ pub enum Error {
     #[error("invalid json pointer '{0}' to config.")]
     InvalidJsonPointer(String),
 
-    #[error("IO execution error: {source:?}.")]
-    IOError {
-        #[from]
-        source: std::io::Error,
-    },
+    #[error("IO execution failed.")]
+    IOError(#[from] std::io::Error),
 
-    #[error("Json serialization error: {source:?}.")]
-    JsonError {
-        #[from]
-        source: serde_json::Error,
-    },
+    #[error("Json serialization failed.")]
+    JsonError(#[from] serde_json::Error),
 
-    #[error("prost message decode error: {source:?}.")]
-    MessageDecodeError {
-        #[from]
-        source: prost::DecodeError,
-    },
+    #[error("prost message decoding failed.")]
+    MessageDecodeError(#[from] prost::DecodeError),
 
-    #[error("prost message encode error: {source:?}.")]
-    MessageEncodeError {
-        #[from]
-        source: prost::EncodeError,
-    },
+    #[error("prost message encoding failed.")]
+    MessageEncodeError(#[from] prost::EncodeError),
 
-    #[error("network proxy error: {source:?}.")]
-    NetworkProxyError {
-        #[from]
-        source: network_proxy::errors::Error,
-    },
+    #[error("network proxy failed with error: {0:?}.")]
+    NetworkProxyError(#[from] network_proxy::errors::Error),
 
-    #[error("Tokio task execution error: {source:?}.")]
-    TokioTaskExecutionError {
-        #[from]
-        source: tokio::task::JoinError,
-    },
+    #[error("Tokio task execution error.")]
+    TokioTaskExecutionError(#[from] tokio::task::JoinError),
+}
+pub trait Must<T> {
+    fn or_bail(self) -> T;
+}
+
+impl<T, E> Must<T> for Result<T, E>
+where
+    E: std::fmt::Display + std::fmt::Debug,
+{
+    fn or_bail(self) -> T {
+        match self {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::debug!(error_details = ?e);
+                std::process::exit(1);
+            }
+        }
+    }
 }
