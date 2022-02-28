@@ -7,12 +7,15 @@ use futures::pin_mut;
 use schemars::JsonSchema;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use thrussh::{client::{Handle, Session}, client};
+use thrussh::{
+    client,
+    client::{Handle, Session},
+};
 use thrussh_keys::key;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::ReadHalf;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use url::Url;
-use tokio::net::tcp::{ReadHalf};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +27,7 @@ pub struct SshForwardingConfig {
     pub ssh_endpoint: String,
     /// User name to connect to the remote SSH server.
     pub ssh_user: String,
-    /// Base64-encoded private Key to connect to the remote SSH server.
+    /// Base64-encoded private key to connect to the remote SSH server.
     pub ssh_private_key_base64: String,
     /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
     pub remote_host: String,
@@ -44,15 +47,20 @@ impl SshForwarding {
     const DEFAULT_SSH_PORT: u16 = 22;
 
     pub fn new(config: SshForwardingConfig) -> Self {
-        Self { config, ssh_client: None, local_listener: None }
+        Self {
+            config,
+            ssh_client: None,
+            local_listener: None,
+        }
     }
 
     pub async fn prepare_ssh_client(&mut self) -> Result<(), Error> {
-        let ssh_addrs = Url::parse(&self.config.ssh_endpoint)?.socket_addrs(|| Some(Self::DEFAULT_SSH_PORT))?;
+        let ssh_addrs =
+            Url::parse(&self.config.ssh_endpoint)?.socket_addrs(|| Some(Self::DEFAULT_SSH_PORT))?;
         let ssh_addr = ssh_addrs.get(0).ok_or(Error::InvalidSshEndpoint)?;
         let config = Arc::new(client::Config::default());
         let handler = ClientHandler {};
-        self.ssh_client = Some(client::connect( config, ssh_addr, handler).await?);
+        self.ssh_client = Some(client::connect(config, ssh_addr, handler).await?);
 
         Ok(())
     }
@@ -61,7 +69,8 @@ impl SshForwarding {
         if self.config.local_port == 0 {
             return Err(Error::ZeroLocalPort);
         }
-        let local_listen_addr: SocketAddr = format!("127.0.0.1:{}", self.config.local_port).parse()?;
+        let local_listen_addr: SocketAddr =
+            format!("127.0.0.1:{}", self.config.local_port).parse()?;
         self.local_listener = Some(TcpListener::bind(local_listen_addr).await?);
 
         Ok(())
@@ -75,9 +84,15 @@ impl SshForwarding {
             hash: key::SignatureHash::SHA2_256,
         });
 
-        let sc = self.ssh_client.as_mut().expect("ssh_client is uninitialized.");
-        if !sc.authenticate_publickey(&self.config.ssh_user, key_pair).await? {
-            return Err(Error::InvalidSshCredential)
+        let sc = self
+            .ssh_client
+            .as_mut()
+            .expect("ssh_client is uninitialized.");
+        if !sc
+            .authenticate_publickey(&self.config.ssh_user, key_pair)
+            .await?
+        {
+            return Err(Error::InvalidSshCredential);
         }
 
         Ok(())
@@ -94,14 +109,24 @@ impl NetworkProxy for SshForwarding {
     }
 
     async fn start_serve(&mut self) -> Result<(), Error> {
-        let sc = self.ssh_client.as_mut().expect("ssh_client is uninitialized.");
-        let ll = self.local_listener.as_mut().expect("local_listener is uninitialized.");
+        let sc = self
+            .ssh_client
+            .as_mut()
+            .expect("ssh_client is uninitialized.");
+        let ll = self
+            .local_listener
+            .as_mut()
+            .expect("local_listener is uninitialized.");
         loop {
             let (forward_stream, _) = ll.accept().await?;
-            let bastion_channel = sc.channel_open_direct_tcpip(
-                &self.config.remote_host,
-                self.config.remote_port as u32,
-                "127.0.0.1", 0).await?;
+            let bastion_channel = sc
+                .channel_open_direct_tcpip(
+                    &self.config.remote_host,
+                    self.config.remote_port as u32,
+                    "127.0.0.1",
+                    0,
+                )
+                .await?;
             tokio::task::spawn(async move {
                 if let Err(err) = tunnel_streaming(forward_stream, bastion_channel).await {
                     tracing::error!(error = ?err, "tunnel_streaming failed.");
@@ -120,7 +145,10 @@ async fn start_reading_forward_stream(
     Ok((n, stream, buf))
 }
 
-async fn tunnel_streaming(mut forward_stream: TcpStream, mut bastion_channel: client::Channel) -> Result<(), Error>{
+async fn tunnel_streaming(
+    mut forward_stream: TcpStream,
+    mut bastion_channel: client::Channel,
+) -> Result<(), Error> {
     let (forward_stream_read, mut forward_stream_write) = forward_stream.split();
 
     // Allocate a buffer of 128 KiB for forward stream.

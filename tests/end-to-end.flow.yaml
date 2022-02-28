@@ -35,7 +35,15 @@ materializations:
         partitions:
           # Exclude our own stats so we don't create an infinite loop.
           exclude: { "name": ["examples/stats"] }
-
+  test/hello-world/ssh-postgresl:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config: ./sshforwarding/materialize-postgres.ssh.config.yaml
+    bindings:
+      - resource:
+          table: greetings
+        source: examples/greetings
 
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }
