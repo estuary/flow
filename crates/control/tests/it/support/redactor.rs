@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use reqwest::Response;
+use axum::response::Response;
 use serde_json::Value as JsonValue;
 
 /// Applies more sweeping redactions than insta provides by default. Redactor
@@ -34,9 +34,11 @@ impl Redactor {
 
     /// Applies all redactions to the body of a response, then parses the result
     /// as json.
-    pub async fn response_json(&self, response: Response) -> anyhow::Result<JsonValue> {
-        let text = response.text().await?;
-        let redacted = &self.apply(text);
+    pub async fn response_json(&self, response: &mut Response) -> anyhow::Result<JsonValue> {
+        let body = hyper::body::to_bytes(response.body_mut())
+            .await
+            .expect("a response body");
+        let redacted = &self.apply(std::str::from_utf8(body.as_ref())?);
         let json = serde_json::from_str::<JsonValue>(redacted)?;
         Ok(json)
     }
