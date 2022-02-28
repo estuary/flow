@@ -42,6 +42,7 @@ validator = {version = "*", features = ["derive"]}
 [dev-dependencies]
 ctor = "0.1.21"
 insta = { version = "1.10.0", features = ["redactions"] }
+mime = "0.3.16"
 
 [features]
 flowctl = []
