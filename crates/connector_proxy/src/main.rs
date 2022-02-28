@@ -79,14 +79,22 @@ static DEFAULT_CONNECTOR_ENTRYPOINT: &str = "/connector/connector";
 //    "proxy-flow-capture" and "proxy-flow-materialize" for FlowCapture and FlowMaterialize protocols, respectively.
 // 2. The interceptors translate the Flow Runtime protocols to the native protocols of different connectors, and add functionalities
 //    that affect multiple operations during the communication. E.g. network proxy needs to modify the spec response to add the
-//    network proxy specs, and starts the network proxy for the rest commands. See apis.rs for details.nd allows additional functionalities to be triggered during the communications.
+//    network proxy specs, and starts the network proxy for the rest commands. See apis.rs for details.nd allows additional
+//    functionalities to be triggered during the communications.
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // respond to signals.
+    let Args {
+        image_inspect_json_path,
+        proxy_command,
+        log_args,
+    } = Args::parse();
+    init_logging(&log_args);
+
+    // respond to os signals.
     tokio::task::spawn(async move { signal_handler().await });
 
-    let result = async_main().await;
+    let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
         tracing::error!(error = %err, "proxy execution failed.");
         std::process::exit(1);
@@ -105,13 +113,10 @@ async fn signal_handler() {
     std::process::exit(0);
 }
 
-async fn async_main() -> Result<(), Error> {
-    let Args {
-        image_inspect_json_path,
-        proxy_command,
-        log_args,
-    } = Args::parse();
-    init_logging(&log_args);
+async fn async_main(
+    image_inspect_json_path: String,
+    proxy_command: ProxyCommand,
+) -> Result<(), Error> {
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
     match proxy_command {

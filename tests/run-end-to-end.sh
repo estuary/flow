@@ -1,4 +1,5 @@
 #!/bin/bash
+
 #
 # This script runs the examples catalog to completion using a temp-data-plane in --poll mode,
 # and outputs selected materializations.

@@ -17,7 +17,7 @@ pub enum FlowCaptureOperation {
     Pull,
 }
 
-// Flow Materialize operations defined in.
+// Flow Materialize operations defined in
 // https://github.com/estuary/flow/blob/master/go/protocols/materialize/materialize.proto
 #[derive(Debug, strum_macros::Display, ArgEnum, Clone)]
 #[strum(serialize_all = "kebab_case")]
@@ -46,8 +46,8 @@ pub type RequestResponseConverterPair<T> = (ConverterFn<T>, ConverterFn<T>);
 pub trait Interceptor<T: FlowOperation> {
     fn get_converters() -> RequestResponseConverterPair<T> {
         (
-            Box::new(|_ops, stream| Ok(stream)),
-            Box::new(|_ops, stream| Ok(stream)),
+            Box::new(|_op, stream| Ok(stream)),
+            Box::new(|_op, stream| Ok(stream)),
         )
     }
 }
