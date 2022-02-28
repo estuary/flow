@@ -12,6 +12,7 @@ use protocol::capture::{
 use async_stream::stream;
 use futures_util::pin_mut;
 use futures_util::StreamExt;
+use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 
 pub struct NetworkProxyCaptureInterceptor {}
@@ -22,8 +23,8 @@ impl NetworkProxyCaptureInterceptor {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<DiscoverRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
-                request.endpoint_spec_json.as_str(),
-            ).await.or_bail();
+                RawValue::from_string(request.endpoint_spec_json)?,
+            ).await.or_bail().to_string();
             yield encode_message(&request);
         })
     }
@@ -33,8 +34,8 @@ impl NetworkProxyCaptureInterceptor {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
-                request.endpoint_spec_json.as_str(),
-            ).await.or_bail();
+                RawValue::from_string(request.endpoint_spec_json)?,
+            ).await.or_bail().to_string();
             yield encode_message(&request);
         })
     }
@@ -45,7 +46,9 @@ impl NetworkProxyCaptureInterceptor {
             let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             if let Some(ref mut c) = request.capture {
                 c.endpoint_spec_json =
-                    NetworkProxy::consume_network_proxy_config(c.endpoint_spec_json.as_str()).await.or_bail();
+                    NetworkProxy::consume_network_proxy_config(
+                        RawValue::from_string(c.endpoint_spec_json.clone())?,
+                ).await.or_bail().to_string();
             }
             yield encode_message(&request);
         })
@@ -58,8 +61,8 @@ impl NetworkProxyCaptureInterceptor {
             if let Some(ref mut o) = request.open {
                 if let Some(ref mut c) = o.capture {
                     c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
-                        c.endpoint_spec_json.as_str(),
-                    ).await.or_bail();
+                        RawValue::from_string(c.endpoint_spec_json.clone())?,
+                    ).await.or_bail().to_string();
                 }
             }
             yield encode_message(&request);
@@ -98,8 +101,8 @@ impl NetworkProxyCaptureInterceptor {
                 let mut reader = StreamReader::new(in_stream);
                 let mut response = decode_message::<SpecResponse, _>(&mut reader).await.or_bail().expect("No expected response received.");
                 response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
-                    response.endpoint_spec_schema_json.as_str(),
-                ).or_bail();
+                    RawValue::from_string(response.endpoint_spec_schema_json)?,
+                ).or_bail().to_string();
                 yield encode_message(&response);
             }),
             _ => in_stream,

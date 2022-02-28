@@ -11,7 +11,9 @@ use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, Vali
 use async_stream::stream;
 use futures_util::pin_mut;
 use futures_util::StreamExt;
+use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
+
 pub struct NetworkProxyMaterializeInterceptor {}
 
 impl NetworkProxyMaterializeInterceptor {
@@ -20,9 +22,10 @@ impl NetworkProxyMaterializeInterceptor {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             request.endpoint_spec_json =
-                NetworkProxy::consume_network_proxy_config(request.endpoint_spec_json.as_str())
+                NetworkProxy::consume_network_proxy_config(RawValue::from_string(request.endpoint_spec_json)?)
                     .await
-                    .expect("failed to start network proxy");
+                    .expect("failed to start network proxy")
+                    .to_string();
             yield encode_message(&request);
         })
     }
@@ -33,7 +36,9 @@ impl NetworkProxyMaterializeInterceptor {
             let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             if let Some(ref mut m) = request.materialization {
                 m.endpoint_spec_json =
-                    NetworkProxy::consume_network_proxy_config(m.endpoint_spec_json.as_str()).await.or_bail();
+                    NetworkProxy::consume_network_proxy_config(
+                        RawValue::from_string(m.endpoint_spec_json.clone())?,
+                    ).await.or_bail().to_string();
             }
             yield encode_message(&request);
         })
@@ -46,8 +51,8 @@ impl NetworkProxyMaterializeInterceptor {
             if let Some(ref mut o) = request.open {
                 if let Some(ref mut m) = o.materialization {
                     m.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
-                        m.endpoint_spec_json.as_str(),
-                    ).await.or_bail();
+                        RawValue::from_string(m.endpoint_spec_json.clone())?,
+                    ).await.or_bail().to_string();
                 }
             }
             yield encode_message(&request);
@@ -83,8 +88,8 @@ impl NetworkProxyMaterializeInterceptor {
                 let mut reader = StreamReader::new(in_stream);
                 let mut response = decode_message::<SpecResponse, _>(&mut reader).await.or_bail().expect("expected response is not received.");
                 response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
-                    response.endpoint_spec_schema_json.as_str(),
-                ).or_bail();
+                    RawValue::from_string(response.endpoint_spec_schema_json)?,
+                ).or_bail().to_string();
                 yield encode_message(&response);
             }),
             _ => in_stream,
