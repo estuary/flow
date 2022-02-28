@@ -1,11 +1,17 @@
 use std::net::TcpListener;
 
-use control::context::AppContext;
-use control::services::builds_root::init_builds_root;
+use axum::body::Body;
+use axum::http::{header, Request};
+use axum::response::Response;
+use axum::Router;
 use serde::Serialize;
 use sqlx::PgPool;
+use tower::ServiceExt;
 
-use control::{config, startup};
+use control::config;
+use control::context::AppContext;
+use control::services::builds_root::init_builds_root;
+use control::startup::{self, FetchBuilds, PutBuilds};
 
 pub mod factory;
 pub mod redactor;
@@ -21,9 +27,8 @@ pub(crate) use test_context;
 
 pub struct TestContext {
     pub test_name: &'static str,
-    server_address: String,
     db: PgPool,
-    http: reqwest::Client,
+    app: Router,
 }
 
 impl TestContext {
@@ -31,41 +36,51 @@ impl TestContext {
         let db = test_database::test_db_pool(test_name)
             .await
             .expect("Failed to acquire a database connection");
-        let server_address = spawn_app(db.clone())
-            .await
-            .expect("Failed to spawn our app.");
-        let http = reqwest::Client::new();
+        let (put_builds, fetch_builds) = test_builds_root();
+        let app_context = AppContext::new(db.clone(), put_builds, fetch_builds);
+        let app = startup::app(app_context.clone());
 
-        Self {
-            test_name,
-            server_address,
-            db,
-            http,
-        }
+        Self { test_name, db, app }
     }
 
-    pub async fn get(&self, path: &str) -> reqwest::Response {
-        self.http
-            .get(format!("http://{}{}", &self.server_address, &path))
-            .send()
+    pub async fn get(&self, path: &str) -> Response {
+        let req = Request::builder()
+            .method(axum::http::Method::GET)
+            .uri(path)
+            .body(Body::empty())
+            .expect("to build GET request");
+
+        self.app()
+            .oneshot(req)
             .await
-            .expect("Failed to execute request.")
+            .expect("axum to always respond")
     }
 
-    pub async fn post<P>(&self, path: &str, payload: &P) -> reqwest::Response
+    pub async fn post<P>(&self, path: &str, payload: &P) -> Response
     where
         P: Serialize + ?Sized,
     {
-        self.http
-            .post(format!("http://{}{}", &self.server_address, &path))
-            .json(payload)
-            .send()
+        let req = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri(path)
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+            .body(Body::from(
+                serde_json::to_vec(payload).expect("to serialize request body"),
+            ))
+            .expect("to build POST request");
+
+        self.app()
+            .oneshot(req)
             .await
-            .expect("Failed to execute request.")
+            .expect("axum to always respond")
     }
 
     pub fn db(&self) -> &PgPool {
         &self.db
+    }
+
+    pub fn app(&self) -> Router {
+        self.app.clone()
     }
 }
 
@@ -97,10 +112,7 @@ pub async fn spawn_app(db: PgPool) -> anyhow::Result<String> {
     let listener = TcpListener::bind("127.0.0.1:0").expect("No random port available");
     let addr = listener.local_addr()?.to_string();
 
-    let builds_root_uri = url::Url::parse(&format!("file://{}/", std::env::temp_dir().display()))?;
-    let (put_builds, fetch_builds) = init_builds_root(&config::BuildsRootSettings {
-        uri: builds_root_uri,
-    })?;
+    let (put_builds, fetch_builds) = test_builds_root();
     let ctx = AppContext::new(db, put_builds, fetch_builds);
 
     // Tokio runs an executor for each test, so this server will shut down at the end of the test.
@@ -108,4 +120,13 @@ pub async fn spawn_app(db: PgPool) -> anyhow::Result<String> {
     let _ = tokio::spawn(server);
 
     Ok(addr)
+}
+
+pub fn test_builds_root() -> (PutBuilds, FetchBuilds) {
+    let builds_root_uri = url::Url::parse(&format!("file://{}/", std::env::temp_dir().display()))
+        .expect("to parse tempdir path");
+    init_builds_root(&config::BuildsRootSettings {
+        uri: builds_root_uri,
+    })
+    .expect("to initialize builds root")
 }

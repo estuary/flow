@@ -5,7 +5,7 @@ use control::repo::accounts as accounts_repo;
 use control::repo::credentials as credentials_repo;
 
 use crate::support::redactor::Redactor;
-use crate::support::{self, factory, test_context};
+use crate::support::{self, test_context};
 
 #[tokio::test]
 async fn local_registration_test() {
@@ -16,7 +16,7 @@ async fn local_registration_test() {
     };
 
     // Act
-    let response = t.post("/sessions/local", &input).await;
+    let mut response = t.post("/sessions/local", &input).await;
 
     // Assert
     let accounts = accounts_repo::fetch_all(t.db())
@@ -30,7 +30,7 @@ async fn local_registration_test() {
 
     assert_eq!(201, response.status().as_u16());
     let redactor = Redactor::default().redact(accounts[0].id, "a1");
-    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
         ".data.id" => "[nonce]",
         ".data.attributes.token" => "[session_token]",
         ".data.attributes.expires_at" => "[datetime]",
