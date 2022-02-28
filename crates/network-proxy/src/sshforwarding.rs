@@ -26,9 +26,9 @@ pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]
     pub ssh_endpoint: String,
     /// User name to connect to the remote SSH server.
-    pub ssh_user: String,
+    pub user: String,
     /// Base64-encoded private key to connect to the remote SSH server.
-    pub ssh_private_key_base64: String,
+    pub private_key_base64: String,
     /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
     pub forward_host: String,
     /// Port of the remote destination.
@@ -77,7 +77,7 @@ impl SshForwarding {
     }
 
     pub async fn authenticate(&mut self) -> Result<(), Error> {
-        let pem = decode(&self.config.ssh_private_key_base64)?;
+        let pem = decode(&self.config.private_key_base64)?;
 
         let key_pair = Arc::new(key::KeyPair::RSA {
             key: openssl::rsa::Rsa::private_key_from_pem(&pem)?,
@@ -89,7 +89,7 @@ impl SshForwarding {
             .as_mut()
             .expect("ssh_client is uninitialized.");
         if !sc
-            .authenticate_publickey(&self.config.ssh_user, key_pair)
+            .authenticate_publickey(&self.config.user, key_pair)
             .await?
         {
             return Err(Error::InvalidSshCredential);
