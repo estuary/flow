@@ -16,9 +16,7 @@ pub async fn decode_message<
 
     match reader.read_exact(&mut length_buf).await {
         Err(e) => match e.kind() {
-            // There is a missing corner case - fewer than 4 bytes are left at the end of the byte stream.
-            // These bytes will be ignored by this implementation. However, the proxy does not need to worry
-            // about it, since bytes are all derived from protobuf messages.
+            // By the current communication protocol, UnexpectedEof indicates the ending of the stream.
             std::io::ErrorKind::UnexpectedEof => return Ok(None),
             _ => return Err(e.into()),
         },

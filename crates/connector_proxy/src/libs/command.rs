@@ -14,6 +14,7 @@ pub fn invoke_connector(entrypoint: String, args: &[String]) -> Result<Child, Er
         .map_err(|e| e.into())
 }
 
+// Replace this function after `exit_status_error` is stable. https://github.com/rust-lang/rust/issues/84908
 pub fn check_exit_status(result: std::io::Result<ExitStatus>) -> Result<(), Error> {
     match result {
         Ok(status) => {

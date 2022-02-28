@@ -147,6 +147,11 @@ ${RUST_MUSL_BIN}/flow-parser:
 ${RUST_MUSL_BIN}/flow-network-proxy:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-proxy
 
+.PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
+${RUST_MUSL_BIN}/flow-connector-proxy:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
+
+
 ########################################################################
 # Final output packaging:
 
@@ -161,6 +166,7 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schemalate \
 	${PKGDIR}/bin/flow-network-proxy \
+	${PKGDIR}/bin/flow-connector-proxy \
 
 .PHONY: rust-binaries
 rust-binaries: $(RUST_TARGETS)
@@ -187,6 +193,9 @@ ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
 ${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-network-proxy $@
+${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
+
 
 ##########################################################################
 # Make targets used by CI:
@@ -214,11 +223,11 @@ install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-test
 rust-test:
-	cargo test --release --locked --workspace --exclude parser --exclude network-proxy --exclude schemalate
+	cargo test --release --locked --workspace --exclude parser --exclude network-proxy --exclude schemalate --exclude connector_proxy
 
 .PHONY: musl-test
 musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-proxy --package schemalate
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-proxy --package schemalate --package connector_proxy
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,

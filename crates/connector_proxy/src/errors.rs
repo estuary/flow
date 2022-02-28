@@ -42,6 +42,7 @@ pub enum Error {
     #[error("Tokio task execution error.")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
 }
+
 pub trait Must<T> {
     fn or_bail(self) -> T;
 }

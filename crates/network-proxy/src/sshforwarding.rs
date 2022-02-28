@@ -30,9 +30,9 @@ pub struct SshForwardingConfig {
     /// Base64-encoded private key to connect to the remote SSH server.
     pub ssh_private_key_base64: String,
     /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
-    pub remote_host: String,
+    pub forward_host: String,
     /// Port of the remote destination.
-    pub remote_port: u16,
+    pub forward_port: u16,
     /// Local port to start the SSH tunnel.
     pub local_port: u16,
 }
@@ -121,8 +121,8 @@ impl NetworkProxy for SshForwarding {
             let (forward_stream, _) = ll.accept().await?;
             let bastion_channel = sc
                 .channel_open_direct_tcpip(
-                    &self.config.remote_host,
-                    self.config.remote_port as u32,
+                    &self.config.forward_host,
+                    self.config.forward_port as u32,
                     "127.0.0.1",
                     0,
                 )

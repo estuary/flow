@@ -17,13 +17,13 @@ pub struct NetworkProxyMaterializeInterceptor {}
 impl NetworkProxyMaterializeInterceptor {
     fn convert_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
-        let mut reader = StreamReader::new(in_stream);
-        let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
-        request.endpoint_spec_json =
-            NetworkProxy::consume_network_proxy_config(request.endpoint_spec_json.as_str())
-                .await
-                .expect("failed to start network proxy");
-        yield encode_message(&request);
+            let mut reader = StreamReader::new(in_stream);
+            let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
+            request.endpoint_spec_json =
+                NetworkProxy::consume_network_proxy_config(request.endpoint_spec_json.as_str())
+                    .await
+                    .expect("failed to start network proxy");
+            yield encode_message(&request);
         })
     }
 

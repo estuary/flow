@@ -18,11 +18,11 @@ pub async fn run_connector<T: std::fmt::Display>(
     args.push(operation.to_string());
 
     let entrypoint = entrypoint[0].clone();
-    let (request_converter, response_converter) = converter_pair;
 
-    // invoke the connector.
+    // invoke the connector and converts the request/response streams.
     let mut child = invoke_connector(entrypoint, &args)?;
 
+    let (request_converter, response_converter) = converter_pair;
     // Perform conversions on requests and responses and starts bi-directional copying.
     let mut request_source = StreamReader::new((request_converter)(
         &operation,
