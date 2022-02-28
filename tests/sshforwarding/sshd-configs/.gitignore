@@ -1,0 +1,6 @@
+# Generated when starting the testing sshd service locally.
+config/custom-services.d
+config/.ssh
+config/logs
+config/sshd.pid
+config/ssh_host_keys

@@ -1,6 +1,0 @@
-2022-02-27 12:17:03.601257173  Server listening on 0.0.0.0 port 2222.
-2022-02-27 12:17:03.601263952  Server listening on :: port 2222.
-2022-02-27 12:17:05.359530728  Accepted publickey for flowssh from 127.0.0.1 port 42038 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
-2022-02-27 12:17:17.349630794  Accepted publickey for flowssh from 127.0.0.1 port 42040 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
-2022-02-27 12:17:18.320127826  Accepted publickey for flowssh from 127.0.0.1 port 42042 ssh2: RSA SHA256:UgdCbmdayPGr8VD3SALxpq5+DIpw9f1s93qQfsWwUlw
-2022-02-27 12:17:31.680616140  Received signal 15; terminating.

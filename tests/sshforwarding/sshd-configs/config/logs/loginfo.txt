@@ -1,1 +1,0 @@
-The current log file is named "current". The rotated log files are gzipped, named with a TAI64N timestamp and a ".s" extension
