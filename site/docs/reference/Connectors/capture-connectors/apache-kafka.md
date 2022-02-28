@@ -53,6 +53,13 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `authentication/password` | Password | Password, if applicable for the authentication mechanism chosen | string | |
 | `authentication/username` | Username | Username, if applicable for the authentication mechanism chosen | string | |
 
+#### Bindings
+
+| Value | Name | Description | Type | Required/Default |
+|-------|------|------|---------| --------|
+| `stream` | Stream | Topic name | string | Required |
+| `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+
 ### Sample
 ```yaml
 captures:
@@ -69,7 +76,11 @@ captures:
                 password: definitely-not-batman
     bindings:
       - resource:
-           stream: ${STREAM_NAME}
+           stream: ${TOPIC_NAME}
            syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
 ```
+
+Your capture definition will likely be more complex, with additional bindings for each Kafka topic.
+
+[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
