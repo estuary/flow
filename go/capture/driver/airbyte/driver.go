@@ -93,8 +93,9 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 	})
 
 	var spec *airbyte.Spec
-	var err = connector.Run(ctx,
-		connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName).AddArgs([]string{"spec"}),
+	var err = connector.Run(ctx, source.Image, d.networkName,
+		[]string{},
+		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
 		// No stdin is sent to the connector.
@@ -158,15 +159,13 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
 
 	var catalog *airbyte.Catalog
-	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName).AddArgs(
+	err = connector.Run(ctx, source.Image, d.networkName,
+		[]string{},
 		[]string{
 			"discover",
 			"--config",
 			"/tmp/config.json",
-		})
-
-	err = connector.Run(ctx,
-		cb,
+		},
 		// Write configuration JSON to connector input.
 		map[string]json.RawMessage{"config.json": decrypted},
 		// No stdin is sent to the connector.
@@ -257,15 +256,13 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 	})
 
 	var status *airbyte.ConnectionStatus
-	var cb = connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName).AddArgs(
+	err = connector.Run(ctx, source.Image, d.networkName,
+		[]string{},
 		[]string{
 			"check",
 			"--config",
 			"/tmp/config.json",
-		})
-
-	err = connector.Run(ctx,
-		cb,
+		},
 		// Write configuration JSON to connector input.
 		map[string]json.RawMessage{"config.json": decrypted},
 		// No stdin is sent to the connector.
@@ -430,9 +427,9 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	var resp *pc.PullResponse
 
 	// Invoke the connector for reading.
-	if err := connector.Run(
-		stream.Context(),
-		connector.NewDockerRunCommandBuilder(source.Image).SetNetwork(d.networkName).AddArgs(invokeArgs),
+	if err := connector.Run(stream.Context(), source.Image, d.networkName,
+		[]string{},
+		invokeArgs,
 		invokeFiles,
 		func(w io.Writer) error {
 			for {
