@@ -657,6 +657,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.4",
  "reqwest",
+ "rusqlite",
  "serde 1.0.133",
  "serde_json",
  "serde_with",

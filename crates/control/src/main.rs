@@ -31,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
     let settings = config::load_settings("config/development.toml")?;
     let listener = TcpListener::bind(settings.application.address())?;
     let db = startup::connect_to_postgres(&settings.database).await;
-    let server = startup::run(listener, db)?;
+    let (put_builds, fetch_builds) = startup::init_builds_root(&settings.builds_root)?;
+    let server = startup::run(listener, db, put_builds, fetch_builds)?;
 
     // The server runs until it receives a shutdown signal.
     server.await?;

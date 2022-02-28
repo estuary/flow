@@ -20,3 +20,6 @@ port = 5432
 username = "flow"
 password = "flow"
 db_name = "control_development"
+
+[builds_root]
+uri = "file:///var/tmp/flow-builds/"

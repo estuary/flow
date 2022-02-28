@@ -11,3 +11,6 @@ allowed_origins = ["*"]
 # test databases are created for each test in the suite. They are derived from
 # the development database. Settings here would not have much meaning. See the
 # development.toml, .env, and tests/it/main.rs for more information.
+
+[builds_root]
+uri = "file:///var/tmp/flow-builds/"
