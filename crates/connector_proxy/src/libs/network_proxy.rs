@@ -26,17 +26,17 @@ impl NetworkProxy {
         serde_json::to_string_pretty(&modified_schema).map_err(Into::into)
     }
 
-    // Start the network proxy. A flag will be sent to the channel of tx once the network proxy
-    // is prepared to accept requests.
+    // Start the network proxy. The receiver rx will be dropped to indicate the network proxy
+    // is ready to accept requests.
     async fn start_network_proxy(
         config: NetworkProxyConfig,
-        tx: Receiver<()>,
+        rx: Receiver<()>,
     ) -> Result<(), Error> {
         let mut network_proxy = config.new_proxy();
         tokio::task::spawn(async move {
             let result: Result<(), Error> = match network_proxy.prepare().await {
                 Ok(()) => {
-                    drop(tx);
+                    drop(rx);
                     network_proxy.start_serve().await.map_err(Into::into)
                 }
                 Err(e) => Err(e.into()),

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 
+// The key of the docker image label that indicates the connector protocol.
 const CONNECTOR_PROTOCOL_KEY: &str = "CONNECTOR_PROTOCOL";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
