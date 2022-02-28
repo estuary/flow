@@ -13,13 +13,13 @@ Estuary is actively developing new connectors, so check back regularly for the l
 ## Available capture connectors
 
 * Amazon Kinesis
-  * Configuration
+  * [Configuration](./amazon-kinesis.md)
   * Package — ghcr.io/estuary/source-kinesis:dev
 * Amazon S3
   * Configuration
   * Package — ghcr.io/estuary/source-s3:dev
 * Apache Kafka
-  * Configuration
+  * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/source-kafka:dev
 * Google Cloud Storage
   * Configuration
