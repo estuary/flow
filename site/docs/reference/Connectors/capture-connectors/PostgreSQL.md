@@ -85,16 +85,16 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `port` | Port | Port on which to connect to the database. | uint16 | `5432` |
 | `user` | User | Database user to use. | String | Required |
 | `password` | Password | User password configured within the database. | String | Required |
-| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from | String | `"flow_publication"` |
-| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from | String | `"flow_slot"` |
-| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills | String | `"public.flow_watermarks"` |
+| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from. | String | `"flow_publication"` |
+| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from. | String | `"flow_slot"` |
+| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills. | String | `"public.flow_watermarks"` |
 
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `namespace` | Namespace | The [namespace](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table, if used. | string | |
-| `stream` | Stream | Table name | string | Required |
+| `stream` | Stream | Table name. | string | Required |
 | `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample

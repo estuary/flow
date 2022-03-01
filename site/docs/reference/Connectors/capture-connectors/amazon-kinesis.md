@@ -30,20 +30,20 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 ### Values
 
-#### Bindings
+#### Endpoint
 
 | Value | Name| Description | Type | Required/Default |
 |---|---|---|---|---|
-| `awsAccessKeyId` | AWS Access Key ID | AWS credential used to connect to Kinesis | string | Required |
-| `awsSecretAccessKey`| AWS Secret Access Key | AWS credential used to connect to Kinesis | string | Required |
+| `awsAccessKeyId` | AWS Access Key ID | AWS credential used to connect to Kinesis. | string | Required |
+| `awsSecretAccessKey`| AWS Secret Access Key | AWS credential used to connect to Kinesis. | string | Required |
 | `endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Useful if you're capturing from a kinesis-compatible API that isn't provided by AWS. | string | |
-| `region` | AWS Region | The name of the AWS region where the Kinesis stream is located | string | `"us-east-1"`, Required |
-s
+| `region` | AWS Region | The name of the AWS region where the Kinesis stream is located. | string | `"us-east-1"`, Required |
+
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `stream` | Stream | Stream name | string | Required |
+| `stream` | Stream | Stream name. | string | Required |
 | `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample

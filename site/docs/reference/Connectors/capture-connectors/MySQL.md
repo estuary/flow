@@ -63,19 +63,19 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `address` | Address | IP address and port of the database host | String | Required |
-| `user` | User | Database user to connect as | String | Required |
-| `password` | Password | Password for the specified database user | string | Required |
-| `dbname` | Database name | Name of the database to connect to | string | Required |
-| `server_id` | Server ID | Server ID for replication | int | Required |
-| `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills | string | `"flow.watermarks"` |
+| `address` | Address | IP address and port of the database host. | String | Required |
+| `user` | User | Database user to connect as. | String | Required |
+| `password` | Password | Password for the specified database user. | string | Required |
+| `dbname` | Database name | Name of the database to connect to. | string | Required |
+| `server_id` | Server ID | Server ID for replication. | int | Required |
+| `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
 
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
-| `stream` | Stream | Table name | string | Required |
+| `stream` | Stream | Table name. | string | Required |
 | `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
