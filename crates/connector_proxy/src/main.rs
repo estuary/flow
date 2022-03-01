@@ -96,7 +96,7 @@ async fn main() -> std::io::Result<()> {
 
     let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
-        tracing::error!(error = %err, "proxy execution failed.");
+        tracing::error!(error = %err, "connector proxy execution failed.");
         std::process::exit(1);
     }
     Ok(())

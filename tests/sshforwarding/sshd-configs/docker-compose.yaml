@@ -24,5 +24,4 @@ services:
     image: 'postgres:latest'
     command: ["postgres"]
     environment: {"POSTGRES_DB": "flow", "POSTGRES_USER": "flow", "POSTGRES_PASSWORD": "flow"}
-    network_mode: "host"
-
+    ports: ["2345:5432"]

@@ -13,8 +13,8 @@ import (
 )
 
 // Constants related to the path of flow-connector-proxy.
-// If envvar FLOW_RUST_BIN is set, it is "${FLOW_RUST_BIN}/flow-connector-proxy". Otherwise,
-// use the default of "/usr/local/bin/flow-connector-proxy".
+// If envvar FLOW_RUST_BIN is set, it is "${FLOW_RUST_BIN}/flow-connector-proxy".
+// Otherwise, use the default of "/usr/local/bin/flow-connector-proxy".
 const flowConnectorProxy = "flow-connector-proxy"
 const defaultFlowRustBinDir = "/usr/local/bin"
 const flowBinaryDirEnvKey = "FLOW_BINARY_DIR"

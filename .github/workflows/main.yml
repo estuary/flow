@@ -139,7 +139,6 @@ jobs:
             ${{ runner.os }}-musl-cargo-
 
       # Build and test all the things.
-      - run: go mod download
       - run: make musl-test
       - run: make musl-binaries
 
