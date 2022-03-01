@@ -112,7 +112,7 @@ go-install/%: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 
 ${GOBIN}/gazette: go-install/go.gazette.dev/core/cmd/gazette
 ${GOBIN}/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
-${GOBIN}/flowctl: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl
+${GOBIN}/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl-go
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${GOBIN}/sops:
@@ -131,8 +131,8 @@ ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h &:
 ${RUSTBIN}/librocks-exp/librocksdb.a:
 	cargo build --release --locked -p librocks-exp
 
-.PHONY: ${RUSTBIN}/flowctl-rs
-${RUSTBIN}/flowctl-rs:
+.PHONY: ${RUSTBIN}/flowctl
+${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
 # Statically linked binaries using MUSL:
@@ -155,7 +155,7 @@ ${RUST_MUSL_BIN}/flow-network-proxy:
 RUST_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
-	${PKGDIR}/bin/flowctl-rs \
+	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
 
@@ -184,14 +184,14 @@ ${PKGDIR}/bin/etcd: ${GOBIN}/etcd | ${PKGDIR}
 	cp ${GOBIN}/etcd $@
 ${PKGDIR}/bin/sops: ${GOBIN}/sops | ${PKGDIR}
 	cp ${GOBIN}/sops $@
-${PKGDIR}/bin/flowctl: ${GOBIN}/flowctl | ${PKGDIR}
-	cp ${GOBIN}/flowctl $@
+${PKGDIR}/bin/flowctl-go: ${GOBIN}/flowctl-go | ${PKGDIR}
+	cp ${GOBIN}/flowctl-go $@
 ${PKGDIR}/bin/gazctl: ${GOBIN}/gazctl | ${PKGDIR}
 	cp ${GOBIN}/gazctl $@
 ${PKGDIR}/bin/gazette: ${GOBIN}/gazette | ${PKGDIR}
 	cp ${GOBIN}/gazette $@
-${PKGDIR}/bin/flowctl-rs: ${RUSTBIN}/flowctl-rs | ${PKGDIR}
-	cp ${RUSTBIN}/flowctl-rs $@
+${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
+	cp ${RUSTBIN}/flowctl $@
 # The following binaries are statically linked, so come from a different subdirectory
 ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
@@ -238,14 +238,14 @@ go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
 	${PKGDIR}/bin/flowctl test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH="${PATH}:${PKGDIR}/bin" ./tests/run-end-to-end.sh
 
-flow.schema.json: | ${PKGDIR}/bin/flowctl
+flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go 
 	${PKGDIR}/bin/flowctl json-schema > $@
 
 ##########################################################################
