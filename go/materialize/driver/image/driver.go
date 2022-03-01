@@ -70,7 +70,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 		"operation":        "spec",
 	})
 
-	var imageArgs, args = []string{}, []string{}
+	var imageArgs, args []string
 	if proxy, proxyErr := connector.NewProxy(logger); err != nil {
 		return nil, fmt.Errorf("new connector proxy: %w", proxyErr)
 	} else {
@@ -124,7 +124,7 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 		"operation":        "validate",
 	})
 
-	var imageArgs, args = []string{}, []string{}
+	var imageArgs, args []string
 	if proxy, proxyErr := connector.NewProxy(logger); err != nil {
 		return nil, fmt.Errorf("new connector proxy: %w", proxyErr)
 	} else {
@@ -189,7 +189,7 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 		"operation":        "apply",
 	})
 
-	var imageArgs, args = []string{}, []string{}
+	var imageArgs, args []string
 	if proxy, proxyErr := connector.NewProxy(logger); err != nil {
 		return nil, fmt.Errorf("new connector proxy: %w", proxyErr)
 	} else {
@@ -251,7 +251,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 		"operation":        "transactions",
 	})
 
-	var imageArgs, args = []string{}, []string{}
+	var imageArgs, args []string
 	if proxy, proxyErr := connector.NewProxy(logger); err != nil {
 		return fmt.Errorf("new connector proxy: %w", proxyErr)
 	} else {
