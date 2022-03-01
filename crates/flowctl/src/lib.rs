@@ -11,7 +11,7 @@ use go_flowctl::{FlowctlGoSubcommand, GO_FLOWCTL};
 
 /// flowctl is a CLI for interacting with Flow data planes (and soon, control planes).
 #[derive(Debug, Parser)]
-#[clap(author, name = "flowctl-rs", version = env!("FLOW_VERSION"))]
+#[clap(author, name = "flowctl", version = env!("FLOW_VERSION"))]
 pub struct Flowctl {
     #[clap(subcommand)]
     pub subcommand: Subcommand,
