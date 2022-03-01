@@ -25,7 +25,7 @@ SSH_PSQL_DOCKER_COMPOSE="${ROOTDIR}/tests/sshforwarding/sshd-configs/docker-comp
 function startTestInfra() {
   docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} up --detach
   # Allow postgres to be prepared.
-  sleep 1
+  sleep 2
 }
 function stopTestInfra() {
   docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} down
