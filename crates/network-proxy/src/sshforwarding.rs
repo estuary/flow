@@ -2,7 +2,6 @@ use super::errors::Error;
 use super::networkproxy::NetworkProxy;
 
 use async_trait::async_trait;
-use base64::decode;
 use futures::pin_mut;
 use schemars::JsonSchema;
 use std::net::SocketAddr;
@@ -27,8 +26,8 @@ pub struct SshForwardingConfig {
     pub ssh_endpoint: String,
     /// User name to connect to the remote SSH server.
     pub user: String,
-    /// Base64-encoded private key to connect to the remote SSH server.
-    pub private_key_base64: String,
+    /// Private key to connect to the remote SSH server.
+    pub private_key: String,
     /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
     pub forward_host: String,
     /// Port of the remote destination.
@@ -77,10 +76,8 @@ impl SshForwarding {
     }
 
     pub async fn authenticate(&mut self) -> Result<(), Error> {
-        let pem = decode(&self.config.private_key_base64)?;
-
         let key_pair = Arc::new(key::KeyPair::RSA {
-            key: openssl::rsa::Rsa::private_key_from_pem(&pem)?,
+            key: openssl::rsa::Rsa::private_key_from_pem(&self.config.private_key.as_bytes())?,
             hash: key::SignatureHash::SHA2_256,
         });
 

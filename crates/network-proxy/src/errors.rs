@@ -18,9 +18,6 @@ pub enum Error {
     #[error("openssl error.")]
     OpenSslError(#[from] openssl::error::ErrorStack),
 
-    #[error("base64 decoding error.")]
-    Base64DecodeError(#[from] base64::DecodeError),
-
     #[error("ssh_endpoint parse error. Expected format: ssh://<host_url_or_ip>[:port]")]
     UrlParseError(#[from] url::ParseError),
 
