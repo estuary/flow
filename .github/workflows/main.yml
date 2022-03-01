@@ -267,6 +267,7 @@ jobs:
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
           -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-connector-proxy \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \
@@ -279,6 +280,7 @@ jobs:
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
           -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-connector-proxy \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \
@@ -291,6 +293,7 @@ jobs:
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
           -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flow-connector-proxy \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \
