@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 mod gcs;
+mod local;
 
 /// Allows uploading builds to the builds root.
 #[derive(Debug, Clone)]
@@ -120,7 +121,7 @@ pub fn init_builds_root(
 
     let root: Arc<dyn BuildsRootService> = match conf.uri.scheme() {
         "gs" => Arc::new(gcs::GCSBuildsRoot::new(conf.uri.clone())?),
-        "file" => Arc::new(LocalBuildsRoot::new(conf.uri.path())),
+        "file" => Arc::new(local::LocalBuildsRoot::new(conf.uri.path())),
         other => anyhow::bail!("invalid uri: unsupported scheme: '{}'", other),
     };
     Ok((PutBuilds(root.clone()), FetchBuilds::new(root)))
@@ -146,52 +147,6 @@ pub enum BuildsRootError {
 trait BuildsRootService: Debug + Send + Sync {
     async fn put_build(&self, build_id: &str, build: &Path) -> Result<(), BuildsRootError>;
     async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError>;
-}
-
-// A `BuildsRootService` that stores all builds in a local directory.
-#[derive(Debug)]
-struct LocalBuildsRoot {
-    dir: PathBuf,
-}
-
-impl LocalBuildsRoot {
-    fn new(dir: impl AsRef<Path>) -> LocalBuildsRoot {
-        LocalBuildsRoot {
-            dir: dir.as_ref().to_owned(),
-        }
-    }
-}
-
-#[async_trait]
-impl BuildsRootService for LocalBuildsRoot {
-    async fn put_build(&self, build_id: &str, build: &Path) -> Result<(), BuildsRootError> {
-        use std::io;
-
-        let dest_path = self.dir.join(build_id);
-        if dest_path.exists() {
-            Err(BuildsRootError::Io(io::Error::new(
-                io::ErrorKind::Other,
-                format!("the build file: '{}' already exists", dest_path.display()),
-            )))
-        } else {
-            tokio::fs::copy(build, &dest_path).await?;
-            Ok(())
-        }
-    }
-
-    async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
-        use std::io;
-
-        let dest_path = self.dir.join(build_id);
-        if dest_path.exists() {
-            Ok(dest_path)
-        } else {
-            Err(BuildsRootError::Io(io::Error::new(
-                io::ErrorKind::NotFound,
-                "no such build exists within the root",
-            )))
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
