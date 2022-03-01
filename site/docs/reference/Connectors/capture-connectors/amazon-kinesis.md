@@ -38,7 +38,7 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `awsSecretAccessKey`| AWS Secret Access Key | AWS credential used to connect to Kinesis | string | Required |
 | `endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Useful if you're capturing from a kinesis-compatible API that isn't provided by AWS. | string | |
 | `region` | AWS Region | The name of the AWS region where the Kinesis stream is located | string | `"us-east-1"`, Required |
-s
+
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
