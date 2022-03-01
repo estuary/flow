@@ -34,7 +34,7 @@ pub struct LambdaSpec {
     #[prost(string, tag="1")]
     pub typescript: ::prost::alloc::string::String,
     /// If non-empty, this is a remote lambda and the field is its invocation URL.
-    /// E.x. '<https://my/external/api'.>
+    /// E.x. 'https://my/external/api'.
     #[prost(string, tag="2")]
     pub remote: ::prost::alloc::string::String,
 }
@@ -559,7 +559,7 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag="7")]
     pub docs_json: ::prost::alloc::vec::Vec<Slice>,
     /// The journal offsets of each document within the requested journal.
-    /// For a document at index i, its offsets are [ offsets\[2*i\], offsets\[2*i+1\]
+    /// For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
     /// ).
     #[prost(int64, repeated, packed="false", tag="8")]
     pub offsets: ::prost::alloc::vec::Vec<i64>,
