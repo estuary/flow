@@ -60,8 +60,8 @@ pub fn compose<T: 'static + FlowOperation>(
     let (req_a, resp_a) = a;
     let (req_b, resp_b) = b;
     (
-        Box::new(move |o, stream| (req_b)(o, (req_a)(o, stream)?)),
+        Box::new(move |op, stream| (req_b)(op, (req_a)(op, stream)?)),
         // Response conversions are applied in the reverse order of the request conversions.
-        Box::new(move |o, stream| (resp_a)(o, (resp_b)(o, stream)?)),
+        Box::new(move |op, stream| (resp_a)(op, (resp_b)(op, stream)?)),
     )
 }

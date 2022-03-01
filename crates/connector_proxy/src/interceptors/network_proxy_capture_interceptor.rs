@@ -80,8 +80,6 @@ impl NetworkProxyCaptureInterceptor {
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match operation {
-            // converting it to another stream instead of stream.map, b/c the resulting stream breaks the boundaries between of the
-            // source messages.
             FlowCaptureOperation::Discover => Self::convert_discover_request(in_stream),
             FlowCaptureOperation::Validate => Self::convert_validate_request(in_stream),
             FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
