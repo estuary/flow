@@ -5,7 +5,7 @@ sidebar_position: 2
 
 This connector captures data from an Amazon S3 bucket.
 
-`ghcr.io/estuary/source-s3:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
