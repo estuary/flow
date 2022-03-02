@@ -73,6 +73,6 @@ captures:
 
 ```
 
-Your capture definition may be more complex, with additional bindings for different S3 prefixes within the same bucket.
+Your capture definition may be more complex, with additional bindings for different GCS prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
