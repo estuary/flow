@@ -33,6 +33,7 @@ tower-http = { version = "0.2.0", features = ["cors", "trace"] }
 tracing = "0.1.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = {version = "2.2.2", features = ["serde"]}
+validator = {version = "*", features = ["derive"]}
 
 [dev-dependencies]
 axum-debug = "0.3.2"

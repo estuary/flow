@@ -117,10 +117,6 @@ impl FetchBuilds {
 pub fn init_builds_root(
     conf: &config::BuildsRootSettings,
 ) -> anyhow::Result<(PutBuilds, FetchBuilds)> {
-    if !conf.uri.path().ends_with('/') {
-        anyhow::bail!("invalid uri: '{}', must end with a '/'", conf.uri);
-    }
-
     let root: Arc<dyn BuildsRootService> = match conf.uri.scheme() {
         "gs" => Arc::new(gcs::GCSBuildsRoot::new(conf.uri.clone())?),
         "file" => Arc::new(local::LocalBuildsRoot::new(conf.uri.path())),
