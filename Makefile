@@ -6,8 +6,6 @@ export FLOW_VERSION = $(shell git describe --dirty --tags)
 DATE    = $(shell date +%F-%T-%Z)
 # Number of available processors for parallel builds.
 NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
-# Configured Go installation path of built targets.
-GOBIN = $(shell go env GOPATH)/bin
 # Configured Rust installation path of built release targets.
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
@@ -25,12 +23,9 @@ RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
 # Location to place intermediate files and output artifacts
 # during the build process. Note the go tool ignores directories
 # with leading '.' or '_'.
-WORKDIR  = .build
+WORKDIR  = $(realpath .)/.build
 # Packaged build outputs.
 PKGDIR = ${WORKDIR}/package
-# All invocations can reference installed tools, Rust, and Go binaries.
-# Each takes precedence over the configured $PATH
-export PATH := ${RUSTBIN}:${RUST_MUSL_BIN}:${GOBIN}:${PATH}
 
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
@@ -81,7 +76,7 @@ protoc-gen-gogo:
 # Run the protobuf compiler to generate message and gRPC service implementations.
 # Invoke protoc with local and third-party include paths set.
 %.pb.go: %.proto protoc-gen-gogo
-	PATH=$$PATH:$(shell go env GOPATH)/bin \
+	PATH=$$PATH:$(shell go env GOPATH)/bin ;\
 	protoc -I . $(foreach module, $(PROTOC_INC_GO_MODULES), -I$(GO_MODULE_PATH)) \
 		--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
 
@@ -89,16 +84,16 @@ go-protobufs: $(GO_PROTO_TARGETS)
 
 
 # `etcd` is used for testing, and packaged as a release artifact.
-${GOBIN}/etcd:
+${PKGDIR}/bin/etcd:
 	curl -L -o /tmp/etcd.tgz \
 			https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
 		&& echo "${ETCD_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
 		&& tar --extract \
 			--file /tmp/etcd.tgz \
 			--directory /tmp/ \
-		&& mkdir -p ${GOBIN}/ \
-		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${GOBIN}/ \
-		&& chown ${UID}:${UID} ${GOBIN}/etcd ${GOBIN}/etcdctl \
+		&& mkdir -p ${PKGDIR}/bin/ \
+		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${PKGDIR}/bin/ \
+		&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
 		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
 		&& rm /tmp/etcd.tgz \
 		&& $@ --version
@@ -107,16 +102,19 @@ ${GOBIN}/etcd:
 # go-install rules never correspond to actual files, and are always re-run each invocation.
 go-install/%: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 	MBP=go.gazette.dev/core/mainboilerplate ;\
-	./go.sh install -v --tags "${GO_BUILD_TAGS}" \
+	./go.sh \
+		build -o ${PKGDIR}/bin/$(@F) \
+	  -v --tags "${GO_BUILD_TAGS}" \
 		-ldflags "-X $${MBP}.Version=${FLOW_VERSION} -X $${MBP}.BuildDate=${DATE}" $*
 
-${GOBIN}/gazette: go-install/go.gazette.dev/core/cmd/gazette
-${GOBIN}/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
-${GOBIN}/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl-go
+${PKGDIR}/bin/gazette: go-install/go.gazette.dev/core/cmd/gazette
+${PKGDIR}/bin/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
+${PKGDIR}/bin/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl-go
 
 # `sops` is used for encrypt/decrypt of connector configurations.
-${GOBIN}/sops:
+${PKGDIR}/bin/sops:
 	go install go.mozilla.org/sops/v3/cmd/sops@v3.7.1
+	cp $(shell go env GOPATH)/bin/sops $@
 
 ########################################################################
 # Rust outputs:
@@ -180,16 +178,6 @@ package: ${PKGDIR}/flow-x86-linux.tar.gz
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/etcd: ${GOBIN}/etcd | ${PKGDIR}
-	cp ${GOBIN}/etcd $@
-${PKGDIR}/bin/sops: ${GOBIN}/sops | ${PKGDIR}
-	cp ${GOBIN}/sops $@
-${PKGDIR}/bin/flowctl-go: ${GOBIN}/flowctl-go | ${PKGDIR}
-	cp ${GOBIN}/flowctl-go $@
-${PKGDIR}/bin/gazctl: ${GOBIN}/gazctl | ${PKGDIR}
-	cp ${GOBIN}/gazctl $@
-${PKGDIR}/bin/gazette: ${GOBIN}/gazette | ${PKGDIR}
-	cp ${GOBIN}/gazette $@
 ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 	cp ${RUSTBIN}/flowctl $@
 # The following binaries are statically linked, so come from a different subdirectory
@@ -232,9 +220,19 @@ rust-test:
 musl-test:
 	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-proxy --package schemalate
 
+# `go` test targets must have PATH-based access to tools (etcd & sops),
+# because the `go` tool compiles tests as binaries within a temp directory,
+# and these binaries cannot expect `sops` to be co-located alongside.
+
+.PHONY: go-test-fast
+go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+	PATH=${PKGDIR}/bin:$$PATH ;\
+	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
+
 .PHONY: go-test-ci
 go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
-	GORACE="halt_on_error=1" \
+	PATH=${PKGDIR}/bin:$$PATH ;\
+	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
@@ -245,15 +243,8 @@ catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gaz
 end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH="${PATH}:${PKGDIR}/bin" ./tests/run-end-to-end.sh
 
-flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go 
+flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go
 	${PKGDIR}/bin/flowctl json-schema > $@
-
-##########################################################################
-# Make targets used in local development:
-
-.PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
-	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you
