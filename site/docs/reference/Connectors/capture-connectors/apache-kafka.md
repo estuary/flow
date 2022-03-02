@@ -5,7 +5,7 @@ sidebar_position: 2
 
 This connector captures streaming data from Apache Kafka topics.
 
-`ghcr.io/estuary/source-kafka:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 

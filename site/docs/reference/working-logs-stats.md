@@ -13,10 +13,18 @@ You can access logs by materializing them to an external endpoint, or from the c
 
 ### Accessing logs from the command line
 
-The `flowctl logs` subcommand allows you to print logs for specific tasks from the command line.
+The `flowctl logs` subcommand allows you to print logs from the command line.
 This method allows more flexibility and is ideal for debugging.
 
 You can retrieve logs for any task that is part of a catalog that is currently deployed.
+
+#### Printing logs for a specific task
+
+You can print logs for a given deployed task using the flag `--task` followed by the task name.
+
+```console
+flowctl logs --task acmeCo/anvils/capture-one
+```
 
 #### Printing all logs for a tenant
 
@@ -34,13 +42,6 @@ Within a given tenant, you can print logs for all deployed tasks of a given type
 
 ```console
 flowctl logs --tenant acmeCo --task-type capture
-```
-#### Printing logs for a specific task
-
-You can print logs for a given deployed task using the flag `--task` followed by the task name.
-
-```console
-flowctl logs --task acmeCo/anvils/capture-one
 ```
 
 ### Accessing logs by materialization

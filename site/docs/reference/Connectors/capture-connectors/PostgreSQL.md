@@ -1,6 +1,6 @@
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
-`ghcr.io/estuary/source-postgres:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
