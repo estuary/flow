@@ -64,8 +64,7 @@ pub type FetchResult = Result<bytes::Bytes, anyhow::Error>;
 // FetchFuture is a Future of FetchResult.
 pub type FetchFuture<'a> = LocalBoxFuture<'a, FetchResult>;
 
-/// Fetcher resolves a resource URL to its content and, optionally, a re-written
-/// URL to use for the resource rather than the |resource| URL.
+/// Fetcher resolves a resource URL to its byte content.
 pub trait Fetcher {
     fn fetch<'a>(
         &'a self,
@@ -516,7 +515,7 @@ impl<F: Fetcher> Loader<F> {
             self.tables
                 .borrow_mut()
                 .storage_mappings
-                .insert_row(scope, prefix, stores)
+                .insert_row(scope, prefix, stores, None /* Not foreign. */)
         }
 
         // Task which loads all imports.
