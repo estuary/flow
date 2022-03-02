@@ -14,34 +14,34 @@ You can access logs by materializing them to an external endpoint, or from the c
 ### Accessing logs from the command line
 
 The `flowctl logs` subcommand allows you to print logs for specific tasks from the command line.
-
 This method allows more flexibility and is ideal for debugging.
 
-#### Printing logs for a specific task
-
-You can print logs for a given task using the flag of the task type — `--capture`, `--derivation`, or `--materialization` — followed by the task name.
-
-```console
-flowctl logs --capture acmeCo/anvils/capture-one
-```
-
-#### Printing logs by task type
-
-Within a given tenant, you can print logs for all tasks of a given type using the flags `--all-captures`, `--all-derivations`, or `--all-materializations`.
-
-```console
-flowctl logs --all-captures acmeCo
-```
+You can retrieve logs for any task that is part of a catalog that is currently deployed.
 
 #### Printing all logs for a tenant
 
-You can print all logs for a given tenant using the flag `--all`.
+You can print all logs for currently deployed catalogs of a given tenant using the flag `--tenant`.
 
 ```console
-flowctl logs --all acmeCo
+flowctl logs --tenant acmeCo
 ```
 
 This is the same as printing the entire contents of the collection `ops/acmeCo/logs`.
+
+#### Printing logs by task type
+
+Within a given tenant, you can print logs for all deployed tasks of a given type using the flag `--task-type` followed by one of `capture`, `derivation`, or `materialization`.
+
+```console
+flowctl logs --tenant acmeCo --task-type capture
+```
+#### Printing logs for a specific task
+
+You can print logs for a given deployed task using the flag `--task` followed by the task name.
+
+```console
+flowctl logs --task acmeCo/anvils/capture-one
+```
 
 ### Accessing logs by materialization
 
