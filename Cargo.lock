@@ -3406,6 +3406,7 @@ dependencies = [
  "doc 0.0.0",
  "futures",
  "humantime-serde",
+ "indexmap",
  "insta",
  "json 0.0.0",
  "lazy_static",

@@ -1,12 +1,12 @@
 use super::Scope;
 use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
+use indexmap::map::IndexMap;
 use json::schema::{build::build_schema, Application, Keyword};
 use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -81,7 +81,7 @@ pub trait Fetcher {
 /// tracking of location context.
 pub struct Loader<F: Fetcher> {
     // Inlined resource definitions which have been observed, but not loaded.
-    inlined: RefCell<BTreeMap<Url, models::ResourceDef>>,
+    inlined: RefCell<IndexMap<Url, models::ResourceDef>>,
     // Tables loaded by the build process.
     tables: RefCell<Tables>,
     // Fetcher for retrieving discovered, unvisited resources.
@@ -92,7 +92,7 @@ impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: Tables, fetcher: F) -> Loader<F> {
         Loader {
-            inlined: RefCell::new(BTreeMap::new()),
+            inlined: RefCell::new(IndexMap::new()),
             tables: RefCell::new(tables),
             fetcher,
         }
@@ -185,7 +185,7 @@ impl<F: Fetcher> Loader<F> {
         // If an inline definition of a resource is already available, then use it.
         // Otherwise delegate to the Fetcher.
         // TODO(johnny): Sanity check expected vs actual content-types.
-        let inlined = self.inlined.borrow_mut().remove(&resource); // Don't hold guard.
+        let inlined = self.inlined.borrow_mut().remove(resource); // Don't hold guard.
         let content = if let Some(resource) = inlined {
             Ok(resource.content.clone())
         } else {
