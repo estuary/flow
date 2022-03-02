@@ -141,7 +141,9 @@ func checkTypeError(field string, existing *pf.CollectionSpec, proposed *pf.Coll
 	// contain null, then we can't allow the new projection to possible be null. But if the existing
 	// column is nullable, then it won't matter if the new one is or not since the column will be
 	// unconstrained.
-	if existingProjection.Inference.MustExist && !sliceContains("null", existingProjection.Inference.Types) && !proposedProjection.Inference.MustExist {
+	if existingProjection.Inference.Exists == pf.Inference_MUST &&
+		!sliceContains("null", existingProjection.Inference.Types) &&
+		proposedProjection.Inference.Exists != pf.Inference_MUST {
 		return "The existing projection must exist and be non-null, so the new projection must also exist"
 	}
 	return ""
