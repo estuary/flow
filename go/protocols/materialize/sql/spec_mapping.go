@@ -40,7 +40,7 @@ func ColumnForProjection(projection *pf.Projection, identifierRenderer *Renderer
 		Comment:    commentForProjection(projection),
 		PrimaryKey: projection.IsPrimaryKey,
 		Type:       columnType(projection),
-		NotNull:    projection.Inference.MustExist && !sliceContains("null", projection.Inference.Types),
+		NotNull:    projection.Inference.Exists == pf.Inference_MUST && !sliceContains("null", projection.Inference.Types),
 	}
 	if projection.Inference.String_ != nil {
 		var s = projection.Inference.String_
