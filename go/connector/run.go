@@ -21,22 +21,22 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type ConnectorProtocol int
+type Protocol int
 
 const (
-	FlowCapture ConnectorProtocol = iota
-	FlowMaterialize
+	Capture Protocol = iota
+	Materialize
 )
 
-func (c ConnectorProtocol) GetProxyCommand() string {
+func (c Protocol) proxyCommand() string {
 	// Corresponding to the ProxyCommand specified in crates/connector_proxy/src/main.rs
 	switch c {
-	case FlowCapture:
+	case Capture:
 		return "proxy-flow-capture"
-	case FlowMaterialize:
+	case Materialize:
 		return "proxy-flow-materialize"
 	default:
-		panic("unexpected connector protocol")
+		panic("unexpected protocol")
 	}
 }
 
@@ -68,7 +68,7 @@ const imageInspectJsonFileName = "image_inspect.json"
 func Run(
 	ctx context.Context,
 	image string,
-	connectorProtocol ConnectorProtocol,
+	protocol Protocol,
 	networkName string,
 	args []string,
 	jsonFiles map[string]json.RawMessage,
@@ -104,7 +104,7 @@ func Run(
 	}
 	defer os.RemoveAll(tempdir)
 
-	if connectorProtocol == FlowMaterialize {
+	if protocol == Materialize {
 		if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
 			return fmt.Errorf("prepare flow connector proxy binary: %w", err)
 		} else {
@@ -130,7 +130,7 @@ func Run(
 
 		args = append([]string{
 			fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
-			connectorProtocol.GetProxyCommand(),
+			protocol.proxyCommand(),
 		}, args...)
 	}
 
