@@ -92,6 +92,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "171374e7e3b2504e0e5236e3b59260560f9fe94bfe9ac39ba5e4e929c5590625"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "648ed8c8d2ce5409ccd57453d9d1b214b342a0d69376a6feda1fd6cae3299308"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,6 +643,34 @@ dependencies = [
  "serde_json",
  "toml",
  "yaml-rust",
+]
+
+[[package]]
+name = "connector_proxy"
+version = "0.0.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "byteorder",
+ "bytes",
+ "clap 3.0.13",
+ "doc 0.0.0",
+ "flow_cli_common",
+ "futures-core",
+ "futures-util",
+ "network-proxy",
+ "prost",
+ "protocol",
+ "schemars",
+ "serde 1.0.133",
+ "serde_json",
+ "structopt",
+ "strum",
+ "strum_macros",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -2079,9 +2128,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "flow_cli_common",
  "futures",
  "openssl",
  "openssl-sys",
+ "schemars",
  "serde 1.0.133",
  "serde_json",
  "thiserror",
