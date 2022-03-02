@@ -52,7 +52,7 @@ impl FetchBuilds {
     fn new(root: Arc<dyn BuildsRootService>) -> FetchBuilds {
         FetchBuilds {
             root,
-            local_builds: Arc::new(Mutex::new(BTreeMap::new())),
+            local_builds: Default::default(),
         }
     }
 
@@ -204,8 +204,46 @@ impl std::default::Default for LocalBuildState {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::sync::atomic::AtomicU32;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use tempfile::TempDir;
+    use tokio::task::JoinHandle;
+
+    #[tokio::test]
+    async fn test_concurrent_fetches_when_first_fetch_is_successful() {
+        let dir = TempDir::new().unwrap();
+        let build_ids = &["fooooo", "baaaar", "baaaaz"];
+        for id in build_ids {
+            make_test_build(dir.path(), *id);
+        }
+
+        let root = Arc::new(MockSuccess(AtomicU32::new(0), dir.path().to_owned()));
+        let fetch_svc = FetchBuilds::new(root.clone());
+
+        // Spawn a bunch of tasks that will all try to fetch the same builds.
+        let handles: Vec<JoinHandle<Result<BuildDBRef, String>>> = (0..15)
+            .into_iter()
+            .map(|i| {
+                let fetch_svc = fetch_svc.clone();
+                tokio::spawn(async move {
+                    let id = build_ids[i % build_ids.len()];
+                    fetch_svc
+                        .get_build(id)
+                        .await
+                        .map_err(|err| format!("fetch {} failed with error: {:?}", i, err))
+                })
+            })
+            .collect();
+
+        // All of them should return successfully.
+        for handle in handles {
+            let db_ref = handle.await.unwrap().expect("fetch task failed");
+            assert_build_ok(&db_ref);
+        }
+
+        // There should have been exactly 1 call to the builds root service for each unique build.
+        let actual_calls = root.0.load(Ordering::SeqCst);
+        assert_eq!(build_ids.len(), actual_calls as usize);
+    }
 
     #[tokio::test]
     async fn local_builds_root_can_get_and_put_a_build_successfully() {
@@ -240,7 +278,7 @@ mod test {
 
     #[tokio::test]
     async fn fetch_errors_are_not_retried_immediately() {
-        let root = Arc::new(MockBuildsRoot(AtomicU32::new(0)));
+        let root = Arc::new(MockFailures(AtomicU32::new(0)));
         let fetch_svc = FetchBuilds::new(root.clone());
 
         // Make a bunch of calls in a hot loop, where we know that they'll return errors. Then
@@ -258,16 +296,34 @@ mod test {
     }
 
     #[derive(Debug)]
-    struct MockBuildsRoot(AtomicU32);
+    struct MockSuccess(AtomicU32, PathBuf);
+    #[async_trait]
+    impl BuildsRootService for MockSuccess {
+        async fn put_build(&self, _: &str, _: &Path) -> Result<(), BuildsRootError> {
+            unimplemented!()
+        }
+
+        async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Sleep for a short time, so that we can exercise some of the synchronization code.
+            tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+            Ok(self.1.join(build_id))
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockFailures(AtomicU32);
 
     #[async_trait]
-    impl BuildsRootService for MockBuildsRoot {
+    impl BuildsRootService for MockFailures {
         async fn put_build(&self, _: &str, _: &Path) -> Result<(), BuildsRootError> {
             unimplemented!()
         }
 
         async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
             let call_num = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Sleep for a short time, so that we can exercise some of the synchronization code.
+            tokio::time::sleep(std::time::Duration::from_millis(15)).await;
             Err(BuildsRootError::PrevError(format!(
                 "test error: {}, build: {}",
                 call_num, build_id
