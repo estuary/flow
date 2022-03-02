@@ -430,12 +430,6 @@ flow-258@helpful-kingdom-273219.iam.gserviceaccount.com
 ```
 :::
 
-:::warning
-Due to a known issue within `sops` and Flow,
-you must currently order your configuration files in their natural key-sorted order.
-See https://github.com/estuary/flow/issues/303
-:::
-
 #### Example: Protect portions of a configuration
 
 Endpoint configurations are typically a mix of sensitive and non-sensitive values.
