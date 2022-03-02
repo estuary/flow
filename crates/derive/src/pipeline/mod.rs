@@ -162,6 +162,7 @@ impl Pipeline {
             transforms,
             register_initial_json,
             register_schema_uri,
+            register_schema_json: _, // TODO(johnny): switch to use bundle.
             shard_template: _,
             recovery_log_template: _,
         } = derivation.unwrap_or_default();

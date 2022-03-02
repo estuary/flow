@@ -72,7 +72,7 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	intProjection.Inference.Types = []string{"string"}
 	// string projection is going from optional to required, which should be allowed
 	var stringProjection = proposed.GetProjection("string")
-	stringProjection.Inference.MustExist = true
+	stringProjection.Inference.Exists = pf.Inference_MUST
 
 	var constraints = sqlDriver.ValidateMatchesExisting(&existingSpec, &proposed)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
