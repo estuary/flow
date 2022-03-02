@@ -95,6 +95,11 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 ## Connecting to secure networks
 
+:::info beta
+SSH tunneling on the MySQL source connector is actively being worked on and will be fully supported soon.
+If you encounter issues with this feature, [contact Estuary support](mailto:support@estuary.dev).
+:::
+
 The MySQL source connector [supports SSH tunneling](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 to allow Flow to connect to databases ports in secure networks.
 
@@ -107,31 +112,33 @@ of popular relational databases, including MySQL.
 
 You can use this Flow connector for MySQL instances on RDS, but the setup requirements are different.
 
-Estuary also recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
+Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
 in RDS for use with Flow; however, it's not required.
 You're able to apply the connector directly to the primary instance if you'd like.
 
 ### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
-  Currently, Estuary supports SSH tunneling to allow this.
+  Estuary recommends SSH tunneling to allow this.
   Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+  :::info beta
+  SSH tunneling on the MySQL source connector is actively being worked on and will be fully supported soon.
+  If you encounter issues with this feature, [contact Estuary support](mailto:support@estuary.dev).
+  :::
 
-2. Create a RDS parameter group to enable replication on for MySQL.
+2. Create a RDS parameter group to enable replication in MySQL.
 
-  a. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html)
-  with the following properties:
-    * **Family**: mysql #FOR REVIEW: does version number matter here?
+  a. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
+  Create a unique name and description and set the following properties:
+    * **Family**: mysql
     * **Type**: DB Parameter group
-    * **Name**: mysql-replication
-    * **Description**: Database with replication enabled
 
-  b. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
+  b. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
     * binlog_format: ROW
     * binlog_row_metadata: FULL
     * read_only: 0
 
-  c. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html#USER_WorkingWithParamGroups.Associating)
+  c. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
   with the database and reboot the database to allow the change to take effect
 
 3. Create a read replica with the new parameter group applied (recommended).
@@ -141,12 +148,12 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
   b. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
   and set the following:
-  * **DB parameter group**: choose the parameter group you created previously
-  * **Backup retention period**: 7 days
+    * **DB parameter group**: choose the parameter group you created previously
+    * **Backup retention period**: 7 days
 
   c. Reboot the replica to allow the changes to take effect.
 
-4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions
+4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table:
 
 ```sql
