@@ -364,6 +364,14 @@ macro_rules! tables {
             fn deref(&self) -> &Vec<$row> { &self.0 }
         }
 
+        impl std::iter::FromIterator<$row> for $table {
+            fn from_iter<I: IntoIterator<Item=$row>>(iter: I) -> Self {
+                let mut c = $table::new();
+                c.extend(iter.into_iter());
+                c
+            }
+        }
+
         impl TableRow for $row {
             type Table = $table;
 
