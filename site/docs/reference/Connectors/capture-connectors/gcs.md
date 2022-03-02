@@ -5,7 +5,7 @@ sidebar_position: 4
 
 This connector captures data from an Google Cloud Storage (GCS) bucket.
 
-`ghcr.io/estuary/source-gcs:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
