@@ -96,7 +96,7 @@ async fn main() -> std::io::Result<()> {
 
     let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
-        tracing::error!(error = %err, "connector proxy execution failed.");
+        tracing::error!(error = ?err, "connector proxy execution failed.");
         std::process::exit(1);
     }
     Ok(())
@@ -119,7 +119,7 @@ async fn async_main(
 ) -> Result<(), Error> {
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
-    // TODO: add the check to make sure the proxy_command passed in is consistent with the protocol inferred from image.
+    // TODO(jixiang): add a check to make sure the proxy_command passed in from commandline is consistent with the protocol inferred from image.
     match proxy_command {
         ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_config).await,
         ProxyCommand::ProxyFlowMaterialize(m) => proxy_flow_materialize(m, image_config).await,

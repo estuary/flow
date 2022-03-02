@@ -24,19 +24,19 @@ pub enum Error {
     #[error("invalid json pointer '{0}' to config.")]
     InvalidJsonPointer(String),
 
-    #[error("IO execution failed.")]
+    #[error(transparent)]
     IOError(#[from] std::io::Error),
 
-    #[error("Json serialization failed.")]
+    #[error(transparent)]
     JsonError(#[from] serde_json::Error),
 
-    #[error("prost message decoding failed.")]
+    #[error(transparent)]
     MessageDecodeError(#[from] prost::DecodeError),
 
-    #[error("prost message encoding failed.")]
+    #[error(transparent)]
     MessageEncodeError(#[from] prost::EncodeError),
 
-    #[error("network proxy failed with error: {0:?}.")]
+    #[error(transparent)]
     NetworkProxyError(#[from] network_proxy::errors::Error),
 
     #[error("Tokio task execution error.")]
