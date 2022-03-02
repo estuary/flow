@@ -11,7 +11,7 @@ use go_flowctl::{FlowctlGoSubcommand, GO_FLOWCTL};
 
 /// flowctl is a CLI for interacting with Flow data planes (and soon, control planes).
 #[derive(Debug, Parser)]
-#[clap(author, name = "flowctl-rs", version = env!("FLOW_VERSION"))]
+#[clap(author, name = "flowctl", version = env!("FLOW_VERSION"))]
 pub struct Flowctl {
     #[clap(subcommand)]
     pub subcommand: Subcommand,
@@ -24,11 +24,11 @@ pub const FLOW_SCHEMALATE: &str = "flow-schemalate";
 #[clap(rename_all = "kebab-case")]
 pub enum Subcommand {
     #[clap(flatten)]
+    FlowctlGo(FlowctlGoSubcommand), // delegated to the go flowctl binary
+    #[clap(flatten)]
     Internal(InternalSubcommand), // Executed as a function call
     /// Read the logs collections of Flow tasks
     Logs(logs::Args), // delegated to flowctl journals read
-    #[clap(flatten)]
-    FlowctlGo(FlowctlGoSubcommand), // delegated to the go flowctl binary
     /// Tools for generating various things from JSON schemas
     Schemalate(ExternalArgs), // delegated to the flow-schemalate binary
 }
@@ -49,6 +49,8 @@ pub struct InternalSubcommandArgs<T: clap::Args + std::fmt::Debug> {
 pub enum InternalSubcommand {
     /// Reduce JSON documents by key and print the results to stdout
     Combine(InternalSubcommandArgs<combine::CombineArgs>),
+    /// Manage a Flow Control Plane.
+    ControlPlane(InternalSubcommandArgs<control::cmd::ControlPlaneArgs>),
 }
 
 pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> {
@@ -56,12 +58,13 @@ pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> 
     use Subcommand::*;
 
     match subcommand {
-        Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
-        Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         FlowctlGo(external) => {
             let args = external.into_flowctl_args();
             Ok(Success::Exec(ExecExternal::from((GO_FLOWCTL, args))))
         }
+        Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
+        Internal(ControlPlane(args)) => run_internal(args, control::cmd::run).map(Into::into),
+        Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         Schemalate(args) => Ok(Success::Exec(ExecExternal::from((
             FLOW_SCHEMALATE,
             args.args,

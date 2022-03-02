@@ -48,6 +48,7 @@ captures:
         # Required, type: object
         resource:
           stream: a-bucket/and-prefix
+          # syncMode should be set to incremental for all Estuary connectors
           syncMode: incremental
 
       - target: acmeCo/example/another-collection

@@ -1,108 +1,121 @@
-use serde_json::Value as JsonValue;
+use control::repo::connector_images::fetch_all;
 
-use control::models::connector_images::CreateConnectorImage;
-use control::models::connectors::{ConnectorType, CreateConnector};
-use control::repo::connector_images::{fetch_all, insert};
-use control::repo::connectors::insert as insert_connector;
-
-use crate::support::{self, spawn_app};
+use crate::support::redactor::Redactor;
+use crate::support::{self, factory, test_context};
 
 #[tokio::test]
-async fn connector_images_index_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+async fn index_test() {
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
-    let connector = insert_connector(
-        &db,
-        CreateConnector {
-            description: "A flood greetings.".to_owned(),
-            name: "Hello World".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        },
-    )
-    .await
-    .expect("to insert test data");
+    // Act
+    let response = t.get("/connector_images").await;
 
-    insert(
-        &db,
-        CreateConnectorImage {
-            connector_id: connector.id,
-            name: "ghcr.io/estuary/source-hello-world".to_owned(),
-            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
-            tag: "01fb856".to_owned(),
-        },
-    )
-    .await
-    .expect("to insert test data");
-
-    let response = client
-        .get(format!("http://{}/connector_images", server_address))
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
+    // Assert
     assert!(response.status().is_success());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.*.id" => "[id]",
-        ".data.*.connector_id" => "[id]",
-        ".data.*.created_at" => "[datetime]",
-        ".data.*.updated_at" => "[datetime]",
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.*.attributes.created_at" => "[datetime]",
+        ".data.*.attributes.updated_at" => "[datetime]",
     });
 }
 
 #[tokio::test]
-async fn connector_images_create_test() {
-    let db = support::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db.clone())
-        .await
-        .expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+async fn create_test() {
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let input = factory::HelloWorldImage.attrs(&connector);
 
-    assert!(fetch_all(&db)
-        .await
-        .expect("to insert test data")
-        .is_empty());
+    // Act
+    let response = t.post("/connector_images", &input).await;
 
-    let connector = insert_connector(
-        &db,
-        CreateConnector {
-            description: "A flood greetings.".to_owned(),
-            name: "Hello World".to_owned(),
-            maintainer: "Estuary Technologies".to_owned(),
-            r#type: ConnectorType::Source,
-        },
-    )
-    .await
-    .expect("to insert test data");
-
-    let response = client
-        .post(format!("http://{}/connector_images", server_address))
-        .json(&CreateConnectorImage {
-            connector_id: connector.id,
-            name: "ghcr.io/estuary/source-hello-world".to_owned(),
-            digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
-            tag: "01fb856".to_owned(),
-        })
-        .send()
-        .await
-        .expect("Failed to execute request.");
-
-    assert_eq!(201, response.status().as_u16());
-    assert_json_snapshot!(response.json::<JsonValue>().await.unwrap(), {
-        ".data.id" => "[id]",
-        ".data.connector_id" => "[id]",
-        ".data.created_at" => "[datetime]",
-        ".data.updated_at" => "[datetime]",
-    });
-
-    let images = fetch_all(&db).await.expect("to insert test data");
+    // Assert
+    let images = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, images.len());
+    assert_eq!(201, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(images[0].id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
+}
+
+#[tokio::test]
+async fn show_test() {
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
+
+    // Act
+    let response = t.get(&format!("/connector_images/{}", &image.id)).await;
+
+    // Assert
+    assert_eq!(200, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
+}
+
+#[tokio::test]
+async fn spec_test() {
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
+
+    // Act
+    let response = t
+        .get(&format!("/connector_images/{}/spec", &image.id))
+        .await;
+
+    // Assert
+    assert_eq!(200, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.id" => "[nonce]",
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
+}
+
+#[tokio::test]
+async fn discovery_test() {
+    // Arrange
+    let t = test_context!();
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let image = factory::HelloWorldImage.create(t.db(), &connector).await;
+    let config = serde_json::json!({"greetings": 10});
+
+    // Act
+    let response = t
+        .post(
+            &format!("/connector_images/{}/discovery", &image.id),
+            &config,
+        )
+        .await;
+
+    // Assert
+    assert_eq!(200, response.status().as_u16());
+    let redactor = Redactor::default()
+        .redact(connector.id, "c1")
+        .redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+        ".data.id" => "[nonce]",
+        ".data.attributes.created_at" => "[datetime]",
+        ".data.attributes.updated_at" => "[datetime]",
+    });
 }

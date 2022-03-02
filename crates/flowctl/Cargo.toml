@@ -3,19 +3,15 @@ name = "flowctl"
 version = "0.1.0"
 edition = "2021"
 
-# We should just be able to delete this whenever we want to rename the binary to plain flowctl.
-[[bin]]
-name = "flowctl-rs"
-path = "src/main.rs"
-
 [dependencies]
+build = { path = "../build" }
+control = { path = "../control" }
+derive = { path = "../derive" }
+doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }
 models = { path = "../models" }
-build = { path = "../build" }
-doc = { path = "../doc" }
-derive = { path = "../derive" }
-sources = { path = "../sources" }
 protocol = { path = "../protocol" }
+sources = { path = "../sources" }
 validation = { path = "../validation" }
 
 anyhow = "*"

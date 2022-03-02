@@ -1,0 +1,8 @@
+# Match build args from the workspace cargo config
+[build]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+target = "x86_64-unknown-linux-gnu"
+
+[alias]
+test-all = "test --all-features"
+review-all = "insta test --all-features --review"

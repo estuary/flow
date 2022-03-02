@@ -642,22 +642,26 @@ name = "control"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "axum-debug",
  "base64",
  "chrono",
+ "clap 3.0.13",
  "config",
  "ctor",
- "dotenv 0.15.0 (git+https://github.com/saterus/dotenv)",
+ "flow_cli_common",
  "futures",
  "hyper",
  "insta",
  "once_cell",
+ "rand 0.8.4",
  "reqwest",
  "serde 1.0.133",
  "serde_json",
  "serde_with",
  "sqlx",
+ "tempfile",
  "thiserror",
  "tokio",
  "tower",
@@ -1052,11 +1056,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
-name = "dotenv"
-version = "0.15.0"
-source = "git+https://github.com/saterus/dotenv#2057d68e833ae2714ba4df37f588d40c75bb84b0"
-
-[[package]]
 name = "dtoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1073,6 +1072,9 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
+dependencies = [
+ "serde 1.0.133",
+]
 
 [[package]]
 name = "encode_unicode"
@@ -1129,6 +1131,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3fcf0cee53519c866c09b5de1f6c56ff9d647101f81c1964fa632e148896cdf"
+dependencies = [
+ "instant",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1172,6 +1183,7 @@ dependencies = [
  "build",
  "bytes",
  "clap 3.0.13",
+ "control",
  "derive",
  "doc 0.0.0",
  "flow_cli_common",
@@ -3230,6 +3242,7 @@ version = "1.0.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee2bb9cd061c5865d345bb02ca49fcef1391741b672b54a0bf7b679badec3142"
 dependencies = [
+ "indexmap",
  "itoa 1.0.1",
  "ryu",
  "serde 1.0.133",
@@ -3495,12 +3508,15 @@ version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38e45140529cf1f90a5e1c2e561500ca345821a1c513652c8f486bbf07407cc8"
 dependencies = [
- "dotenv 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dotenv",
  "either",
  "heck 0.3.3",
+ "hex",
  "once_cell",
  "proc-macro2",
  "quote",
+ "serde 1.0.133",
+ "serde_json",
  "sha2",
  "sqlx-core",
  "sqlx-rt",
@@ -3654,13 +3670,13 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dac1c663cfc93810f88aed9b8941d48cabf856a1b111c29a40439018d870eb22"
+checksum = "5cdb1ef4eaeeaddc8fbd371e5017057064af0911902ef36b39801f67cc6d79e4"
 dependencies = [
  "cfg-if",
+ "fastrand",
  "libc",
- "rand 0.8.4",
  "redox_syscall",
  "remove_dir_all",
  "winapi",

@@ -7,7 +7,7 @@ The `flowctl` command-line interface is used to test, develop, and deploy Flow c
 It is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
 
-`flowctl` includes a number of important sub-commands:
+`flowctl` includes a number of important sub-commands, including:
 
 * `discover` auto-creates a catalog specification given a connector and endpoint configuration.
   It’s an assisted way to configure an endpoint capture and scaffold a Flow project.
@@ -24,7 +24,8 @@ so distribution and upgrades are all simple.
 * `test` builds from catalog sources and runs all of your catalog tests.
 
 :::tip
-For help while using the `flowctl` CLI, use `--help` after any subcommand for more information.
+Additional `flowctl` commands are available for advanced users and development workflows.
+To read a list of all current commands and details in the CLI, run  `flowctl --help`.
 :::
 
 ## Build directory

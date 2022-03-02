@@ -1,4 +1,13 @@
 # test env settings
-
 [application]
+host = "127.0.0.1"
 port = 0 # servers launch on a random port in test mode
+connector_network = "host"
+
+[application.cors]
+allowed_origins = ["*"]
+
+[database]
+# test databases are created for each test in the suite. They are derived from
+# the development database. Settings here would not have much meaning. See the
+# development.toml, .env, and tests/it/main.rs for more information.

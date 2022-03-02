@@ -30,16 +30,19 @@ RUN apt update -y \
       less \
       libclang-12-dev \
       libncurses5-dev \
+      libprotobuf-dev \
       libreadline-dev \
       libssl-dev \
       lld-12 \
       locales \
+      musl-tools \
       net-tools \
       netcat \
       npm \
       openssh-client  \
       pkg-config \
       postgresql-client \
+      protobuf-compiler \
       psmisc \
       sqlite3 \
       strace \
@@ -119,8 +122,9 @@ RUN locale-gen ${LOCALE}
 RUN useradd flow --create-home --shell /usr/sbin/nologin \
     && echo flow ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/flow \
     && chmod 0440 /etc/sudoers.d/flow
-# Go binaries built by `flow` should be on the PATH.
-ENV PATH=/home/flow/go/bin:$PATH
+
+# Binaries built by `flow` should be on the PATH.
+ENV PATH=/workspace/.build/package/bin:$PATH
 
 # Adapted from: https://github.com/microsoft/vscode-dev-containers/tree/main/containers/docker-from-docker#adding-the-user-to-a-docker-group
 COPY docker-debian.sh /tmp

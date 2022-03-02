@@ -15,15 +15,19 @@ mod support;
 /// perform any one-time setup.
 #[ctor]
 fn setup() {
+    // TODO: Make this a flag we can pass to the test invocation?
+    // Uncomment to flip on detailed tracing in tests. Sometimes useful.
+    // flow_cli_common::init_logging(&flow_cli_common::LogArgs {
+    //     level: "debug".to_owned(),
+    //     format: None,
+    // });
+
     app_env::force_env(AppEnv::Test);
-
-    let test_db = support::TestDatabase::new();
-
-    // Dropping the database may not be possible, as it may not yet exist, but this is okay.
-    let _ = test_db.drop();
+    let settings =
+        control::config::load_settings("config/test.toml").expect("to load configuration file");
 
     // Setup will create the database and run all migrations.
-    test_db.setup().expect("To setup the database");
+    support::test_database::setup(settings.database.clone()).expect("To setup the database");
 }
 
 /// Teardown runs exactly once after all tests have run. This allows the test
