@@ -44,20 +44,22 @@ There are various ways to configure and implement connectors. See [connectors](.
 
 ### Values
 
+#### Endpoint
+
 | Value | Name | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `bootstrap_servers` | Bootstrap servers | The initial servers in the Kafka cluster to connect to. The Kafka client will be informed of the rest of the cluster nodes by connecting to one of these nodes. | array | Required |
-| `tls`| TLS | TLS connection settings | string | `"system_certificates"` |
-| `authentication`| Authentication | Connection details used to authenticate a client connection to Kafka via SASL | null, object | |
-| `authentication/mechanism` | Mechanism | SASL mechanism describing how to exchange and authenticate client servers | string |  |
-| `authentication/password` | Password | Password, if applicable for the authentication mechanism chosen | string | |
-| `authentication/username` | Username | Username, if applicable for the authentication mechanism chosen | string | |
+| `tls`| TLS | TLS connection settings. | string | `"system_certificates"` |
+| `authentication`| Authentication | Connection details used to authenticate a client connection to Kafka via SASL. | null, object | |
+| `authentication/mechanism` | Mechanism | SASL mechanism describing how to exchange and authenticate client servers. | string |  |
+| `authentication/password` | Password | Password, if applicable for the authentication mechanism chosen. | string | |
+| `authentication/username` | Username | Username, if applicable for the authentication mechanism chosen. | string | |
 
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `stream` | Stream | Topic name | string | Required |
+| `stream` | Stream | Topic name. | string | Required |
 | `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample

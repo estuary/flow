@@ -265,7 +265,7 @@ jobs:
           make catalog-test \
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flowctl-go \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \
@@ -277,7 +277,7 @@ jobs:
           make end-to-end-test \
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flowctl-go \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \
@@ -289,7 +289,7 @@ jobs:
           make .build/package/flow-x86-linux.tar.gz \
           -o .build/package/bin/etcd \
           -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-rs \
+          -o .build/package/bin/flowctl-go \
           -o .build/package/bin/flow-network-proxy \
           -o .build/package/bin/flow-parser \
           -o .build/package/bin/flow-schemalate \

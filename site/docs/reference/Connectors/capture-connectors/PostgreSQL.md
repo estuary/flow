@@ -85,16 +85,16 @@ There are various ways to configure and implement connectors. See [connectors](.
 | `port` | Port | Port on which to connect to the database. | uint16 | `5432` |
 | `user` | User | Database user to use. | String | Required |
 | `password` | Password | User password configured within the database. | String | Required |
-| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from | String | `"flow_publication"` |
-| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from | String | `"flow_slot"` |
-| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills | String | `"public.flow_watermarks"` |
+| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from. | String | `"flow_publication"` |
+| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from. | String | `"flow_slot"` |
+| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills. | String | `"public.flow_watermarks"` |
 
 #### Bindings
 
 | Value | Name | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `namespace` | Namespace | The [namespace](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table, if used. | string | |
-| `stream` | Stream | Table name | string | Required |
+| `stream` | Stream | Table name. | string | Required |
 | `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
@@ -139,9 +139,9 @@ To set up and configure your SSH server, see the [guide](../../../../guides/conn
 Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
 of popular relational databases, including PostgreSQL.
 
-### Setup
-
 You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
+
+### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Currently, Estuary supports SSH tunneling to allow this.
@@ -162,7 +162,7 @@ You can use this connector for PostgreSQL instances on RDS, but the setup requir
 
   d. Reboot the database to allow the new parameter group to take effect.
 
-3. Run the following commands to create a new user for the capture with appropriate permissions,
+3. In the PostgreSQL client, run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
   ```sql
   CREATE USER flow_capture WITH PASSWORD '<secret>';

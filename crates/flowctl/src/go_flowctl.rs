@@ -1,7 +1,7 @@
 use flow_cli_common::ExternalArgs;
 
 /// The name of the go-based flowctl binary. This must be on the PATH.
-pub const GO_FLOWCTL: &str = "flowctl";
+pub const GO_FLOWCTL: &str = "flowctl-go";
 
 /// External subcommands that are provided by the flowctl Go-based binary. All arguments are simply
 /// forwarded verbatim.
