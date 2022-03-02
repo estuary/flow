@@ -5,8 +5,11 @@ use json::schema::{build::build_schema, Application, Keyword};
 use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
+use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::io::BufWriter;
+use std::io::Write;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -125,18 +128,29 @@ impl<F: Fetcher> Loader<F> {
                     .binary_search_by_key(&resource_url.as_str(), |r| r.resource.as_str())
                     .ok()
                     .and_then(|ind| resources.get(ind))
-                    .and_then(|r| serde_yaml::from_slice(&r.content).ok())
+                    .and_then(|r| {
+                        let mut buf = Vec::new();
+                        let writer = BufWriter::new(&mut buf);
+                        let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
+                        let mut serializer = serde_json::Serializer::new(writer);
+                        serde_transcode::transcode(deserializer, &mut serializer)
+                            .expect("transcode failed");
+                        serializer.into_inner().flush().unwrap();
+                        RawValue::from_string(String::from_utf8(buf).unwrap())
+                            .expect("RawValue construction failed")
+                            .into()
+                    })
                     .map(|config| {
                         serde_json::to_value(models::ConnectorConfig {
                             image,
-                            config: models::Config::Inline(config),
+                            config: models::Config::Inline(models::RawConfig(config)),
                         })
                         .unwrap()
                     }),
                 // Pass through the ConnectorConfig as-is.
                 spec @ _ => Some(serde_json::to_value(spec).unwrap()),
             }
-            .unwrap_or_default();
+            .unwrap_or_default()
         };
 
         let taken = std::mem::take(captures);

@@ -19,6 +19,7 @@ regex = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value", "preserve_order"] }
+serde-transcode = "*"
 serde_yaml = "*"
 thiserror = "*"
 tracing = "*"
