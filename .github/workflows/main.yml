@@ -263,38 +263,38 @@ jobs:
       - name: make catalog-test
         run: |
           make catalog-test \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: make end-to-end-test
         run: |
           make end-to-end-test \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: make package (tar only)
         run: |
-          make .build/package/flow-x86-linux.tar.gz \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz \
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: Tidy up, and ensure that generated files are unchanged.
         run: |
