@@ -1,5 +1,6 @@
 use crate::config;
 use crate::error::SubprocessError;
+use crate::models::Id;
 use async_trait::async_trait;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::BTreeMap;
@@ -18,7 +19,7 @@ pub struct PutBuilds(Arc<dyn BuildsRootService>);
 
 impl PutBuilds {
     /// Uploads the given `build_db` to the builds root so that it is accessible to the data plane.
-    async fn put_build(&self, build_id: &str, build_db: &Path) -> Result<(), BuildsRootError> {
+    async fn put_build(&self, build_id: Id, build_db: &Path) -> Result<(), BuildsRootError> {
         self.0.put_build(build_id, build_db).await
     }
 }
@@ -45,7 +46,7 @@ impl std::ops::Deref for BuildDBRef {
 #[derive(Debug, Clone)]
 pub struct FetchBuilds {
     root: Arc<dyn BuildsRootService>,
-    local_builds: Arc<Mutex<BTreeMap<String, LocalBuildState>>>,
+    local_builds: Arc<Mutex<BTreeMap<Id, LocalBuildState>>>,
 }
 
 impl FetchBuilds {
@@ -57,7 +58,7 @@ impl FetchBuilds {
     }
 
     #[tracing::instrument(level = "debug")]
-    pub async fn get_build(&self, build_id: &str) -> Result<BuildDBRef, BuildsRootError> {
+    pub async fn get_build(&self, build_id: Id) -> Result<BuildDBRef, BuildsRootError> {
         let state_lock = self.get_state(build_id).await;
         let mut build_state = state_lock.0.lock().await;
 
@@ -76,7 +77,7 @@ impl FetchBuilds {
             let s = match self.root.retrieve_build(build_id).await {
                 Ok(build_path) => Ok(LocalBuildDB::new(build_path)),
                 Err(err) => {
-                    tracing::error!(error = ?err, build_id, prior_attempts, "failed to fetch build");
+                    tracing::error!(error = ?err, build_id = %build_id, prior_attempts, "failed to fetch build");
                     Err(LastError {
                         attempts: prior_attempts + 1,
                         last_attempt: Instant::now(),
@@ -97,13 +98,14 @@ impl FetchBuilds {
         }
     }
 
-    async fn get_state(&self, build_id: &str) -> LocalBuildState {
+    /// Retrieves the `LocalBuildState` for the given build, initializing it if necessary.
+    async fn get_state(&self, build_id: Id) -> LocalBuildState {
         let mut locals = self.local_builds.lock().await;
-        if let Some(ours) = locals.get(build_id) {
+        if let Some(ours) = locals.get(&build_id) {
             ours.clone()
         } else {
             let build_state = LocalBuildState::default();
-            locals.insert(build_id.to_owned(), build_state.clone());
+            locals.insert(build_id, build_state.clone());
             build_state
         }
     }
@@ -145,8 +147,8 @@ pub enum BuildsRootError {
 
 #[async_trait]
 trait BuildsRootService: Debug + Send + Sync {
-    async fn put_build(&self, build_id: &str, build: &Path) -> Result<(), BuildsRootError>;
-    async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError>;
+    async fn put_build(&self, build_id: Id, build: &Path) -> Result<(), BuildsRootError>;
+    async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError>;
 }
 
 #[derive(Debug, Clone)]
@@ -211,8 +213,8 @@ mod test {
     #[tokio::test]
     async fn test_concurrent_fetches_when_first_fetch_is_successful() {
         let dir = TempDir::new().unwrap();
-        let build_ids = &["fooooo", "baaaar", "baaaaz"];
-        for id in build_ids {
+        const BUILD_IDS: &[Id] = &[Id::new(1), Id::new(2), Id::new(3)];
+        for id in BUILD_IDS {
             make_test_build(dir.path(), *id);
         }
 
@@ -225,7 +227,7 @@ mod test {
             .map(|i| {
                 let fetch_svc = fetch_svc.clone();
                 tokio::spawn(async move {
-                    let id = build_ids[i % build_ids.len()];
+                    let id = BUILD_IDS[i % BUILD_IDS.len()];
                     fetch_svc
                         .get_build(id)
                         .await
@@ -242,14 +244,14 @@ mod test {
 
         // There should have been exactly 1 call to the builds root service for each unique build.
         let actual_calls = root.0.load(Ordering::SeqCst);
-        assert_eq!(build_ids.len(), actual_calls as usize);
+        assert_eq!(BUILD_IDS.len(), actual_calls as usize);
     }
 
     #[tokio::test]
     async fn local_builds_root_can_get_and_put_a_build_successfully() {
         let dir = TempDir::new().unwrap();
-        let test_build = make_test_build(dir.path(), "test-1");
-        let build_id = "test-build-1";
+        let build_id = Id::new(7);
+        let test_build = make_test_build(dir.path(), build_id);
 
         let root_dir = TempDir::new().unwrap();
 
@@ -271,7 +273,7 @@ mod test {
 
         // Fetching a build that doesn't exist returns an error
         fetch_svc
-            .get_build("def-doesnt-exist")
+            .get_build(Id::new(9999))
             .await
             .expect_err("should fail");
     }
@@ -287,7 +289,10 @@ mod test {
         // number of calls _should_ be because time is involved, but we can at least be certain
         // that the actual number should be less than 10.
         for _ in 0..10 {
-            let err = fetch_svc.get_build("foo").await.expect_err("should fail");
+            let err = fetch_svc
+                .get_build(Id::new(9))
+                .await
+                .expect_err("should fail");
             assert!(matches!(err, BuildsRootError::PrevError(_)));
         }
 
@@ -299,15 +304,15 @@ mod test {
     struct MockSuccess(AtomicU32, PathBuf);
     #[async_trait]
     impl BuildsRootService for MockSuccess {
-        async fn put_build(&self, _: &str, _: &Path) -> Result<(), BuildsRootError> {
+        async fn put_build(&self, _: Id, _: &Path) -> Result<(), BuildsRootError> {
             unimplemented!()
         }
 
-        async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
+        async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             // Sleep for a short time, so that we can exercise some of the synchronization code.
             tokio::time::sleep(std::time::Duration::from_millis(15)).await;
-            Ok(self.1.join(build_id))
+            Ok(self.1.join(build_id.to_string()))
         }
     }
 
@@ -316,11 +321,11 @@ mod test {
 
     #[async_trait]
     impl BuildsRootService for MockFailures {
-        async fn put_build(&self, _: &str, _: &Path) -> Result<(), BuildsRootError> {
+        async fn put_build(&self, _: Id, _: &Path) -> Result<(), BuildsRootError> {
             unimplemented!()
         }
 
-        async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
+        async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
             let call_num = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             // Sleep for a short time, so that we can exercise some of the synchronization code.
             tokio::time::sleep(std::time::Duration::from_millis(15)).await;
@@ -331,8 +336,8 @@ mod test {
         }
     }
 
-    fn make_test_build(dir: &Path, id: &str) -> PathBuf {
-        let path = dir.join(id);
+    fn make_test_build(dir: &Path, id: Id) -> PathBuf {
+        let path = dir.join(id.to_string());
         let conn = Connection::open(&path).expect("failed to create db");
         conn.execute_batch(
             r#"CREATE TABLE coal_mine (canary);
