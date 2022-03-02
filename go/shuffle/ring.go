@@ -226,7 +226,8 @@ func (r *ring) serve() {
 	defer build.Close()
 	// TODO(johnny): defer |extractor| cleanup (not yet implemented).
 
-	if r.shuffle.ValidateSchemaAtRead {
+	// TODO(johnny): Switch to using bundled schema.
+	if r.shuffle.DeprecatedValidateSchemaAtRead {
 		maybeSourceSchemaURI = r.shuffle.SourceSchemaUri
 	}
 

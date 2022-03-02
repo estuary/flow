@@ -329,6 +329,7 @@ impl FixtureBuilder {
             schema_index_memptr: idx as *const doc::SchemaIndex<'static> as u64,
             derivation: Some(DerivationSpec {
                 register_schema_uri: register_schema_url.to_string(),
+                register_schema_json: String::new(), // TODO(johnny): switch to me.
                 collection: Some(CollectionSpec {
                     collection: derivation.clone(),
                     schema_uri: collection_schema_url.to_string(),
