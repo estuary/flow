@@ -112,7 +112,6 @@ func Run(
 				"--entrypoint", connectorProxyPath,
 				"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
 			)
-
 		}
 
 		if err := pullImage(ctx, image, logger); err != nil {

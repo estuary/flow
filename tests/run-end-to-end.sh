@@ -1,5 +1,4 @@
 #!/bin/bash
-
 #
 # This script runs the examples catalog to completion using a temp-data-plane in --poll mode,
 # and outputs selected materializations.
@@ -85,13 +84,13 @@ flowctl api build \
     --source ${ROOTDIR}/tests/end-to-end.flow.yaml \
     --ts-package \
     || bail "Catalog build failed."
-
 # Move the built database to the data plane's builds root.
 mv ${TESTDIR}/catalog-build/${BUILD_ID} ${BUILDS_ROOT}/
 # Activate the catalog.
 flowctl api activate --build-id ${BUILD_ID} --all || bail "Activate failed."
 # Wait for polling pass to finish.
 flowctl api await --build-id ${BUILD_ID} || bail "Await failed."
+
 # Read out materialization results.
 #
 # TODO(johnny): relocation-related statistics are not stable due to
