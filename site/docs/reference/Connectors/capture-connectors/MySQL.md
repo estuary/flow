@@ -5,7 +5,7 @@ This connector is still under development. Estuary does not currently guarantee
 that it will behave as expected in all production environments.
 :::
 
-`ghcr.io/estuary/source-mysql:dev` provides the latest connector image when using the Flow GitOps environment.
+[`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image when using the Flow GitOps environment.
 You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites

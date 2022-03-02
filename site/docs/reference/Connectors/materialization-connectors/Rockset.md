@@ -1,6 +1,6 @@
 This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of your Flow collections into Rockset collections.
 
-`ghcr.io/estuary/materialize-rockset:dev` provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/materialize-rockset:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-rockset) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
