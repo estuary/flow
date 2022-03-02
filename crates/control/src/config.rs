@@ -2,15 +2,51 @@ use std::path::Path;
 
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
+use validator::{Validate, ValidationError, ValidationErrors};
 
 pub mod app_env;
 
 pub use app_env::app_env;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct Settings {
     pub application: ApplicationSettings,
     pub database: DatabaseSettings,
+    #[validate]
+    pub builds_root: BuildsRootSettings,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct BuildsRootSettings {
+    /// The URI of the builds root, where build databases will be stored. In production, this will
+    /// always be a `gs://` URI for GCS. When running locally, this may be a `file:///` URI. No
+    /// other URI schemes are currently supported.
+    #[validate(custom = "BuildsRootSettings::validate_uri")]
+    pub uri: url::Url,
+}
+
+impl BuildsRootSettings {
+    fn validate_uri(uri: &url::Url) -> Result<(), ValidationError> {
+        let ensure = |ok: bool, msg: &str| {
+            if !ok {
+                let mut err = ValidationError::new("builds_root.uri");
+                err.message = Some(msg.to_owned().into());
+                Err(err)
+            } else {
+                Ok(())
+            }
+        };
+        ensure(!uri.cannot_be_a_base(), "uri cannot be a base")?;
+        ensure(uri.path().ends_with('/'), "uri must end with a '/'")?;
+        match uri.scheme() {
+            "gs" | "file" => { /* all good here */ }
+            other => {
+                let msg = format!("invalid uri scheme: '{}'", other);
+                ensure(false, msg.as_str())?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,7 +99,15 @@ pub fn settings() -> &'static Settings {
         .expect("to have initialized SETTINGS via `load_settings`")
 }
 
-pub fn load_settings<P>(config_path: P) -> Result<&'static Settings, ::config::ConfigError>
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("loading config: {0}")]
+    Loading(#[from] ::config::ConfigError),
+    #[error("invalid config: {0}")]
+    Validation(#[from] ValidationErrors),
+}
+
+pub fn load_settings<P>(config_path: P) -> Result<&'static Settings, ConfigError>
 where
     P: AsRef<Path>,
 {
@@ -79,7 +123,9 @@ where
         // Load settings from ENV_VARs
         config.merge(config::Environment::with_prefix("CONTROL").separator("__"))?;
 
-        config.try_into()
+        let settings: Settings = config.try_into()?;
+        settings.validate()?;
+        Ok(settings)
     })
 }
 
@@ -127,4 +173,26 @@ fn merge_database_url(config: &mut config::Config) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn builds_root_uri_validation() {
+        validate_uri("file:///foo/bar/").expect("should pass validation");
+
+        // We probably should eventually make these assertions more specific, but leaving this as
+        // "good enough for now".
+        validate_uri("file:///foo/bar").expect_err("should fail due to missing trailing slash");
+        validate_uri("wut:///foo/bar/").expect_err("should fail due to unsupported scheme");
+        validate_uri("gs:foo/bar/").expect_err("should fail due to cannot be a base");
+    }
+
+    fn validate_uri(uri: &str) -> Result<(), validator::ValidationErrors> {
+        let parsed = url::Url::parse(uri).expect("failed to parse test url");
+        let conf = BuildsRootSettings { uri: parsed };
+        conf.validate()
+    }
 }
