@@ -14,12 +14,6 @@ pub struct GCSBuildsRoot {
 
 impl GCSBuildsRoot {
     pub fn new(uri: url::Url) -> Result<GCSBuildsRoot, anyhow::Error> {
-        anyhow::ensure!(!uri.cannot_be_a_base(), "uri cannot be a base");
-        anyhow::ensure!(uri.path().ends_with('/'), "uri must end with a '/'");
-
-        // TODO: either assert that the temp_dir is empty, or scan it an pre-populate local_builds
-        // based on its contents.
-
         let temp_dir = TempDir::new()?;
         Ok(GCSBuildsRoot {
             root: uri,
