@@ -1,4 +1,5 @@
 use super::{BuildsRootError, BuildsRootService};
+use crate::models::Id;
 use crate::services::subprocess::Subprocess;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -29,8 +30,8 @@ impl GCSBuildsRoot {
 
 #[async_trait]
 impl BuildsRootService for GCSBuildsRoot {
-    async fn put_build(&self, build_id: &str, build: &Path) -> Result<(), BuildsRootError> {
-        let dest_url = self.root.join(build_id)?;
+    async fn put_build(&self, build_id: Id, build: &Path) -> Result<(), BuildsRootError> {
+        let dest_url = self.root.join(&build_id.to_string())?;
         Command::new("gsutil")
             .arg("cp")
             .arg("-n") // -n causes gsutil to fail if the file already exists
@@ -41,9 +42,10 @@ impl BuildsRootService for GCSBuildsRoot {
         Ok(())
     }
 
-    async fn retrieve_build(&self, build_id: &str) -> Result<PathBuf, BuildsRootError> {
-        let dest_file = self.temp_dir.path().join(build_id);
-        let src_key = self.root.join(build_id)?;
+    async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
+        let id_str = build_id.to_string();
+        let dest_file = self.temp_dir.path().join(&id_str);
+        let src_key = self.root.join(&id_str)?;
 
         // If we've previously attempted to retrieve this build and failed part way through, then
         // a file with this name could already exist. We don't use the `-n` flag here, and rely on
