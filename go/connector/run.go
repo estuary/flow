@@ -21,6 +21,27 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type ConnectorProtocol int
+
+const (
+	FlowCapture ConnectorProtocol = iota
+	FlowMaterialize
+)
+
+func (c ConnectorProtocol) GetProxyCommand() string {
+	// Corresponding to the ProxyCommand specified in crates/connector_proxy/src/main.rs
+	switch c {
+	case FlowCapture:
+		return "proxy-flow-capture"
+	case FlowMaterialize:
+		return "proxy-flow-materialize"
+	default:
+		panic("unexpected connector protocol")
+	}
+}
+
+const imageInspectJsonFileName = "image_inspect.json"
+
 // Run the given Docker |image| with |args|.
 //
 // Any |jsonFiles| are mounted into the container under "/tmp".
@@ -47,8 +68,8 @@ import (
 func Run(
 	ctx context.Context,
 	image string,
+	connectorProtocol ConnectorProtocol,
 	networkName string,
-	additinalImageArgs []string,
 	args []string,
 	jsonFiles map[string]json.RawMessage,
 	writeLoop func(io.Writer) error,
@@ -72,7 +93,6 @@ func Run(
 		"--log-driver",
 		"none",
 	}
-	imageArgs = append(imageArgs, additinalImageArgs...)
 
 	if networkName != "" {
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
@@ -83,6 +103,36 @@ func Run(
 		return fmt.Errorf("creating tempdir: %w", err)
 	}
 	defer os.RemoveAll(tempdir)
+
+	if connectorProtocol == FlowMaterialize {
+		if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
+			return fmt.Errorf("prepare flow connector proxy binary: %w", err)
+		} else {
+			imageArgs = append(imageArgs,
+				"--entrypoint", connectorProxyPath,
+				"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
+			)
+
+		}
+
+		if err := pullImage(ctx, image, logger); err != nil {
+			return fmt.Errorf("pull image: %w", err)
+		} else if inspectOutput, err := inspectImage(ctx, tempdir, image, logger); err != nil {
+			return fmt.Errorf("inspect image: %w", err)
+		} else {
+			if jsonFiles == nil {
+				jsonFiles = map[string]json.RawMessage{imageInspectJsonFileName: inspectOutput}
+
+			} else {
+				jsonFiles[imageInspectJsonFileName] = inspectOutput
+			}
+		}
+
+		args = append([]string{
+			fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
+			connectorProtocol.GetProxyCommand(),
+		}, args...)
+	}
 
 	for name, data := range jsonFiles {
 		var hostPath = filepath.Join(tempdir, name)
@@ -501,3 +551,46 @@ func (fe *firstError) unwrap() error {
 
 const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
+
+func pullImage(ctx context.Context, image string, logger ops.Logger) error {
+	var combinedOutput, err = exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput()
+	logger.Log(logrus.InfoLevel, nil, fmt.Sprintf("output from docker pull: %s", combinedOutput))
+	if err != nil {
+		return fmt.Errorf("pull image: %w", err)
+	}
+	return nil
+}
+
+func inspectImage(ctx context.Context, tempdir string, image string, logger ops.Logger) (json.RawMessage, error) {
+	if output, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
+		return nil, fmt.Errorf("inspect image: %w", err)
+	} else {
+		return output, nil
+	}
+}
+
+// Constants related to the path of flow-connector-proxy.
+// If envvar FLOW_RUST_BIN is set, it is "${FLOW_RUST_BIN}/flow-connector-proxy".
+// Otherwise, use the default of "/usr/local/bin/flow-connector-proxy".
+const flowConnectorProxy = "flow-connector-proxy"
+const defaultFlowRustBinDir = "/usr/local/bin"
+const flowBinaryDirEnvKey = "FLOW_BINARY_DIR"
+
+func prepareFlowConnectorProxyBinary(tempdir string) (string, error) {
+	var connectorProxyPath = filepath.Join(tempdir, "connector_proxy")
+	if input, err := ioutil.ReadFile(filepath.Join(getRustBinDir(), flowConnectorProxy)); err != nil {
+		return "", fmt.Errorf("read connector proxy binary from source: %w", err)
+	} else if err = ioutil.WriteFile(connectorProxyPath, input, 0751); err != nil {
+		return "", fmt.Errorf("write connector proxy binary: %w", err)
+	}
+
+	return connectorProxyPath, nil
+}
+
+func getRustBinDir() string {
+	if rustBinDir, ok := os.LookupEnv(flowBinaryDirEnvKey); ok {
+		return rustBinDir
+	}
+
+	return defaultFlowRustBinDir
+}
