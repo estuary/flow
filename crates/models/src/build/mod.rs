@@ -23,9 +23,17 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         .map(|v| v.to_ascii_lowercase() == "base64")
         .unwrap_or_default();
 
+    let exists = match exists {
+        Exists::Must => flow::inference::Exists::Must,
+        Exists::May => flow::inference::Exists::May,
+        Exists::Implicit => flow::inference::Exists::Implicit,
+        Exists::Cannot => flow::inference::Exists::Cannot,
+    };
+
     flow::Inference {
         types: shape.type_.to_vec(),
-        must_exist: exists.must(),
+        deprecated_must_exist: matches!(exists, flow::inference::Exists::Must),
+        exists: exists as i32,
         title: shape.title.clone().unwrap_or_default(),
         description: shape.description.clone().unwrap_or_default(),
         default_json,
@@ -355,8 +363,7 @@ pub fn collection_spec(
                 "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
                 "ack": true,
             } })
-        .to_string()
-        .into(),
+        .to_string(),
         partition_template: Some(partition_template(build_config, name, journals, stores)),
     }
 }
@@ -442,7 +449,8 @@ fn lambda_spec(
 
 pub fn transform_spec(
     transform: &tables::Transform,
-    source: &tables::Collection,
+    source: &flow::CollectionSpec,
+    validate_schema_bundle: &serde_json::Value,
 ) -> flow::TransformSpec {
     let tables::Transform {
         scope: _,
@@ -452,24 +460,25 @@ pub fn transform_spec(
         read_delay_seconds,
         shuffle_key,
         shuffle_lambda,
-        source_collection: _,
+        source_collection,
         source_partitions,
         source_schema,
         transform: name,
         update_lambda,
     } = &transform;
 
+    let shuffle_key_ptr = if let Some(k) = shuffle_key {
+        k.iter().map(|k| k.to_string()).collect() // CompositeKey => Vec<String>.
+    } else {
+        source.key_ptrs.clone()
+    };
+
     let shuffle = flow::Shuffle {
         group_name: transform.group_name(),
-        source_collection: source.collection.to_string(),
-        source_partitions: Some(journal_selector(&source.collection, source_partitions)),
-        source_uuid_ptr: source.uuid_ptr(),
-        shuffle_key_ptr: shuffle_key
-            .as_ref()
-            .unwrap_or(&source.key)
-            .iter()
-            .map(|p| p.to_string())
-            .collect(),
+        source_collection: source.collection.clone(),
+        source_partitions: Some(journal_selector(source_collection, source_partitions)),
+        source_uuid_ptr: source.uuid_ptr.clone(),
+        shuffle_key_ptr,
         uses_source_key: shuffle_key.is_none(),
         shuffle_lambda: shuffle_lambda
             .as_ref()
@@ -477,12 +486,13 @@ pub fn transform_spec(
         source_schema_uri: source_schema
             .as_ref()
             .map(|s| s.to_string())
-            .unwrap_or_else(|| source.schema.to_string()),
+            .unwrap_or_else(|| source.schema_uri.clone()),
         uses_source_schema: source_schema.is_none(),
-        validate_schema_at_read: true,
+        deprecated_validate_schema_at_read: true,
         filter_r_clocks: update_lambda.is_none(),
         read_delay_seconds: read_delay_seconds.unwrap_or(0),
         priority: *priority,
+        validate_schema_json: validate_schema_bundle.to_string(),
     };
 
     flow::TransformSpec {
@@ -504,6 +514,7 @@ pub fn derivation_spec(
     collection: &tables::BuiltCollection,
     mut transforms: Vec<flow::TransformSpec>,
     recovery_stores: &[crate::Store],
+    register_schema_bundle: &serde_json::Value,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
@@ -526,6 +537,7 @@ pub fn derivation_spec(
         collection: Some(collection.spec.clone()),
         transforms,
         register_schema_uri: register_schema.to_string(),
+        register_schema_json: register_schema_bundle.to_string(),
         register_initial_json: register_initial.to_string(),
         recovery_log_template: Some(recovery_log_template(
             build_config,
@@ -583,17 +595,21 @@ pub fn materialization_shuffle(
     source: &flow::CollectionSpec,
     resource_path: &[impl AsRef<str>],
 ) -> flow::Shuffle {
+    let tables::MaterializationBinding {
+        collection,
+        materialization,
+        source_partitions,
+        ..
+    } = binding;
+
     flow::Shuffle {
         group_name: format!(
             "materialize/{}/{}",
-            binding.materialization.as_str(),
+            materialization.as_str(),
             encode_resource_path(resource_path),
         ),
-        source_collection: binding.collection.to_string(),
-        source_partitions: Some(journal_selector(
-            &binding.collection,
-            &binding.source_partitions,
-        )),
+        source_collection: collection.to_string(),
+        source_partitions: Some(journal_selector(collection, source_partitions)),
         source_uuid_ptr: source.uuid_ptr.clone(),
         // Materializations always group by the collection's key.
         shuffle_key_ptr: source.key_ptrs.clone(),
@@ -601,7 +617,7 @@ pub fn materialization_shuffle(
         shuffle_lambda: None,
         source_schema_uri: source.schema_uri.clone(),
         uses_source_schema: true,
-        validate_schema_at_read: false,
+        deprecated_validate_schema_at_read: false,
         // At all times, a given collection key must be exclusively owned by
         // a single materialization shard. Therefore we only subdivide
         // materialization shards on key, never on r-clock.
@@ -611,6 +627,8 @@ pub fn materialization_shuffle(
         // Priority has no meaning since there's just one shuffle
         // (we're not joining across collections as transforms do).
         priority: 0,
+        // Schemas are validated when combined over by the materialization runtime.
+        validate_schema_json: String::new(),
     }
 }
 

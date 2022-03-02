@@ -1,5 +1,6 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
 
 ---
@@ -44,16 +45,19 @@ Tables {
             scope: test://example/catalog.yaml#/storageMappings/,
             prefix: ,
             stores: [{"provider":"S3","bucket":"root-bucket","prefix":null}],
+            foreign_build_id: NULL,
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/foo~1bar~1baz~1,
             prefix: foo/bar/baz/,
             stores: [{"provider":"GCS","bucket":"a-bucket","prefix":"and-prefix/"},{"provider":"S3","bucket":"s3-bucket","prefix":null}],
+            foreign_build_id: NULL,
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/other~1thing~1,
             prefix: other/thing/,
             stores: [{"provider":"AZURE","bucket":"s3-bucket","prefix":null}],
+            foreign_build_id: NULL,
         },
     ],
     test_steps: [],
