@@ -40,7 +40,7 @@ static ENCODING_CONFIG: base64::Config = base64::URL_SAFE_NO_PAD;
 pub struct Id(i64);
 
 impl Id {
-    pub fn new(inner: i64) -> Self {
+    pub const fn new(inner: i64) -> Self {
         Self(inner)
     }
 
