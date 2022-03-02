@@ -119,6 +119,7 @@ async fn async_main(
 ) -> Result<(), Error> {
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
+    // TODO: add the check to make sure the proxy_command passed in is consistent with the protocol inferred from image.
     match proxy_command {
         ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_config).await,
         ProxyCommand::ProxyFlowMaterialize(m) => proxy_flow_materialize(m, image_config).await,
