@@ -60,14 +60,12 @@ pub enum Error {
     CollectionKeyEmpty { collection: String },
     #[error("collection {collection} schema must be an object")]
     CollectionSchemaNotObject { collection: String },
+    #[error("keyed location {ptr} must be required to exist by schema {schema} (https://go.estuary.dev/KUYbal)")]
+    KeyMayNotExist { ptr: String, schema: Url },
     #[error(
-        "keyed location {ptr} (having type {type_:?}) must be required to exist by schema {schema}"
+        "location {ptr} can never exist within schema {schema} (https://go.estuary.dev/L3m1y9)"
     )]
-    KeyMayNotExist {
-        ptr: String,
-        type_: types::Set,
-        schema: Url,
-    },
+    KeyCannotExist { ptr: String, schema: Url },
     #[error("location {ptr} accepts {type_:?} in schema {schema}, but {disallowed:?} is disallowed in locations used as keys (https://go.estuary.dev/CigSvN)")]
     KeyWrongType {
         ptr: String,
@@ -75,8 +73,14 @@ pub enum Error {
         disallowed: types::Set,
         schema: Url,
     },
-    #[error("location {ptr} is unknown in schema {schema}")]
-    NoSuchPointer { ptr: String, schema: Url },
+    #[error("location {ptr} is unknown in schema {schema} (https://go.estuary.dev/rdCMNB)")]
+    KeyIsImplicit { ptr: String, schema: Url },
+    #[error("keyed location {ptr} has a disallowed {strategy:?} reduction strategy (https://go.estuary.dev/V5RRHc)")]
+    KeyHasReduction {
+        ptr: String,
+        schema: Url,
+        strategy: doc::inference::Reduction,
+    },
     #[error("transform {lhs_name} shuffled key types {lhs_types:?} don't align with transform {rhs_name} types {rhs_types:?}")]
     ShuffleKeyMismatch {
         lhs_name: String,
@@ -124,8 +128,6 @@ pub enum Error {
     ShuffleKeyEmpty { transform: String },
     #[error("must set at least one of 'update' or 'publish' lambdas")]
     NoUpdateOrPublish { transform: String },
-    #[error("cannot capture into derived collection {derivation}")]
-    CaptureOfDerivation { derivation: String },
     #[error("driver error while validating capture {name}")]
     CaptureDriver {
         name: String,
@@ -170,9 +172,13 @@ pub enum Error {
     },
 
     #[error(transparent)]
+    SchemaBuild(#[from] json::schema::build::Error),
+    #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]
     SchemaShape(#[from] doc::inference::Error),
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
 }
 
 impl Error {

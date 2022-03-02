@@ -10,8 +10,6 @@ pub async fn walk_all_captures<D: Drivers>(
     built_collections: &[tables::BuiltCollection],
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
-    collections: &[tables::Collection],
-    derivations: &[tables::Derivation],
     imports: &[tables::Import],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -46,8 +44,6 @@ pub async fn walk_all_captures<D: Drivers>(
             built_collections,
             capture,
             bindings.into_iter().flatten().collect_vec(),
-            collections,
-            derivations,
             imports,
             &mut capture_errors,
         );
@@ -205,8 +201,6 @@ fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture: &'a tables::Capture,
     capture_bindings: Vec<&'a tables::CaptureBinding>,
-    collections: &[tables::Collection],
-    derivations: &[tables::Derivation],
     imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<(
@@ -226,15 +220,8 @@ fn walk_capture_request<'a>(
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
         .iter()
         .filter_map(|capture_binding| {
-            walk_capture_binding(
-                built_collections,
-                capture_binding,
-                collections,
-                derivations,
-                imports,
-                errors,
-            )
-            .map(|binding_request| (*capture_binding, binding_request))
+            walk_capture_binding(built_collections, capture_binding, imports, errors)
+                .map(|binding_request| (*capture_binding, binding_request))
         })
         .unzip();
 
@@ -251,8 +238,6 @@ fn walk_capture_request<'a>(
 fn walk_capture_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture_binding: &tables::CaptureBinding,
-    collections: &[tables::Collection],
-    derivations: &[tables::Derivation],
     imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<capture::validate_request::Binding> {
@@ -265,32 +250,16 @@ fn walk_capture_binding<'a>(
     } = capture_binding;
 
     // We must resolve the target collection to continue.
-    let target = reference::walk_reference(
+    let built_collection = reference::walk_reference(
         scope,
         "capture",
         "collection",
         collection,
-        collections,
+        built_collections,
         |c| (&c.collection, &c.scope),
         imports,
         errors,
     )?;
-
-    // Collection must be an ingestion, and not a derivation.
-    if let Some(_) = derivations
-        .iter()
-        .find(|d| d.derivation == target.collection)
-    {
-        Error::CaptureOfDerivation {
-            derivation: target.collection.to_string(),
-        }
-        .push(scope, errors);
-    }
-
-    let built_collection = built_collections
-        .iter()
-        .find(|c| c.collection == target.collection)
-        .unwrap();
 
     let request = capture::validate_request::Binding {
         resource_spec_json: resource_spec.to_string(),

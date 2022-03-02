@@ -329,7 +329,7 @@ test://example/int-string-captures:
 }
 
 #[test]
-fn test_capture_target_is_derivation_and_missing_imports() {
+fn test_capture_target_is_missing_imports() {
     run_test_errors(
         &GOLDEN,
         r#"
@@ -1241,6 +1241,7 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         &collections,
         &derivations,
         &fetches,
+        tables::BuiltCollections::new(),
         &imports,
         &materialization_bindings,
         &materializations,

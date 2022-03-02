@@ -5,12 +5,11 @@ use protocol::flow::{self, test_spec::step::Type as TestStepType};
 use superslice::Ext;
 
 pub fn walk_all_test_steps(
-    collections: &[tables::Collection],
+    built_collections: &[tables::BuiltCollection],
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     resources: &[tables::Resource],
     schema_index: &doc::SchemaIndex<'_>,
-    schemas: &[schema::Shape],
+    schema_shapes: &[schema::Shape],
     test_steps: &[tables::TestStep],
     errors: &mut tables::Errors,
 ) -> tables::BuiltTests {
@@ -30,12 +29,11 @@ pub fn walk_all_test_steps(
                 }
 
                 walk_test_step(
-                    collections,
+                    built_collections,
                     imports,
-                    projections,
                     resources,
                     schema_index,
-                    schemas,
+                    schema_shapes,
                     test_step,
                     errors,
                 )
@@ -65,9 +63,8 @@ pub fn walk_all_test_steps(
 }
 
 pub fn walk_test_step(
-    collections: &[tables::Collection],
+    built_collections: &[tables::BuiltCollection],
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     resources: &[tables::Resource],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
@@ -109,7 +106,7 @@ pub fn walk_test_step(
         &format!("test {} step {}", test.as_str(), step_index),
         "collection",
         collection,
-        collections,
+        built_collections,
         |c| (&c.collection, &c.scope),
         imports,
         errors,
@@ -117,17 +114,19 @@ pub fn walk_test_step(
         Some(s) => s,
         None => return None,
     };
+    // Pluck the collection schema Shape, which must exist but could be a placeholder.
+    let shape = &schema_shapes[schema_shapes
+        .equal_range_by_key(&collection.spec.schema_uri.as_str(), |s| s.schema.as_str())][0];
 
     // Verify that any ingest documents conform to the collection schema.
-    if schema_index.fetch(&collection.schema).is_none() {
+    if schema_index.fetch(&shape.schema).is_none() {
         // Referential integrity error, which we've already reported.
     } else {
         let mut validator = doc::Validator::new(schema_index);
         for doc in ingest {
-            if let Err(err) =
-                doc::Validation::validate(&mut validator, &collection.schema, doc.clone())
-                    .unwrap()
-                    .ok()
+            if let Err(err) = doc::Validation::validate(&mut validator, &shape.schema, doc.clone())
+                .unwrap()
+                .ok()
             {
                 Error::IngestDocInvalid(err).push(scope, errors);
             }
@@ -139,7 +138,7 @@ pub fn walk_test_step(
     if verify
         .iter()
         .tuple_windows()
-        .map(|(lhs, rhs)| json::json_cmp_at(&collection.key, lhs, rhs))
+        .map(|(lhs, rhs)| json::json_cmp_at(&collection.spec.key_ptrs, lhs, rhs))
         .any(|ord| ord == std::cmp::Ordering::Greater)
     {
         Error::TestVerifyOrder.push(scope, errors);
@@ -147,14 +146,7 @@ pub fn walk_test_step(
 
     // Verify a provided partition selector is valid.
     if let Some(selector) = partitions {
-        collection::walk_selector(
-            scope,
-            collection,
-            projections,
-            schema_shapes,
-            &selector,
-            errors,
-        );
+        collection::walk_selector(scope, &collection.spec, &selector, errors);
     }
 
     Some(models::build::test_step_spec(test_step, &documents))
