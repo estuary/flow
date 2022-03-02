@@ -185,7 +185,7 @@ impl<F: Fetcher> Loader<F> {
         // If an inline definition of a resource is already available, then use it.
         // Otherwise delegate to the Fetcher.
         // TODO(johnny): Sanity check expected vs actual content-types.
-        let inlined = self.inlined.borrow_mut().remove(&resource); // Don't hold guard.
+        let inlined = self.inlined.borrow_mut().remove(resource); // Don't hold guard.
         let content = if let Some(resource) = inlined {
             Ok(resource.content.clone())
         } else {
