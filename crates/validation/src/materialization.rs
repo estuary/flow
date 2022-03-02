@@ -1,22 +1,18 @@
-use super::{collection, indexed, reference, schema, storage_mapping, Drivers, Error};
+use super::{collection, indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use models::{self, build, tables};
 use protocol::{flow, labels, materialize};
 use std::collections::{BTreeMap, HashMap};
-use superslice::Ext;
 use url::Url;
 
 pub async fn walk_all_materializations<D: Drivers>(
     build_config: &flow::build_api::Config,
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
-    collections: &[tables::Collection],
     imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
@@ -54,12 +50,9 @@ pub async fn walk_all_materializations<D: Drivers>(
 
         let validation = walk_materialization_request(
             built_collections,
-            collections,
             imports,
             materialization,
             bindings.into_iter().flatten().collect(),
-            projections,
-            schema_shapes,
             &mut materialization_errors,
         );
 
@@ -229,12 +222,9 @@ pub async fn walk_all_materializations<D: Drivers>(
 
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    collections: &[tables::Collection],
     imports: &[tables::Import],
     materialization: &'a tables::Materialization,
     materialization_bindings: Vec<&'a tables::MaterializationBinding>,
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
 ) -> (
     &'a tables::Materialization,
@@ -254,11 +244,8 @@ fn walk_materialization_request<'a>(
         .filter_map(|materialization_binding| {
             walk_materialization_binding(
                 built_collections,
-                collections,
                 imports,
                 materialization_binding,
-                projections,
-                schema_shapes,
                 errors,
             )
             .map(|binding_request| (*materialization_binding, binding_request))
@@ -277,11 +264,8 @@ fn walk_materialization_request<'a>(
 
 fn walk_materialization_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    collections: &[tables::Collection],
     imports: &[tables::Import],
     materialization_binding: &'a tables::MaterializationBinding,
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
     errors: &mut tables::Errors,
 ) -> Option<materialize::validate_request::Binding> {
     let tables::MaterializationBinding {
@@ -302,31 +286,22 @@ fn walk_materialization_binding<'a>(
         "materialization",
         "collection",
         collection,
-        collections,
+        built_collections,
         |c| (&c.collection, &c.scope),
         imports,
         errors,
     )?;
 
-    let built_collection = &built_collections
-        [built_collections.lower_bound_by_key(&&source.collection, |c| &c.collection)];
-
     if let Some(selector) = source_partitions {
-        collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
+        collection::walk_selector(scope, &source.spec, &selector, errors);
     }
 
-    let field_config = walk_materialization_fields(
-        scope,
-        name,
-        built_collection,
-        fields_include,
-        fields_exclude,
-        errors,
-    );
+    let field_config =
+        walk_materialization_fields(scope, name, source, fields_include, fields_exclude, errors);
 
     let request = materialize::validate_request::Binding {
         resource_spec_json: resource_spec.to_string(),
-        collection: Some(built_collection.spec.clone()),
+        collection: Some(source.spec.clone()),
         field_config_json: field_config.into_iter().collect(),
     };
 
