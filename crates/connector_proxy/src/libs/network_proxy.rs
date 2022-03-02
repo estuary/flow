@@ -47,8 +47,8 @@ impl NetworkProxy {
                 Err(e) => Err(e.into()),
             };
 
-            if let Err(err) = result {
-                tracing::error!(error=%err, "failed starting network proxy.");
+            if let Err(ref err) = result {
+                tracing::error!(error=?err, "failed starting network proxy.");
                 std::process::exit(1);
             }
         })
@@ -76,8 +76,8 @@ impl NetworkProxy {
         let (mut tx, rx) = oneshot::channel();
         tokio::spawn(Self::start_network_proxy(network_proxy_config, rx));
 
-        // TODO(jixiang): The timeout logic is here to be consistent with go logic for source-postgresql.
-        // Refact the network-proxy and simplify the logic here after all connectors are converted to connector-proxy.
+        // TODO(jixiang): Refact the network-proxy and remove the timeout logic here after all connectors are converted to work with connector-proxy.
+
         // Block for at most 5 seconds for network proxy to be prepared.
         if let Err(_) = timeout(std::time::Duration::from_secs(5), tx.closed()).await {
             return Err(Error::ChannelTimeoutError);
