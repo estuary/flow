@@ -142,6 +142,7 @@ where
         &collections,
         &derivations,
         &fetches,
+        tables::BuiltCollections::new(),
         &imports,
         &materialization_bindings,
         &materializations,

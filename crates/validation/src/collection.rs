@@ -3,6 +3,7 @@ use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use models::{self, build, tables};
 use protocol::flow;
+use std::iter::FromIterator;
 use superslice::Ext;
 use url::Url;
 
@@ -35,6 +36,7 @@ pub fn walk_all_collections(
                 errors,
                 &mut implicit_projections,
             ),
+            None, // Not foreign.
         );
     }
 
@@ -75,7 +77,7 @@ fn walk_collection(
     }
 
     let schema = schema_shapes.iter().find(|s| s.schema == *schema).unwrap();
-    let _ = schema::walk_composite_key(scope, key, schema, errors);
+    schema::walk_composite_key(scope, key, schema, errors);
 
     if schema.shape.type_ != types::OBJECT {
         Error::CollectionSchemaNotObject {
@@ -138,12 +140,10 @@ fn walk_collection_projections(
         let (spec, implicit) =
             walk_projection_with_inference(collection, eob, schema_shape, errors);
 
-        if let Some(spec) = spec {
-            specs.push(spec);
-        }
         if let Some(implicit) = implicit {
             implicit_projections.insert(implicit);
         }
+        specs.push(spec);
     }
 
     specs
@@ -154,7 +154,7 @@ fn walk_projection_with_inference(
     eob: EitherOrBoth<&tables::Projection, (models::Field, &models::JsonPointer)>,
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
-) -> (Option<flow::Projection>, Option<tables::Projection>) {
+) -> (flow::Projection, Option<tables::Projection>) {
     let (scope, field, location, projection) = match &eob {
         EitherOrBoth::Both(projection, (field, location)) => {
             if &projection.location != *location {
@@ -181,17 +181,7 @@ fn walk_projection_with_inference(
         EitherOrBoth::Right((field, location)) => (&collection.scope, field, *location, None),
     };
 
-    let (shape, exists) = match schema_shape.shape.locate(&doc::Pointer::from_str(location)) {
-        Some(t) => t,
-        None => {
-            Error::NoSuchPointer {
-                ptr: location.to_string(),
-                schema: schema_shape.schema.clone(),
-            }
-            .push(scope, errors);
-            return (None, None);
-        }
-    };
+    let (shape, exists) = schema_shape.shape.locate(&doc::Pointer::from_str(location));
 
     let mut spec = flow::Projection {
         ptr: location.to_string(),
@@ -211,20 +201,21 @@ fn walk_projection_with_inference(
                 models::PartitionField::regex(),
                 errors,
             );
-            schema::walk_keyed_location(
-                &projection.scope,
-                &schema_shape.schema,
-                location,
-                shape,
-                exists,
-                errors,
-            );
         }
+        schema::walk_explicit_location(
+            &projection.scope,
+            &schema_shape.schema,
+            location,
+            projection.partition,
+            shape,
+            exists,
+            errors,
+        );
 
         spec.user_provided = true;
         spec.is_partition_key = projection.partition;
 
-        (Some(spec), None)
+        (spec, None)
     } else {
         // This is a discovered projection not provided by the user.
         let implicit = tables::Projection {
@@ -235,41 +226,27 @@ fn walk_projection_with_inference(
             partition: false,
             user_provided: false,
         };
-        (Some(spec), Some(implicit))
+        (spec, Some(implicit))
     }
 }
 
 pub fn walk_selector(
     scope: &Url,
-    collection: &tables::Collection,
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
+    collection: &protocol::flow::CollectionSpec,
     selector: &models::PartitionSelector,
     errors: &mut tables::Errors,
 ) {
-    // Shape of this |collection|.
-    let schema_shape = schema_shapes
-        .iter()
-        .find(|s| s.schema == collection.schema)
-        .unwrap();
-
-    // Filter to projections of this |collection|.
-    let projections = projections
-        .iter()
-        .filter(|p| p.collection == collection.collection)
-        .collect::<Vec<_>>();
-
     let models::PartitionSelector { include, exclude } = selector;
 
     for (category, labels) in &[("include", include), ("exclude", exclude)] {
         for (field, values) in labels.iter() {
-            let partition = match projections.iter().find(|p| p.field.as_str() == *field) {
+            let partition = match collection.projections.iter().find(|p| p.field == *field) {
                 Some(projection) => {
-                    if !projection.partition {
+                    if !projection.is_partition_key {
                         Error::ProjectionNotPartitioned {
                             category: category.to_string(),
                             field: field.clone(),
-                            collection: collection.collection.to_string(),
+                            collection: collection.collection.clone(),
                         }
                         .push(scope, errors);
                     }
@@ -279,19 +256,18 @@ pub fn walk_selector(
                     Error::NoSuchProjection {
                         category: category.to_string(),
                         field: field.clone(),
-                        collection: collection.collection.to_string(),
+                        collection: collection.collection.clone(),
                     }
                     .push(scope, errors);
                     continue;
                 }
             };
 
-            // Map partition to its accepted value type.
-            // We'll error elsewhere if it's not found.
-            let type_ = schema_shape
-                .shape
-                .locate(&doc::Pointer::from_str(&partition.location))
-                .map(|(shape, _)| shape.type_)
+            // Map partition inference to its accepted value type set.
+            let type_ = partition
+                .inference
+                .as_ref()
+                .map(|i| types::Set::from_iter(&i.types))
                 .unwrap_or(types::ANY);
 
             for value in values {

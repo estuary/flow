@@ -8,10 +8,8 @@ use superslice::Ext;
 pub fn walk_all_derivations(
     build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
-    collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -21,9 +19,6 @@ pub fn walk_all_derivations(
     let mut built_derivations = tables::BuiltDerivations::new();
 
     for derivation in derivations {
-        let built_collection = &built_collections
-            [built_collections.lower_bound_by_key(&&derivation.derivation, |c| &c.collection)];
-
         // Transforms are already ordered on (derivation, transform).
         let transforms =
             &transforms[transforms.equal_range_by_key(&&derivation.derivation, |t| &t.derivation)];
@@ -33,11 +28,9 @@ pub fn walk_all_derivations(
             &derivation.derivation,
             walk_derivation(
                 build_config,
-                built_collection,
-                collections,
+                built_collections,
                 derivation,
                 imports,
-                projections,
                 schema_index,
                 schema_shapes,
                 storage_mappings,
@@ -52,11 +45,9 @@ pub fn walk_all_derivations(
 
 fn walk_derivation(
     build_config: &flow::build_api::Config,
-    built_collection: &tables::BuiltCollection,
-    collections: &[tables::Collection],
+    built_collections: &[tables::BuiltCollection],
     derivation: &tables::Derivation,
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -65,18 +56,26 @@ fn walk_derivation(
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope,
-        derivation: name,
+        derivation: collection,
         register_schema,
         register_initial,
         shards: _,
     } = derivation;
 
+    // Pluck the BuiltCollection and register schema Shape of this Derivation.
+    // Both of these must exist, though the |register_schema| may be a
+    // placeholder if the schema does not exist.
+    let built_collection = &built_collections
+        [built_collections.equal_range_by_key(&collection.as_str(), |c| &c.collection)][0];
+    let register_schema =
+        &schema_shapes[schema_shapes.equal_range_by_key(&register_schema, |s| &s.schema)][0];
+
     // Verify that the register's initial value conforms to its schema.
-    if schema_index.fetch(&register_schema).is_none() {
+    if schema_index.fetch(&register_schema.schema).is_none() {
         // Referential integrity error, which we've already reported.
     } else if let Err(err) = doc::Validation::validate(
         &mut doc::Validator::new(schema_index),
-        register_schema,
+        &register_schema.schema,
         register_initial.clone(),
     )
     .unwrap()
@@ -93,9 +92,8 @@ fn walk_derivation(
     // Walk transforms of this derivation.
     for transform in transforms {
         if let Some(type_set) = walk_transform(
-            collections,
+            built_collections,
             imports,
-            projections,
             schema_shapes,
             transform,
             &mut built_transforms,
@@ -143,7 +141,7 @@ fn walk_derivation(
         scope,
         "derivation",
         imports,
-        &format!("recovery/{}", name.as_str()),
+        &format!("recovery/{}", collection.as_str()),
         storage_mappings,
         errors,
     );
@@ -154,13 +152,13 @@ fn walk_derivation(
         built_collection,
         built_transforms,
         recovery_stores,
+        &register_schema.bundle,
     )
 }
 
 pub fn walk_transform(
-    collections: &[tables::Collection],
+    built_collections: &[tables::BuiltCollection],
     imports: &[tables::Import],
-    projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
     built_transforms: &mut Vec<flow::TransformSpec>,
@@ -202,7 +200,7 @@ pub fn walk_transform(
         &format!("transform {}", name.as_str()),
         "collection",
         source,
-        collections,
+        built_collections,
         |c| (&c.collection, &c.scope),
         imports,
         errors,
@@ -214,57 +212,76 @@ pub fn walk_transform(
     if let Some(selector) = source_partitions {
         // Note that the selector is deliberately checked against the
         // collection's schema shape, and not our own transform source schema.
-        collection::walk_selector(scope, source, projections, schema_shapes, &selector, errors);
+        collection::walk_selector(scope, &source.spec, &selector, errors);
     }
 
     // Map to an effective source schema & shape.
     let source_schema = match source_schema {
         Some(url) => {
-            if url == &source.schema {
+            // Was the collection locally defined using this same schema?
+            if source.foreign_build_id.is_none() && url.as_str() == &source.spec.schema_uri {
                 Error::SourceSchemaNotDifferent {
                     schema: url.clone(),
                     collection: source.collection.to_string(),
                 }
                 .push(scope, errors);
             }
-            url
+            url.as_str()
         }
-        None => &source.schema,
+        None => &source.spec.schema_uri,
+    };
+    let source_shape =
+        &schema_shapes[schema_shapes.equal_range_by_key(&source_schema, |s| s.schema.as_str())][0];
+
+    // Project |source.spec.key| from Vec<String> => CompositeKey.
+    let source_key = models::CompositeKey::new(
+        source
+            .spec
+            .key_ptrs
+            .iter()
+            .map(|k| models::JsonPointer::new(k))
+            .collect::<Vec<_>>(),
+    );
+
+    // Map to an effective shuffle key.
+    let shuffle_key = match (shuffle_key, shuffle_lambda) {
+        (Some(shuffle_key), None) => {
+            if shuffle_key.iter().eq(source_key.iter()) {
+                Error::ShuffleKeyNotDifferent {
+                    transform: name.to_string(),
+                    collection: source.collection.to_string(),
+                }
+                .push(scope, errors);
+            }
+            if shuffle_key.is_empty() {
+                Error::ShuffleKeyEmpty {
+                    transform: name.to_string(),
+                }
+                .push(scope, errors);
+            }
+            schema::walk_composite_key(scope, shuffle_key, source_shape, errors);
+
+            Some(shuffle_key)
+        }
+        // If no shuffle_key is set, shuffle on the collection's key.
+        (None, None) => Some(&source_key),
+        // A shuffle lambda is an alternative to a shuffle key.
+        (None, Some(_)) => None,
+
+        (Some(_), Some(_)) => unreachable!("shuffle_key and shuffle_lambda cannot both be set"),
     };
 
-    let shuffle_types = if shuffle_lambda.is_none() {
-        // Map to an effective shuffle key.
-        let shuffle_key = match shuffle_key {
-            Some(key) => {
-                if key.iter().eq(source.key.iter()) {
-                    Error::ShuffleKeyNotDifferent {
-                        transform: name.to_string(),
-                        collection: source.collection.to_string(),
-                    }
-                    .push(scope, errors);
-                }
-                if key.iter().next().is_none() {
-                    Error::ShuffleKeyEmpty {
-                        transform: name.to_string(),
-                    }
-                    .push(scope, errors);
-                }
-                key
-            }
-            None => &source.key,
-        };
+    let shuffle_types = shuffle_key.and_then(|shuffle_key| {
         // Walk and collect key value types, so we can compare
         // with other transforms of this derivation later.
-        let source_shape = schema_shapes
-            .iter()
-            .find(|s| s.schema == *source_schema)
-            .unwrap();
-        schema::walk_composite_key(scope, shuffle_key, source_shape, errors)
-    } else {
-        None
-    };
+        schema::gather_key_types(shuffle_key, source_shape)
+    });
 
-    built_transforms.push(build::transform_spec(transform, source));
+    built_transforms.push(build::transform_spec(
+        transform,
+        &source.spec,
+        &source_shape.bundle,
+    ));
 
     shuffle_types
 }
