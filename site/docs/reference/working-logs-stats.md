@@ -11,49 +11,52 @@ Access to statistics is still a work in progress. For now, this documentation de
 
 You can access logs by materializing them to an external endpoint, or from the command line.
 
-For illustrative purposes, the following sections use the word counts example from the [Flow tutorial](../getting-started/flow-tutorials/hello-flow.md).
-
 ### Accessing logs from the command line
 
-:::info Beta
-Enhancements to this workflow are coming soon.
-:::
+The `flowctl logs` subcommand allows you to print logs for specific tasks from the command line.
+This method allows more flexibility and is ideal for debugging.
 
-From the command line, you can access logs by printing the journals that comprise them.
-This workflow is ideal if you require logs to debug specific catalog tasks,
-as logs are divided into journals per partition, and each partition maps to a task.
+You can retrieve logs for any task that is part of a catalog that is currently deployed.
 
-Say you work for Acme Co, and you want to print logs for the materialization `materialize-word-counts`.
-You need to find the name of the correct journal.
-Begin by printing a list of active journals in your environment:
+#### Printing all logs for a tenant
+
+You can print all logs for currently deployed catalogs of a given tenant using the flag `--tenant`.
 
 ```console
-flowctl journals list
+flowctl logs --tenant acmeCo
 ```
 
-Each task in the catalog will have a journal in the `logs` collection beginning with `ops/acmeCo/logs`.
-Look for the name of the desired task.
-In this case, the journal you’re looking for is: `ops/acmeCo/logs/kind=materialization/name=acmeCo%2Fpostgres%2Fmaterialize-word-counts/pivot=00 `
+This is the same as printing the entire contents of the collection `ops/acmeCo/logs`.
 
-Print the contents of the journal to view the logs:
+#### Printing logs by task type
+
+Within a given tenant, you can print logs for all deployed tasks of a given type using the flag `--task-type` followed by one of `capture`, `derivation`, or `materialization`.
 
 ```console
-flowctl journals read -l name=ops/acmeCo/logs/kind=materialization/name=acmeCo%2Fpostgres%2Fmaterialize-word-counts/pivot=00
+flowctl logs --tenant acmeCo --task-type capture
+```
+#### Printing logs for a specific task
+
+You can print logs for a given deployed task using the flag `--task` followed by the task name.
+
+```console
+flowctl logs --task acmeCo/anvils/capture-one
 ```
 
 ### Accessing logs by materialization
 
 You can materialize your `logs` collection to an external system.
-This is typically the preferred message if you’d like to work with logs for all tasks; in other words, the entire collection.
+This is typically the preferred method if you’d like to continuously work with or monitor logs.
+It's easiest to materialize the whole collection, but you can use a [partition selector](../../concepts/materialization/#partition-selectors) to only materialize specific tasks, as the `logs` collection is partitioned on tasks.
 
 :::caution
-Be sure to add a [partition selector](../../concepts/materialization/#partition-selectors) to exclude the logs of the materialization
+Be sure to add a partition selector to exclude the logs of the materialization
 itself. Otherwise, you could trigger an infinite loop in which the connector
 materializes its own logs, logs that event, and so on.
 :::
 
 ```yaml
-acmeCo/postgres/logs:
+acmeCo/anvils/logs:
   endpoint:
     connector:
       image: ghcr.io/estuary/materialize-webhook:dev
@@ -66,5 +69,5 @@ acmeCo/postgres/logs:
       # Exclude the logs of this materialization to avoid an infinite loop.
       partitions:
         exclude:
-          name: ['acmeCo/postgres/logs']
+          name: ['acmeCo/anvils/logs']
 ```
