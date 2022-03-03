@@ -234,7 +234,7 @@ jobs:
             ~/.cargo/git/db
             ~/.cargo/bin
             target
-          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('/home/runner/work/flow/flow/**/Cargo.lock') }}
+          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('${{ github.workspace }}/**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-glibc-cargo-
 
