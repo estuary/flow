@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::models::names::{CatalogName, UniqueName};
 use crate::models::Id;
 
 /// Accounts are the owners of resources and the actors performing actions
@@ -21,11 +22,11 @@ pub struct Account {
     /// Primary key for this record.
     pub id: Id,
     /// The catalog name for this account. Eg. "wiley" or "acmeCo"
-    pub name: String,
+    pub name: CatalogName,
     /// A case-folded, unicode normalized version of the catalog name. This is
     /// used to ensure that accounts have _functionally_ unique names, while
     /// always deferring to `name` for display purposes.
-    pub unique_name: String,
+    pub unique_name: UniqueName,
     /// When this record was last updated.
     pub updated_at: DateTime<Utc>,
 }
