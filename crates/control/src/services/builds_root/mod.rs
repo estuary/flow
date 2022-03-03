@@ -19,6 +19,7 @@ pub struct PutBuilds(Arc<dyn BuildsRootService>);
 
 impl PutBuilds {
     /// Uploads the given `build_db` to the builds root so that it is accessible to the data plane.
+    #[allow(dead_code)]
     async fn put_build(&self, build_id: Id, build_db: &Path) -> Result<(), BuildsRootError> {
         self.0.put_build(build_id, build_db).await
     }
