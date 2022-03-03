@@ -115,9 +115,15 @@ func Run(
 			)
 		}
 
-		if err := pullImage(ctx, image, logger); err != nil {
-			return fmt.Errorf("pull image: %w", err)
-		} else if inspectOutput, err := inspectImage(ctx, image); err != nil {
+		if err := pullRemoteImage(ctx, image, logger); err != nil {
+			// This might be a local image. Log an error and keep going.
+			// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
+			logger.Log(logrus.InfoLevel, logrus.Fields{
+				"error": err,
+			}, "pull remote image does not succeed.")
+		}
+
+		if inspectOutput, err := inspectImage(ctx, image); err != nil {
 			return fmt.Errorf("inspect image: %w", err)
 		} else {
 			if jsonFiles == nil {
@@ -552,7 +558,7 @@ func (fe *firstError) unwrap() error {
 const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
 
-func pullImage(ctx context.Context, image string, logger ops.Logger) error {
+func pullRemoteImage(ctx context.Context, image string, logger ops.Logger) error {
 	var combinedOutput, err = exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput()
 	logger.Log(logrus.TraceLevel, nil, fmt.Sprintf("output from docker pull: %s", combinedOutput))
 	if err != nil {
@@ -569,9 +575,6 @@ func inspectImage(ctx context.Context, image string) (json.RawMessage, error) {
 	}
 }
 
-// Constants related to the path of flow-connector-proxy.
-// If envvar FLOW_RUST_BIN is set, it is "${FLOW_RUST_BIN}/flow-connector-proxy".
-// Otherwise, use the default of "/usr/local/bin/flow-connector-proxy".
 const flowConnectorProxy = "flow-connector-proxy"
 
 func prepareFlowConnectorProxyBinary(tempdir string) (string, error) {
