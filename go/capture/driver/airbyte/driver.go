@@ -93,7 +93,7 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 	})
 
 	var spec *airbyte.Spec
-	var err = connector.Run(ctx, source.Image, d.networkName,
+	var err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
@@ -158,7 +158,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
 
 	var catalog *airbyte.Catalog
-	err = connector.Run(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
 			"discover",
 			"--config",
@@ -254,7 +254,7 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 	})
 
 	var status *airbyte.ConnectionStatus
-	err = connector.Run(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
 			"check",
 			"--config",
@@ -424,7 +424,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	var resp *pc.PullResponse
 
 	// Invoke the connector for reading.
-	if err := connector.Run(stream.Context(), source.Image, d.networkName,
+	if err := connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
 		invokeArgs,
 		invokeFiles,
 		func(w io.Writer) error {

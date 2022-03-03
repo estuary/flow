@@ -19,6 +19,17 @@ function bail() {
 # and stage temporary data plane files.
 TESTDIR="$(mktemp -d -t flow-end-to-end-XXXXXXXXXX)"
 
+# Docker compose file for starting / stopping the testing SSH server and PSQL DB.
+SSH_PSQL_DOCKER_COMPOSE="${ROOTDIR}/tests/sshforwarding/sshd-configs/docker-compose.yaml"
+function startTestInfra() {
+  docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} up --detach
+  # Allow postgres to be prepared.
+  sleep 2
+}
+function stopTestInfra() {
+  docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} down
+}
+
 function cleanupDataIfPassed() {
     if [[ -z "$TESTS_PASSED" ]]; then
         echo "Tests failed, retaining data dir: $TESTDIR"
@@ -27,6 +38,9 @@ function cleanupDataIfPassed() {
         rm -r "$TESTDIR"
     fi
 }
+
+# Start local ssh server and postgres database.
+startTestInfra
 
 # SQLite database into which the catalog materializes.
 OUTPUT_DB="${ROOTDIR}/examples/examples.db"
@@ -58,7 +72,7 @@ DATA_PLANE_PID=$!
 export BUILDS_ROOT=${TESTDIR}/builds
 
 # Arrange to stop the data plane on exit and remove the temporary directory.
-trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && cleanupDataIfPassed" EXIT
+trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed" EXIT
 
 BUILD_ID=run-end-to-end
 
@@ -113,6 +127,8 @@ sqlite3 ${OUTPUT_DB} >> ${ACTUAL} <<EOF
     where
         name = 'examples/source-hello-world'
 EOF
+echo 'greetings from psql:' >> ${ACTUAL}
+docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow -c 'SELECT message, count FROM greetings ORDER BY count;' --csv -P pager=off >> ${ACTUAL}
 
 # Clean up the activated catalog.
 flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."
