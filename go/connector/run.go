@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -572,24 +573,17 @@ func inspectImage(ctx context.Context, tempdir string, image string, logger ops.
 // If envvar FLOW_RUST_BIN is set, it is "${FLOW_RUST_BIN}/flow-connector-proxy".
 // Otherwise, use the default of "/usr/local/bin/flow-connector-proxy".
 const flowConnectorProxy = "flow-connector-proxy"
-const defaultFlowRustBinDir = "/usr/local/bin"
-const flowBinaryDirEnvKey = "FLOW_BINARY_DIR"
 
 func prepareFlowConnectorProxyBinary(tempdir string) (string, error) {
 	var connectorProxyPath = filepath.Join(tempdir, "connector_proxy")
-	if input, err := ioutil.ReadFile(filepath.Join(getRustBinDir(), flowConnectorProxy)); err != nil {
+
+	if path, err := pkgbin.Locate(flowConnectorProxy); err != nil {
+		return "", fmt.Errorf("finding %q binary: %w", flowConnectorProxy, err)
+	} else if input, err := ioutil.ReadFile(path); err != nil {
 		return "", fmt.Errorf("read connector proxy binary from source: %w", err)
 	} else if err = ioutil.WriteFile(connectorProxyPath, input, 0751); err != nil {
 		return "", fmt.Errorf("write connector proxy binary: %w", err)
 	}
 
 	return connectorProxyPath, nil
-}
-
-func getRustBinDir() string {
-	if rustBinDir, ok := os.LookupEnv(flowBinaryDirEnvKey); ok {
-		return rustBinDir
-	}
-
-	return defaultFlowRustBinDir
 }

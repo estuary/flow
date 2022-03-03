@@ -53,7 +53,6 @@ EXPECTED="${ROOTDIR}/tests/end-to-end.expected"
 # variables, which are used by the temp-data-plane we're about to start.
 export BROKER_ADDRESS=unix://localhost${TESTDIR}/gazette.sock
 export CONSUMER_ADDRESS=unix://localhost${TESTDIR}/consumer.sock
-export FLOW_BINARY_DIR=${ROOTDIR}/.build/package/bin
 
 # Start an empty local data plane within our TESTDIR as a background job.
 # --poll so that connectors are polled rather than continuously tailed.
