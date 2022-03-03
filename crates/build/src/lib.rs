@@ -98,6 +98,7 @@ where
     D: validation::Drivers,
 {
     let loader = sources::Loader::new(sources::Tables::default(), fetcher);
+    tracing::info!("load_resource {:?}", root);
     loader
         .load_resource(sources::Scope::new(&root), &root, root_type.into())
         .await;

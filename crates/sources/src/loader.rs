@@ -5,8 +5,10 @@ use json::schema::{build::build_schema, Application, Keyword};
 use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
+use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::io::{BufWriter, Write};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -115,6 +117,8 @@ impl<F: Fetcher> Loader<F> {
             let taken = serde_json::from_value(std::mem::take(endpoint_spec))
                 .expect("endpoint spec must be a ConnectorConfig");
 
+            tracing::debug!("taken {:?}", taken);
+
             *endpoint_spec = match taken {
                 // Map a URL ConnectorConfig to its inline form.
                 models::ConnectorConfig {
@@ -125,7 +129,23 @@ impl<F: Fetcher> Loader<F> {
                     .binary_search_by_key(&resource_url.as_str(), |r| r.resource.as_str())
                     .ok()
                     .and_then(|ind| resources.get(ind))
-                    .and_then(|r| serde_yaml::from_slice(&r.content).ok())
+                    .and_then(|r| {
+                        let mut buf = Vec::new();
+                        let writer = BufWriter::new(&mut buf);
+                        let mut deserializer = serde_yaml::Deserializer::from_slice(&r.content);
+                        let mut serializer = serde_json::Serializer::new(writer);
+                        serde_transcode::transcode(deserializer, &mut serializer)
+                            .expect("transcode failed");
+                        serializer.into_inner().flush().unwrap();
+                        let raw_value = RawValue::from_string(String::from_utf8(buf).unwrap())
+                            .expect("rawValue construction failed");
+                        tracing::debug!("raw {:?}", raw_value);
+                        serde_yaml::from_slice(&r.content).ok()
+                    })
+                    .and_then(|config| {
+                        tracing::debug!("config {:?}", config);
+                        config
+                    })
                     .map(|config| {
                         serde_json::to_value(models::ConnectorConfig {
                             image,
@@ -165,6 +185,7 @@ impl<F: Fetcher> Loader<F> {
         resource: &'a Url,
         content_type: models::ContentType,
     ) {
+        tracing::debug!("load_resource {:?}", resource);
         if resource.fragment().is_some() {
             self.tables.borrow_mut().errors.insert_row(
                 &scope.flatten(),
@@ -191,6 +212,7 @@ impl<F: Fetcher> Loader<F> {
         } else {
             self.fetcher.fetch(&resource, content_type.into()).await
         };
+        tracing::debug!("content from inline {:?}", content);
 
         match content {
             Ok(content) => {
@@ -227,6 +249,7 @@ impl<F: Fetcher> Loader<F> {
         content: bytes::Bytes,
         content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
+        tracing::debug!("load_resource_content {:?} {:?}", resource, content);
         async move {
             self.tables
                 .borrow_mut()
@@ -265,6 +288,10 @@ impl<F: Fetcher> Loader<F> {
     }
 
     async fn load_schema_document<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
+        tracing::debug!(
+            "load_schema_document {:?}",
+            String::from_utf8(content.to_vec())
+        );
         let dom: serde_json::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
         // We don't allow YAML aliases in schema documents as they're redundant
         // with JSON Schema's $ref mechanism.
@@ -365,6 +392,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         schema: models::Schema,
     ) -> Option<Url> {
+        tracing::debug!("load_schema_reference {:?}", schema);
         // If schema is a relative URL, then import it.
         if let models::Schema::Url(import) = schema {
             let mut import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
@@ -392,6 +420,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         documents: models::TestDocuments,
     ) -> Option<Url> {
+        tracing::debug!("load_test_documents {:?}", documents);
         if let models::TestDocuments::Url(import) = documents {
             let import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
             self.load_import(scope, &import, models::ContentType::DocumentsFixture)
@@ -445,6 +474,7 @@ impl<F: Fetcher> Loader<F> {
         import: &'s Url,
         content_type: models::ContentType,
     ) {
+        tracing::debug!("load_import {:?}", import);
         // Recursively process the import if it's not already visited.
         if !self
             .tables
@@ -464,6 +494,11 @@ impl<F: Fetcher> Loader<F> {
 
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
+        tracing::debug!(
+            "load_catalog {:?}, {:?}",
+            content,
+            String::from_utf8(content.to_vec()).unwrap()
+        );
         let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
         // We allow and support YAML merge keys in catalog documents.
         let dom: serde_yaml::Value =
@@ -735,6 +770,7 @@ impl<F: Fetcher> Loader<F> {
         collection_name: &'s models::Collection,
         collection: models::CollectionDef,
     ) {
+        tracing::debug!("load_collection {:?}, {:?}", collection_name, collection);
         let models::CollectionDef {
             schema,
             key,
@@ -800,6 +836,7 @@ impl<F: Fetcher> Loader<F> {
         derivation_name: &'s models::Collection,
         derivation: models::Derivation,
     ) {
+        tracing::debug!("load_derivation {:?}, {:?}", derivation_name, derivation);
         let models::Derivation {
             register:
                 models::Register {
@@ -851,6 +888,7 @@ impl<F: Fetcher> Loader<F> {
         derivation: &'s models::Collection,
         transform: models::TransformDef,
     ) {
+        tracing::debug!("load_transform {:?}, {:?}", transform_name, transform);
         let models::TransformDef {
             source:
                 models::TransformSource {
@@ -909,6 +947,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         mut endpoint: models::CaptureEndpoint,
     ) -> Option<serde_json::Value> {
+        tracing::debug!("load_capture_endpoint {:?}", endpoint);
         use models::CaptureEndpoint::*;
 
         // Map a URL reference into its absolute form, and load it.
