@@ -23,6 +23,75 @@
       ]
     }
   },
+  "395fae2e36ae377d89699d0d4f9a64f68014e828ecae709c42ba715b498517cd": {
+    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1 AND session_token = $2\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "43a818614048bb56286970171a6fee296a0e478ab9b0405eed1859a626c1b469": {
     "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    ",
     "describe": {
