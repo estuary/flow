@@ -190,6 +190,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
       - name: Install rust toolchain
         run: rustup show
       - run: make extra-ci-runner-setup
@@ -206,6 +209,9 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      # We still need to be able to build Rust proto files, even in this stage.
+      - run: go mod download
 
       - name: Download Stage1 Binaries
         uses: actions/download-artifact@v2
