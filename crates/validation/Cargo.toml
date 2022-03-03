@@ -12,7 +12,6 @@ models = { path = "../models", version = "0.0.0" }
 
 anyhow = "*"
 bytes = "*"
-caseless = "*"
 futures = "*"
 itertools = "*"
 json-patch = "*"
@@ -23,7 +22,6 @@ strsim = "*"
 superslice = "*"
 thiserror = "*"
 tracing = "*"
-unicode-normalization = "*"
 url = "*"
 
 [dev-dependencies]
@@ -33,3 +31,5 @@ insta = "*"
 rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = "*"
 serde_yaml = "*"
+
+[features]

@@ -3,7 +3,6 @@ use models::tables;
 use protocol;
 
 mod capture;
-mod collate;
 mod collection;
 mod derivation;
 mod errors;

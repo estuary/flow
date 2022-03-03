@@ -1,6 +1,7 @@
 use serde_json::{from_value, json};
 
 pub mod build;
+pub mod collate;
 pub mod tables;
 
 mod captures;
