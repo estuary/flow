@@ -117,7 +117,7 @@ func Run(
 
 		if err := pullImage(ctx, image, logger); err != nil {
 			return fmt.Errorf("pull image: %w", err)
-		} else if inspectOutput, err := inspectImage(ctx, tempdir, image, logger); err != nil {
+		} else if inspectOutput, err := inspectImage(ctx, image); err != nil {
 			return fmt.Errorf("inspect image: %w", err)
 		} else {
 			if jsonFiles == nil {
@@ -561,7 +561,7 @@ func pullImage(ctx context.Context, image string, logger ops.Logger) error {
 	return nil
 }
 
-func inspectImage(ctx context.Context, tempdir string, image string, logger ops.Logger) (json.RawMessage, error) {
+func inspectImage(ctx context.Context, image string) (json.RawMessage, error) {
 	if output, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
 		return nil, fmt.Errorf("inspect image: %w", err)
 	} else {
