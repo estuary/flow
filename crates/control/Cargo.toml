@@ -7,6 +7,9 @@ default-run = "control"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+flow_cli_common = { path = "../flow_cli_common" }
+models = { path = "../models" }
+
 anyhow = "1.0.52"
 async-trait = "0.1.52"
 axum = { version = "0.4.6", features = ["headers"] }
@@ -15,7 +18,6 @@ base64 = "0.13.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = { version = "3.0.13", features = ["derive"] }
 config = "0.11.0"
-flow_cli_common = { path = "../flow_cli_common" }
 futures = "0.3.19"
 hmac = "0.12.1"
 hyper = { version = "0.14.16", features = ["full"] }

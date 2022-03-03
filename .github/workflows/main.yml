@@ -190,6 +190,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
       - name: Install rust toolchain
         run: rustup show
       - run: make extra-ci-runner-setup

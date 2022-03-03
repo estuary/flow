@@ -79,7 +79,7 @@ async fn create_local_credential(
         expires_at: Utc::now() + Duration::weeks(52),
         issuer: "local".to_owned(),
         last_authorized_at: Utc::now(),
-        subject: account.name.clone(),
+        subject: account.name.to_string(),
     };
 
     credentials_repo::insert(db, new_credential).await
