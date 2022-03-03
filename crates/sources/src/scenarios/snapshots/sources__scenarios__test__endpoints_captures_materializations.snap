@@ -1,5 +1,6 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
 
 ---
@@ -63,7 +64,7 @@ Tables {
             scope: test://example/catalog.yaml#/captures/capture~1second,
             capture: capture/second,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: {"config":{"referenced":"config"},"image":"another/image"},
+            endpoint_spec: {"image":"another/image","config":{"referenced":"config"}},
             interval_seconds: 180,
             shards: {"maxTxnDuration":"30s","logLevel":"debug"},
         },
@@ -71,7 +72,7 @@ Tables {
             scope: test://example/catalog.yaml#/captures/first~1capture,
             capture: first/capture,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: {"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"},
+            endpoint_spec: {"image":"an/image","config":{"bucket":"foobar","prefix":"path/prefix"}},
             interval_seconds: 300,
             shards: {},
         },
@@ -201,7 +202,7 @@ Tables {
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             materialization: a/materialization,
             endpoint_type: "FlowSink",
-            endpoint_spec: {"config":{"its":"config"},"image":"materialization/image"},
+            endpoint_spec: {"image":"materialization/image","config":{"its":"config"}},
             shards: {},
         },
         Materialization {
@@ -215,7 +216,7 @@ Tables {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
             materialization: materialization/with-config,
             endpoint_type: "FlowSink",
-            endpoint_spec: {"config":{"referenced":"config"},"image":"materialization/another:image"},
+            endpoint_spec: {"image":"materialization/another:image","config":{"referenced":"config"}},
             shards: {},
         },
         Materialization {

@@ -1,8 +1,34 @@
-use schemars::JsonSchema;
+use schemars::{
+    gen::SchemaGenerator,
+    schema::{InstanceType, ObjectValidation, Schema, SchemaObject},
+    JsonSchema,
+};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json};
+use serde_json::{from_value, json, value::RawValue};
 
 use super::{Object, RelativeUrl};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RawConfig(pub Box<RawValue>);
+// Use JsonSchema implementation of Map<String, serde_json::Value> for our RawConfig
+impl JsonSchema for RawConfig {
+    fn schema_name() -> String {
+        "Map_of_AnyValue".to_owned()
+    }
+
+    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let subschema = gen.subschema_for::<serde_json::Value>();
+        SchemaObject {
+            instance_type: Some(InstanceType::Object.into()),
+            object: Some(Box::new(ObjectValidation {
+                additional_properties: Some(Box::new(subschema)),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+}
 
 /// A configuration which is either defined inline, or is a relative or
 /// absolute URI to a configuration file.
@@ -16,6 +42,10 @@ pub enum Config {
     Url(RelativeUrl),
     /// Inline configuration.
     Inline(Object),
+    /// Once an external configuration has been inlined, we store it
+    /// raw here to preserve ordering of its keys. See #303
+    #[serde(skip_deserializing)]
+    LoadedExternal(RawConfig),
 }
 
 impl Config {
