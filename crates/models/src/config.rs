@@ -11,6 +11,7 @@ use super::RelativeUrl;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RawConfig(pub Box<RawValue>);
 // Use JsonSchema implementation of Map<String, serde_json::Value> for our RawConfig
+// since that's the actual underlying schema
 impl JsonSchema for RawConfig {
     fn schema_name() -> String {
         "Map_of_AnyValue".to_owned()

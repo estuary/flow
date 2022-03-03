@@ -179,6 +179,7 @@ impl<F: Fetcher> Loader<F> {
         resource: &'a Url,
         content_type: models::ContentType,
     ) {
+        tracing::debug!("load_resource {:?}", resource);
         if resource.fragment().is_some() {
             self.tables.borrow_mut().errors.insert_row(
                 &scope.flatten(),
@@ -241,6 +242,11 @@ impl<F: Fetcher> Loader<F> {
         content: bytes::Bytes,
         content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
+        tracing::debug!(
+            "load_resource_content {:?}, {:?}",
+            String::from_utf8(content.to_vec()),
+            content_type
+        );
         async move {
             self.tables
                 .borrow_mut()
@@ -279,6 +285,10 @@ impl<F: Fetcher> Loader<F> {
     }
 
     async fn load_schema_document<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
+        tracing::debug!(
+            "load_schema_document {:?}",
+            String::from_utf8(content.to_vec())
+        );
         let dom: serde_json::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
         // We don't allow YAML aliases in schema documents as they're redundant
         // with JSON Schema's $ref mechanism.
@@ -478,10 +488,13 @@ impl<F: Fetcher> Loader<F> {
 
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
+        tracing::debug!("load_catalog {:?}", String::from_utf8(content.to_vec()));
         let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
         // We allow and support YAML merge keys in catalog documents.
+        tracing::debug!("load_catalog dom {:?}", dom);
         let dom: serde_yaml::Value =
             self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
+        tracing::debug!("load_catalog dom2 {:?}", dom);
 
         let models::Catalog {
             _schema,
@@ -495,6 +508,8 @@ impl<F: Fetcher> Loader<F> {
             storage_mappings,
         } = self.fallible(scope, serde_yaml::from_value(dom))?;
 
+        tracing::debug!("load_catalog catalog creation");
+
         // Collect inlined resources. These don't participate in loading until
         // we encounter an import of the resource.
         for (url, resource) in resources {
@@ -505,6 +520,7 @@ impl<F: Fetcher> Loader<F> {
                 self.inlined.borrow_mut().insert(url, resource);
             }
         }
+        tracing::debug!("load_catalog inline");
 
         // Collect NPM dependencies.
         for (package, version) in npm_dependencies {
@@ -533,6 +549,7 @@ impl<F: Fetcher> Loader<F> {
                 .insert_row(scope, prefix, stores)
         }
 
+        tracing::debug!("load_catalog import");
         // Task which loads all imports.
         let import = import.into_iter().enumerate().map(|(index, import)| {
             async move {
@@ -561,6 +578,7 @@ impl<F: Fetcher> Loader<F> {
                 .await;
         };
 
+        tracing::debug!("load_catalog collections");
         // Task which loads all collections.
         let collections = collections
             .into_iter()
@@ -574,6 +592,7 @@ impl<F: Fetcher> Loader<F> {
             });
         let collections = futures::future::join_all(collections);
 
+        tracing::debug!("load_catalog captures");
         // Task which loads all captures.
         let captures = captures.into_iter().map(|(name, capture)| async move {
             let scope = scope.push_prop("captures");
@@ -613,6 +632,7 @@ impl<F: Fetcher> Loader<F> {
         });
         let captures = futures::future::join_all(captures);
 
+        tracing::debug!("load_catalog materializations");
         // Task which loads all materializations.
         let materializations =
             materializations
@@ -673,6 +693,7 @@ impl<F: Fetcher> Loader<F> {
                 });
         let materializations = futures::future::join_all(materializations);
 
+        tracing::debug!("load_catalog tests");
         // Task which loads all tests.
         let tests = tests.into_iter().map(|(test, step_specs)| async move {
             let test = &test; // Capture shared reference, rather than the variable itself.
