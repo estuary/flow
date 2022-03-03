@@ -2145,6 +2145,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "caseless",
  "doc 0.0.0",
  "humantime-serde",
  "insta",
@@ -2162,6 +2163,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "superslice",
+ "unicode-normalization",
  "url",
  "uuid",
  "validator",
@@ -4418,7 +4420,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
- "caseless",
  "doc 0.0.0",
  "futures",
  "insta",
@@ -4438,7 +4439,6 @@ dependencies = [
  "superslice",
  "thiserror",
  "tracing",
- "unicode-normalization",
  "url",
 ]
 
