@@ -9,21 +9,21 @@ pub enum Error {
     #[error("Local port number of 0 is invalid")]
     ZeroLocalPort,
 
-    #[error("SSH error: {source:?}.")]
-    ThrusshError{#[from] source: thrussh::Error},
+    #[error("SSH error.")]
+    ThrusshError(#[from] thrussh::Error),
 
-    #[error("io operation error: {source:?}.")]
-    IoError{#[from] source: std::io::Error},
+    #[error("io operation error.")]
+    IoError(#[from] std::io::Error),
 
-    #[error("openssl error: {source:?}.")]
-    OpenSslError{#[from] source: openssl::error::ErrorStack},
+    #[error("openssl error.")]
+    OpenSslError(#[from] openssl::error::ErrorStack),
 
-    #[error("base64 decoding error: {source:?}.")]
-    Base64DecodeError{#[from] source: base64::DecodeError},
+    #[error("ssh_endpoint parse error. Expected format: ssh://<host_url_or_ip>[:port]")]
+    UrlParseError(#[from] url::ParseError),
 
-    #[error("ssh_endpoint parse error: {source:?}. Expected format: ssh://<host_url_or_ip>[:port]")]
-    UrlParseError{#[from] source: url::ParseError},
+    #[error("IP parse error.")]
+    IpAddrParseError(#[from] std::net::AddrParseError),
 
-    #[error("IP parse error: {source:?}.")]
-    IpAddrParseError{#[from] source: std::net::AddrParseError}
+    #[error("Json serialization error.")]
+    JsonError(#[from] serde_json::Error),
 }

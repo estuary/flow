@@ -71,7 +71,7 @@ func (d driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecResponse
 	})
 
 	var resp *pm.SpecResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Materialize, d.networkName,
 		[]string{"spec"},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
@@ -116,7 +116,7 @@ func (d driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Vali
 	})
 
 	var resp *pm.ValidateResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Materialize, d.networkName,
 		[]string{"validate"},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
@@ -171,7 +171,7 @@ func (d driver) apply(ctx context.Context, variant string, req *pm.ApplyRequest)
 	})
 
 	var resp *pm.ApplyResponse
-	err = connector.Run(ctx, source.Image, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Materialize, d.networkName,
 		[]string{variant},
 		nil, // No configuration is passed as files.
 		func(w io.Writer) error {
@@ -225,6 +225,7 @@ func (d driver) Transactions(stream pm.Driver_TransactionsServer) error {
 	return connector.Run(
 		stream.Context(),
 		source.Image,
+		connector.Materialize,
 		d.networkName,
 		[]string{"transactions"},
 		nil, // No configuration is passed as files.
