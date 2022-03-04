@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::anyhow;
 
-use crate::models::Id;
+use crate::models::id::Id;
 
 #[derive(clap::Args, Debug)]
 pub struct Args {

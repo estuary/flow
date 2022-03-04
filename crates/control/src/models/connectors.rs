@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-use crate::models::Id;
+use crate::models::id::Id;
 
 /// Connectors come in two flavors: source or materialization.
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]

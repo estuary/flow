@@ -1,5 +1,5 @@
 use super::{BuildsRootError, BuildsRootService};
-use crate::models::Id;
+use crate::models::id::Id;
 use crate::services::builds_root::Build;
 use crate::services::subprocess::Subprocess;
 use async_trait::async_trait;

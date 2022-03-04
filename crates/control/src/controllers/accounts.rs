@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::middleware::sessions::CurrentAccount;
 use crate::models::accounts::Account;
 use crate::models::accounts::NewAccount;
-use crate::models::Id;
+use crate::models::id::Id;
 use crate::repo::accounts as accounts_repo;
 
 pub mod routes;

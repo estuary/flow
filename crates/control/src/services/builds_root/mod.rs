@@ -1,6 +1,6 @@
 use crate::config;
 use crate::error::SubprocessError;
-use crate::models::Id;
+use crate::models::id::Id;
 use async_trait::async_trait;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::BTreeMap;

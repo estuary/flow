@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use serde::Serialize;
 
-use crate::models::Id;
+use crate::models::id::Id;
 
 /// We often want to act as a passthrough to a connector, forwarding a response
 /// exactly as it was sent to/from the connector. We use `RawValue` to avoid

@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::models::accounts::Account;
 use crate::models::credentials::{Credential, NewCredential};
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<Credential>, sqlx::Error> {
     sqlx::query_as!(

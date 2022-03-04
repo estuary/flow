@@ -4,7 +4,7 @@ use crate::controllers::connector_images::routes;
 use crate::controllers::connectors::routes as connector_routes;
 use crate::controllers::json_api::{DocumentData, Links, Many, One, RawJson, Resource};
 use crate::models::connector_images::ConnectorImage;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub fn index(images: Vec<ConnectorImage>) -> Json<Many<ConnectorImage>> {
     let resources = images.into_iter().map(Resource::from).collect();

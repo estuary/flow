@@ -7,7 +7,7 @@ use crate::context::AppContext;
 use crate::controllers::json_api::RawJson;
 use crate::error::AppError;
 use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
-use crate::models::Id;
+use crate::models::id::Id;
 use crate::repo::connector_images as images_repo;
 use crate::services::connectors;
 use crate::services::subprocess::Subprocess;

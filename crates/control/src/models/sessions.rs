@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use strum::EnumIter;
 
 use crate::models::accounts::Account;
-use crate::models::Id;
+use crate::models::id::Id;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NewSession {

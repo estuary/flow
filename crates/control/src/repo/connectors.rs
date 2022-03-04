@@ -2,7 +2,7 @@ use futures::TryFutureExt;
 use sqlx::PgPool;
 
 use crate::models::connectors::{Connector, ConnectorType, NewConnector};
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<Connector>, sqlx::Error> {
     sqlx::query_as!(

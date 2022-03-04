@@ -3,7 +3,7 @@ use sqlx::PgPool;
 
 use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
 use crate::models::connectors::Connector;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<ConnectorImage>, sqlx::Error> {
     sqlx::query_as!(

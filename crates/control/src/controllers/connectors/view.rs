@@ -6,7 +6,7 @@ use crate::controllers::{
 };
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::Connector;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub fn index(connectors: Vec<Connector>) -> Json<Many<Connector>> {
     let resources = connectors.into_iter().map(Resource::from).collect();
