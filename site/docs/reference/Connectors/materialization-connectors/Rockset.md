@@ -55,6 +55,22 @@ materializations:
       	collection: ${table_name}
     source: ${tenant}/${source_collection}
 ```
+
+## Delta updates and reduction strategies
+
+The Rockset connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+This means that Rockset merges documents by key when they arrive, using semantics that are somewhat different than Flow's.
+(FOR REVIEW: include a brief description of the difference here? I don't quite understand the distinction but seems worthwhile to cover in brief)
+
+In most cases, this difference won't affect your data. However, using certain
+reduction strategies in the schemas of collections that will be materialized to Rockset _can_ result in invalid data:
+
+:::caution
+Avoid the following [data reductions](../../../concepts/schemas.md#reductions) for collections materialized to Rockset:
+* A top-level reduction of any strategy other than [merge](../../reduction-strategies/merge.md)
+* Any reduction in nested fields other than [lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) (the default)
+:::
+
 ## Bulk ingestion for large backfills of historical data
 
 You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and requires additional steps in your dataflow. Flow's Rockset connector supports this through the GitOps workflow.
