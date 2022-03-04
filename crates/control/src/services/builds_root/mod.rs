@@ -13,6 +13,11 @@ use tokio::sync::Mutex;
 mod gcs;
 mod local;
 
+// TEMPORARY: I needed something to parameterize `Id` with. This should be
+// replaced with a real `Build` type soon.
+#[derive(Debug)]
+pub struct Build;
+
 /// Allows uploading builds to the builds root.
 #[derive(Debug, Clone)]
 pub struct PutBuilds(Arc<dyn BuildsRootService>);
@@ -20,7 +25,7 @@ pub struct PutBuilds(Arc<dyn BuildsRootService>);
 impl PutBuilds {
     /// Uploads the given `build_db` to the builds root so that it is accessible to the data plane.
     #[allow(dead_code)]
-    async fn put_build(&self, build_id: Id, build_db: &Path) -> Result<(), BuildsRootError> {
+    async fn put_build(&self, build_id: Id<Build>, build_db: &Path) -> Result<(), BuildsRootError> {
         self.0.put_build(build_id, build_db).await
     }
 }
@@ -47,7 +52,7 @@ impl std::ops::Deref for BuildDBRef {
 #[derive(Debug, Clone)]
 pub struct FetchBuilds {
     root: Arc<dyn BuildsRootService>,
-    local_builds: Arc<Mutex<BTreeMap<Id, LocalBuildState>>>,
+    local_builds: Arc<Mutex<BTreeMap<Id<Build>, LocalBuildState>>>,
 }
 
 impl FetchBuilds {
@@ -59,7 +64,7 @@ impl FetchBuilds {
     }
 
     #[tracing::instrument(level = "debug")]
-    pub async fn get_build(&self, build_id: Id) -> Result<BuildDBRef, BuildsRootError> {
+    pub async fn get_build(&self, build_id: Id<Build>) -> Result<BuildDBRef, BuildsRootError> {
         let state_lock = self.get_state(build_id).await;
         let mut build_state = state_lock.0.lock().await;
 
@@ -100,7 +105,7 @@ impl FetchBuilds {
     }
 
     /// Retrieves the `LocalBuildState` for the given build, initializing it if necessary.
-    async fn get_state(&self, build_id: Id) -> LocalBuildState {
+    async fn get_state(&self, build_id: Id<Build>) -> LocalBuildState {
         let mut locals = self.local_builds.lock().await;
         if let Some(ours) = locals.get(&build_id) {
             ours.clone()
@@ -144,8 +149,8 @@ pub enum BuildsRootError {
 
 #[async_trait]
 trait BuildsRootService: Debug + Send + Sync {
-    async fn put_build(&self, build_id: Id, build: &Path) -> Result<(), BuildsRootError>;
-    async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError>;
+    async fn put_build(&self, build_id: Id<Build>, build: &Path) -> Result<(), BuildsRootError>;
+    async fn retrieve_build(&self, build_id: Id<Build>) -> Result<PathBuf, BuildsRootError>;
 }
 
 #[derive(Debug, Clone)]
@@ -210,7 +215,7 @@ mod test {
     #[tokio::test]
     async fn test_concurrent_fetches_when_first_fetch_is_successful() {
         let dir = TempDir::new().unwrap();
-        const BUILD_IDS: &[Id] = &[Id::new(1), Id::new(2), Id::new(3)];
+        const BUILD_IDS: &[Id<Build>] = &[Id::new(1), Id::new(2), Id::new(3)];
         for id in BUILD_IDS {
             make_test_build(dir.path(), *id);
         }
@@ -301,11 +306,11 @@ mod test {
     struct MockSuccess(AtomicU32, PathBuf);
     #[async_trait]
     impl BuildsRootService for MockSuccess {
-        async fn put_build(&self, _: Id, _: &Path) -> Result<(), BuildsRootError> {
+        async fn put_build(&self, _: Id<Build>, _: &Path) -> Result<(), BuildsRootError> {
             unimplemented!()
         }
 
-        async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
+        async fn retrieve_build(&self, build_id: Id<Build>) -> Result<PathBuf, BuildsRootError> {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             // Sleep for a short time, so that we can exercise some of the synchronization code.
             tokio::time::sleep(std::time::Duration::from_millis(15)).await;
@@ -318,11 +323,11 @@ mod test {
 
     #[async_trait]
     impl BuildsRootService for MockFailures {
-        async fn put_build(&self, _: Id, _: &Path) -> Result<(), BuildsRootError> {
+        async fn put_build(&self, _: Id<Build>, _: &Path) -> Result<(), BuildsRootError> {
             unimplemented!()
         }
 
-        async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
+        async fn retrieve_build(&self, build_id: Id<Build>) -> Result<PathBuf, BuildsRootError> {
             let call_num = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             // Sleep for a short time, so that we can exercise some of the synchronization code.
             tokio::time::sleep(std::time::Duration::from_millis(15)).await;
@@ -333,7 +338,7 @@ mod test {
         }
     }
 
-    fn make_test_build(dir: &Path, id: Id) -> PathBuf {
+    fn make_test_build(dir: &Path, id: Id<Build>) -> PathBuf {
         let path = dir.join(id.to_string());
         let conn = Connection::open(&path).expect("failed to create db");
         conn.execute_batch(
