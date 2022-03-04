@@ -8,7 +8,7 @@ use crate::context::AppContext;
 use crate::error::AppError;
 use crate::models::connectors::Connector;
 use crate::models::connectors::NewConnector;
-use crate::models::Id;
+use crate::models::id::Id;
 use crate::repo::connector_images as images_repo;
 use crate::repo::connectors as connectors_repo;
 

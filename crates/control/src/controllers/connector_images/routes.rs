@@ -1,6 +1,6 @@
 use crate::controllers::url_for;
 use crate::models::connector_images::ConnectorImage;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub fn index() -> String {
     url_for("/connector_images")
