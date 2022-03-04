@@ -23,6 +23,118 @@
       ]
     }
   },
+  "322d0e82c756f00af0f5a572748c9d8e2138530c739f4b7a2bc088c06227252d": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE name = $1\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "display_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "email",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "name!: CatalogName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "unique_name!: UniqueName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "38de6ea22ca1b4b916d036e2b2833611c6786f143a58bc49024e8094648dcc16": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "display_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "email",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "name!: CatalogName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "unique_name!: UniqueName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "395fae2e36ae377d89699d0d4f9a64f68014e828ecae709c42ba715b498517cd": {
     "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1 AND session_token = $2\n    LIMIT 1\n    ",
     "describe": {
@@ -283,31 +395,8 @@
       ]
     }
   },
-  "a6b4e14d449f2664943a1f56cc5da9722835fc4b855b447d55ff31954c177b3c": {
-    "query": "\n    INSERT INTO accounts(display_name, email, name, unique_name, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text",
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
-  "c28f388817ea795aa74e4b28174e1ca7d5bfaa55fc6d38e52182770a60c1010e": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, unique_name, created_at, updated_at\n    FROM accounts\n    ",
+  "94e68bb11f6372d873a6a2685071bdefbe07cf0517fd70c218bb40515e0d5753": {
+    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    ",
     "describe": {
       "columns": [
         {
@@ -327,12 +416,12 @@
         },
         {
           "ordinal": 3,
-          "name": "name",
+          "name": "name!: CatalogName",
           "type_info": "Text"
         },
         {
           "ordinal": 4,
-          "name": "unique_name",
+          "name": "unique_name!: UniqueName",
           "type_info": "Text"
         },
         {
@@ -360,58 +449,25 @@
       ]
     }
   },
-  "c653013e0b8e14f67f486b216e5cd9cd7e8371b129ea0217c62a2a840bc81e6c": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, unique_name, created_at, updated_at\n    FROM accounts\n    WHERE name = $1\n    LIMIT 1\n    ",
+  "a6b4e14d449f2664943a1f56cc5da9722835fc4b855b447d55ff31954c177b3c": {
+    "query": "\n    INSERT INTO accounts(display_name, email, name, unique_name, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
           "name": "id!: Id",
           "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "display_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 2,
-          "name": "email",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 3,
-          "name": "name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "unique_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 5,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 6,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
         }
       ],
       "parameters": {
         "Left": [
+          "Text",
+          "Text",
+          "Text",
           "Text"
         ]
       },
       "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
         false
       ]
     }
@@ -621,62 +677,6 @@
       "nullable": [
         false,
         false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "e07e812f0aebd9750862d9898877bebf9474de3d66be618b3d44c5e189688fa7": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name, unique_name, created_at, updated_at\n    FROM accounts\n    WHERE id = $1\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "display_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 2,
-          "name": "email",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 3,
-          "name": "name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "unique_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 5,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 6,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      },
-      "nullable": [
         false,
         false,
         false,
