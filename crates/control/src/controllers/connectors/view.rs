@@ -19,7 +19,10 @@ pub fn create(connector: Connector) -> Json<One<Connector>> {
     Json(payload)
 }
 
-pub fn images(connector_id: Id, images: Vec<ConnectorImage>) -> Json<Many<ConnectorImage>> {
+pub fn images(
+    connector_id: Id<Connector>,
+    images: Vec<ConnectorImage>,
+) -> Json<Many<ConnectorImage>> {
     let resources = images.into_iter().map(Resource::from).collect();
     let links = Links::default().put("self", routes::images(connector_id));
     Json(DocumentData::new(resources, links))

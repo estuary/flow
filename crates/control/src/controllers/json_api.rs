@@ -17,7 +17,7 @@ pub type RawJson = Box<serde_json::value::RawValue>;
 /// resources will be wrapped up according to the spec.
 #[derive(Debug, Serialize)]
 pub struct Resource<T> {
-    pub id: Id,
+    pub id: Id<T>,
     pub r#type: &'static str,
     pub attributes: T,
     pub links: Links,
