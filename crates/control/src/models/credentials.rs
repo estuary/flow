@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::models::accounts::Account;
-use crate::models::Id;
+use crate::models::id::Id;
 
 /// A Credential is a proof of identity linked to an Account. This proof is
 /// issued by an Identity Provider and provided by clients as a verification of

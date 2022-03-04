@@ -3,7 +3,7 @@ use axum::Json;
 use crate::controllers::accounts::routes as accounts_routes;
 use crate::controllers::json_api::{DocumentData, Links, One, Resource};
 use crate::models::sessions::Session;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub fn create(session: Session) -> Json<One<Session>> {
     let payload = DocumentData::new(Resource::<Session>::from(session), Links::default());

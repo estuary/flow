@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::models::id::Id;
 use crate::models::names::{CatalogName, UniqueName};
-use crate::models::Id;
 
 /// Accounts are the owners of resources and the actors performing actions
 /// within the system. An Account may represent a human, a company, or an

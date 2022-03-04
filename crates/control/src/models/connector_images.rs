@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::models::connectors::Connector;
-use crate::models::Id;
+use crate::models::id::Id;
 
 /// A ConnectorImage is a specific version of a Connector.
 ///

@@ -1,6 +1,6 @@
 use crate::controllers::url_for;
 use crate::models::accounts::Account;
-use crate::models::Id;
+use crate::models::id::Id;
 
 pub fn index() -> String {
     url_for("/accounts")
