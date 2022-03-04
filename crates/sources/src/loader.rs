@@ -8,7 +8,8 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::{BufWriter, Write};
+use std::io::BufWriter;
+use std::io::Write;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -113,11 +114,9 @@ impl<F: Fetcher> Loader<F> {
         // At this point we know that no more fetches will complete.
         // Re-write capture and materialization configurations to their inline form.
 
-        let to_inline = |endpoint_spec: &mut serde_json::Value| {
-            let taken = serde_json::from_value(std::mem::take(endpoint_spec))
+        let to_inline = |endpoint_spec: &mut Box<serde_json::value::RawValue>| {
+            let taken = serde_json::from_str(endpoint_spec.get())
                 .expect("endpoint spec must be a ConnectorConfig");
-
-            tracing::debug!("taken {:?}", taken);
 
             *endpoint_spec = match taken {
                 // Map a URL ConnectorConfig to its inline form.
@@ -130,21 +129,17 @@ impl<F: Fetcher> Loader<F> {
                     .ok()
                     .and_then(|ind| resources.get(ind))
                     .and_then(|r| {
-                        let mut buf = Vec::new();
+                        /*let mut buf = Vec::new();
                         let writer = BufWriter::new(&mut buf);
-                        let mut deserializer = serde_yaml::Deserializer::from_slice(&r.content);
+                        let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
                         let mut serializer = serde_json::Serializer::new(writer);
                         serde_transcode::transcode(deserializer, &mut serializer)
                             .expect("transcode failed");
                         serializer.into_inner().flush().unwrap();
-                        let raw_value = RawValue::from_string(String::from_utf8(buf).unwrap())
-                            .expect("rawValue construction failed");
-                        tracing::debug!("raw {:?}", raw_value);
+                        RawValue::from_string(String::from_utf8(buf).unwrap())
+                            .expect("RawValue construction failed")
+                            .into()*/
                         serde_yaml::from_slice(&r.content).ok()
-                    })
-                    .and_then(|config| {
-                        tracing::debug!("config {:?}", config);
-                        config
                     })
                     .map(|config| {
                         serde_json::to_value(models::ConnectorConfig {
@@ -152,11 +147,14 @@ impl<F: Fetcher> Loader<F> {
                             config: models::Config::Inline(config),
                         })
                         .unwrap()
-                    }),
+                    })
+                    .map(|config| RawValue::from_string(config.to_string()).unwrap()),
                 // Pass through the ConnectorConfig as-is.
-                spec @ _ => Some(serde_json::to_value(spec).unwrap()),
+                spec @ _ => Some(
+                    RawValue::from_string(serde_json::to_value(spec).unwrap().to_string()).unwrap(),
+                ),
             }
-            .unwrap_or_default();
+            .unwrap_or_default()
         };
 
         let taken = std::mem::take(captures);
@@ -212,7 +210,6 @@ impl<F: Fetcher> Loader<F> {
         } else {
             self.fetcher.fetch(&resource, content_type.into()).await
         };
-        tracing::debug!("content from inline {:?}", content);
 
         match content {
             Ok(content) => {
@@ -249,7 +246,11 @@ impl<F: Fetcher> Loader<F> {
         content: bytes::Bytes,
         content_type: models::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
-        tracing::debug!("load_resource_content {:?} {:?}", resource, content);
+        tracing::debug!(
+            "load_resource_content {:?}, {:?}",
+            String::from_utf8(content.to_vec()),
+            content_type
+        );
         async move {
             self.tables
                 .borrow_mut()
@@ -392,7 +393,6 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         schema: models::Schema,
     ) -> Option<Url> {
-        tracing::debug!("load_schema_reference {:?}", schema);
         // If schema is a relative URL, then import it.
         if let models::Schema::Url(import) = schema {
             let mut import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
@@ -420,7 +420,6 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         documents: models::TestDocuments,
     ) -> Option<Url> {
-        tracing::debug!("load_test_documents {:?}", documents);
         if let models::TestDocuments::Url(import) = documents {
             let import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
             self.load_import(scope, &import, models::ContentType::DocumentsFixture)
@@ -474,7 +473,6 @@ impl<F: Fetcher> Loader<F> {
         import: &'s Url,
         content_type: models::ContentType,
     ) {
-        tracing::debug!("load_import {:?}", import);
         // Recursively process the import if it's not already visited.
         if !self
             .tables
@@ -494,15 +492,13 @@ impl<F: Fetcher> Loader<F> {
 
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
-        tracing::debug!(
-            "load_catalog {:?}, {:?}",
-            content,
-            String::from_utf8(content.to_vec()).unwrap()
-        );
+        tracing::debug!("load_catalog {:?}", String::from_utf8(content.to_vec()));
         let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
         // We allow and support YAML merge keys in catalog documents.
+        tracing::debug!("load_catalog dom {:?}", dom);
         let dom: serde_yaml::Value =
             self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
+        tracing::debug!("load_catalog dom2 {:?}", dom);
 
         let models::Catalog {
             _schema,
@@ -516,6 +512,8 @@ impl<F: Fetcher> Loader<F> {
             storage_mappings,
         } = self.fallible(scope, serde_yaml::from_value(dom))?;
 
+        tracing::debug!("load_catalog catalog creation");
+
         // Collect inlined resources. These don't participate in loading until
         // we encounter an import of the resource.
         for (url, resource) in resources {
@@ -526,6 +524,7 @@ impl<F: Fetcher> Loader<F> {
                 self.inlined.borrow_mut().insert(url, resource);
             }
         }
+        tracing::debug!("load_catalog inline");
 
         // Collect NPM dependencies.
         for (package, version) in npm_dependencies {
@@ -554,6 +553,7 @@ impl<F: Fetcher> Loader<F> {
                 .insert_row(scope, prefix, stores)
         }
 
+        tracing::debug!("load_catalog import");
         // Task which loads all imports.
         let import = import.into_iter().enumerate().map(|(index, import)| {
             async move {
@@ -582,6 +582,7 @@ impl<F: Fetcher> Loader<F> {
                 .await;
         };
 
+        tracing::debug!("load_catalog collections");
         // Task which loads all collections.
         let collections = collections
             .into_iter()
@@ -595,6 +596,7 @@ impl<F: Fetcher> Loader<F> {
             });
         let collections = futures::future::join_all(collections);
 
+        tracing::debug!("load_catalog captures");
         // Task which loads all captures.
         let captures = captures.into_iter().map(|(name, capture)| async move {
             let scope = scope.push_prop("captures");
@@ -634,6 +636,7 @@ impl<F: Fetcher> Loader<F> {
         });
         let captures = futures::future::join_all(captures);
 
+        tracing::debug!("load_catalog materializations");
         // Task which loads all materializations.
         let materializations =
             materializations
@@ -694,6 +697,7 @@ impl<F: Fetcher> Loader<F> {
                 });
         let materializations = futures::future::join_all(materializations);
 
+        tracing::debug!("load_catalog tests");
         // Task which loads all tests.
         let tests = tests.into_iter().map(|(test, step_specs)| async move {
             let test = &test; // Capture shared reference, rather than the variable itself.
@@ -770,7 +774,6 @@ impl<F: Fetcher> Loader<F> {
         collection_name: &'s models::Collection,
         collection: models::CollectionDef,
     ) {
-        tracing::debug!("load_collection {:?}, {:?}", collection_name, collection);
         let models::CollectionDef {
             schema,
             key,
@@ -836,7 +839,6 @@ impl<F: Fetcher> Loader<F> {
         derivation_name: &'s models::Collection,
         derivation: models::Derivation,
     ) {
-        tracing::debug!("load_derivation {:?}, {:?}", derivation_name, derivation);
         let models::Derivation {
             register:
                 models::Register {
@@ -888,7 +890,6 @@ impl<F: Fetcher> Loader<F> {
         derivation: &'s models::Collection,
         transform: models::TransformDef,
     ) {
-        tracing::debug!("load_transform {:?}, {:?}", transform_name, transform);
         let models::TransformDef {
             source:
                 models::TransformSource {
@@ -946,8 +947,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         mut endpoint: models::CaptureEndpoint,
-    ) -> Option<serde_json::Value> {
-        tracing::debug!("load_capture_endpoint {:?}", endpoint);
+    ) -> Option<Box<RawValue>> {
         use models::CaptureEndpoint::*;
 
         // Map a URL reference into its absolute form, and load it.
@@ -967,8 +967,12 @@ impl<F: Fetcher> Loader<F> {
         }
 
         match endpoint {
-            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Ingest(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
+            Ingest(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
         }
     }
 
@@ -976,7 +980,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         mut endpoint: models::MaterializationEndpoint,
-    ) -> Option<serde_json::Value> {
+    ) -> Option<Box<RawValue>> {
         use models::MaterializationEndpoint::*;
 
         // Map a URL reference into its absolute form, and ensure that it's loaded.
@@ -996,16 +1000,19 @@ impl<F: Fetcher> Loader<F> {
         }
 
         match endpoint {
-            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
             Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
-                    Some(serde_json::to_value(spec).unwrap()) // Already absolute.
+                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+                // Already absolute.
                 } else if let Some(path) =
                     self.fallible(scope, scope.resource().join(spec.path.as_ref()))
                 {
                     // Resolve relative database path relative to current scope.
                     spec.path = models::RelativeUrl::new(path.to_string());
-                    Some(serde_json::to_value(spec).unwrap())
+                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
                 } else {
                     None // We reported a join() error.
                 }

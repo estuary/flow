@@ -52,6 +52,8 @@ pub async fn walk_all_captures<D: Drivers>(
             &mut capture_errors,
         );
 
+        tracing::debug!("capture validation request {:?}", validation);
+
         // Skip validation if errors were encountered building the request.
         if capture_errors.is_empty() {
             validations.extend(validation.into_iter());
