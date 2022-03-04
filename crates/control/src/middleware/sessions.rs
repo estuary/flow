@@ -94,7 +94,7 @@ pub async fn validate_authentication_token<B: Send>(
 
 async fn authorize_current_account(
     ctx: &AppContext,
-    account_id: Id,
+    account_id: Id<Account>,
     token: &Token,
 ) -> Result<CurrentAccount, anyhow::Error> {
     let credential = credentials_repo::fetch_by_account_and_session_token(

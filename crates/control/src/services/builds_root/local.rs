@@ -1,5 +1,6 @@
 use super::{BuildsRootError, BuildsRootService};
 use crate::models::Id;
+use crate::services::builds_root::Build;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 
@@ -19,7 +20,7 @@ impl LocalBuildsRoot {
 
 #[async_trait]
 impl BuildsRootService for LocalBuildsRoot {
-    async fn put_build(&self, build_id: Id, build: &Path) -> Result<(), BuildsRootError> {
+    async fn put_build(&self, build_id: Id<Build>, build: &Path) -> Result<(), BuildsRootError> {
         use std::io;
 
         let dest_path = self.dir.join(build_id.to_string());
@@ -34,7 +35,7 @@ impl BuildsRootService for LocalBuildsRoot {
         }
     }
 
-    async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
+    async fn retrieve_build(&self, build_id: Id<Build>) -> Result<PathBuf, BuildsRootError> {
         use std::io;
 
         let dest_path = self.dir.join(build_id.to_string());

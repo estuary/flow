@@ -1,5 +1,6 @@
 use super::{BuildsRootError, BuildsRootService};
 use crate::models::Id;
+use crate::services::builds_root::Build;
 use crate::services::subprocess::Subprocess;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -24,7 +25,7 @@ impl GCSBuildsRoot {
 
 #[async_trait]
 impl BuildsRootService for GCSBuildsRoot {
-    async fn put_build(&self, build_id: Id, build: &Path) -> Result<(), BuildsRootError> {
+    async fn put_build(&self, build_id: Id<Build>, build: &Path) -> Result<(), BuildsRootError> {
         let dest_url = self.root.join(&build_id.to_string())?;
         Command::new("gsutil")
             .arg("cp")
@@ -36,7 +37,7 @@ impl BuildsRootService for GCSBuildsRoot {
         Ok(())
     }
 
-    async fn retrieve_build(&self, build_id: Id) -> Result<PathBuf, BuildsRootError> {
+    async fn retrieve_build(&self, build_id: Id<Build>) -> Result<PathBuf, BuildsRootError> {
         let id_str = build_id.to_string();
         let dest_file = self.temp_dir.path().join(&id_str);
         let src_key = self.root.join(&id_str)?;

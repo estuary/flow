@@ -4,6 +4,7 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use strum::EnumIter;
 
+use crate::models::accounts::Account;
 use crate::models::Id;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -13,7 +14,7 @@ pub struct NewSession {
 
 #[derive(Debug, Serialize)]
 pub struct Session {
-    pub account_id: Id,
+    pub account_id: Id<Account>,
     pub token: String,
     pub expires_at: DateTime<Utc>,
 }

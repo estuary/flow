@@ -32,7 +32,7 @@ pub async fn create(
 
 pub async fn images(
     Extension(ctx): Extension<AppContext>,
-    Path(connector_id): Path<Id>,
+    Path(connector_id): Path<Id<Connector>>,
 ) -> Result<impl IntoResponse, AppError> {
     let images = images_repo::fetch_all_for_connector(ctx.db(), connector_id).await?;
 

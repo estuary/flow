@@ -6,7 +6,7 @@ use hyper::StatusCode;
 use crate::context::AppContext;
 use crate::controllers::json_api::RawJson;
 use crate::error::AppError;
-use crate::models::connector_images::NewConnectorImage;
+use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
 use crate::models::Id;
 use crate::repo::connector_images as images_repo;
 use crate::services::connectors;
@@ -32,7 +32,7 @@ pub async fn create(
 
 pub async fn show(
     Extension(ctx): Extension<AppContext>,
-    Path(image_id): Path<Id>,
+    Path(image_id): Path<Id<ConnectorImage>>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
     Ok((StatusCode::OK, view::show(image)))
@@ -40,7 +40,7 @@ pub async fn show(
 
 pub async fn spec(
     Extension(ctx): Extension<AppContext>,
-    Path(image_id): Path<Id>,
+    Path(image_id): Path<Id<ConnectorImage>>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
 
@@ -53,7 +53,7 @@ pub async fn spec(
 
 pub async fn discovery(
     Extension(ctx): Extension<AppContext>,
-    Path(image_id): Path<Id>,
+    Path(image_id): Path<Id<ConnectorImage>>,
     Json(input): Json<RawJson>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;

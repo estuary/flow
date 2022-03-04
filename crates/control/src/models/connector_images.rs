@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::models::connectors::Connector;
 use crate::models::Id;
 
 /// A ConnectorImage is a specific version of a Connector.
@@ -11,11 +12,11 @@ use crate::models::Id;
 #[derive(Debug, Deserialize, FromRow, Serialize)]
 pub struct ConnectorImage {
     /// The Connector to which this image belongs to.
-    pub connector_id: Id,
+    pub connector_id: Id<Connector>,
     /// When this record was created.
     pub created_at: DateTime<Utc>,
     /// Primary key for this record.
-    pub id: Id,
+    pub id: Id<ConnectorImage>,
     /// The full name to this image, including registry. Eg. `ghcr.io/estuary/source-hello-world`.
     pub name: String,
     /// The full sha256 sum which uniquely identifies this image.
@@ -47,7 +48,7 @@ impl ConnectorImage {
 /// Postgres.
 #[derive(Debug, Deserialize, FromRow, Serialize)]
 pub struct NewConnectorImage {
-    pub connector_id: Id,
+    pub connector_id: Id<Connector>,
     pub name: String,
     pub digest: String,
     pub tag: String,

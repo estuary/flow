@@ -3,6 +3,7 @@ use futures::TryFutureExt;
 use rand::RngCore;
 use sqlx::PgPool;
 
+use crate::models::accounts::Account;
 use crate::models::credentials::{Credential, NewCredential};
 use crate::models::Id;
 
@@ -10,8 +11,8 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<Credential>, sqlx::Error> {
     sqlx::query_as!(
         Credential,
         r#"
-    SELECT id as "id!: Id",
-           account_id as "account_id!: Id",
+    SELECT id as "id!: Id<Credential>",
+           account_id as "account_id!: Id<Account>",
            expires_at,
            issuer,
            last_authorized_at,
@@ -26,12 +27,12 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<Credential>, sqlx::Error> {
     .await
 }
 
-pub async fn fetch_one(db: &PgPool, id: Id) -> Result<Credential, sqlx::Error> {
+pub async fn fetch_one(db: &PgPool, id: Id<Credential>) -> Result<Credential, sqlx::Error> {
     sqlx::query_as!(
         Credential,
         r#"
-    SELECT id as "id!: Id",
-           account_id as "account_id!: Id",
+    SELECT id as "id!: Id<Credential>",
+           account_id as "account_id!: Id<Account>",
            expires_at,
            issuer,
            last_authorized_at,
@@ -42,7 +43,7 @@ pub async fn fetch_one(db: &PgPool, id: Id) -> Result<Credential, sqlx::Error> {
     FROM credentials
     WHERE id = $1
     "#,
-        id as Id
+        id as Id<Credential>
     )
     .fetch_one(db)
     .await
@@ -64,9 +65,9 @@ pub async fn insert(db: &PgPool, input: NewCredential) -> Result<Credential, sql
         updated_at
     )
     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-    RETURNING id as "id!: Id"
+    RETURNING id as "id!: Id<Credential>"
     "#,
-        input.account_id as Id,
+        input.account_id as Id<Account>,
         input.expires_at,
         input.issuer,
         input.last_authorized_at,
@@ -86,13 +87,13 @@ fn random_token() -> String {
 
 pub async fn find_by_account(
     db: &PgPool,
-    account_id: Id,
+    account_id: Id<Account>,
 ) -> Result<Option<Credential>, sqlx::Error> {
     sqlx::query_as!(
         Credential,
         r#"
-    SELECT id as "id!: Id",
-           account_id as "account_id!: Id",
+    SELECT id as "id!: Id<Credential>",
+           account_id as "account_id!: Id<Account>",
            expires_at,
            issuer,
            last_authorized_at,
@@ -104,7 +105,7 @@ pub async fn find_by_account(
     WHERE account_id = $1
     LIMIT 1
     "#,
-        account_id as Id
+        account_id as Id<Account>
     )
     .fetch_optional(db)
     .await
@@ -112,14 +113,14 @@ pub async fn find_by_account(
 
 pub async fn fetch_by_account_and_session_token(
     db: &PgPool,
-    account_id: Id,
+    account_id: Id<Account>,
     session_token: &str,
 ) -> Result<Credential, sqlx::Error> {
     sqlx::query_as!(
         Credential,
         r#"
-    SELECT id as "id!: Id",
-           account_id as "account_id!: Id",
+    SELECT id as "id!: Id<Credential>",
+           account_id as "account_id!: Id<Account>",
            expires_at,
            issuer,
            last_authorized_at,
@@ -131,7 +132,7 @@ pub async fn fetch_by_account_and_session_token(
     WHERE account_id = $1 AND session_token = $2
     LIMIT 1
     "#,
-        account_id as Id,
+        account_id as Id<Account>,
         session_token,
     )
     .fetch_one(db)

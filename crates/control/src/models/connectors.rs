@@ -26,7 +26,7 @@ pub struct Connector {
     /// User-facing description of this connector.
     pub description: String,
     /// Primary key for this record.
-    pub id: Id,
+    pub id: Id<Connector>,
     /// User-facing name for this connector. Meant to be a short alternative to the full image path.
     pub name: String,
     /// User-facing name of who publishes this connector.

@@ -25,8 +25,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     }
 }
 
+/// We don't exactly know what type of Id we're converting.
+#[derive(Debug)]
+struct Arbitrary;
+
 fn decode(value: String) -> anyhow::Result<()> {
-    let id = Id::from_str(&value)
+    let id = Id::<Arbitrary>::from_str(&value)
         .map_err(|_| anyhow!("The provided value `{}` does not appear to be an id", value))?;
     println!("{:?}", id);
     Ok(())
@@ -39,7 +43,7 @@ fn encode(value: String) -> anyhow::Result<()> {
             value
         )
     })?;
-    let id = Id::new(i);
+    let id: Id<Arbitrary> = Id::new(i);
     println!("{}", id);
     Ok(())
 }
