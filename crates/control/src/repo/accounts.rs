@@ -9,7 +9,7 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<Account>, sqlx::Error> {
     sqlx::query_as!(
         Account,
         r#"
-    SELECT id as "id!: Id", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
+    SELECT id as "id!: Id<Account>", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
     FROM accounts
     "#
     )
@@ -17,15 +17,15 @@ pub async fn fetch_all(db: &PgPool) -> Result<Vec<Account>, sqlx::Error> {
     .await
 }
 
-pub async fn fetch_one(db: &PgPool, id: Id) -> Result<Account, sqlx::Error> {
+pub async fn fetch_one(db: &PgPool, id: Id<Account>) -> Result<Account, sqlx::Error> {
     sqlx::query_as!(
         Account,
         r#"
-    SELECT id as "id!: Id", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
+    SELECT id as "id!: Id<Account>", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
     FROM accounts
     WHERE id = $1
     "#,
-        id as Id
+        id as Id<Account>
     )
     .fetch_one(db)
     .await
@@ -36,7 +36,7 @@ pub async fn insert(db: &PgPool, input: NewAccount) -> Result<Account, sqlx::Err
         r#"
     INSERT INTO accounts(display_name, email, name, unique_name, created_at, updated_at)
     VALUES ($1, $2, $3, $4, NOW(), NOW())
-    RETURNING id as "id!: Id"
+    RETURNING id as "id!: Id<Account>"
     "#,
         input.display_name,
         input.email.to_lowercase(),
@@ -52,7 +52,7 @@ pub async fn find_by_name(db: &PgPool, name: &str) -> Result<Option<Account>, sq
     sqlx::query_as!(
         Account,
         r#"
-    SELECT id as "id!: Id", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
+    SELECT id as "id!: Id<Account>", display_name, email, name as "name!: CatalogName", unique_name as "unique_name!: UniqueName", created_at, updated_at
     FROM accounts
     WHERE name = $1
     LIMIT 1
