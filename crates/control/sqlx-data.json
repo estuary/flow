@@ -1,35 +1,12 @@
 {
   "db": "PostgreSQL",
-  "1864581faf06211a1e3ec87f4e34d4226e436753eb3c9a727be81bd8416e9190": {
-    "query": "\n    INSERT INTO connectors(description, name, maintainer, type, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
+  "0cb8f1b604bdbfc3c6cd06cb7d63374f03dd8df9f9d3669c7d18181118611fa6": {
+    "query": "\n    SELECT id as \"id!: Id<Account>\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text",
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
-  "322d0e82c756f00af0f5a572748c9d8e2138530c739f4b7a2bc088c06227252d": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE name = $1\n    LIMIT 1\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<Account>",
           "type_info": "Int8"
         },
         {
@@ -50,187 +27,6 @@
         {
           "ordinal": 4,
           "name": "unique_name!: UniqueName",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 5,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 6,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "38de6ea22ca1b4b916d036e2b2833611c6786f143a58bc49024e8094648dcc16": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE id = $1\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "display_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 2,
-          "name": "email",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 3,
-          "name": "name!: CatalogName",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "unique_name!: UniqueName",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 5,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 6,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "395fae2e36ae377d89699d0d4f9a64f68014e828ecae709c42ba715b498517cd": {
-    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1 AND session_token = $2\n    LIMIT 1\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "account_id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 2,
-          "name": "expires_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 3,
-          "name": "issuer",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "last_authorized_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "session_token",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 6,
-          "name": "subject",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 7,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 8,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "43a818614048bb56286970171a6fee296a0e478ab9b0405eed1859a626c1b469": {
-    "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "description",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 2,
-          "name": "name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 3,
-          "name": "maintainer",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "type!: ConnectorType",
           "type_info": "Text"
         },
         {
@@ -258,13 +54,13 @@
       ]
     }
   },
-  "519ad7895f092f1731aef839940bbad23127f0ed3973a998105a797f95431a71": {
-    "query": "\n    INSERT INTO credentials(\n        account_id,\n        expires_at,\n        issuer,\n        last_authorized_at,\n        session_token,\n        subject,\n        created_at,\n        updated_at\n    )\n    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
+  "2ee6f173845e15f5f1229d18e1040be2850c0a716699831235485d420e356bbe": {
+    "query": "\n    INSERT INTO credentials(\n        account_id,\n        expires_at,\n        issuer,\n        last_authorized_at,\n        session_token,\n        subject,\n        created_at,\n        updated_at\n    )\n    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())\n    RETURNING id as \"id!: Id<Credential>\"\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<Credential>",
           "type_info": "Int8"
         }
       ],
@@ -283,33 +79,33 @@
       ]
     }
   },
-  "564d36833d5414461e13c74ae6e28a66d82a19cee559ccdfff21a58675ec571a": {
-    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE id = $1\n    ",
+  "2ef2f367656030ea9cadc848e7a586f2c11282c5c26ecc69c0258e7b42ff720e": {
+    "query": "\n    SELECT id as \"id!: Id<Account>\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE name = $1\n    LIMIT 1\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<Account>",
           "type_info": "Int8"
         },
         {
           "ordinal": 1,
-          "name": "connector_id!: Id",
-          "type_info": "Int8"
+          "name": "display_name",
+          "type_info": "Text"
         },
         {
           "ordinal": 2,
-          "name": "name",
+          "name": "email",
           "type_info": "Text"
         },
         {
           "ordinal": 3,
-          "name": "digest",
+          "name": "name!: CatalogName",
           "type_info": "Text"
         },
         {
           "ordinal": 4,
-          "name": "tag",
+          "name": "unique_name!: UniqueName",
           "type_info": "Text"
         },
         {
@@ -325,7 +121,7 @@
       ],
       "parameters": {
         "Left": [
-          "Int8"
+          "Text"
         ]
       },
       "nullable": [
@@ -339,13 +135,13 @@
       ]
     }
   },
-  "86a83f1836a131cfd95ef2a502b72ee9fe8511971fa2e0bd87318909900e5d9d": {
-    "query": "\n    SELECT id as \"id!: Id\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    WHERE id = $1\n    ",
+  "3130a9642afcbf07a7e8b0e7441428447b70bacf57589cac8cdd79a2d5492b52": {
+    "query": "\n    SELECT id as \"id!: Id<Connector>\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    WHERE id = $1\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<Connector>",
           "type_info": "Int8"
         },
         {
@@ -395,13 +191,250 @@
       ]
     }
   },
-  "94e68bb11f6372d873a6a2685071bdefbe07cf0517fd70c218bb40515e0d5753": {
-    "query": "\n    SELECT id as \"id!: Id\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    ",
+  "40eb0abd64861d5312663b9d2c80b2681950a48283d6cb34ede4e7d92757bbfc": {
+    "query": "\n    SELECT id as \"id!: Id<Connector>\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<Connector>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "description",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "maintainer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "type!: ConnectorType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "484eee5e70b9a382601916323bf5ba89b22112caae7fac46d13e53cecbcdc0b8": {
+    "query": "\n    INSERT INTO connectors(description, name, maintainer, type, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id<Connector>\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Connector>",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "59f9a43507b96057a17e471eac43c8541c4eef7b4a2a3cd6b0ee62dc9ccc6150": {
+    "query": "\n    INSERT INTO connector_images(connector_id, name, digest, tag, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id<ConnectorImage>\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<ConnectorImage>",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "62b2424aaf1539ac6900db3a299fe05448ab56597398d8ac8575ccb4529e52ce": {
+    "query": "\n    SELECT id as \"id!: Id<Credential>\",\n           account_id as \"account_id!: Id<Account>\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Credential>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id<Account>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "b514524b7f8225168c0fb0d8b2cfb812a07a7b72b7375dc76eed95a2bc98f0ef": {
+    "query": "\n    SELECT id as \"id!: Id<Credential>\",\n           account_id as \"account_id!: Id<Account>\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1 AND session_token = $2\n    LIMIT 1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Credential>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id<Account>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "d9f2506c62e6f8321d372f50aaa14df78ce25dc5333ab0e5c61b0ce7945e394d": {
+    "query": "\n    SELECT id as \"id!: Id<Account>\", display_name, email, name as \"name!: CatalogName\", unique_name as \"unique_name!: UniqueName\", created_at, updated_at\n    FROM accounts\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Account>",
           "type_info": "Int8"
         },
         {
@@ -436,54 +469,33 @@
         }
       ],
       "parameters": {
-        "Left": []
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "a6b4e14d449f2664943a1f56cc5da9722835fc4b855b447d55ff31954c177b3c": {
-    "query": "\n    INSERT INTO accounts(display_name, email, name, unique_name, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
         "Left": [
-          "Text",
-          "Text",
-          "Text",
-          "Text"
+          "Int8"
         ]
       },
       "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
         false
       ]
     }
   },
-  "cc23a335f0edd9c023f0d273fa607eddb1f0f396a70c8fdc7a9bbc3e6b96fd06": {
-    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE connector_id = $1\n    ",
+  "e7a5e36825585adf822633ca2a09a60f67926102959eb6a6bf54697b24e37795": {
+    "query": "\n    SELECT id as \"id!: Id<ConnectorImage>\", connector_id as \"connector_id!: Id<Connector>\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE id = $1\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<ConnectorImage>",
           "type_info": "Int8"
         },
         {
           "ordinal": 1,
-          "name": "connector_id!: Id",
+          "name": "connector_id!: Id<Connector>",
           "type_info": "Int8"
         },
         {
@@ -528,243 +540,18 @@
       ]
     }
   },
-  "d15338f785aceb4a2d02118f760c54cd755f54486308e7a6a9d47250f9acd90e": {
-    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE account_id = $1\n    LIMIT 1\n    ",
+  "e80822fdeb3678a96f3ca3708ebc68449eed437937f2b66aaade0ff11ce5199f": {
+    "query": "\n    SELECT id as \"id!: Id<ConnectorImage>\", connector_id as \"connector_id!: Id<Connector>\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "id!: Id",
+          "name": "id!: Id<ConnectorImage>",
           "type_info": "Int8"
         },
         {
           "ordinal": 1,
-          "name": "account_id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 2,
-          "name": "expires_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 3,
-          "name": "issuer",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "last_authorized_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "session_token",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 6,
-          "name": "subject",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 7,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 8,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "dde789d293f768613e90ba39b6a50ad9536ed2e7d1e3e3837f498a45e44ff1a7": {
-    "query": "\n    INSERT INTO connector_images(connector_id, name, digest, tag, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id\"\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text",
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
-  "e0205be11b8e359c2a2a13ae2dfb7e5c5aec55200eeb9c3b793a3c65c6a0de3b": {
-    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE id = $1\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "account_id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 2,
-          "name": "expires_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 3,
-          "name": "issuer",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "last_authorized_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "session_token",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 6,
-          "name": "subject",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 7,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 8,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "e085279fdcbd92b6e3c5d90471b8bf5696aa59956098653ee08d71bfdf0f6d3a": {
-    "query": "\n    SELECT id as \"id!: Id\",\n           account_id as \"account_id!: Id\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "account_id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 2,
-          "name": "expires_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 3,
-          "name": "issuer",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "last_authorized_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "session_token",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 6,
-          "name": "subject",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 7,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 8,
-          "name": "updated_at",
-          "type_info": "Timestamptz"
-        }
-      ],
-      "parameters": {
-        "Left": []
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ]
-    }
-  },
-  "fac7bf5d60a084057e81bda5622056288bfd384d2a169da70cc28bdd437b6beb": {
-    "query": "\n    SELECT id as \"id!: Id\", connector_id as \"connector_id!: Id\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id!: Id",
-          "type_info": "Int8"
-        },
-        {
-          "ordinal": 1,
-          "name": "connector_id!: Id",
+          "name": "connector_id!: Id<Connector>",
           "type_info": "Int8"
         },
         {
@@ -797,6 +584,219 @@
         "Left": []
       },
       "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "eb3beba1620e27fd782269f9d87616d32e55d2c62a86ac9e4f16424658c6faf3": {
+    "query": "\n    INSERT INTO accounts(display_name, email, name, unique_name, created_at, updated_at)\n    VALUES ($1, $2, $3, $4, NOW(), NOW())\n    RETURNING id as \"id!: Id<Account>\"\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Account>",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "f2650529688140a9ce20356a8857e7a0f5b5e0af5b154f836f60cd297d0f898e": {
+    "query": "\n    SELECT id as \"id!: Id<ConnectorImage>\", connector_id as \"connector_id!: Id<Connector>\", name, digest, tag, created_at, updated_at\n    FROM connector_images\n    WHERE connector_id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<ConnectorImage>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "connector_id!: Id<Connector>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "digest",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "tag",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "f87d932c6871310b077ff7515ed727f998532e87ca0bad505e7c443579acbd32": {
+    "query": "\n    SELECT id as \"id!: Id<Credential>\",\n           account_id as \"account_id!: Id<Account>\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Credential>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id<Account>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "fb3510b76904e7b36feca665d4a7927bfc38d7b3719835a6cce8681fa151544e": {
+    "query": "\n    SELECT id as \"id!: Id<Credential>\",\n           account_id as \"account_id!: Id<Account>\",\n           expires_at,\n           issuer,\n           last_authorized_at,\n           session_token,\n           subject,\n           created_at,\n           updated_at\n    FROM credentials\n    WHERE id = $1\n    ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id!: Id<Credential>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "account_id!: Id<Account>",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 2,
+          "name": "expires_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "issuer",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "last_authorized_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "session_token",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "subject",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "created_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "updated_at",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
         false,
         false,
         false,
