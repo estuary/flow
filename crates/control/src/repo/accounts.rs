@@ -2,8 +2,8 @@ use futures::TryFutureExt;
 use sqlx::PgPool;
 
 use crate::models::accounts::{Account, NewAccount};
+use crate::models::id::Id;
 use crate::models::names::{CatalogName, UniqueName};
-use crate::models::Id;
 
 pub async fn fetch_all(db: &PgPool) -> Result<Vec<Account>, sqlx::Error> {
     sqlx::query_as!(
