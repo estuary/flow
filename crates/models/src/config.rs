@@ -42,6 +42,10 @@ pub enum Config {
     Url(RelativeUrl),
     /// Inline configuration.
     Inline(Object),
+    /// Once an external configuration has been inlined, we store it
+    /// raw here to preserve ordering of its keys. See #303
+    #[serde(skip_deserializing)]
+    LoadedExternal(RawConfig),
 }
 
 impl Config {
