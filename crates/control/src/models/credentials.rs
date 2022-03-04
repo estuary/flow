@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::models::accounts::Account;
 use crate::models::Id;
 
 /// A Credential is a proof of identity linked to an Account. This proof is
@@ -18,13 +19,13 @@ use crate::models::Id;
 #[derive(Debug, Deserialize, FromRow, Serialize)]
 pub struct Credential {
     /// The `Account` this `Credential` belongs to.
-    pub account_id: Id,
+    pub account_id: Id<Account>,
     /// When this record was created.
     pub created_at: DateTime<Utc>,
     /// The time when this `Credential` expires and the `issuer` must provide a new secret.
     pub expires_at: DateTime<Utc>,
     /// Primary key for this record.
-    pub id: Id,
+    pub id: Id<Credential>,
     /// The name of the Identity Provider that provided the `Credential`.
     pub issuer: String,
     /// The last recorded login to the system.
@@ -44,7 +45,7 @@ pub struct Credential {
 #[derive(Debug, Deserialize, FromRow, Serialize)]
 pub struct NewCredential {
     /// The `Account` this `Credential` belongs to.
-    pub account_id: Id,
+    pub account_id: Id<Account>,
     /// The time when this `Credential` expires and the `issuer` must provide a new secret.
     pub expires_at: DateTime<Utc>,
     /// The name of the Identity Provider that provided the `Credential`.

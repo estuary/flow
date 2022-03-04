@@ -32,7 +32,7 @@ pub async fn create(
 
 pub async fn show(
     Extension(ctx): Extension<AppContext>,
-    Path(account_id): Path<Id>,
+    Path(account_id): Path<Id<Account>>,
     CurrentAccount(current_account): CurrentAccount,
 ) -> Result<impl IntoResponse, AppError> {
     if account_id == current_account.id {

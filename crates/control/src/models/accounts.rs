@@ -20,7 +20,7 @@ pub struct Account {
     /// An email address to contact the account owner.
     pub email: String,
     /// Primary key for this record.
-    pub id: Id,
+    pub id: Id<Account>,
     /// The catalog name for this account. Eg. "wiley" or "acmeCo"
     pub name: CatalogName,
     /// A case-folded, unicode normalized version of the catalog name. This is
