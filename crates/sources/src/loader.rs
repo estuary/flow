@@ -32,6 +32,10 @@ pub enum LoadError {
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to merge YAML alias nodes")]
     YAMLMergeErr(#[from] yaml_merge_keys::MergeKeyError),
+    #[error("failed to transcode YAML to JSON")]
+    YAMLTranscodeErr(#[source] serde_json::Error),
+    #[error("failed to parse JSON")]
+    JSONErr(#[from] serde_json::Error),
     #[error("failed to build JSON schema")]
     SchemaBuild(#[from] json::schema::BuildError),
     #[error("failed to index JSON schema")]
@@ -118,7 +122,9 @@ impl<F: Fetcher> Loader<F> {
             let taken = serde_json::from_str(endpoint_spec.get())
                 .expect("endpoint spec must be a ConnectorConfig");
 
-            *endpoint_spec = match taken {
+            *endpoint_spec = RawValue::from_string("null".to_owned()).unwrap();
+
+            match taken {
                 // Map a URL ConnectorConfig to its inline form.
                 models::ConnectorConfig {
                     image,
@@ -135,15 +141,22 @@ impl<F: Fetcher> Loader<F> {
                         let mut buf = Vec::new();
                         let writer = BufWriter::new(&mut buf);
                         let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
+                        tracing::debug!("r.content {:?}", r.content);
                         let mut serializer = serde_json::Serializer::new(writer);
-                        serde_transcode::transcode(deserializer, &mut serializer)
-                            .expect("transcode failed");
+
+                        let transcode_result =
+                            serde_transcode::transcode(deserializer, &mut serializer)
+                                .map_err(|e| LoadError::YAMLTranscodeErr(e));
+
                         serializer.into_inner().flush().unwrap();
-                        RawValue::from_string(String::from_utf8(buf).unwrap())
-                            .expect("RawValue construction failed")
-                            .into()
+                        let raw_value_result =
+                            RawValue::from_string(String::from_utf8(buf).unwrap())
+                                .map_err(|e| LoadError::JSONErr(e));
+
+                        // TODO: handle these errors properly (similar to self.fallible)
+                        transcode_result.and(raw_value_result).ok()
                     })
-                    .map(|config| {
+                    .and_then(|config| {
                         RawValue::from_string(
                             serde_json::to_string(&models::ConnectorConfig {
                                 image,
@@ -151,14 +164,15 @@ impl<F: Fetcher> Loader<F> {
                             })
                             .unwrap(),
                         )
-                        .unwrap()
+                        .map_err(|e| LoadError::JSONErr(e))
+                        .ok()
                     }),
                 // Pass through the ConnectorConfig as-is.
-                spec @ _ => {
-                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
-                }
+                spec @ _ => RawValue::from_string(serde_json::to_string(&spec).unwrap())
+                    .map_err(|e| LoadError::JSONErr(e))
+                    .ok(),
             }
-            .unwrap_or_default()
+            .map(|spec| *endpoint_spec = spec)
         };
 
         let taken = std::mem::take(captures);
