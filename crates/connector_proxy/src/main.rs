@@ -3,6 +3,8 @@ pub mod connector_runner;
 pub mod errors;
 pub mod interceptors;
 pub mod libs;
+use std::fs::File;
+use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
 use tokio::signal::unix::{signal, SignalKind};
@@ -13,7 +15,10 @@ use flow_cli_common::{init_logging, LogArgs};
 
 use connector_runner::run_connector;
 use errors::Error;
-use libs::image_config::ImageConfig;
+use libs::{
+    command::{check_exit_status, invoke_connector, CommandConfig},
+    image_config::ImageConfig,
+};
 
 use interceptors::{
     airbyte_capture_interceptor::AirbyteCaptureInterceptor,
@@ -47,12 +52,19 @@ struct ProxyFlowMaterialize {
     operation: FlowMaterializeOperation,
 }
 
+#[derive(Debug, clap::Parser)]
+struct BlockExecutionConfig {
+    config_file_path: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum ProxyCommand {
     /// proxies the Flow runtime Capture Protocol to the connector.
     ProxyFlowCapture(ProxyFlowCapture),
     /// proxies the Flow runtime Materialize Protocol to the connector.
     ProxyFlowMaterialize(ProxyFlowMaterialize),
+    /// internal command used by the connector proxy itself to block execution until signaled.
+    BlockExecute(BlockExecutionConfig),
 }
 
 #[derive(Parser, Debug)]
@@ -91,9 +103,6 @@ async fn main() -> std::io::Result<()> {
     } = Args::parse();
     init_logging(&log_args);
 
-    // respond to os signals.
-    tokio::task::spawn(async move { signal_handler().await });
-
     let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
         tracing::error!(error = ?err, "connector proxy execution failed.");
@@ -123,26 +132,28 @@ async fn async_main(
     match proxy_command {
         ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_config).await,
         ProxyCommand::ProxyFlowMaterialize(m) => proxy_flow_materialize(m, image_config).await,
+        ProxyCommand::BlockExecute(ba) => block_execute(ba.config_file_path).await,
     }
 }
 
 async fn proxy_flow_capture(c: ProxyFlowCapture, image_config: ImageConfig) -> Result<(), Error> {
-    let mut converter_pair = match image_config
-        .get_connector_protocol::<CaptureConnectorProtocol>(CaptureConnectorProtocol::Airbyte)
-    {
-        CaptureConnectorProtocol::FlowCapture => DefaultFlowCaptureInterceptor::get_converters(),
-        CaptureConnectorProtocol::Airbyte => AirbyteCaptureInterceptor::get_converters(),
+    // respond to os signals.
+    tokio::task::spawn(async move { signal_handler().await });
+
+    let mut interceptor: Box<dyn Interceptor<FlowCaptureOperation>> = match image_config
+        .get_connector_protocol::<CaptureConnectorProtocol>(
+        CaptureConnectorProtocol::Airbyte,
+    ) {
+        CaptureConnectorProtocol::FlowCapture => Box::new(DefaultFlowCaptureInterceptor {}),
+        CaptureConnectorProtocol::Airbyte => Box::new(AirbyteCaptureInterceptor {}),
     };
 
-    converter_pair = compose(
-        converter_pair,
-        NetworkProxyCaptureInterceptor::get_converters(),
-    );
+    interceptor = compose(interceptor, Box::new(NetworkProxyCaptureInterceptor {}));
 
     run_connector::<FlowCaptureOperation>(
         c.operation,
         image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        converter_pair,
+        interceptor,
     )
     .await
 }
@@ -151,17 +162,32 @@ async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
     image_config: ImageConfig,
 ) -> Result<(), Error> {
+    // respond to os signals.
+    tokio::task::spawn(async move { signal_handler().await });
+
     // There is only one type of connector protocol for flow materialize.
-    let mut converter_pair = DefaultFlowMaterializeInterceptor::get_converters();
-    converter_pair = compose(
-        converter_pair,
-        NetworkProxyMaterializeInterceptor::get_converters(),
-    );
+    let mut interceptor: Box<dyn Interceptor<FlowMaterializeOperation>> =
+        Box::new(DefaultFlowMaterializeInterceptor {});
+    interceptor = compose(interceptor, Box::new(NetworkProxyMaterializeInterceptor {}));
 
     run_connector::<FlowMaterializeOperation>(
         m.operation,
         image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        converter_pair,
+        interceptor,
     )
     .await
+}
+
+const SIGCONT: std::os::raw::c_int = 18;
+async fn block_execute(command_config_path: String) -> Result<(), Error> {
+    let mut signal_stream = signal(SignalKind::from_raw(SIGCONT))?;
+
+    signal_stream.recv().await;
+    let reader = BufReader::new(File::open(command_config_path)?);
+
+    let command_config: CommandConfig = serde_json::from_reader(reader)?;
+
+    let mut child = invoke_connector(&command_config.entrypoint, &command_config.args)?;
+
+    check_exit_status(child.wait().await)
 }

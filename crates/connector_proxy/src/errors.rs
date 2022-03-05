@@ -18,6 +18,9 @@ pub enum Error {
     #[error("missing process io pipes.")]
     MissingIOPipe,
 
+    #[error("missing process id where expected.")]
+    MissingPid,
+
     #[error("invalid endpoint json config.")]
     InvalidEndpointConfig,
 
@@ -38,6 +41,12 @@ pub enum Error {
 
     #[error(transparent)]
     NetworkProxyError(#[from] network_proxy::errors::Error),
+
+    #[error("Failed sending sigcont, with errno: {0:?}")]
+    SigcontError(nix::errno::Errno),
+
+    #[error(transparent)]
+    TempfilePersistError(#[from] tempfile::PersistError),
 
     #[error("Tokio task execution error.")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
