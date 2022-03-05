@@ -1,6 +1,4 @@
-use crate::apis::{
-    FlowCaptureOperation, Interceptor, InterceptorStream, RequestResponseConverterPair,
-};
+use crate::apis::{FlowCaptureOperation, Interceptor, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
@@ -74,27 +72,32 @@ impl NetworkProxyCaptureInterceptor {
             }
         })
     }
+}
 
+impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
     fn convert_request(
-        operation: &FlowCaptureOperation,
-        in_stream: InterceptorStream,
+        &self,
+        _pid: Option<u32>,
+        op: &FlowCaptureOperation,
+        stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
-        Ok(match operation {
-            FlowCaptureOperation::Discover => Self::convert_discover_request(in_stream),
-            FlowCaptureOperation::Validate => Self::convert_validate_request(in_stream),
+        Ok(match op {
+            FlowCaptureOperation::Discover => Self::convert_discover_request(stream),
+            FlowCaptureOperation::Validate => Self::convert_validate_request(stream),
             FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
-                Self::convert_apply_request(in_stream)
+                Self::convert_apply_request(stream)
             }
-            FlowCaptureOperation::Pull => Self::convert_pull_request(in_stream),
-            _ => in_stream,
+            FlowCaptureOperation::Pull => Self::convert_pull_request(stream),
+            _ => stream,
         })
     }
 
     fn convert_response(
-        operation: &FlowCaptureOperation,
+        &self,
+        op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
-        Ok(match operation {
+        Ok(match op {
             FlowCaptureOperation::Spec => Box::pin(stream! {
                 let mut reader = StreamReader::new(in_stream);
                 let mut response = decode_message::<SpecResponse, _>(&mut reader).await.or_bail().expect("No expected response received.");
@@ -105,14 +108,5 @@ impl NetworkProxyCaptureInterceptor {
             }),
             _ => in_stream,
         })
-    }
-}
-
-impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
-    fn get_converters() -> RequestResponseConverterPair<FlowCaptureOperation> {
-        (
-            Box::new(Self::convert_request),
-            Box::new(Self::convert_response),
-        )
     }
 }

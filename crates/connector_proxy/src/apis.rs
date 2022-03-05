@@ -38,30 +38,68 @@ impl FlowOperation for FlowMaterializeOperation {}
 // InterceptorStream defines the type of input and output streams handled by interceptors.
 pub type InterceptorStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send + Sync>>;
 
-// The generic param "T" below is bounded by FlowOperation.
-// A converter is a function that contains the specific stream-handling logic of an interceptor.
-type ConverterFn<T> = Box<dyn Fn(&T, InterceptorStream) -> Result<InterceptorStream, Error>>;
-// An intercept is characterized by a pair of converters, corresponding to the handling logic of request and response streams, respectively.
-pub type RequestResponseConverterPair<T> = (ConverterFn<T>, ConverterFn<T>);
 pub trait Interceptor<T: FlowOperation> {
-    fn get_converters() -> RequestResponseConverterPair<T> {
-        (
-            Box::new(|_op, stream| Ok(stream)),
-            Box::new(|_op, stream| Ok(stream)),
-        )
+    fn convert_command_args(&self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
+        Ok(args)
+    }
+
+    fn convert_request(
+        &self,
+        pid: Option<u32>,
+        op: &T,
+        stream: InterceptorStream,
+    ) -> Result<InterceptorStream, Error> {
+        Ok(stream)
+    }
+
+    fn convert_response(
+        &self,
+        op: &T,
+        stream: InterceptorStream,
+    ) -> Result<InterceptorStream, Error> {
+        Ok(stream)
     }
 }
 
-// Two converter pairs can be composed together to form a new converter pair.
+struct ComposedInterceptor<T: 'static + FlowOperation> {
+    a: Box<dyn Interceptor<T>>,
+    b: Box<dyn Interceptor<T>>,
+}
+impl<T: 'static + FlowOperation> Interceptor<T> for ComposedInterceptor<T> {
+    fn convert_command_args(&self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
+        self.a
+            .convert_command_args(op, self.b.convert_command_args(op, args)?)
+    }
+
+    fn convert_request(
+        &self,
+        pid: Option<u32>,
+        op: &T,
+        stream: InterceptorStream,
+    ) -> Result<InterceptorStream, Error> {
+        // Suppressing pid for interceptor b to ensure that only the first interceptor
+        // in the chain is responsible to start the connector by sending a SIGCONT signal
+        // to that PID.
+        // This satisfy the current requirements, and we can extend it with
+        // more complex connector starting logic that involves multiple interceptors.
+        self.a
+            .convert_request(pid, op, self.b.convert_request(None, op, stream)?)
+    }
+
+    fn convert_response(
+        &self,
+        op: &T,
+        stream: InterceptorStream,
+    ) -> Result<InterceptorStream, Error> {
+        self.b
+            .convert_response(op, self.a.convert_response(op, stream)?)
+    }
+}
+
+// Two interceptors can be composed together to form a new interceptor.
 pub fn compose<T: 'static + FlowOperation>(
-    a: RequestResponseConverterPair<T>,
-    b: RequestResponseConverterPair<T>,
-) -> RequestResponseConverterPair<T> {
-    let (req_a, resp_a) = a;
-    let (req_b, resp_b) = b;
-    (
-        Box::new(move |op, stream| (req_b)(op, (req_a)(op, stream)?)),
-        // Response conversions are applied in the reverse order of the request conversions.
-        Box::new(move |op, stream| (resp_a)(op, (resp_b)(op, stream)?)),
-    )
+    a: Box<dyn Interceptor<T>>,
+    b: Box<dyn Interceptor<T>>,
+) -> Box<dyn Interceptor<T>> {
+    Box::new(ComposedInterceptor { a, b })
 }
