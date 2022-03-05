@@ -8,7 +8,6 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::BufWriter;
 use std::io::Write;
 use url::Url;
 
@@ -32,10 +31,6 @@ pub enum LoadError {
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to merge YAML alias nodes")]
     YAMLMergeErr(#[from] yaml_merge_keys::MergeKeyError),
-    #[error("failed to transcode YAML to JSON")]
-    YAMLTranscodeErr(#[source] serde_json::Error),
-    #[error("failed to parse JSON")]
-    JSONErr(#[from] serde_json::Error),
     #[error("failed to build JSON schema")]
     SchemaBuild(#[from] json::schema::BuildError),
     #[error("failed to index JSON schema")]
@@ -138,38 +133,24 @@ impl<F: Fetcher> Loader<F> {
                         // in the intermediary Value (which is a BTreeMap) since this could be a sops encrypted
                         // configuration and the ordering of the elements must be preserved. See #303.
                         let mut buf = Vec::new();
-                        let writer = BufWriter::new(&mut buf);
                         let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
-                        tracing::debug!("r.content {:?}", r.content);
-                        let mut serializer = serde_json::Serializer::new(writer);
+                        let mut serializer = serde_json::Serializer::new(&mut buf);
 
-                        let transcode_result =
-                            serde_transcode::transcode(deserializer, &mut serializer)
-                                .map_err(|e| LoadError::YAMLTranscodeErr(e));
+                        serde_transcode::transcode(deserializer, &mut serializer).ok()?;
 
-                        serializer.into_inner().flush().unwrap();
-                        let raw_value_result =
-                            RawValue::from_string(String::from_utf8(buf).unwrap())
-                                .map_err(|e| LoadError::JSONErr(e));
+                        serializer.into_inner().flush().ok()?;
 
-                        // TODO: handle these errors properly (similar to self.fallible)
-                        transcode_result.and(raw_value_result).ok()
+                        RawValue::from_string(String::from_utf8(buf).unwrap()).ok()
                     })
                     .and_then(|config| {
                         RawValue::from_string(
-                            serde_json::to_string(&models::ConnectorConfig {
-                                image,
-                                config: models::Config::LoadedExternal(models::RawConfig(config)),
-                            })
-                            .unwrap(),
+                            serde_json::to_string(&models::RawConnectorConfig { image, config })
+                                .unwrap(),
                         )
-                        .map_err(|e| LoadError::JSONErr(e))
                         .ok()
                     }),
                 // Pass through the ConnectorConfig as-is.
-                spec @ _ => RawValue::from_string(serde_json::to_string(&spec).unwrap())
-                    .map_err(|e| LoadError::JSONErr(e))
-                    .ok(),
+                spec @ _ => RawValue::from_string(serde_json::to_string(&spec).unwrap()).ok(),
             }
             .map(|spec| *endpoint_spec = spec)
         };
