@@ -1,6 +1,4 @@
-use crate::apis::{
-    FlowMaterializeOperation, Interceptor, InterceptorStream, RequestResponseConverterPair,
-};
+use crate::apis::{FlowMaterializeOperation, Interceptor, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
@@ -17,9 +15,9 @@ use tokio_util::io::StreamReader;
 pub struct NetworkProxyMaterializeInterceptor {}
 
 impl NetworkProxyMaterializeInterceptor {
-    fn convert_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn convert_spec_request(stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
-            let mut reader = StreamReader::new(in_stream);
+            let mut reader = StreamReader::new(stream);
             let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             request.endpoint_spec_json =
                 NetworkProxy::consume_network_proxy_config(RawValue::from_string(request.endpoint_spec_json)?)
@@ -30,9 +28,9 @@ impl NetworkProxyMaterializeInterceptor {
         })
     }
 
-    fn convert_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn convert_apply_request(stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
-            let mut reader = StreamReader::new(in_stream);
+            let mut reader = StreamReader::new(stream);
             let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             if let Some(ref mut m) = request.materialization {
                 m.endpoint_spec_json =
@@ -44,9 +42,9 @@ impl NetworkProxyMaterializeInterceptor {
         })
     }
 
-    fn convert_transactions_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn convert_transactions_request(stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
-            let mut reader = StreamReader::new(in_stream);
+            let mut reader = StreamReader::new(stream);
             let mut request = decode_message::<TransactionRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             if let Some(ref mut o) = request.open {
                 if let Some(ref mut m) = o.materialization {
@@ -64,44 +62,40 @@ impl NetworkProxyMaterializeInterceptor {
             }
         })
     }
+}
 
+impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeInterceptor {
     fn convert_request(
-        operation: &FlowMaterializeOperation,
-        in_stream: InterceptorStream,
+        &self,
+        _pid: Option<u32>,
+        op: &FlowMaterializeOperation,
+        stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
-        Ok(match operation {
-            FlowMaterializeOperation::Validate => Self::convert_spec_request(in_stream),
+        Ok(match op {
+            FlowMaterializeOperation::Validate => Self::convert_spec_request(stream),
             FlowMaterializeOperation::ApplyUpsert | FlowMaterializeOperation::ApplyDelete => {
-                Self::convert_apply_request(in_stream)
+                Self::convert_apply_request(stream)
             }
-            FlowMaterializeOperation::Transactions => Self::convert_transactions_request(in_stream),
-            _ => in_stream,
+            FlowMaterializeOperation::Transactions => Self::convert_transactions_request(stream),
+            _ => stream,
         })
     }
 
     fn convert_response(
-        operation: &FlowMaterializeOperation,
-        in_stream: InterceptorStream,
+        &self,
+        op: &FlowMaterializeOperation,
+        stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
-        Ok(match operation {
+        Ok(match op {
             FlowMaterializeOperation::Spec => Box::pin(stream! {
-                let mut reader = StreamReader::new(in_stream);
+                let mut reader = StreamReader::new(stream);
                 let mut response = decode_message::<SpecResponse, _>(&mut reader).await.or_bail().expect("expected response is not received.");
                 response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
                 ).or_bail().to_string();
                 yield encode_message(&response);
             }),
-            _ => in_stream,
+            _ => stream,
         })
-    }
-}
-
-impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeInterceptor {
-    fn get_converters() -> RequestResponseConverterPair<FlowMaterializeOperation> {
-        (
-            Box::new(Self::convert_request),
-            Box::new(Self::convert_response),
-        )
     }
 }
