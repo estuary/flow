@@ -20,6 +20,8 @@ byteorder="*"
 clap = { version = "^3", features = ["derive"] }
 futures-core = "*"
 futures-util="*"
+json-pointer="*"
+libc="*"
 prost = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"]}
@@ -27,7 +29,9 @@ serde_json = { version = "*", features = ["raw_value"]}
 structopt = "*"
 strum = "*"
 strum_macros = "*"
+tempfile="*"
 thiserror = "*"
 tokio = { version = "1.15.0", features = ["full"] }
 tokio-util = { version = "*", features = ["io"] }
 tracing="*"
+validator = { version = "*", features = ["derive"] }
