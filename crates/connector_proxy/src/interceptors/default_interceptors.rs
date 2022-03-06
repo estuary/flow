@@ -23,7 +23,7 @@ impl Interceptor<FlowCaptureOperation> for DefaultFlowCaptureInterceptor {
         match pid {
             None => Err(Error::MissingPid),
             Some(pid) => {
-                resume_process(pid);
+                resume_process(pid)?;
                 Ok(stream)
             }
         }
@@ -45,13 +45,13 @@ impl Interceptor<FlowMaterializeOperation> for DefaultFlowMaterializeInterceptor
     fn convert_request(
         &self,
         pid: Option<u32>,
-        op: &FlowMaterializeOperation,
+        _op: &FlowMaterializeOperation,
         stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         match pid {
             None => Err(Error::MissingPid),
             Some(pid) => {
-                resume_process(pid);
+                resume_process(pid)?;
                 Ok(stream)
             }
         }
