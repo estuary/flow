@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json};
+use serde_json::{from_value, json, value::RawValue};
 
 use super::{Object, RelativeUrl};
 
@@ -49,4 +49,10 @@ impl ConnectorConfig {
             config: Config::Url(RelativeUrl::new("connector-config.yaml")),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RawConnectorConfig {
+    pub image: String,
+    pub config: Box<RawValue>,
 }
