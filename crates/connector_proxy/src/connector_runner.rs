@@ -44,5 +44,5 @@ pub async fn run_connector<T: std::fmt::Display + FlowOperation>(
     a?;
     b?;
 
-    check_exit_status(child.wait().await)
+    check_exit_status("connector runner:", child.wait().await)
 }

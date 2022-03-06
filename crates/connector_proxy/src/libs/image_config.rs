@@ -22,12 +22,20 @@ pub struct ImageInspect {
 }
 
 impl ImageConfig {
-    pub fn parse_from_json_file(path: String) -> Result<Self, Error> {
-        let reader = BufReader::new(File::open(path)?);
-        let image_inspects: Vec<ImageInspect> = serde_json::from_reader(reader)?;
-        match image_inspects.len() {
-            1 => Ok(image_inspects[0].config.clone()),
-            _ => Err(Error::InvalidImageInspectFile),
+    pub fn parse_from_json_file(path: Option<String>) -> Result<Self, Error> {
+        if path.is_none() {}
+        match path {
+            None => {
+                return Err(Error::MissingImageInspectFile);
+            }
+            Some(p) => {
+                let reader = BufReader::new(File::open(p)?);
+                let image_inspects: Vec<ImageInspect> = serde_json::from_reader(reader)?;
+                match image_inspects.len() {
+                    1 => Ok(image_inspects[0].config.clone()),
+                    _ => Err(Error::InvalidImageInspectFile),
+                }
+            }
         }
     }
 

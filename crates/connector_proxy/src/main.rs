@@ -19,6 +19,7 @@ use libs::{
     command::{check_exit_status, invoke_connector, CommandConfig},
     image_config::ImageConfig,
 };
+use std::process::Stdio;
 
 use interceptors::{
     airbyte_capture_interceptor::AirbyteCaptureInterceptor,
@@ -53,7 +54,7 @@ struct ProxyFlowMaterialize {
 }
 
 #[derive(Debug, clap::Parser)]
-struct BlockExecutionConfig {
+struct DelayedExecutionConfig {
     config_file_path: String,
 }
 
@@ -63,8 +64,8 @@ enum ProxyCommand {
     ProxyFlowCapture(ProxyFlowCapture),
     /// proxies the Flow runtime Materialize Protocol to the connector.
     ProxyFlowMaterialize(ProxyFlowMaterialize),
-    /// internal command used by the connector proxy itself to block execution until signaled.
-    BlockExecute(BlockExecutionConfig),
+    /// internal command used by the connector proxy itself to delay execution until signaled.
+    DelayedExecute(DelayedExecutionConfig),
 }
 
 #[derive(Parser, Debug)]
@@ -73,7 +74,7 @@ pub struct Args {
     /// The path (in the container) to the JSON file that contains the inspection results from the connector image.
     /// Normally produced via command "docker inspect <image>".
     #[clap(short, long)]
-    image_inspect_json_path: String,
+    image_inspect_json_path: Option<String>,
 
     /// The type of proxy service to provide.
     #[clap(subcommand)]
@@ -111,7 +112,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-async fn signal_handler() {
+async fn sigterm_handler() {
     let mut signal_stream = signal(SignalKind::terminate()).expect("failed creating signal.");
 
     signal_stream
@@ -123,22 +124,27 @@ async fn signal_handler() {
 }
 
 async fn async_main(
-    image_inspect_json_path: String,
+    image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
 ) -> Result<(), Error> {
-    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
-
     // TODO(jixiang): add a check to make sure the proxy_command passed in from commandline is consistent with the protocol inferred from image.
     match proxy_command {
-        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_config).await,
-        ProxyCommand::ProxyFlowMaterialize(m) => proxy_flow_materialize(m, image_config).await,
-        ProxyCommand::BlockExecute(ba) => block_execute(ba.config_file_path).await,
+        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
+        ProxyCommand::ProxyFlowMaterialize(m) => {
+            proxy_flow_materialize(m, image_inspect_json_path).await
+        }
+        ProxyCommand::DelayedExecute(ba) => delayed_execute(ba.config_file_path).await,
     }
 }
 
-async fn proxy_flow_capture(c: ProxyFlowCapture, image_config: ImageConfig) -> Result<(), Error> {
-    // respond to os signals.
-    tokio::task::spawn(async move { signal_handler().await });
+async fn proxy_flow_capture(
+    c: ProxyFlowCapture,
+    image_inspect_json_path: Option<String>,
+) -> Result<(), Error> {
+    // Respond to OS sigterm signal.
+    tokio::task::spawn(async move { sigterm_handler().await });
+
+    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
     let mut interceptor: Box<dyn Interceptor<FlowCaptureOperation>> = match image_config
         .get_connector_protocol::<CaptureConnectorProtocol>(
@@ -160,10 +166,12 @@ async fn proxy_flow_capture(c: ProxyFlowCapture, image_config: ImageConfig) -> R
 
 async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
-    image_config: ImageConfig,
+    image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    // respond to os signals.
-    tokio::task::spawn(async move { signal_handler().await });
+    // Respond to OS sigterm signal.
+    tokio::task::spawn(async move { sigterm_handler().await });
+
+    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
     // There is only one type of connector protocol for flow materialize.
     let mut interceptor: Box<dyn Interceptor<FlowMaterializeOperation>> =
@@ -178,16 +186,22 @@ async fn proxy_flow_materialize(
     .await
 }
 
-const SIGCONT: std::os::raw::c_int = 18;
-async fn block_execute(command_config_path: String) -> Result<(), Error> {
-    let mut signal_stream = signal(SignalKind::from_raw(SIGCONT))?;
+async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
+    // Sleep for some time to allow parent process to stop the current process.
+    std::thread::sleep(std::time::Duration::from_millis(100));
 
-    signal_stream.recv().await;
+    tracing::info!("delayed process execution continue...");
+
     let reader = BufReader::new(File::open(command_config_path)?);
 
     let command_config: CommandConfig = serde_json::from_reader(reader)?;
 
-    let mut child = invoke_connector(&command_config.entrypoint, &command_config.args)?;
+    let mut child = invoke_connector(
+        Stdio::inherit(),
+        Stdio::inherit(),
+        &command_config.entrypoint,
+        &command_config.args,
+    )?;
 
-    check_exit_status(child.wait().await)
+    check_exit_status("delayed process", child.wait().await)
 }

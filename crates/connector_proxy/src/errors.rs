@@ -39,6 +39,9 @@ pub enum Error {
     #[error(transparent)]
     MessageEncodeError(#[from] prost::EncodeError),
 
+    #[error("Missing required image inspect file. Specify it via --image-inspect-json-path in command line.")]
+    MissingImageInspectFile,
+
     #[error(transparent)]
     NetworkProxyError(#[from] network_proxy::errors::Error),
 
