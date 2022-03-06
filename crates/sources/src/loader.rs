@@ -5,8 +5,10 @@ use json::schema::{build::build_schema, Application, Keyword};
 use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
+use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::io::Write;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -110,11 +112,13 @@ impl<F: Fetcher> Loader<F> {
         // At this point we know that no more fetches will complete.
         // Re-write capture and materialization configurations to their inline form.
 
-        let to_inline = |endpoint_spec: &mut serde_json::Value| {
-            let taken = serde_json::from_value(std::mem::take(endpoint_spec))
+        let to_inline = |endpoint_spec: &mut Box<RawValue>| {
+            let taken = serde_json::from_str(endpoint_spec.get())
                 .expect("endpoint spec must be a ConnectorConfig");
 
-            *endpoint_spec = match taken {
+            *endpoint_spec = RawValue::from_string("null".to_owned()).unwrap();
+
+            match taken {
                 // Map a URL ConnectorConfig to its inline form.
                 models::ConnectorConfig {
                     image,
@@ -124,18 +128,31 @@ impl<F: Fetcher> Loader<F> {
                     .binary_search_by_key(&resource_url.as_str(), |r| r.resource.as_str())
                     .ok()
                     .and_then(|ind| resources.get(ind))
-                    .and_then(|r| serde_yaml::from_slice(&r.content).ok())
-                    .map(|config| {
-                        serde_json::to_value(models::ConnectorConfig {
-                            image,
-                            config: models::Config::Inline(config),
-                        })
-                        .unwrap()
+                    .and_then(|r| {
+                        // transcode the YAML into a JSON RawValue to avoid re-ordering of elements
+                        // in the intermediary Value (which is a BTreeMap) since this could be a sops encrypted
+                        // configuration and the ordering of the elements must be preserved. See #303.
+                        let mut buf = Vec::new();
+                        let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
+                        let mut serializer = serde_json::Serializer::new(&mut buf);
+
+                        serde_transcode::transcode(deserializer, &mut serializer).ok()?;
+
+                        serializer.into_inner().flush().ok()?;
+
+                        RawValue::from_string(String::from_utf8(buf).unwrap()).ok()
+                    })
+                    .and_then(|config| {
+                        RawValue::from_string(
+                            serde_json::to_string(&models::RawConnectorConfig { image, config })
+                                .unwrap(),
+                        )
+                        .ok()
                     }),
                 // Pass through the ConnectorConfig as-is.
-                spec @ _ => Some(serde_json::to_value(spec).unwrap()),
+                spec @ _ => RawValue::from_string(serde_json::to_string(&spec).unwrap()).ok(),
             }
-            .unwrap_or_default();
+            .map(|spec| *endpoint_spec = spec)
         };
 
         let taken = std::mem::take(captures);
@@ -907,7 +924,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         mut endpoint: models::CaptureEndpoint,
-    ) -> Option<serde_json::Value> {
+    ) -> Option<Box<RawValue>> {
         use models::CaptureEndpoint::*;
 
         // Map a URL reference into its absolute form, and load it.
@@ -927,8 +944,12 @@ impl<F: Fetcher> Loader<F> {
         }
 
         match endpoint {
-            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
-            Ingest(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
+            Ingest(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
         }
     }
 
@@ -936,7 +957,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         mut endpoint: models::MaterializationEndpoint,
-    ) -> Option<serde_json::Value> {
+    ) -> Option<Box<RawValue>> {
         use models::MaterializationEndpoint::*;
 
         // Map a URL reference into its absolute form, and ensure that it's loaded.
@@ -956,16 +977,19 @@ impl<F: Fetcher> Loader<F> {
         }
 
         match endpoint {
-            Connector(spec) => Some(serde_json::to_value(spec).unwrap()),
+            Connector(spec) => {
+                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+            }
             Sqlite(mut spec) => {
                 if spec.path.starts_with(":memory:") {
-                    Some(serde_json::to_value(spec).unwrap()) // Already absolute.
+                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+                // Already absolute.
                 } else if let Some(path) =
                     self.fallible(scope, scope.resource().join(spec.path.as_ref()))
                 {
                     // Resolve relative database path relative to current scope.
                     spec.path = models::RelativeUrl::new(path.to_string());
-                    Some(serde_json::to_value(spec).unwrap())
+                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
                 } else {
                     None // We reported a join() error.
                 }

@@ -136,7 +136,7 @@ tables!(
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
-        endpoint_spec: serde_json::Value,
+        endpoint_spec: Box<serde_json::value::RawValue>,
         // Interval between invocations of the capture.
         interval_seconds: u32,
         // Template for shard specifications of this capture.
@@ -162,7 +162,7 @@ tables!(
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
-        endpoint_spec: serde_json::Value,
+        endpoint_spec: Box<serde_json::value::RawValue>,
         // Template for shard specifications of this materialization.
         shards: models::ShardTemplate,
     }
@@ -469,6 +469,7 @@ json_sql_types!(
     protocol::flow::EndpointType,
     protocol::flow::test_spec::step::Type,
     serde_json::Value,
+    Box<serde_json::value::RawValue>,
     uuid::Uuid,
 );
 

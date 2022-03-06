@@ -22,7 +22,7 @@ mod tests;
 pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
-pub use config::{Config, ConnectorConfig};
+pub use config::{Config, ConnectorConfig, RawConnectorConfig};
 pub use derivations::{Derivation, Publish, Register, TransformDef, TransformSource, Update};
 pub use journals::{
     BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageDef, Store,

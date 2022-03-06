@@ -12,7 +12,7 @@ All {
             spec: CaptureSpec {
                 capture: "testing/db-cdc",
                 endpoint_type: AirbyteSource,
-                endpoint_spec_json: "{\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"},\"image\":\"database\"}",
+                endpoint_spec_json: "{\"image\":\"database\",\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"}}",
                 bindings: [
                     Binding {
                         resource_spec_json: "{\"namespace\":\"and namespace\",\"stream\":\"other-stream\"}",
@@ -313,7 +313,7 @@ All {
             spec: CaptureSpec {
                 capture: "testing/s3-source",
                 endpoint_type: AirbyteSource,
-                endpoint_spec_json: "{\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"},\"image\":\"s3\"}",
+                endpoint_spec_json: "{\"image\":\"s3\",\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"}}",
                 bindings: [
                     Binding {
                         resource_spec_json: "{\"stream\":\"a-stream\"}",
@@ -3018,7 +3018,7 @@ All {
             spec: MaterializationSpec {
                 materialization: "testing/db-views",
                 endpoint_type: FlowSink,
-                endpoint_spec_json: "{\"config\":{\"foo\":\"bar\"},\"image\":\"database/image\"}",
+                endpoint_spec_json: "{\"image\":\"database/image\",\"config\":{\"foo\":\"bar\"}}",
                 bindings: [
                     Binding {
                         resource_spec_json: "{\"table\":\"the_table\"}",
@@ -3364,7 +3364,7 @@ All {
             spec: MaterializationSpec {
                 materialization: "testing/webhook/deliveries",
                 endpoint_type: FlowSink,
-                endpoint_spec_json: "{\"config\":{\"address\":\"http://example/webhook\"},\"image\":\"webhook/connector\"}",
+                endpoint_spec_json: "{\"image\":\"webhook/connector\",\"config\":{\"address\":\"http://example/webhook\"}}",
                 bindings: [
                     Binding {
                         resource_spec_json: "{\"fixture\":\"one\"}",
@@ -4161,7 +4161,7 @@ All {
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             capture: testing/db-cdc,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: {"config":{"host":"a.host.name","user":"a-user"},"image":"database"},
+            endpoint_spec: {"image":"database","config":{"host":"a.host.name","user":"a-user"}},
             interval_seconds: 300,
             shards: {"hotStandbys":1},
         },
@@ -4169,7 +4169,7 @@ All {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: {"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"},
+            endpoint_spec: {"image":"s3","config":{"bucket":"a-bucket","prefix":"and-prefix"}},
             interval_seconds: 600,
             shards: {},
         },
@@ -5111,14 +5111,14 @@ All {
             scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
             endpoint_type: "FlowSink",
-            endpoint_spec: {"config":{"foo":"bar"},"image":"database/image"},
+            endpoint_spec: {"image":"database/image","config":{"foo":"bar"}},
             shards: {"maxTxnDuration":"2m 3s","logLevel":"warn"},
         },
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
             endpoint_type: "FlowSink",
-            endpoint_spec: {"config":{"address":"http://example/webhook"},"image":"webhook/connector"},
+            endpoint_spec: {"image":"webhook/connector","config":{"address":"http://example/webhook"}},
             shards: {},
         },
     ],
