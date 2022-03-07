@@ -5,7 +5,7 @@ sidebar_position: 4
 
 This connector captures data from an Google Cloud Storage (GCS) bucket.
 
-[`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest connector image when using the Flow GitOps environment. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -18,17 +18,18 @@ To use this connector, either your GCS bucket must be public, or you must have a
 
 ## Configuration
 
-There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample in this section provide configuration details specific to the GCS source connector.
+There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample in this section provide configuration details specific to the GCS source connector.
 
 :::tip
 You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket
 in a way that emulates a directory structure.
-This connector can use prefixes in various ways, giving you precise control over how datasets are captured into Flow.
-You can specify a prefix in the endpoint configuration to limit the overall scope of the capture within your bucket.
-You'll also specify prefixes on a per-binding basis, allowing you to map each prefix to a distinct Flow collection.
+This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#flowctl-discover) phase of setup, and later, when the capture is running.
 
-Alternatively, you can capture the entire bucket by omitting `prefix` in the endpoint configuration and
-setting `stream` to the name of the bucket.
+* You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
+* You're required to specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
+and informs how the capture will behave in production.
+
+To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
 :::
 
 ### Values
