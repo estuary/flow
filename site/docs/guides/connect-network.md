@@ -36,12 +36,6 @@ basic configuration options.
   Taken together, these configuration details would allow you to log into the SSH server from your local machine.
   They'll allow the connector to do the same.
 
-4. The PEM files must be encoded with Base64 before they are passed to a connector.
-   You can convert it with the following bash command:
-      ``` console
-      cat <path-to-the-pem-file> | base64 -w 0
-      ```
-
 5. Configure your internal network to allow the SSH server to access the endpoint.
   Note the internal **host** and **port**; these are necessary to open the connection.
 
@@ -56,14 +50,14 @@ basic configuration options.
 After you've completed the prerequisites, you should have the following parameters:
 
 * `sshEndpoint`: the SSH endpoint, step 2
-* `sshPrivateKeyBase64`: the encoded PEM file, step 4
-* `sshUser`: the username, step 2
-* `remoteHost`: the materialization endpoint's host, step 5
-* `remotePort`: the materialization endpoint's port, step 5
+* `privateKey`: the contents of the PEM file, step 4
+* `user`: the username, step 2
+* `forwardHost`: the materialization endpoint's host, step 5
+* `forwardPort`: the materialization endpoint's port, step 5
 * `localPort`: the port on the localhost used to connect to the SSH server, step 7
 
 1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
-  in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a code sample.
+  in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
 
 Proxies like SSH are always run on an open port on your localhost, so you'll need to re-configure other fields in your
 capture or materialization definition.
