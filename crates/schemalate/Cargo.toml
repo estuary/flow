@@ -16,6 +16,7 @@ flow_cli_common = { path = "../flow_cli_common" }
 anyhow = "*"
 clap = { version = "*", features = ["derive"] }
 indexmap = { version = "*", features = ["serde"]}
+itertools = "*"
 lazy_static = "*"
 regex = "*"
 serde = { version = "*", features = ["derive"] }

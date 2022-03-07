@@ -3219,6 +3219,7 @@ dependencies = [
  "doc 0.0.0",
  "flow_cli_common",
  "indexmap",
+ "itertools",
  "json 0.0.0",
  "lazy_static",
  "regex",

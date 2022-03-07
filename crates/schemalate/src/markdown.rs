@@ -1,11 +1,24 @@
+use anyhow::Context;
 use doc::{inference::Shape, Schema, SchemaIndexBuilder};
+use itertools::Itertools;
 use json::schema::build::build_schema;
+use std::fmt::{self, Display};
 use url::Url;
 
-pub fn run() -> anyhow::Result<()> {
+#[derive(Debug, clap::Args)]
+pub struct Args {
+    /// Exclude the row with the given JSON pointer from the generated table.
+    ///
+    /// Passing a pointer to a JSON object does _not_ automatically exclude child properties of
+    /// that object. The root document can be excluded by passing `--exclude ''`.
+    #[clap(short = 'e', long)]
+    pub exclude: Vec<String>,
+}
+
+pub fn run(args: Args) -> anyhow::Result<()> {
     let dom: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
     let curi = Url::parse("https://example/schema").unwrap();
-    let root: Schema = build_schema(curi, &dom).unwrap();
+    let root: Schema = build_schema(curi, &dom).context("failed to build JSON schema")?;
 
     let mut index = SchemaIndexBuilder::new();
     index.add(&root).unwrap();
@@ -18,9 +31,14 @@ pub fn run() -> anyhow::Result<()> {
     println!("|---|---|---|---|---|");
 
     for (ptr, pattern, shape, exists) in shape.locations() {
-        let italic = if pattern { "_" } else { "" };
-        let bold = if exists.must() { "*" } else { "" };
-        let strike = if exists.cannot() { "~~" } else { "" };
+        if args.exclude.contains(&ptr) {
+            continue;
+        }
+        let formatted_ptr = surround_if(
+            exists.cannot(),
+            "~",
+            surround_if(exists.must(), "*", surround_if(pattern, "_", Code(&ptr))),
+        );
 
         let title = shape.title.as_deref().unwrap_or("");
         let desc = shape.description.as_deref().unwrap_or("");
@@ -33,22 +51,69 @@ pub fn run() -> anyhow::Result<()> {
         let type_ = shape.type_.to_vec().join(", ");
 
         println!(
-            "| {}{}{}<code>{}</code>{}{}{} | {} | {} | {} | <code>{}</code> |",
-            strike,
-            italic,
-            bold,
-            md_escape(&ptr),
-            bold,
-            italic,
-            strike,
+            "| {} | {} | {} | {} | {} |",
+            formatted_ptr,
             md_escape(title),
             md_escape(desc),
             type_,
-            md_escape(&def),
+            Code(&def),
         );
     }
 
     Ok(())
+}
+
+/// Conditionally surround `inner` with `with` if `surround` is true.
+fn surround_if<T: Display>(surround: bool, with: &'static str, inner: T) -> Surround<Repeat, T> {
+    let n = if surround { 1 } else { 0 };
+    Surround(Repeat(with, n), inner)
+}
+
+/// Wrapper around a string to be formatted as a markdown code block
+struct Code<'a>(&'a str);
+impl<'a> Display for Code<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // An empty pair of backtics ends up rendering as an empty pair of backtics, which looks
+        // pretty weird and confusing. So just don't render anything.
+        if self.0.is_empty() {
+            return Ok(());
+        }
+
+        // If this code contains any backtics, then we may need to surround it with more than one
+        // backtic. We need to determine the length of the longest continuous sequence of backtic
+        // characters within the code block (n), and then surround the entire code with (n+1) backtics.
+        let sequential_backtics: usize = self
+            .0
+            .chars()
+            .dedup_with_count()
+            .filter_map(|(count, c)| if c == '`' { Some(count) } else { None })
+            .max()
+            .unwrap_or_default();
+
+        let quote = Repeat("`", sequential_backtics + 1);
+        Surround(quote, self.0).fmt(f)
+    }
+}
+
+#[derive(Clone)]
+struct Surround<S, M>(S, M);
+impl<S: Display, M: Display> Display for Surround<S, M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)?;
+        self.1.fmt(f)?;
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Repeat(&'static str, usize);
+impl Display for Repeat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for _ in 0..self.1 {
+            f.write_str(self.0)?;
+        }
+        Ok(())
+    }
 }
 
 // md_escape aggressively escapes any characters which have
@@ -78,4 +143,24 @@ fn md_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn code_containing_backtics_is_surrounded_with_more_backtics() {
+        assert_code_format(r#"foo with ` a backtic"#, r#"``foo with ` a backtic``"#);
+        assert_code_format(r#"foo with no backtic"#, r#"`foo with no backtic`"#);
+        assert_code_format(
+            r#"foo `` with ``````` many backtic`s"#,
+            r#"````````foo `` with ``````` many backtic`s````````"#,
+        );
+    }
+
+    fn assert_code_format(input: &str, expected: &str) {
+        let actual = Code(input).to_string();
+        assert_eq!(expected, &actual);
+    }
 }
