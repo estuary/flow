@@ -59,17 +59,19 @@ materializations:
 ## Delta updates and reduction strategies
 
 The Rockset connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
-This means that Rockset merges documents by key when they arrive, using semantics that are somewhat different than Flow's.
-(FOR REVIEW: include a brief description of the difference here? I don't quite understand the distinction but seems worthwhile to cover in brief)
+This means that Rockset, rather than Flow, performs the document merge.
+In some cases, this will affect how materialized views look in Rockset compared to other systems that use standard updates.
 
-In most cases, this difference won't affect your data. However, using certain
-reduction strategies in the schemas of collections that will be materialized to Rockset _can_ result in invalid data:
+Rockset merges documents by the key defined in the Flow collection schema, and always uses the semantics of [RFC 7396 - JSON merge](https://datatracker.ietf.org/doc/html/rfc7396).
+This differs from how Flow would reduce documents, most notably in that Rockset will _not_ honor any reduction strategies defined in your Flow schema.
+For consistent output of a given collection across Rockset and other materialization endpoints, it's important that that collection's reduction annotations
+in Flow mirror Rockset's semantics.
 
-:::caution
-Avoid the following [data reductions](../../../concepts/schemas.md#reductions) for collections materialized to Rockset:
-* A top-level reduction of any strategy other than [merge](../../reduction-strategies/merge.md)
-* Any reduction in nested fields other than [lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) (the default)
-:::
+To accomplish this, ensure that your collection schema has the following [data reductions](../../../concepts/schemas.md#reductions) defined in its schema:
+
+* A top-level reduction strategy of [merge](../../reduction-strategies/merge.md)
+* A strategy of [lastWriteWins](../../reduction-strategies/firstwritewins-and-lastwritewins.md) for all nested values (this is the default)
+
 
 ## Bulk ingestion for large backfills of historical data
 

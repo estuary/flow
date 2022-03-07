@@ -258,13 +258,12 @@ mechanism involves querying the target system for data state before reducing new
 directly into it.
 
 For these standard updates to work, the endpoint must be a stateful system, like a relational database.
-However, other systems — like Webhooks, APIs, and Pub/Sub — may also be endpoints.
+However, other systems — like Webhooks and Pub/Sub — may also be endpoints.
 None of these typically provide a state representation that Flow can query.
 They are write-only in nature, so Flow cannot use their endpoint state
 to help it fully reduce collection documents on their keys.
 Even some stateful systems are incompatible with Flow's standard updates due to their unique
 design and architecture.
-
 
 For all of these endpoints, Flow offers a **delta-updates** mode.
 When using delta updates, Flow does not attempt to maintain
