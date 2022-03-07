@@ -5,7 +5,7 @@ This connector is still under development. Estuary does not currently guarantee
 that it will behave as expected in all production environments.
 :::
 
-[`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image when using the Flow GitOps environment.
+[`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image.
 You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
@@ -55,7 +55,7 @@ SET PERSIST binlog_expire_logs_seconds = 604800;
 ```
 
 ## Configuration
-There are various ways to configure and implement connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and code sample below provide configuration details specific to the MySQL source connector.
+There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the MySQL source connector.
 
 ### Values
 
