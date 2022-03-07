@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+
+	"github.com/estuary/flow/go/pkgbin"
 )
 
 // DecryptConfig decrypts a `sops`-protected configuration document.
@@ -30,7 +32,7 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 		return append(json.RawMessage(nil), config...), nil
 	}
 
-	var decrypted, err = decryptCmd(ctx, config, "sops",
+	decrypted, err := decryptCmd(ctx, config, "sops",
 		"--decrypt",
 		"--input-type", "json",
 		"--output-type", "json",
@@ -80,7 +82,11 @@ func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, erro
 	// additional allocations and copies from floating around the heap.
 	stdout.Grow(len(input))
 
-	var cmd = exec.CommandContext(ctx, args[0], args[1:]...)
+	var path, err = pkgbin.Locate(args[0])
+	if err != nil {
+		return nil, fmt.Errorf("finding %q binary: %w", args[0], err)
+	}
+	var cmd = exec.CommandContext(ctx, path, args[1:]...)
 
 	// Run the command, passing in |input| and gathering output.
 	// This is equivalent to cmd.Output(), but uses our pre-allocated output buffer.
@@ -88,7 +94,7 @@ func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	var err = cmd.Run()
+	err = cmd.Run()
 
 	if stdout.Len() > len(input) {
 		panic("decrypted output overflows pre-allocated buffer")

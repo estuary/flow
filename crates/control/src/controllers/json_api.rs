@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use serde::Serialize;
 
-use crate::models::Id;
+use crate::models::id::Id;
 
 /// We often want to act as a passthrough to a connector, forwarding a response
 /// exactly as it was sent to/from the connector. We use `RawValue` to avoid
@@ -17,7 +17,7 @@ pub type RawJson = Box<serde_json::value::RawValue>;
 /// resources will be wrapped up according to the spec.
 #[derive(Debug, Serialize)]
 pub struct Resource<T> {
-    pub id: Id,
+    pub id: Id<T>,
     pub r#type: &'static str,
     pub attributes: T,
     pub links: Links,
@@ -71,9 +71,9 @@ pub struct ProblemDetails {
 /// about the response.
 #[derive(Debug, Serialize)]
 pub struct PayloadError {
-    errors: Vec<ProblemDetails>,
+    pub errors: Vec<ProblemDetails>,
     #[serde(skip_serializing_if = "Links::is_empty")]
-    links: Links,
+    pub links: Links,
 }
 
 impl PayloadError {

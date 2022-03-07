@@ -93,16 +93,9 @@ pub struct Shuffle {
     #[prost(bool, tag="9")]
     pub uses_source_schema: bool,
     /// Validate the schema of documents at time of shuffled read.
-    /// We always validate documents, but there's a choice whether we validate
-    /// within the shuffle server (true) or later within the shuffle client
-    /// (false).
-    /// - Derivations: true, as the derivation runtime can then by-pass
-    ///   a round of JSON parsing and validation.
-    /// - Materializations: false, as the materialization runtime immediately
-    ///   combines over the document --  which requires parsing & validation
-    ///   anyway.
+    /// Deprecated. Will be removed when |validate_schema_json| is established.
     #[prost(bool, tag="10")]
-    pub validate_schema_at_read: bool,
+    pub deprecated_validate_schema_at_read: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
@@ -124,6 +117,18 @@ pub struct Shuffle {
     /// Higher values imply higher priority.
     #[prost(uint32, tag="13")]
     pub priority: u32,
+    /// Bundled JSON-schema against which documents are validated. Optional.
+    /// If not set, no schema validation is performed by the Shuffle server.
+    ///
+    /// We always validate documents, but may do so either within the Shuffle
+    /// server or later, within the shuffle client:
+    /// - Derivations set `validate_schema_json`, as the derivation runtime can
+    ///   then by-pass a round of JSON parsing and validation.
+    /// - Materializations don't, as the materialization runtime immediately
+    ///   combines over the document which requires parsing & validation
+    ///   anyway.
+    #[prost(string, tag="14")]
+    pub validate_schema_json: ::prost::alloc::string::String,
 }
 /// JournalShuffle is a Shuffle of a Journal by a Coordinator shard.
 /// They're compared using deep equality in order to consolidate groups of
@@ -143,7 +148,7 @@ pub struct JournalShuffle {
     /// reads of a journal's content into distinct rings.
     #[prost(bool, tag="4")]
     pub replay: bool,
-    /// Build ID for resolution of resources like schema URIs.
+    /// Build ID of the task which requested this JournalShuffle.
     #[prost(string, tag="5")]
     pub build_id: ::prost::alloc::string::String,
 }
@@ -182,8 +187,9 @@ pub struct Inference {
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Whether the projection must always exist (either as a location within)
     /// the source document, or as a null-able column in the database.
+    /// Deprecated. Use |exists|.
     #[prost(bool, tag="2")]
-    pub must_exist: bool,
+    pub deprecated_must_exist: bool,
     #[prost(message, optional, tag="3")]
     pub string: ::core::option::Option<inference::String>,
     /// The title from the schema, if provided.
@@ -198,6 +204,9 @@ pub struct Inference {
     /// Whether this location is marked as a secret, like a credential or password.
     #[prost(bool, tag="7")]
     pub secret: bool,
+    /// Existence of this document location.
+    #[prost(enumeration="inference::Exists", tag="8")]
+    pub exists: i32,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -221,6 +230,26 @@ pub mod inference {
         #[prost(uint32, tag="6")]
         pub max_length: u32,
     }
+    /// Exists enumerates the possible states of existence for a location.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Exists {
+        Invalid = 0,
+        /// The location must exist.
+        Must = 1,
+        /// The location may exist or be undefined.
+        /// Its schema has explicit keywords which allow it to exist
+        /// and which may constrain its shape, such as additionalProperties,
+        /// items, unevaluatedProperties, or unevaluatedItems.
+        May = 2,
+        /// The location may exist or be undefined.
+        /// Its schema omits any associated keywords, but the specification's
+        /// default behavior allows the location to exist.
+        Implicit = 3,
+        /// The location cannot exist. For example, it's outside of permitted
+        /// array bounds, or is a disallowed property, or has an impossible type.
+        Cannot = 4,
+    }
 }
 /// Next tag: 10.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -228,13 +257,15 @@ pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag="1")]
     pub collection: ::prost::alloc::string::String,
-    /// Schema against which collection documents are validated,
+    /// JSON-schema URI against which collection documents are validated,
     /// and which provides reduction annotations.
+    /// * If this collection is local to this build, then |schema_uri|
+    ///   is the resource URL and fragment pointer of its schema.
+    /// * If this is a foreign collection, then |schema_uri| is a synthetic
+    ///   and unique URL which stands in for the collection's schema.
     #[prost(string, tag="2")]
     pub schema_uri: ::prost::alloc::string::String,
-    /// Schema document of the collection, in a bundled and stand-alone form.
-    /// All external references within the document have been bundled as
-    /// included internal definitions.
+    /// Bundled JSON-schema of the collection
     #[prost(string, tag="8")]
     pub schema_json: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
@@ -278,16 +309,20 @@ pub struct TransformSpec {
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
 ///
-/// Next tag: 7.
+/// Next tag: 8.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
     #[prost(message, optional, tag="1")]
     pub collection: ::core::option::Option<CollectionSpec>,
-    /// Schema against which derivation registers are validated,
-    /// and which provides reduction annotations.
+    /// JSON-schema URI against which derivation registers are validated,
+    /// and which provides reduction annotations. Register schemas are always
+    /// local to this build, and are a resource URL and fragment pointer.
     #[prost(string, tag="2")]
     pub register_schema_uri: ::prost::alloc::string::String,
+    /// Bundled JSON-schema against which register documents are validated.
+    #[prost(string, tag="7")]
+    pub register_schema_json: ::prost::alloc::string::String,
     /// JSON-encoded initial value of novel document registers.
     #[prost(string, tag="3")]
     pub register_initial_json: ::prost::alloc::string::String,

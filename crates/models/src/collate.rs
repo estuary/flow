@@ -13,9 +13,18 @@ where
     i.nfd().default_case_fold().nfkc()
 }
 
+/// Unicode normalize input characters. Unlike `collate`, this does not
+/// perform case-folding.
+pub fn normalize<I>(i: I) -> impl Iterator<Item = char>
+where
+    I: Iterator<Item = char>,
+{
+    i.nfd().nfkc()
+}
+
 #[cfg(test)]
 mod test {
-    use super::collate;
+    use super::*;
 
     #[test]
     fn test_collation_cases() {
@@ -39,6 +48,35 @@ mod test {
 
         for (input, expect) in table {
             assert_eq!(collate(input.chars()).collect::<String>().as_str(), expect);
+        }
+    }
+
+    #[test]
+    fn test_normalization_cases() {
+        let table = vec![
+            ("", ""),
+            ("Foo/Bar", "Foo/Bar"),
+            ("ȺȾ", "ȺȾ"),
+            ("Faſt/Carſ", "Fast/Cars"),
+            ("a/ß/Minnow", "a/ß/Minnow"),
+            ("spiﬃest", "spiffiest"),
+            ("\u{00e8}", "è"),
+            // TODO: None of these characters display in my editor. Fixing these
+            // particular test cases is difficult.
+            //
+            // A mix of various CJK, ligatures, and accented characters
+            // ("表ポあA鷗Œé/Ｂ逍Üßªąñ丂㐀𠀀", "表ポあA鷗Œé/Ｂ逍Üßªąñ丂㐀𠀀"),
+            // The uppercase 'È' (or 'È' if that first one doesn't display correctly
+            // in your editor) is composed of ascii 'E' (\u{0045}), plus the
+            // combining diacritic '\u{0300}'.
+            // ("a\u{0045}\u{0300}", "a\u{0045}\u{0300}"),
+        ];
+
+        for (input, expect) in table {
+            assert_eq!(
+                normalize(input.chars()).collect::<String>().as_str(),
+                expect
+            );
         }
     }
 }

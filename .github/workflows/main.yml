@@ -139,6 +139,7 @@ jobs:
             ${{ runner.os }}-musl-cargo-
 
       # Build and test all the things.
+      - run: go mod download
       - run: make musl-test
       - run: make musl-binaries
 
@@ -189,6 +190,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
       - name: Install rust toolchain
         run: rustup show
       - run: make extra-ci-runner-setup
@@ -205,6 +209,9 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      # We still need to be able to build Rust proto files, even in this stage.
+      - run: go mod download
 
       - name: Download Stage1 Binaries
         uses: actions/download-artifact@v2
@@ -263,38 +270,41 @@ jobs:
       - name: make catalog-test
         run: |
           make catalog-test \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: make end-to-end-test
         run: |
           make end-to-end-test \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: make package (tar only)
         run: |
-          make .build/package/flow-x86-linux.tar.gz \
-          -o .build/package/bin/etcd \
-          -o .build/package/bin/flowctl \
-          -o .build/package/bin/flowctl-go \
-          -o .build/package/bin/flow-network-proxy \
-          -o .build/package/bin/flow-parser \
-          -o .build/package/bin/flow-schemalate \
-          -o .build/package/bin/gazette \
-          -o .build/package/bin/sops
+          make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz \
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
 
       - name: Tidy up, and ensure that generated files are unchanged.
         run: |

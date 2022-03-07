@@ -10,11 +10,14 @@ name = "flow-network-proxy"
 path = "src/main.rs"
 
 [dependencies]
+flow_cli_common = { path = "../flow_cli_common" }
+
 async-trait="*"
 base64="*"
 futures="*"
 openssl-sys = { version = "*", features = ['vendored'] }
 openssl="*"
+schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 thiserror = "*"

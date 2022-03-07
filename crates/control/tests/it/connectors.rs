@@ -8,16 +8,18 @@ use crate::support::{self, factory, test_context};
 #[tokio::test]
 async fn index_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let connector = factory::HelloWorldConnector.create(t.db()).await;
 
     // Act
-    let response = t.get("/connectors").await;
+    let mut response = t.get("/connectors").await;
 
     // Assert
     assert!(response.status().is_success());
     let redactor = Redactor::default().redact(connector.id, "c1");
-    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
         ".data.*.attributes.created_at" => "[datetime]",
         ".data.*.attributes.updated_at" => "[datetime]",
     });
@@ -26,18 +28,20 @@ async fn index_test() {
 #[tokio::test]
 async fn create_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let input = factory::KafkaConnector.attrs();
 
     // Act
-    let response = t.post("/connectors", &input).await;
+    let mut response = t.post("/connectors", &input).await;
 
     // Assert
     let connectors = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
     assert_eq!(201, response.status().as_u16());
     let redactor = Redactor::default().redact(connectors[0].id, "c1");
-    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
         ".data.attributes.created_at" => "[datetime]",
         ".data.attributes.updated_at" => "[datetime]",
     });
@@ -46,7 +50,9 @@ async fn create_test() {
 #[tokio::test]
 async fn images_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let connector = factory::HelloWorldConnector.create(t.db()).await;
     let image = factory::HelloWorldImage.create(t.db(), &connector).await;
 
@@ -55,7 +61,7 @@ async fn images_test() {
     let _other_image = factory::KafkaImage.create(t.db(), &other_connector).await;
 
     // Act
-    let response = t
+    let mut response = t
         .get(&format!("/connectors/{}/connector_images", &connector.id))
         .await;
 
@@ -64,7 +70,7 @@ async fn images_test() {
     let redactor = Redactor::default()
         .redact(connector.id, "c1")
         .redact(image.id, "i1");
-    assert_json_snapshot!(redactor.response_json(response).await.unwrap(), {
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
         ".data.*.attributes.created_at" => "[datetime]",
         ".data.*.attributes.updated_at" => "[datetime]",
     });
@@ -73,17 +79,24 @@ async fn images_test() {
 #[tokio::test]
 async fn duplicate_insertion_test() {
     // Arrange
-    let t = test_context!();
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
     let input = factory::KafkaConnector.attrs();
 
     // Act
     let first_response = t.post("/connectors", &input).await;
-    let second_response = t.post("/connectors", &input).await;
+    let mut second_response = t.post("/connectors", &input).await;
 
     // Assert
     assert_eq!(201, first_response.status().as_u16());
     assert_eq!(400, second_response.status().as_u16());
-    assert_json_snapshot!(second_response.json::<JsonValue>().await.unwrap(), {});
+
+    let body = hyper::body::to_bytes(second_response.body_mut())
+        .await
+        .expect("a response body");
+
+    assert_json_snapshot!(serde_json::from_slice::<JsonValue>(body.as_ref()).expect("valid json"));
     let connectors = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
 }

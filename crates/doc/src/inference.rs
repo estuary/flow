@@ -35,7 +35,7 @@ pub struct Shape {
     pub object: ObjShape,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StringShape {
     pub content_encoding: Option<String>,
     pub content_type: Option<String>,
@@ -44,7 +44,7 @@ pub struct StringShape {
     pub min_length: usize,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArrayShape {
     pub min: Option<usize>,
     pub max: Option<usize>,
@@ -171,6 +171,15 @@ impl From<&reduce::Strategy> for Reduction {
 }
 
 impl StringShape {
+    const fn new() -> Self {
+        Self {
+            content_encoding: None,
+            content_type: None,
+            format: None,
+            max_length: None,
+            min_length: 0,
+        }
+    }
     fn intersect(lhs: Self, rhs: Self) -> Self {
         let max_length = match (lhs.max_length, rhs.max_length) {
             (Some(l), Some(r)) => Some(l.min(r)),
@@ -203,6 +212,14 @@ impl StringShape {
 }
 
 impl ObjShape {
+    const fn new() -> Self {
+        Self {
+            properties: Vec::new(),
+            patterns: Vec::new(),
+            additional: None,
+        }
+    }
+
     fn intersect(lhs: Self, rhs: Self) -> Self {
         // Destructure to make borrow-checker happy.
         let (
@@ -406,6 +423,15 @@ impl ObjShape {
 }
 
 impl ArrayShape {
+    const fn new() -> Self {
+        Self {
+            min: None,
+            max: None,
+            tuple: Vec::new(),
+            additional: None,
+        }
+    }
+
     fn union(lhs: Self, rhs: Self) -> Self {
         let (
             Self {
@@ -511,18 +537,29 @@ impl ArrayShape {
     }
 }
 
+impl Default for ArrayShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for StringShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Default for ObjShape {
     fn default() -> Self {
-        Self {
-            properties: Vec::new(),
-            patterns: Vec::new(),
-            additional: None,
-        }
+        Self::new()
+    }
+}
+impl Default for Shape {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl Default for Shape {
-    fn default() -> Self {
+impl Shape {
+    const fn new() -> Self {
         Self {
             type_: types::ANY,
             enum_: None,
@@ -532,14 +569,12 @@ impl Default for Shape {
             provenance: Provenance::Unset,
             default: None,
             secret: None,
-            string: StringShape::default(),
-            array: ArrayShape::default(),
-            object: ObjShape::default(),
+            string: StringShape::new(),
+            array: ArrayShape::new(),
+            object: ObjShape::new(),
         }
     }
-}
 
-impl Shape {
     pub fn infer<'s>(schema: &'s Schema, index: &SchemaIndex<'s>) -> Shape {
         let mut visited = Vec::new();
         Self::infer_inner(schema, index, &mut visited)
@@ -1032,22 +1067,30 @@ fn intersect_additional(lhs: Option<Box<Shape>>, rhs: Option<Box<Shape>>) -> Opt
 /// Exists captures an existence constraint of an Shape location.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Exists {
-    /// The location must exist within the Shape.
+    /// The location must exist.
     Must,
-    /// The location may exist within the Shape, or be undefined.
+    /// The location may exist or be undefined.
+    /// Its schema has explicit keywords which allow it to exist
+    /// and which may constrain its shape, such as additionalProperties,
+    /// items, unevaluatedProperties, or unevaluatedItems.
     May,
+    /// The location may exist or be undefined.
+    /// Its schema omits any associated keywords, but the specification's
+    /// default behavior allows the location to exist.
+    Implicit,
     /// The location cannot exist. For example, it's outside of permitted
     /// array bounds, or is a disallowed property, or has an impossible type.
     Cannot,
 }
 
 impl Exists {
-    pub fn join(&self, other: Self) -> Self {
-        match (*self, other) {
-            (Exists::Cannot, _) => Exists::Cannot,
-            (_, Exists::Cannot) => Exists::Cannot,
-            (Exists::May, _) => Exists::May,
-            (_, Exists::May) => Exists::May,
+    // Extend a current path with Exists status, with a sub-location
+    // having an applied Exists status.
+    pub fn extend(&self, child: Self) -> Self {
+        match (*self, child) {
+            (Exists::Cannot, _) | (_, Exists::Cannot) => Exists::Cannot,
+            (Exists::Implicit, _) | (_, Exists::Implicit) => Exists::Implicit,
+            (Exists::May, _) | (_, Exists::May) => Exists::May,
             (Exists::Must, Exists::Must) => Exists::Must,
         }
     }
@@ -1061,26 +1104,27 @@ impl Exists {
 
 impl Shape {
     /// Locate the pointer within this Shape, and return the referenced Shape
-    /// along with an indication of whether the location must always exist (true)
-    /// or is optional (false).
-    ///
-    /// Returns None if the pointed Shape (or a parent thereof) is unknown.
-    pub fn locate(&self, ptr: &Pointer) -> Option<(&Shape, Exists)> {
+    /// along with its Exists status.
+    pub fn locate(&self, ptr: &Pointer) -> (&Shape, Exists) {
         let mut shape = self;
         let mut exists = Exists::Must;
 
         for token in ptr.iter() {
-            if let Some((next_shape, next_exists)) = shape.locate_token(token) {
-                shape = next_shape;
-                exists = exists.join(next_exists);
-            } else {
-                return None;
-            }
+            let (next_shape, next_exists) = shape.locate_token(token);
+            shape = next_shape;
+            exists = exists.extend(next_exists);
         }
-        Some((shape, exists))
+
+        // A location could be permitted to exist, but have constraints which
+        // are impossible to satisfy. Coerce this case to in-existence.
+        if shape.type_ == types::INVALID {
+            exists = Exists::Cannot
+        }
+
+        (shape, exists)
     }
 
-    fn locate_token(&self, token: Token) -> Option<(&Shape, Exists)> {
+    fn locate_token(&self, token: Token) -> (&Shape, Exists) {
         match token {
             Token::Index(index) if self.type_.overlaps(types::ARRAY) => {
                 let exists = if self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0) {
@@ -1090,23 +1134,36 @@ impl Shape {
                 } else if index >= self.array.max.unwrap_or(std::usize::MAX) {
                     // It cannot exist if outside the maxItems bound.
                     Exists::Cannot
-                } else {
+                } else if self.array.max.is_some()
+                    || index < self.array.tuple.len()
+                    || self.array.additional.is_some()
+                {
+                    // It may exist if there is a defined array maximum that we're within,
+                    // or we're within the defined array tuple items, or there is an explicit
+                    // constraint on additional items.
                     Exists::May
+                } else {
+                    // Indices outside of defined tuples can still technically
+                    // exist, though that's usually not the intention.
+                    Exists::Implicit
                 };
 
-                if self.array.tuple.len() > index {
-                    Some((&self.array.tuple[index], exists))
+                if let Some(tuple) = self.array.tuple.get(index) {
+                    (tuple, exists)
                 } else if let Some(addl) = &self.array.additional {
-                    Some((addl.as_ref(), exists))
+                    (addl.as_ref(), exists)
                 } else {
-                    None
+                    (&SENTINEL_SHAPE, exists)
                 }
             }
-            Token::NextIndex if self.type_.overlaps(types::ARRAY) => self
-                .array
-                .additional
-                .as_ref()
-                .map(|addl| (addl.as_ref(), Exists::Cannot)),
+            Token::NextIndex if self.type_.overlaps(types::ARRAY) => (
+                self.array
+                    .additional
+                    .as_ref()
+                    .map(AsRef::as_ref)
+                    .unwrap_or(&SENTINEL_SHAPE),
+                Exists::Cannot,
+            ),
 
             Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
                 if let Some(property) = self.object.properties.iter().find(|p| p.name == property) {
@@ -1118,25 +1175,25 @@ impl Shape {
                         Exists::May
                     };
 
-                    Some((&property.shape, exists))
+                    (&property.shape, exists)
                 } else if let Some(pattern) = self
                     .object
                     .patterns
                     .iter()
                     .find(|p| regex_matches(&p.re, property))
                 {
-                    Some((&pattern.shape, Exists::May))
+                    (&pattern.shape, Exists::May)
                 } else if let Some(addl) = &self.object.additional {
-                    Some((addl.as_ref(), Exists::May))
+                    (addl.as_ref(), Exists::May)
                 } else {
-                    None
+                    (&SENTINEL_SHAPE, Exists::Implicit)
                 }
             }
 
             // Match arms for cases where types don't overlap.
-            Token::Index(_) => None,
-            Token::NextIndex => None,
-            Token::Property(_) => None,
+            Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
+            Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
+            Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
         }
     }
 
@@ -1179,9 +1236,9 @@ impl Shape {
         } in &self.object.properties
         {
             let exists = if self.type_ == types::OBJECT && *is_required {
-                exists.join(Exists::Must)
+                exists.extend(Exists::Must)
             } else {
-                exists.join(Exists::May)
+                exists.extend(Exists::May)
             };
 
             child.locations_inner(location.push_prop(name), exists, pattern, out);
@@ -1190,14 +1247,19 @@ impl Shape {
         for ObjPattern { re, shape: child } in &self.object.patterns {
             child.locations_inner(
                 location.push_prop(re.as_str()),
-                exists.join(Exists::May),
+                exists.extend(Exists::May),
                 true,
                 out,
             );
         }
 
         if let Some(child) = &self.object.additional {
-            child.locations_inner(location.push_prop("*"), exists.join(Exists::May), true, out);
+            child.locations_inner(
+                location.push_prop("*"),
+                exists.extend(Exists::May),
+                true,
+                out,
+            );
         }
 
         let ArrayShape {
@@ -1209,9 +1271,9 @@ impl Shape {
 
         for (index, child) in tuple.into_iter().enumerate() {
             let exists = if self.type_ == types::ARRAY && index < array_min.unwrap_or(0) {
-                exists.join(Exists::Must)
+                exists.extend(Exists::Must)
             } else {
-                exists.join(Exists::May)
+                exists.extend(Exists::May)
             };
 
             child.locations_inner(location.push_item(index), exists, pattern, out);
@@ -1220,13 +1282,16 @@ impl Shape {
         if let Some(child) = array_additional {
             child.locations_inner(
                 location.push_end_of_array(),
-                exists.join(Exists::May),
+                exists.extend(Exists::May),
                 true,
                 out,
             );
         };
     }
 }
+
+// Sentinel Shape returned by locate(), which make take any value.
+static SENTINEL_SHAPE: Shape = Shape::new();
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -1603,6 +1668,14 @@ mod test {
         assert_eq!(
             shape_from("enum: [[42], true, null]").type_,
             types::ARRAY | types::BOOLEAN | types::NULL
+        );
+        assert_eq!(
+            shape_from("anyOf: [{const: 42}, {const: fifty}]").type_,
+            types::INTEGER | types::STRING
+        );
+        assert_eq!(
+            shape_from("allOf: [{const: 42}, {const: 52}]").type_,
+            types::INVALID // Enum intersection is empty.
         );
     }
 
@@ -2079,6 +2152,10 @@ mod test {
                     opt-child: {const: opt-child}
                     req-child: {const: req-child}
                     40two: {const: forty-two}
+                    impossible:
+                        allOf:
+                            - {type: integer}
+                            - {type: string}
                 required: [req-child]
             multi-type:
                 type: [object, array]
@@ -2093,7 +2170,7 @@ mod test {
         "#,
         );
 
-        let arr = shape_from(
+        let arr1 = shape_from(
             r#"
         type: array
         minItems: 2
@@ -2103,39 +2180,50 @@ mod test {
         "#,
         );
 
+        let arr2 = shape_from(
+            r#"
+        type: array
+        items: [{const: "0"}, {const: "1"}]
+        "#,
+        );
+
         let cases = &[
-            (&obj, "/prop", Some(("prop", Exists::May))),
-            (&obj, "/missing", Some(("addl-prop", Exists::May))),
-            (&obj, "/parent/opt-child", Some(("opt-child", Exists::May))),
-            (&obj, "/parent/req-child", Some(("req-child", Exists::Must))),
-            (&obj, "/parent/missing", None),
-            (&obj, "/parent/40two", Some(("forty-two", Exists::May))),
-            (&obj, "/pattern", Some(("pattern", Exists::May))),
-            (&obj, "/patternnnnnn", Some(("pattern", Exists::May))),
-            (&arr, "/0", Some(("zero", Exists::Must))),
-            (&arr, "/1", Some(("one", Exists::Must))),
-            (&arr, "/2", Some(("two", Exists::May))),
-            (&arr, "/3", Some(("addl-item", Exists::May))),
-            (&arr, "/9", Some(("addl-item", Exists::May))),
-            (&arr, "/10", Some(("addl-item", Exists::Cannot))),
-            (&arr, "/-", Some(("addl-item", Exists::Cannot))),
+            (&obj, "/prop", ("prop", Exists::May)),
+            (&obj, "/missing", ("addl-prop", Exists::May)),
+            (&obj, "/parent/opt-child", ("opt-child", Exists::May)),
+            (&obj, "/parent/req-child", ("req-child", Exists::Must)),
+            (&obj, "/parent/missing", ("<missing>", Exists::Implicit)),
+            (&obj, "/parent/40two", ("forty-two", Exists::May)),
+            (&obj, "/parent/impossible", ("<missing>", Exists::Cannot)),
+            (&obj, "/pattern", ("pattern", Exists::May)),
+            (&obj, "/patternnnnnn", ("pattern", Exists::May)),
+            (&obj, "/123", ("<missing>", Exists::Cannot)),
+            (&obj, "/-", ("<missing>", Exists::Cannot)),
+            (&arr1, "/0", ("zero", Exists::Must)),
+            (&arr1, "/1", ("one", Exists::Must)),
+            (&arr1, "/2", ("two", Exists::May)),
+            (&arr1, "/3", ("addl-item", Exists::May)),
+            (&arr1, "/9", ("addl-item", Exists::May)),
+            (&arr1, "/10", ("addl-item", Exists::Cannot)),
+            (&arr1, "/-", ("addl-item", Exists::Cannot)),
+            (&arr2, "/0", ("0", Exists::May)),
+            (&arr2, "/1", ("1", Exists::May)),
+            (&arr2, "/123", ("<missing>", Exists::Implicit)),
+            (&arr2, "/not-an-index", ("<missing>", Exists::Cannot)),
+            (&arr2, "/-", ("<missing>", Exists::Cannot)),
         ];
 
         for (shape, ptr, expect) in cases {
             let actual = shape.locate(&Pointer::from(ptr));
-            let actual = actual.map(|(shape, exists)| {
-                (
-                    shape
-                        .enum_
-                        .as_ref()
-                        .unwrap()
-                        .first()
-                        .unwrap()
-                        .as_str()
-                        .unwrap(),
-                    exists,
-                )
-            });
+            let actual = (
+                actual
+                    .0
+                    .enum_
+                    .as_ref()
+                    .map(|i| i[0].as_str().unwrap())
+                    .unwrap_or("<missing>"),
+                actual.1,
+            );
             assert_eq!(expect, &actual, "case {:?}", ptr);
         }
 
@@ -2158,6 +2246,7 @@ mod test {
                 ("/multi-type/child", false, types::STRING, Exists::May),
                 ("/parent", false, types::OBJECT, Exists::Must),
                 ("/parent/40two", false, types::STRING, Exists::May),
+                ("/parent/impossible", false, types::INVALID, Exists::Cannot),
                 ("/parent/opt-child", false, types::STRING, Exists::May),
                 ("/parent/req-child", false, types::STRING, Exists::Must),
                 ("/prop", false, types::STRING, Exists::May),
@@ -2166,7 +2255,7 @@ mod test {
             ]
         );
 
-        let arr_locations = arr.locations();
+        let arr_locations = arr1.locations();
         let arr_locations = arr_locations
             .iter()
             .map(|(ptr, pattern, shape, exists)| (ptr.as_ref(), *pattern, shape.type_, *exists))
@@ -2456,8 +2545,8 @@ mod test {
                 "#,
         );
 
-        let nested_foo = shape.locate(&"/root-foo/a-bar/a-foo".into()).unwrap();
-        let nested_bar = shape.locate(&"/root-bar/a-foo/a-bar".into()).unwrap();
+        let nested_foo = shape.locate(&"/root-foo/a-bar/a-foo".into());
+        let nested_bar = shape.locate(&"/root-bar/a-foo/a-bar".into());
 
         // When we re-encountered `foo` and `bar`, expect we tracked their provenance
         // but didn't recurse further to apply their Shape contributions.

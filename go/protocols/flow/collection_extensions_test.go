@@ -12,20 +12,16 @@ func TestIsSingleScalarType(t *testing.T) {
 	var truthy []Inference
 	for _, scalar := range scalars {
 		var basic = Inference{
-			MustExist: true,
-			Types:     []string{scalar},
+			Types: []string{scalar},
 		}
 		var maybeUndefined = Inference{
-			MustExist: false,
-			Types:     []string{scalar},
+			Types: []string{scalar},
 		}
 		var maybeNull = Inference{
-			MustExist: true,
-			Types:     []string{scalar, "null"},
+			Types: []string{scalar, "null"},
 		}
 		var maybeBoth = Inference{
-			MustExist: false,
-			Types:     []string{scalar, "null"},
+			Types: []string{scalar, "null"},
 		}
 		truthy = append(truthy, basic, maybeUndefined, maybeNull, maybeBoth)
 	}
@@ -42,27 +38,22 @@ func TestIsSingleScalarType(t *testing.T) {
 
 	var falsey = []Inference{
 		{
-			MustExist: true,
-			Types:     []string{"string", "int", "null"},
+			Types: []string{"string", "int", "null"},
 		},
 		{
-			MustExist: true,
 			// This is just documenting the behavior. We could definitely allow this in the future,
 			// but we already collapse these into a single type during catalog builds, so we're not
 			// likely to ever see this at runtime.
 			Types: []string{"int", "number"},
 		},
 		{
-			MustExist: true,
-			Types:     []string{"boolean", "int"},
+			Types: []string{"boolean", "int"},
 		},
 		{
-			MustExist: true,
-			Types:     []string{},
+			Types: []string{},
 		},
 		{
-			MustExist: true,
-			Types:     []string{"null"},
+			Types: []string{"null"},
 		},
 	}
 	for _, inference := range falsey {

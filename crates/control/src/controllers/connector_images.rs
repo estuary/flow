@@ -2,12 +2,12 @@ use axum::extract::{Extension, Path};
 use axum::response::IntoResponse;
 use axum::Json;
 use hyper::StatusCode;
-use sqlx::PgPool;
 
+use crate::context::AppContext;
 use crate::controllers::json_api::RawJson;
 use crate::error::AppError;
-use crate::models::connector_images::CreateConnectorImage;
-use crate::models::Id;
+use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
+use crate::models::id::Id;
 use crate::repo::connector_images as images_repo;
 use crate::services::connectors;
 use crate::services::subprocess::Subprocess;
@@ -15,34 +15,34 @@ use crate::services::subprocess::Subprocess;
 pub mod routes;
 mod view;
 
-pub async fn index(Extension(db): Extension<PgPool>) -> Result<impl IntoResponse, AppError> {
-    let images = images_repo::fetch_all(&db).await?;
+pub async fn index(Extension(ctx): Extension<AppContext>) -> Result<impl IntoResponse, AppError> {
+    let images = images_repo::fetch_all(ctx.db()).await?;
 
     Ok((StatusCode::OK, view::index(images)))
 }
 
 pub async fn create(
-    Extension(db): Extension<PgPool>,
-    Json(input): Json<CreateConnectorImage>,
+    Extension(ctx): Extension<AppContext>,
+    Json(input): Json<NewConnectorImage>,
 ) -> Result<impl IntoResponse, AppError> {
-    let image = images_repo::insert(&db, input).await?;
+    let image = images_repo::insert(ctx.db(), input).await?;
 
     Ok((StatusCode::CREATED, view::create(image)))
 }
 
 pub async fn show(
-    Extension(db): Extension<PgPool>,
-    Path(image_id): Path<Id>,
+    Extension(ctx): Extension<AppContext>,
+    Path(image_id): Path<Id<ConnectorImage>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let image = images_repo::fetch_one(&db, image_id).await?;
+    let image = images_repo::fetch_one(ctx.db(), image_id).await?;
     Ok((StatusCode::OK, view::show(image)))
 }
 
 pub async fn spec(
-    Extension(db): Extension<PgPool>,
-    Path(image_id): Path<Id>,
+    Extension(ctx): Extension<AppContext>,
+    Path(image_id): Path<Id<ConnectorImage>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let image = images_repo::fetch_one(&db, image_id).await?;
+    let image = images_repo::fetch_one(ctx.db(), image_id).await?;
 
     // TODO: Swap `image.pinned_version()` out with `image.full_name()`?
     let image_output = connectors::spec(&image.pinned_version()).execute().await?;
@@ -52,11 +52,11 @@ pub async fn spec(
 }
 
 pub async fn discovery(
-    Extension(db): Extension<PgPool>,
-    Path(image_id): Path<Id>,
+    Extension(ctx): Extension<AppContext>,
+    Path(image_id): Path<Id<ConnectorImage>>,
     Json(input): Json<RawJson>,
 ) -> Result<impl IntoResponse, AppError> {
-    let image = images_repo::fetch_one(&db, image_id).await?;
+    let image = images_repo::fetch_one(ctx.db(), image_id).await?;
 
     // TODO: We should probably allow `flowctl api discover` to take this from
     // stdin so we don't have to write the config to a file. This is unnecessary

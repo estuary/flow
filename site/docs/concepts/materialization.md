@@ -253,19 +253,30 @@ so long as the cardinality of the materialization is of reasonable size.
 
 ## Delta updates
 
-Not all endpoints are stateful systems, like a database.
-Webhooks, APIs, and Pub/Sub systems may also be endpoints, but none of these
-typically provide a state representation that Flow can query.
-They are write-only in nature, and Flow cannot use their endpoint state
-to help it fully reduce collection documents on their keys.
+As described [above](#continuous-materialized-views), Flow's standard materialization
+mechanism involves querying the target system for data state before reducing new documents
+directly into it.
 
-For this class of endpoint, Flow offers a **delta-updates** mode.
+For these standard updates to work, the endpoint must be a stateful system, like a relational database.
+However, other systems — like Webhooks and Pub/Sub — may also be endpoints.
+None of these typically provide a state representation that Flow can query.
+They are write-only in nature, so Flow cannot use their endpoint state
+to help it fully reduce collection documents on their keys.
+Even some stateful systems are incompatible with Flow's standard updates due to their unique
+design and architecture.
+
+For all of these endpoints, Flow offers a **delta-updates** mode.
 When using delta updates, Flow does not attempt to maintain
 full reductions of each unique collection key.
 Instead, Flow locally reduces documents within each transaction
 (this is often called a "combine"), and then materializes one
 _delta_ document per key to the endpoint.
 
-Flow and the specific endpoint connector internally negotiate to determine
-whether delta updates should be used. The specific connector may
-provide configurable settings which can be used to fine-tune this behavior.
+In other words, when delta updates are used, Flow sends information about data changes by key,
+and further reduction is left up to the endpoint system.
+Some systems may reduce documents similar to Flow; others use a different
+mechanism; still others may not perform reductions at all.
+
+A given endpoint may support standard updates, delta updates, or both.
+This depends on the [materialization connector](../reference/Connectors/materialization-connectors/README.md). Expect that a connector will use
+standard updates only unless otherwise noted in its documentation.

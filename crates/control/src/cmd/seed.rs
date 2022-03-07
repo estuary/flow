@@ -4,10 +4,6 @@ use sqlx::PgPool;
 
 use crate::cmd::{async_runtime, ConfigArgs};
 use crate::config;
-use crate::models::connector_images::CreateConnectorImage;
-use crate::models::connectors::{ConnectorType, CreateConnector};
-use crate::repo::connector_images::insert;
-use crate::repo::connectors::insert as insert_connector;
 use crate::startup;
 
 #[derive(clap::Args, Debug)]
@@ -22,14 +18,41 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     runtime.block_on(async move {
         let db = startup::connect_to_postgres(&config::settings().database).await;
-        seed_connectors(&db).await
-    })
+        seed_connectors(&db).await?;
+        seed_accounts(&db).await?;
+
+        Ok::<(), anyhow::Error>(())
+    })?;
+
+    Ok(())
 }
 
-async fn seed_connectors(db: &PgPool) -> Result<(), anyhow::Error> {
+async fn seed_accounts(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    use crate::models::accounts::NewAccount;
+    use crate::repo::accounts::insert as insert_account;
+
+    insert_account(
+        db,
+        NewAccount {
+            display_name: "Administrator".to_owned(),
+            email: "admin@localhost".to_owned(),
+            name: "admin".to_owned(),
+        },
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn seed_connectors(db: &PgPool) -> anyhow::Result<()> {
+    use crate::models::connector_images::NewConnectorImage;
+    use crate::models::connectors::{ConnectorType, NewConnector};
+    use crate::repo::connector_images::insert as insert_image;
+    use crate::repo::connectors::insert as insert_connector;
+
     let hello_world = insert_connector(
         db,
-        CreateConnector {
+        NewConnector {
             description: "A flood greetings.".to_owned(),
             name: "Hello World".to_owned(),
             maintainer: "Estuary Technologies".to_owned(),
@@ -38,9 +61,9 @@ async fn seed_connectors(db: &PgPool) -> Result<(), anyhow::Error> {
     )
     .await?;
 
-    insert(
+    insert_image(
         db,
-        CreateConnectorImage {
+        NewConnectorImage {
             connector_id: hello_world.id,
             name: "ghcr.io/estuary/source-hello-world".to_owned(),
             digest: "15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600".to_owned(),
@@ -51,7 +74,7 @@ async fn seed_connectors(db: &PgPool) -> Result<(), anyhow::Error> {
 
     let postgres = insert_connector(
         db,
-        CreateConnector {
+        NewConnector {
             description: "Read data from PostgreSQL.".to_owned(),
             name: "Postgres".to_owned(),
             maintainer: "Estuary Technologies".to_owned(),
@@ -60,9 +83,9 @@ async fn seed_connectors(db: &PgPool) -> Result<(), anyhow::Error> {
     )
     .await?;
 
-    insert(
+    insert_image(
         db,
-        CreateConnectorImage {
+        NewConnectorImage {
             connector_id: postgres.id,
             name: "ghcr.io/estuary/source-postgres".to_owned(),
             digest: "88bd58892f66d105504e9ecc0ad921124decab22b60228359a2f72a4143ba529".to_owned(),

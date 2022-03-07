@@ -1,16 +1,25 @@
 use crate::controllers;
+use crate::middleware::sessions::validate_authentication_token;
 use axum::routing::{get, post};
 use axum::Router;
 
 pub fn routes() -> Router {
     Router::new()
-        .merge(health_check_routes())
+        .merge(accounts_routes())
         .merge(connectors_routes())
         .merge(connector_images_routes())
+        .layer(axum::middleware::from_fn(validate_authentication_token))
+        .merge(health_check_routes())
+        .merge(sessions_routes())
 }
 
-fn health_check_routes() -> Router {
-    Router::new().route("/health_check", get(controllers::health_check::show))
+fn accounts_routes() -> Router {
+    Router::new()
+        .route(
+            "/accounts",
+            get(controllers::accounts::index).post(controllers::accounts::create),
+        )
+        .route("/accounts/:id", get(controllers::accounts::show))
 }
 
 fn connectors_routes() -> Router {
@@ -43,4 +52,12 @@ fn connector_images_routes() -> Router {
             "/connector_images/:image_id/discovery",
             post(controllers::connector_images::discovery),
         )
+}
+
+fn health_check_routes() -> Router {
+    Router::new().route("/health_check", get(controllers::health_check::show))
+}
+
+fn sessions_routes() -> Router {
+    Router::new().route("/sessions/:issuer", post(controllers::sessions::create))
 }

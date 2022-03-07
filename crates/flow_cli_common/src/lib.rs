@@ -43,8 +43,17 @@ where
             std::process::exit(code);
         }
         Ok(Success::Exec(external)) => {
-            tracing::debug!(command = ?external, "process will be replaced by command");
-            std::process::Command::new(&external.program)
+            let resolved = std::env::current_exe()
+                .expect("failed to fetch current exec path")
+                .canonicalize()
+                .expect("failed to make the exec path canonical")
+                .parent()
+                .expect("failed to extract exec directory")
+                .join(&external.program);
+
+            tracing::debug!(command = ?external, ?resolved, "process will be replaced by command");
+
+            std::process::Command::new(resolved)
                 .args(&external.args)
                 .exec()
                 .into()

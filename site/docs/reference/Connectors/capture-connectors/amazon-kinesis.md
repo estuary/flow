@@ -5,7 +5,8 @@ sidebar_position: 1
 
 This connector captures data from Amazon Kinesis streams.
 
-`ghcr.io/estuary/source-kinesis:dev` provides the latest connector image. You can also follow the link in your browser to see past image versions.
+
+[`ghcr.io/estuary/source-kinesis:dev`](https://github.com/estuary/connectors/pkgs/container/source-kinesis) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 

@@ -1,6 +1,8 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 1301
 expression: errors
+
 ---
 [
     Error {
@@ -18,5 +20,17 @@ expression: errors
     Error {
         scope: test://example/int-string-len.schema,
         error: /str has 'sum' reduction strategy, restricted to numbers, but has types "string",
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: keyed location /int has a disallowed Set reduction strategy (https://go.estuary.dev/V5RRHc),
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
+        error: keyed location /int has a disallowed Set reduction strategy (https://go.estuary.dev/V5RRHc),
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
+        error: keyed location /int has a disallowed Set reduction strategy (https://go.estuary.dev/V5RRHc),
     },
 ]

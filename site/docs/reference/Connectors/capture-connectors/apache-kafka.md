@@ -5,7 +5,8 @@ sidebar_position: 3
 
 This connector captures streaming data from Apache Kafka topics.
 
-`ghcr.io/estuary/source-kafka:dev` provides the latest connector image. You can also follow the link in your browser to see past image versions.
+
+[`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 

@@ -42,11 +42,19 @@ tables!(
     }
 
     table StorageMappings (row StorageMapping, order_by [prefix], sql "storage_mappings") {
+        // If |foreign_build_id| is None, then |scope| has its typical meaning
+        // and is the provenance of this storage mapping from among the resource
+        // of this build.
+        //
+        // Otherwise, scope is a synthetic and unique URL which stands
+        // in for this storage mapping.
         scope: url::Url,
         // Catalog prefix to which this storage mapping applies.
         prefix: models::Prefix,
         // Stores for journal fragments under this prefix.
         stores: Vec<models::Store>,
+        // If Some, this StorageMapping is imported from the given foreign build.
+        foreign_build_id: Option<String>,
     }
 
     table Collections (row Collection, order_by [collection], sql "collections") {
@@ -104,7 +112,7 @@ tables!(
         read_delay_seconds: Option<u32>,
         // JSON pointers which define the composite shuffle key of the transform.
         shuffle_key: Option<models::CompositeKey>,
-        // Computed shuffle of this transform. If set, shuffle_hash and shuffle_key
+        // Computed shuffle of this transform. If set then shuffle_key
         // must not be (and vice versa).
         shuffle_lambda: Option<models::Lambda>,
         // Collection which is read by this transform.
@@ -128,7 +136,7 @@ tables!(
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
-        endpoint_spec: serde_json::Value,
+        endpoint_spec: Box<serde_json::value::RawValue>,
         // Interval between invocations of the capture.
         interval_seconds: u32,
         // Template for shard specifications of this capture.
@@ -154,7 +162,7 @@ tables!(
         // Enumerated type of the endpoint, used to select an appropriate driver.
         endpoint_type: protocol::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
-        endpoint_spec: serde_json::Value,
+        endpoint_spec: Box<serde_json::value::RawValue>,
         // Template for shard specifications of this materialization.
         shards: models::ShardTemplate,
     }
@@ -232,11 +240,20 @@ tables!(
     }
 
     table BuiltCollections (row BuiltCollection, order_by [collection], sql "built_collections") {
+        // If |foreign_build_id| is None, then |scope| has its typical meaning
+        // and is the provenance of this collection from among the resource
+        // of this build.
+        //
+        // Otherwise, scope is a parsing of the inner |spec.schema_uri|,
+        // which is a synthetic and unique URL which stands in for this
+        // foreign collection.
         scope: url::Url,
         // Name of this collection.
         collection: models::Collection,
         // Built specification for this collection.
         spec: protocol::flow::CollectionSpec,
+        // If Some, this BuiltCollection was resolved from the given foreign build.
+        foreign_build_id: Option<String>,
     }
 
     table BuiltMaterializations (row BuiltMaterialization, order_by [materialization], sql "built_materializations") {
@@ -452,6 +469,7 @@ json_sql_types!(
     protocol::flow::EndpointType,
     protocol::flow::test_spec::step::Type,
     serde_json::Value,
+    Box<serde_json::value::RawValue>,
     uuid::Uuid,
 );
 

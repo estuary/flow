@@ -7,16 +7,23 @@ use hyper::StatusCode;
 use tracing::error;
 
 use crate::controllers::json_api::{PayloadError, ProblemDetails};
+use crate::services::sessions::SessionError;
 
 /// Application errors that can be automatically turned into an appropriate HTTP
 /// response.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    #[error("access denied")]
+    AccessDenied,
+
     #[error("io error")]
     Io(#[from] std::io::Error),
 
     #[error("json serialization error")]
     Serde(#[from] serde_json::Error),
+
+    #[error("session error")]
+    Session(#[from] SessionError),
 
     #[error("database error")]
     Sqlx(#[from] sqlx::Error),
@@ -31,8 +38,10 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
+            &AppError::AccessDenied => StatusCode::FORBIDDEN,
             AppError::Io(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Serde(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Session(_e) => StatusCode::BAD_REQUEST,
             AppError::Sqlx(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
             AppError::Sqlx(sqlx::Error::Database(_e)) => StatusCode::BAD_REQUEST,
             AppError::Sqlx(_e) => StatusCode::INTERNAL_SERVER_ERROR,

@@ -341,7 +341,7 @@ func buildStubNode(inference *pf.Inference) (*yaml.Node, error) {
 	node.FootComment =
 		fmt.Sprintf("%s\n%s", inference.Description, inference.Types)
 
-	if inference.MustExist {
+	if inference.Exists == pf.Inference_MUST {
 		node.FootComment += " (required)"
 	}
 	if inference.Secret {

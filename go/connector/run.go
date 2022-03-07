@@ -16,10 +16,32 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
+
+type Protocol int
+
+const (
+	Capture Protocol = iota
+	Materialize
+)
+
+func (c Protocol) proxyCommand() string {
+	// Corresponding to the ProxyCommand specified in crates/connector_proxy/src/main.rs
+	switch c {
+	case Capture:
+		return "proxy-flow-capture"
+	case Materialize:
+		return "proxy-flow-materialize"
+	default:
+		panic("unexpected protocol")
+	}
+}
+
+const imageInspectJsonFileName = "image_inspect.json"
 
 // Run the given Docker |image| with |args|.
 //
@@ -47,6 +69,7 @@ import (
 func Run(
 	ctx context.Context,
 	image string,
+	protocol Protocol,
 	networkName string,
 	args []string,
 	jsonFiles map[string]json.RawMessage,
@@ -81,6 +104,41 @@ func Run(
 		return fmt.Errorf("creating tempdir: %w", err)
 	}
 	defer os.RemoveAll(tempdir)
+
+	if protocol == Materialize {
+		if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
+			return fmt.Errorf("prepare flow connector proxy binary: %w", err)
+		} else {
+			imageArgs = append(imageArgs,
+				"--entrypoint", connectorProxyPath,
+				"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
+			)
+		}
+
+		if err := pullRemoteImage(ctx, image, logger); err != nil {
+			// This might be a local image. Log an error and keep going.
+			// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
+			logger.Log(logrus.InfoLevel, logrus.Fields{
+				"error": err,
+			}, "pull remote image does not succeed.")
+		}
+
+		if inspectOutput, err := inspectImage(ctx, image); err != nil {
+			return fmt.Errorf("inspect image: %w", err)
+		} else {
+			if jsonFiles == nil {
+				jsonFiles = map[string]json.RawMessage{imageInspectJsonFileName: inspectOutput}
+
+			} else {
+				jsonFiles[imageInspectJsonFileName] = inspectOutput
+			}
+		}
+
+		args = append([]string{
+			fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
+			protocol.proxyCommand(),
+		}, args...)
+	}
 
 	for name, data := range jsonFiles {
 		var hostPath = filepath.Join(tempdir, name)
@@ -499,3 +557,36 @@ func (fe *firstError) unwrap() error {
 
 const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
+
+func pullRemoteImage(ctx context.Context, image string, logger ops.Logger) error {
+	var combinedOutput, err = exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput()
+	logger.Log(logrus.TraceLevel, nil, fmt.Sprintf("output from docker pull: %s", combinedOutput))
+	if err != nil {
+		return fmt.Errorf("pull image: %w", err)
+	}
+	return nil
+}
+
+func inspectImage(ctx context.Context, image string) (json.RawMessage, error) {
+	if output, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
+		return nil, fmt.Errorf("inspect image: %w", err)
+	} else {
+		return output, nil
+	}
+}
+
+const flowConnectorProxy = "flow-connector-proxy"
+
+func prepareFlowConnectorProxyBinary(tempdir string) (string, error) {
+	var connectorProxyPath = filepath.Join(tempdir, "connector_proxy")
+
+	if path, err := pkgbin.Locate(flowConnectorProxy); err != nil {
+		return "", fmt.Errorf("finding %q binary: %w", flowConnectorProxy, err)
+	} else if input, err := ioutil.ReadFile(path); err != nil {
+		return "", fmt.Errorf("read connector proxy binary from source: %w", err)
+	} else if err = ioutil.WriteFile(connectorProxyPath, input, 0751); err != nil {
+		return "", fmt.Errorf("write connector proxy binary: %w", err)
+	}
+
+	return connectorProxyPath, nil
+}

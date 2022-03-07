@@ -1,9 +1,9 @@
 use futures::future::LocalBoxFuture;
+use itertools::{EitherOrBoth, Itertools};
 use models::tables;
 use protocol;
 
 mod capture;
-mod collate;
 mod collection;
 mod derivation;
 mod errors;
@@ -51,6 +51,7 @@ pub async fn validate<D: Drivers>(
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     fetches: &[tables::Fetch],
+    foreign_collections: tables::BuiltCollections,
     imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
@@ -76,7 +77,8 @@ pub async fn validate<D: Drivers>(
     let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
         Ok(c) => c,
         Err(err) => {
-            errors.insert_row(root_scope, anyhow::anyhow!(err));
+            Error::from(err).push(root_scope, &mut errors);
+
             return Tables {
                 errors,
                 ..Default::default()
@@ -85,9 +87,21 @@ pub async fn validate<D: Drivers>(
     };
     let schema_index = schema::index_compiled_schemas(&compiled_schemas, root_scope, &mut errors);
 
+    // Filter from |foreign_collections| any entries that *exactly* match local
+    // |collections|, as the local instances take precedence.
+    let foreign_collections = foreign_collections
+        .into_iter()
+        .merge_join_by(collections.iter(), |l, r| l.collection.cmp(&r.collection))
+        .filter_map(|eob| match eob {
+            EitherOrBoth::Left(foreign) => Some(foreign),
+            _ => None,
+        })
+        .collect::<tables::BuiltCollections>();
+
     let schema_refs = schema::Ref::from_tables(
         collections,
         derivations,
+        &foreign_collections,
         named_schemas,
         projections,
         resources,
@@ -123,13 +137,17 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
+    // Merge locally-built collections with foreign definitions.
+    let built_collections = built_collections
+        .into_iter()
+        .chain(foreign_collections.into_iter())
+        .collect::<tables::BuiltCollections>();
+
     let built_derivations = derivation::walk_all_derivations(
         build_config,
         &built_collections,
-        collections,
         derivations,
         imports,
-        projections,
         &schema_index,
         &schema_shapes,
         storage_mappings,
@@ -138,9 +156,8 @@ pub async fn validate<D: Drivers>(
     );
 
     let built_tests = test_step::walk_all_test_steps(
-        collections,
+        &built_collections,
         imports,
-        projections,
         resources,
         &schema_index,
         &schema_shapes,
@@ -152,7 +169,7 @@ pub async fn validate<D: Drivers>(
     // This is deliberately but arbitrarily ordered after granular
     // validations of collections, but before captures and materializations,
     // as a heuristic to report more useful errors before less useful errors.
-    let collections_it = collections
+    let collections_it = built_collections
         .iter()
         .map(|c| ("collection", c.collection.as_str(), &c.scope));
     let captures_it = captures
@@ -179,8 +196,6 @@ pub async fn validate<D: Drivers>(
         &built_collections,
         capture_bindings,
         captures,
-        collections,
-        derivations,
         imports,
         storage_mappings,
         &mut errors,
@@ -191,12 +206,9 @@ pub async fn validate<D: Drivers>(
         build_config,
         drivers,
         &built_collections,
-        collections,
         imports,
         materialization_bindings,
         materializations,
-        projections,
-        &schema_shapes,
         storage_mappings,
         &mut tmp_errors,
     );
