@@ -1,7 +1,11 @@
 use anyhow::Context;
-use doc::{inference::Shape, Schema, SchemaIndexBuilder};
+use doc::{
+    inference::{Exists, Shape},
+    Schema, SchemaIndexBuilder,
+};
 use itertools::Itertools;
 use json::schema::build::build_schema;
+use serde_json::Value;
 use std::fmt::{self, Display};
 use url::Url;
 
@@ -27,7 +31,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
 
     let shape = Shape::infer(&root, &index);
 
-    println!("| Location | Title | Description | Type | Default |");
+    println!("| Property | Title | Description | Type | Required/Default |");
     println!("|---|---|---|---|---|");
 
     for (ptr, pattern, shape, exists) in shape.locations() {
@@ -36,18 +40,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         }
         let formatted_ptr = surround_if(
             exists.cannot(),
-            "~",
-            surround_if(exists.must(), "*", surround_if(pattern, "_", Code(&ptr))),
+            "~~",
+            surround_if(exists.must(), "**", surround_if(pattern, "_", Code(&ptr))),
         );
 
         let title = shape.title.as_deref().unwrap_or("");
         let desc = shape.description.as_deref().unwrap_or("");
-        let def = shape
-            .default
-            .as_ref()
-            .map(|v| v.to_string())
-            .unwrap_or_default();
-
         let type_ = shape.type_.to_vec().join(", ");
 
         println!(
@@ -56,11 +54,30 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             md_escape(title),
             md_escape(desc),
             type_,
-            Code(&def),
+            RequiredAndDefault(exists, shape.default.as_ref()),
         );
     }
 
     Ok(())
+}
+
+struct RequiredAndDefault<'a>(Exists, Option<&'a Value>);
+impl<'a> Display for RequiredAndDefault<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let req = match self.0 {
+            Exists::Must => "Required",
+            Exists::Cannot => "Cannot exist",
+            _ => "",
+        };
+        let def = self.1.map(ToString::to_string).unwrap_or_default();
+
+        match (req, def.as_str()) {
+            ("", "") => Ok(()),
+            ("", default_val) => Code(default_val).fmt(f),
+            (_, "") => f.write_str(req),
+            (_, default_val) => write!(f, "{}, {}", req, Code(default_val)),
+        }
+    }
 }
 
 /// Conditionally surround `inner` with `with` if `surround` is true.
