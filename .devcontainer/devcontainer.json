@@ -8,14 +8,24 @@
 		// Integrate the empty docker-compose database into VSCode.
 		"sqltools.connections": [
 			{
-				"name": "Container database",
+				"database": "flow",
 				"driver": "PostgreSQL",
+				"name": "Test DB",
+				"password": "flow",
+				"port": 5432,
 				"previewLimit": 50,
 				"server": "localhost",
+				"username": "flow"
+			},
+			{
+				"database": "control_development",
+				"driver": "PostgreSQL",
+				"name": "Control DB",
+				"password": "flow",
 				"port": 5432,
-				"database": "flow",
-				"username": "flow",
-				"password": "flow"
+				"previewLimit": 50,
+				"server": "localhost",
+				"username": "flow"
 			}
 		],
 		// Add extra CGO configuration required for the vscode-go extension to build

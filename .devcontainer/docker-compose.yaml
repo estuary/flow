@@ -18,9 +18,14 @@ services:
       # work on Github Codespaces (but works fine in VSCode Remote Containers).
       - /var/tmp:/var/tmp
 
-    # Use /var/tmp as the default temporary directory, rather than /tmp.
     environment:
+      # Use /var/tmp as the default temporary directory, rather than /tmp.
       TMPDIR: /var/tmp
+      # Enable SQLX online introspection of the control-plane database.
+      # TODO(johnny): We don't want this on-by-default, so if you're working
+      # on control-plane APIs, unfortunatley you must uncomment this and
+      # rebuild your devcontainer.
+      # SQLX_OFFLINE: "false"
 
     # Wrap in an init process that reaps defunct child processes.
     init: true
