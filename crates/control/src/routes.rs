@@ -6,6 +6,7 @@ use axum::Router;
 pub fn routes() -> Router {
     Router::new()
         .merge(accounts_routes())
+        .merge(builds_routes())
         .merge(connectors_routes())
         .merge(connector_images_routes())
         .layer(axum::middleware::from_fn(validate_authentication_token))
@@ -20,6 +21,15 @@ fn accounts_routes() -> Router {
             get(controllers::accounts::index).post(controllers::accounts::create),
         )
         .route("/accounts/:id", get(controllers::accounts::show))
+}
+
+fn builds_routes() -> Router {
+    Router::new()
+        .route(
+            "/builds",
+            get(controllers::builds::index).post(controllers::builds::create),
+        )
+        .route("/builds/:id", get(controllers::builds::show))
 }
 
 fn connectors_routes() -> Router {
