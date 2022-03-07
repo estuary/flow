@@ -7,6 +7,7 @@ extern crate insta;
 extern crate sqlx;
 
 mod accounts;
+mod builds;
 mod connector_images;
 mod connectors;
 mod health_check;

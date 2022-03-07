@@ -1,9 +1,12 @@
 use sqlx::PgPool;
 
 use control::models::accounts::{Account, NewAccount};
+use control::models::builds::Build;
 use control::models::connector_images::{ConnectorImage, NewConnectorImage};
 use control::models::connectors::{Connector, ConnectorType, NewConnector};
+use control::models::id::Id;
 use control::repo::accounts::insert as insert_account;
+use control::repo::builds::insert as insert_build;
 use control::repo::connector_images::insert as insert_image;
 use control::repo::connectors::insert as insert_connector;
 
@@ -132,6 +135,34 @@ impl JokerAccount {
 
     pub async fn create(&self, db: &PgPool) -> Account {
         insert_account(db, self.attrs())
+            .await
+            .expect("to insert test data")
+    }
+}
+
+pub struct AcmeBuild;
+
+impl AcmeBuild {
+    pub fn attrs(&self) -> models::Catalog {
+        serde_json::from_value(serde_json::json!({
+            "collections": {
+                "acmeCo/collection": {
+                    "key": ["/key"],
+                    "schema": {
+                        "type": "object",
+                        "required": "key",
+                        "properties": {
+                            "key": {"type": "integer"}
+                        }
+                    }
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    pub async fn create(&self, db: &PgPool, account_id: Id<Account>) -> Build {
+        insert_build(db, self.attrs(), account_id)
             .await
             .expect("to insert test data")
     }
