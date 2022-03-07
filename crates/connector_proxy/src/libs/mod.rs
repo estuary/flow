@@ -1,3 +1,4 @@
+pub mod airbyte_catalog;
 pub mod command;
 pub mod image_config;
 pub mod json;
