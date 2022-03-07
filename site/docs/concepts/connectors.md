@@ -512,16 +512,33 @@ captures:
             sshForwarding:
               # Location of the remote SSH server that supports tunneling.
               sshEndpoint: ssh://198.21.98.1
-              # Base64-encoded private key to connect to the SSH server.
-              sshPrivateKeyBase64: wjkEpr7whDZQ8UqIYI4RcNRuithu7chNZg
+              # Private key to connect to the SSH server, formatted as multiline plaintext.
+              # Use the YAML literal block style with the indentation indicator.
+              # See https://yaml-multiline.info/ for details.
+              privateKey: |2
+                -----BEGIN RSA PRIVATE KEY-----
+                MIICXAIBAAKBgQCJO7G6R+kv2MMS8Suw21sk2twHg8Vog0fjimEWJEwyAfFM/Toi
+                EJ6r5RTaSvN++/+MPWUll7sUdOOBZr6ErLKLHEt7uXxusAzOjMxFKZpEARMcjwHY
+                v/tN1A2OYU0qay1DOwknEE0i+/Bvf8lMS7VDjHmwRaBtRed/+iAQHf128QIDAQAB
+                AoGAGoOUBP+byAjDN8esv1DCPU6jsDf/Tf//RbEYrOR6bDb/3fYW4zn+zgtGih5t
+                CR268+dwwWCdXohu5DNrn8qV/Awk7hWp18mlcNyO0skT84zvippe+juQMK4hDQNi
+                ywp8mDvKQwpOuzw6wNEitcGDuACx5U/1JEGGmuIRGx2ST5kCQQDsstfWDcYqbdhr
+                5KemOPpu80OtBYzlgpN0iVP/6XW1e5FCRp2ofQKZYXVwu5txKIakjYRruUiiZTza
+                QeXRPbp3AkEAlGx6wMe1l9UtAAlkgCFYbuxM+eRD4Gg5qLYFpKNsoINXTnlfDry5
+                +1NkuyiQDjzOSPiLZ4Abpf+a+myjOuNL1wJBAOwkdM6aCVT1J9BkW5mrCLY+PgtV
+                GT80KTY/d6091fBMKhxL5SheJ4SsRYVFtguL2eA7S5xJSpyxkadRzR0Wj3sCQAvA
+                bxO2fE1SRqbbF4cBnOPjd9DNXwZ0miQejWHUwrQO0inXeExNaxhYKQCcnJNUAy1J
+                6JfAT/AbxeSQF3iBKK8CQAt5r/LLEM1/8ekGOvBh8MAQpWBW771QzHUN84SiUd/q
+                xR9mfItngPwYJ9d/pTO7u9ZUPHEoat8Ave4waB08DsI=
+                -----END RSA PRIVATE KEY-----
               # Username to connect to the SSH server.
-              sshUser: ssh_user
+              user: ssh_user
               # Host or IP address of the final endpoint to which you’ll
               # connect via tunneling from the SSH server
-              remoteHost: 127.0.0.1
+              forwardHost: 127.0.0.1
               # Port of the final endpoint to which you’ll connect via
               # tunneling from the SSH server.
-              remotePort: 5432
+              forwardPort: 5432
               # Port on the local machine from which you'll connect to the SSH server.
               # This must match port, above.
               localPort: 15432
