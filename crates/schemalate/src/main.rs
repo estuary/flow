@@ -21,7 +21,7 @@ enum Subcommand {
     /// schema.
     Typescript(schemalate::typescript::Args),
     /// Generates Markdown documentation of the fields in a schema.
-    Markdown,
+    Markdown(schemalate::markdown::Args),
     /// Generates an Elasticsearch schema
     ElasticsearchSchema(schemalate::elasticsearch::Args),
 }
@@ -37,7 +37,7 @@ fn main() -> Result<(), anyhow::Error> {
 
 fn run_subcommand(subcommand: Subcommand) -> Result<(), anyhow::Error> {
     let result = match subcommand {
-        Subcommand::Markdown => schemalate::markdown::run(),
+        Subcommand::Markdown(md_args) => schemalate::markdown::run(md_args),
         Subcommand::Typescript(ts_args) => schemalate::typescript::run(ts_args),
         Subcommand::ElasticsearchSchema(es_args) => schemalate::elasticsearch::run(es_args),
     };
