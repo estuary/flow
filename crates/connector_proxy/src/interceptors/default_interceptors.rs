@@ -5,7 +5,7 @@ use crate::libs::command::resume_process;
 pub struct DefaultFlowCaptureInterceptor {}
 impl Interceptor<FlowCaptureOperation> for DefaultFlowCaptureInterceptor {
     fn convert_command_args(
-        &self,
+        &mut self,
         op: &FlowCaptureOperation,
         args: Vec<String>,
     ) -> Result<Vec<String>, Error> {
@@ -15,7 +15,7 @@ impl Interceptor<FlowCaptureOperation> for DefaultFlowCaptureInterceptor {
     }
 
     fn convert_request(
-        &self,
+        &mut self,
         pid: Option<u32>,
         _op: &FlowCaptureOperation,
         stream: InterceptorStream,
@@ -33,7 +33,7 @@ impl Interceptor<FlowCaptureOperation> for DefaultFlowCaptureInterceptor {
 pub struct DefaultFlowMaterializeInterceptor {}
 impl Interceptor<FlowMaterializeOperation> for DefaultFlowMaterializeInterceptor {
     fn convert_command_args(
-        &self,
+        &mut self,
         op: &FlowMaterializeOperation,
         args: Vec<String>,
     ) -> Result<Vec<String>, Error> {
@@ -43,7 +43,7 @@ impl Interceptor<FlowMaterializeOperation> for DefaultFlowMaterializeInterceptor
     }
 
     fn convert_request(
-        &self,
+        &mut self,
         pid: Option<u32>,
         _op: &FlowMaterializeOperation,
         stream: InterceptorStream,

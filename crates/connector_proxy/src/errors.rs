@@ -53,6 +53,9 @@ pub enum Error {
 
     #[error("Tokio task execution error.")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
+
+    #[error("The operation of '{0}' is not expected for the given protocol.")]
+    UnexpectedOperation(String),
 }
 
 pub trait Must<T> {

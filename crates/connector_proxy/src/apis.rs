@@ -39,12 +39,12 @@ impl FlowOperation for FlowMaterializeOperation {}
 pub type InterceptorStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send + Sync>>;
 
 pub trait Interceptor<T: FlowOperation> {
-    fn convert_command_args(&self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
+    fn convert_command_args(&mut self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
         Ok(args)
     }
 
     fn convert_request(
-        &self,
+        &mut self,
         pid: Option<u32>,
         op: &T,
         stream: InterceptorStream,
@@ -53,7 +53,7 @@ pub trait Interceptor<T: FlowOperation> {
     }
 
     fn convert_response(
-        &self,
+        &mut self,
         op: &T,
         stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
@@ -66,13 +66,13 @@ struct ComposedInterceptor<T: 'static + FlowOperation> {
     b: Box<dyn Interceptor<T>>,
 }
 impl<T: 'static + FlowOperation> Interceptor<T> for ComposedInterceptor<T> {
-    fn convert_command_args(&self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
+    fn convert_command_args(&mut self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
         self.a
             .convert_command_args(op, self.b.convert_command_args(op, args)?)
     }
 
     fn convert_request(
-        &self,
+        &mut self,
         pid: Option<u32>,
         op: &T,
         stream: InterceptorStream,
@@ -87,7 +87,7 @@ impl<T: 'static + FlowOperation> Interceptor<T> for ComposedInterceptor<T> {
     }
 
     fn convert_response(
-        &self,
+        &mut self,
         op: &T,
         stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {

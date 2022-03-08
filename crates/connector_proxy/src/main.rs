@@ -151,7 +151,7 @@ async fn proxy_flow_capture(
         CaptureConnectorProtocol::Airbyte,
     ) {
         CaptureConnectorProtocol::FlowCapture => Box::new(DefaultFlowCaptureInterceptor {}),
-        CaptureConnectorProtocol::Airbyte => Box::new(AirbyteCaptureInterceptor {}),
+        CaptureConnectorProtocol::Airbyte => Box::new(AirbyteCaptureInterceptor::new()),
     };
 
     interceptor = compose(interceptor, Box::new(NetworkProxyCaptureInterceptor {}));

@@ -13,9 +13,7 @@ pub async fn run_connector<T: std::fmt::Display + FlowOperation>(
     if entrypoint.len() == 0 {
         return Err(Error::EmptyEntrypointError);
     }
-    let mut args = Vec::new();
-    args.extend_from_slice(&entrypoint[1..]);
-    args.push(operation.to_string());
+    let args = intercepter.convert_command_args(&operation, (&entrypoint[1..]).to_vec())?;
 
     let entrypoint = entrypoint[0].clone();
 
