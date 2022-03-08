@@ -66,7 +66,7 @@ impl NetworkProxyMaterializeInterceptor {
 
 impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeInterceptor {
     fn convert_request(
-        &self,
+        &mut self,
         _pid: Option<u32>,
         op: &FlowMaterializeOperation,
         stream: InterceptorStream,
@@ -82,7 +82,7 @@ impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeIntercepto
     }
 
     fn convert_response(
-        &self,
+        &mut self,
         op: &FlowMaterializeOperation,
         stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {

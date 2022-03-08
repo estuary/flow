@@ -2,18 +2,20 @@ package airbyte
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/airbyte"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/go-openapi/jsonpointer"
+	protoio "github.com/gogo/protobuf/io"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 )
 
@@ -92,7 +94,7 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 		"operation":        "spec",
 	})
 
-	var spec *airbyte.Spec
+	var resp *pc.SpecResponse
 	var err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
@@ -100,42 +102,20 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 		// No stdin is sent to the connector.
 		func(w io.Writer) error { return nil },
 		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.Spec != nil {
-					spec = rec.Spec
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.SpecResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one SpecResponse")
 				}
+				resp = m.(*pc.SpecResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
+	return resp, err
 
-	// Expect connector spit out a successful ConnectorSpecification.
-	if err == nil && spec == nil {
-		err = fmt.Errorf("connector didn't produce a Specification")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var reflector = jsonschema.Reflector{ExpandedStruct: true}
-	resourceSchema, err := reflector.Reflect(new(ResourceSpec)).MarshalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("generating resource schema: %w", err)
-	}
-
-	return &pc.SpecResponse{
-		EndpointSpecSchemaJson: spec.ConnectionSpecification,
-		ResourceSpecSchemaJson: json.RawMessage(resourceSchema),
-		DocumentationUrl:       spec.DocumentationURL,
-	}, nil
 }
 
 // Discover delegates to the `discover` command of the identified Airbyte image.
@@ -252,57 +232,36 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		ops.LogSourceField: source.Image,
 		"operation":        "validate",
 	})
+	req.EndpointSpecJson = decrypted
 
-	var status *airbyte.ConnectionStatus
+	var resp *pc.ValidateResponse
 	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
-			"check",
-			"--config",
-			"/tmp/config.json",
+			"validate",
 		},
-		// Write configuration JSON to connector input.
-		map[string]json.RawMessage{"config.json": decrypted},
-		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
-		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.ConnectionStatus != nil {
-					status = rec.ConnectionStatus
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		nil, // No configuration is passed as files.
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.ValidateResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one ValidateResponse")
 				}
+				resp = m.(*pc.ValidateResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
 
-	// Expect connector spit out a successful ConnectionStatus.
-	if err == nil && status == nil {
-		err = fmt.Errorf("connector didn't produce a ConnectionStatus")
-	} else if err == nil && status.Status != airbyte.StatusSucceeded {
-		err = fmt.Errorf("%s: %s", status.Status, status.Message)
-	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse stream bindings and send back their resource paths.
-	var resp = new(pc.ValidateResponse)
-	for _, binding := range req.Bindings {
-		var stream = new(ResourceSpec)
-		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, stream); err != nil {
-			return nil, fmt.Errorf("parsing stream configuration: %w", err)
-		}
-		resp.Bindings = append(resp.Bindings, &pc.ValidateResponse_Binding{
-			ResourcePath: []string{stream.Stream},
-		})
-	}
 	return resp, nil
 }
 
