@@ -21,6 +21,8 @@ pub fn invoke_connector(
     entrypoint: &str,
     args: &[String],
 ) -> Result<Child, Error> {
+    tracing::info!("invoke connector {}, {:?}", entrypoint, args);
+
     Command::new(entrypoint)
         .stdin(stdin)
         .stdout(stdout)
@@ -31,6 +33,8 @@ pub fn invoke_connector(
 }
 
 pub fn invoke_connector_wrapper(entrypoint: String, args: Vec<String>) -> Result<Child, Error> {
+    tracing::info!("invoke connector_wrapper {}, {:?}", entrypoint, args);
+
     let command_config = CommandConfig {
         entrypoint: entrypoint,
         args: args,
