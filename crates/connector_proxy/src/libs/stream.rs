@@ -60,7 +60,7 @@ pub fn stream_all_airbyte_messages(
             }
 
             // TODO(Jixiang): Improve efficiency here.
-            // There are unnecessary copying activities in and our from the buf, especially for large messages that spans multiple
+            // There are unnecessary copying activities in and out from the buf, especially for large messages that spans multiple
             // bytes messages in the stream. Ideally, we could both write and read from the same buf. However, both reading and writing
             // from the same buf is not recommended, which yields warning of https://github.com/rust-lang/rust/issues/59159.
             let remaining = &chunk[message_stream.byte_offset()..];

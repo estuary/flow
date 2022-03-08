@@ -105,7 +105,7 @@ func Run(
 	}
 	defer os.RemoveAll(tempdir)
 
-	if protocol == Materialize {
+	if args[0] != "read" {
 		if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
 			return fmt.Errorf("prepare flow connector proxy binary: %w", err)
 		} else {

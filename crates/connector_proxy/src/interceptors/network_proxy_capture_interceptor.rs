@@ -76,7 +76,7 @@ impl NetworkProxyCaptureInterceptor {
 
 impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
     fn convert_request(
-        &self,
+        &mut self,
         _pid: Option<u32>,
         op: &FlowCaptureOperation,
         stream: InterceptorStream,
@@ -93,7 +93,7 @@ impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
     }
 
     fn convert_response(
-        &self,
+        &mut self,
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {

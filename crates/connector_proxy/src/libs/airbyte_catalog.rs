@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Result};
 
@@ -81,8 +82,8 @@ pub enum Status {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct ConnectionStatus {
-    status: Status,
-    message: String,
+    pub status: String, //Status,
+    pub message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,10 +129,10 @@ pub struct State {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Spec {
-    documentation_url: String,
-    changelog_url: String,
-    connection_specification: Box<RawValue>,
-    supports_incremental: bool,
+    pub documentation_url: Option<String>,
+    pub changelog_url: Option<String>,
+    pub connection_specification: Box<RawValue>,
+    pub supports_incremental: bool,
 
     // SupportedDestinationSyncModes is ignored by Flow
     //SupportedDestinationSyncModes []DestinationSyncMode `json:"supported_destination_sync_modes,omitempty"`
@@ -144,10 +145,10 @@ pub struct Spec {
 
     // AuthSpecification is not currently used or supported by Flow or estuary-developed
     // connectors, and it is deprecated in the airbyte spec.
-    auth_specification: Box<RawValue>,
+    pub auth_specification: Option<Box<RawValue>>,
     // AdvancedAuth is not currently used or supported by Flow or estuary-developed
     // connectors.
-    advanced_auth: Box<RawValue>,
+    pub advanced_auth: Option<Box<RawValue>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, strum_macros::Display, Clone)]
@@ -156,6 +157,7 @@ pub enum MessageType {
     Record,
     State,
     Log,
+    #[strum(serialize = "SPEC")]
     Spec,
     ConnectionStatus,
     Catalog,
@@ -165,7 +167,7 @@ pub enum MessageType {
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     #[serde(rename = "type")]
-    pub message_type: MessageType,
+    pub message_type: String, //MessageType,
 
     pub log: Option<Log>,
     pub state: Option<State>,
@@ -173,4 +175,13 @@ pub struct Message {
     pub connection_status: Option<ConnectionStatus>,
     pub spec: Option<Spec>,
     pub catalog: Option<Catalog>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
+#[serde(rename_all = "camelCase")]
+// ResourceSpec is the configuration for Airbyte source streams.
+pub struct ResourceSpec {
+    pub stream: String,
+    pub namespace: Option<String>,
+    pub sync_mode: String, //SyncMode,
 }
