@@ -524,6 +524,7 @@ captures:
               # connect via tunneling from the SSH server
               forwardHost: 127.0.0.1
               # Location of the remote SSH server that supports tunneling.
+              # Formatted as ssh://hostname[:port].
               sshEndpoint: ssh://198.21.98.1
               # Username to connect to the SSH server.
               user: sshUser
@@ -578,6 +579,7 @@ materializations:
               # tunneling from the SSH server.
               forwardPort: 5432
               # Location of the remote SSH server that supports tunneling.
+              # Formatted as ssh://hostname[:port].
               sshEndpoint: ssh://198.21.98.1
               # Username to connect to the SSH server.
               user: sshUser
