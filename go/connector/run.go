@@ -105,40 +105,38 @@ func Run(
 	}
 	defer os.RemoveAll(tempdir)
 
-	if args[0] != "read" {
-		if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
-			return fmt.Errorf("prepare flow connector proxy binary: %w", err)
-		} else {
-			imageArgs = append(imageArgs,
-				"--entrypoint", connectorProxyPath,
-				"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
-			)
-		}
-
-		if err := pullRemoteImage(ctx, image, logger); err != nil {
-			// This might be a local image. Log an error and keep going.
-			// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
-			logger.Log(logrus.InfoLevel, logrus.Fields{
-				"error": err,
-			}, "pull remote image does not succeed.")
-		}
-
-		if inspectOutput, err := inspectImage(ctx, image); err != nil {
-			return fmt.Errorf("inspect image: %w", err)
-		} else {
-			if jsonFiles == nil {
-				jsonFiles = map[string]json.RawMessage{imageInspectJsonFileName: inspectOutput}
-
-			} else {
-				jsonFiles[imageInspectJsonFileName] = inspectOutput
-			}
-		}
-
-		args = append([]string{
-			fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
-			protocol.proxyCommand(),
-		}, args...)
+	if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
+		return fmt.Errorf("prepare flow connector proxy binary: %w", err)
+	} else {
+		imageArgs = append(imageArgs,
+			"--entrypoint", connectorProxyPath,
+			"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
+		)
 	}
+
+	if err := pullRemoteImage(ctx, image, logger); err != nil {
+		// This might be a local image. Log an error and keep going.
+		// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
+		logger.Log(logrus.InfoLevel, logrus.Fields{
+			"error": err,
+		}, "pull remote image does not succeed.")
+	}
+
+	if inspectOutput, err := inspectImage(ctx, image); err != nil {
+		return fmt.Errorf("inspect image: %w", err)
+	} else {
+		if jsonFiles == nil {
+			jsonFiles = map[string]json.RawMessage{imageInspectJsonFileName: inspectOutput}
+
+		} else {
+			jsonFiles[imageInspectJsonFileName] = inspectOutput
+		}
+	}
+
+	args = append([]string{
+		fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
+		protocol.proxyCommand(),
+	}, args...)
 
 	for name, data := range jsonFiles {
 		var hostPath = filepath.Join(tempdir, name)
