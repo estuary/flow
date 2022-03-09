@@ -41,6 +41,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-normalization = "*"
 url = {version = "2.2.2", features = ["serde"]}
 validator = {version = "*", features = ["derive"]}
+heck = "0.4.0"
 
 [dev-dependencies]
 ctor = "0.1.21"

@@ -335,6 +335,7 @@ dependencies = [
  "ctor",
  "flow_cli_common",
  "futures",
+ "heck 0.4.0",
  "hmac 0.12.1",
  "hyper",
  "insta",
