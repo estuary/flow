@@ -1,13 +1,13 @@
 ---
 source: crates/control/tests/it/connectors.rs
-assertion_line: 198
-expression: "second_response.json::<JsonValue>().await.unwrap()"
+assertion_line: 99
+expression: "serde_json::from_slice::<JsonValue>(body.as_ref()).expect(\"valid json\")"
 
 ---
 {
   "errors": [
     {
-      "detail": "error returned from database: duplicate key value violates unique constraint \"idx_connectors_name\"",
+      "detail": "error returned from database: duplicate key value violates unique constraint \"idx_connectors_type_name\"",
       "title": "database error"
     }
   ]
