@@ -72,7 +72,7 @@ async fn seed_connectors(db: &PgPool) -> anyhow::Result<()> {
     )
     .await?;
 
-    let postgres = insert_connector(
+    let source_postgres = insert_connector(
         db,
         NewConnector {
             description: "Read data from PostgreSQL.".to_owned(),
@@ -86,10 +86,32 @@ async fn seed_connectors(db: &PgPool) -> anyhow::Result<()> {
     insert_image(
         db,
         NewConnectorImage {
-            connector_id: postgres.id,
+            connector_id: source_postgres.id,
             name: "ghcr.io/estuary/source-postgres".to_owned(),
             digest: "88bd58892f66d105504e9ecc0ad921124decab22b60228359a2f72a4143ba529".to_owned(),
             tag: "f1bd86a".to_owned(),
+        },
+    )
+    .await?;
+
+    let materialize_postgres = insert_connector(
+        db,
+        NewConnector {
+            description: "Write data to PostgreSQL.".to_owned(),
+            name: "Postgres".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
+            r#type: ConnectorType::Materialization,
+        },
+    )
+    .await?;
+
+    insert_image(
+        db,
+        NewConnectorImage {
+            connector_id: materialize_postgres.id,
+            name: "ghcr.io/estuary/materialize-postgres".to_owned(),
+            digest: "fd2e8df5144eab45a54c6ab75d02284a73a199d0d3b8d200cab65bb811e1869d".to_owned(),
+            tag: "898776b".to_owned(),
         },
     )
     .await?;
