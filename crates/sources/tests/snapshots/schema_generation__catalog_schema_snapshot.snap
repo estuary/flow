@@ -1,5 +1,6 @@
 ---
 source: crates/sources/tests/schema_generation.rs
+assertion_line: 4
 expression: "&schema"
 
 ---
@@ -11,7 +12,6 @@ expression: "&schema"
   "properties": {
     "$schema": {
       "title": "JSON-Schema against which the Catalog is validated.",
-      "default": null,
       "type": [
         "string",
         "null"
@@ -19,7 +19,6 @@ expression: "&schema"
     },
     "captures": {
       "title": "Captures of this Catalog.",
-      "default": {},
       "examples": [
         {
           "acmeCo/capture": {
@@ -36,9 +35,7 @@ expression: "&schema"
                 "config": "connector-config.yaml",
                 "image": "connector/image:tag"
               }
-            },
-            "interval": "5m",
-            "shards": {}
+            }
           }
         }
       ],
@@ -52,18 +49,12 @@ expression: "&schema"
     },
     "collections": {
       "title": "Collections of this Catalog.",
-      "default": {},
       "examples": [
         {
           "acmeCo/collection": {
-            "derivation": null,
-            "journals": {
-              "fragments": {}
-            },
             "key": [
               "/json/ptr"
             ],
-            "projections": {},
             "schema": "../path/to/local.yaml"
           }
         }
@@ -79,7 +70,6 @@ expression: "&schema"
     "import": {
       "title": "Import other Flow catalog sources.",
       "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
-      "default": [],
       "type": "array",
       "items": {
         "$ref": "#/definitions/Import"
@@ -87,7 +77,6 @@ expression: "&schema"
     },
     "materializations": {
       "title": "Materializations of this Catalog.",
-      "default": {},
       "examples": [
         {
           "acmeCo/materialization": {
@@ -137,14 +126,12 @@ expression: "&schema"
     "resources": {
       "title": "Inlined resources of the catalog.",
       "description": "Inline resources are intended for Flow API clients (only), and are used to bundle multiple resources into a single POSTed catalog document. Each key must be an absolute URL which is referenced from elsewhere in the Catalog, which is also the URL from which this resource was fetched.",
-      "default": {},
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/ResourceDef"
       }
     },
     "storageMappings": {
-      "default": {},
       "examples": [
         {
           "acmeCo/widgets/": {
@@ -168,7 +155,6 @@ expression: "&schema"
     },
     "tests": {
       "title": "Tests of this Catalog.",
-      "default": {},
       "examples": [
         {
           "acmeCo/conversions/test": [
@@ -287,7 +273,6 @@ expression: "&schema"
         "interval": {
           "title": "Interval of time between invocations of the capture.",
           "description": "Configured intervals are applicable only to connectors which are unable to continuously tail their source, and which instead produce a current quantity of output and then exit. Flow will start the connector again after the given interval of time has passed.\n\nIntervals are relative to the start of an invocation and not its completion. For example, if the interval is five minutes, and an invocation of the capture finishes after two minutes, then the next invocation will be started after three additional minutes.",
-          "default": "5m",
           "type": [
             "string",
             "null"
@@ -296,7 +281,6 @@ expression: "&schema"
         },
         "shards": {
           "title": "Template for shards of this capture task.",
-          "default": {},
           "$ref": "#/definitions/ShardTemplate"
         }
       },
@@ -345,14 +329,9 @@ expression: "&schema"
       "description": "Collection describes a set of related documents, where each adheres to a common schema and grouping key. Collections are append-only: once a document is added to a collection, it is never removed. However, it may be replaced or updated (either in whole, or in part) by a future document sharing its key. Each new document of a given key is \"reduced\" into existing documents of the key. By default, this reduction is achieved by completely replacing the previous document, but much richer reduction behaviors can be specified through the use of annotated reduction strategies of the collection schema.",
       "examples": [
         {
-          "derivation": null,
-          "journals": {
-            "fragments": {}
-          },
           "key": [
             "/json/ptr"
           ],
-          "projections": {},
           "schema": "../path/to/local.yaml"
         }
       ],
@@ -375,9 +354,6 @@ expression: "&schema"
         },
         "journals": {
           "title": "Template for journals of this collection.",
-          "default": {
-            "fragments": {}
-          },
           "$ref": "#/definitions/JournalTemplate"
         },
         "key": {
@@ -386,7 +362,6 @@ expression: "&schema"
         },
         "projections": {
           "title": "Projections and logical partitions of this collection.",
-          "default": {},
           "examples": [
             {
               "a_field": "/json/ptr",

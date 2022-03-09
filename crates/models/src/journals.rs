@@ -185,6 +185,13 @@ impl FragmentTemplate {
             ..Default::default()
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.length.is_none()
+            && self.compression_codec.is_none()
+            && self.retention.is_none()
+            && self.flush_interval.is_none()
+    }
 }
 
 /// A JournalTemplate configures the journals which make up the
@@ -202,6 +209,10 @@ impl JournalTemplate {
         Self {
             fragments: FragmentTemplate::example(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fragments.is_empty()
     }
 }
 

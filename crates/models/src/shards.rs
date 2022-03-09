@@ -84,4 +84,14 @@ impl ShardTemplate {
             ..Default::default()
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        !self.disable
+            && self.min_txn_duration.is_none()
+            && self.max_txn_duration.is_none()
+            && self.hot_standbys.is_none()
+            && self.ring_buffer_size.is_none()
+            && self.read_channel_size.is_none()
+            && self.log_level.is_none()
+    }
 }
