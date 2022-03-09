@@ -61,22 +61,22 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 #### Endpoint
 
-| Value | Name | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| `address` | Address | IP address and port of the database host. | String | Required |
-| `user` | User | Database user to connect as. | String | Required |
-| `password` | Password | Password for the specified database user. | string | Required |
-| `dbname` | Database name | Name of the database to connect to. | string | Required |
-| `server_id` | Server ID | Server ID for replication. | int | Required |
-| `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/address`** |  | Database host:port to connect to. | string | Required, `"127.0.0.1:3306"` |
+| **`/dbname`** |  | Name of the database to connect to. | string | Required |
+| **`/password`** |  | Password for the specified database user. | string | Required |
+| **`/server_id`** |  | Server ID for replication. | integer | Required |
+| **`/user`** |  | Database user to connect as. | string | Required, `"flow_capture"` |
+| `/watermarks_table` |  | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
 
 #### Bindings
 
-| Value | Name | Description | Type | Required/Default |
+| Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
-| `stream` | Stream | Table name. | string | Required |
-| `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| `/namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
+| **`/stream`** | Stream | Table name. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 A minimal capture definition within the catalog spec will look like the following:
