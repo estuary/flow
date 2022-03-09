@@ -1,6 +1,6 @@
 ---
 source: crates/control/tests/it/builds.rs
-assertion_line: 51
+assertion_line: 52
 expression: redactor.response_json(&mut response).await.unwrap()
 ---
 {
@@ -8,18 +8,11 @@ expression: redactor.response_json(&mut response).await.unwrap()
     "attributes": {
       "account_id": "[a1]",
       "catalog": {
-        "$schema": null,
-        "captures": {},
         "collections": {
           "acmeCo/collection": {
-            "derivation": null,
-            "journals": {
-              "fragments": {}
-            },
             "key": [
               "/key"
             ],
-            "projections": {},
             "schema": {
               "properties": {
                 "key": {
@@ -30,13 +23,7 @@ expression: redactor.response_json(&mut response).await.unwrap()
               "type": "object"
             }
           }
-        },
-        "import": [],
-        "materializations": {},
-        "npmDependencies": {},
-        "resources": {},
-        "storageMappings": {},
-        "tests": {}
+        }
       },
       "created_at": "[datetime]",
       "id": "[b1]",
