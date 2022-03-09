@@ -1,0 +1,82 @@
+---
+source: crates/control/tests/it/connector_images.rs
+assertion_line: 124
+expression: redactor.response_json(&mut response).await.unwrap()
+
+---
+{
+  "data": [
+    {
+      "attributes": {
+        "data": {
+          "captures": {
+            "admin/hello-world": {
+              "bindings": [
+                {
+                  "resource": {
+                    "stream": "greetings",
+                    "syncMode": "incremental"
+                  },
+                  "target": "admin/greetings"
+                }
+              ],
+              "endpoint": {
+                "connector": {
+                  "config": "hello-world.config.json",
+                  "image": "ghcr.io/estuary/source-hello-world@sha256:15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600"
+                }
+              }
+            }
+          },
+          "collections": {
+            "admin/greetings": {
+              "key": [
+                "/count"
+              ],
+              "schema": "greetings.schema.json"
+            }
+          }
+        },
+        "name": "hello-world.flow.json"
+      },
+      "id": "[nonce]",
+      "type": "discovered_catalog"
+    },
+    {
+      "attributes": {
+        "data": {
+          "greetings": 10
+        },
+        "name": "hello-world.config.json"
+      },
+      "id": "[nonce]",
+      "type": "discovered_config"
+    },
+    {
+      "attributes": {
+        "data": {
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "count",
+            "message"
+          ],
+          "type": "object"
+        },
+        "name": "greetings.schema.json"
+      },
+      "id": "[nonce]",
+      "type": "discovered_schema"
+    }
+  ],
+  "links": {
+    "image": "http://127.0.0.1:0/connector_images/[i1]",
+    "self": "http://127.0.0.1:0/connector_images/[i1]/discovery"
+  }
+}
