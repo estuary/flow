@@ -2,4 +2,16 @@
   "rust-analyzer.assist.allowMergingIntoGlobImports": false,
   "rust-analyzer.assist.importGranularity": "module",
   "rust-analyzer.assist.importPrefix": "crate",
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "driver": "PostgreSQL",
+      "name": "control_development",
+      "database": "control_development",
+      "username": "flow",
+      "password": "flow"
+    }
+  ],
 }
