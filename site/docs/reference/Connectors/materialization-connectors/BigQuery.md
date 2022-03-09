@@ -34,25 +34,25 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 
 #### Endpoint
 
-| Value | Name| Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| `project_id`| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset| String | Required |
-| `billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery* | String | Same as `project_id` |
-| `dataset` | Dataset | Name of the target BigQuery dataset | String | Required |
-| `region` | Region | The GCS region | String | Required |
-| `bucket` | Bucket | Name of the GCS bucket | String | Required |
-| `bucket_path` | Bucket Path | Base path within the GCS bucket | String | Required |
-| `credentials_json` | Credentials JSON | Base64-encoded string of the full service account file | Byte | Required |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/project_id`**| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset| String | Required |
+| `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery* | String | Same as `project_id` |
+| **`/dataset`** | Dataset | Name of the target BigQuery dataset | String | Required |
+| **`/region`** | Region | The GCS region | String | Required |
+| **`/bucket`** | Bucket | Name of the GCS bucket | String | Required |
+| **`/bucket_path`** | Bucket Path | Base path within the GCS bucket | String | Required |
+| **`/credentials_json`** | Credentials JSON | Base64-encoded string of the full service account file | Byte | Required |
 
 *Typically, you want this to be the same as `project_id` (the default).
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
 
 #### Bindings
 
-| Value | Name | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| `table` | Table | Table name | string | Required |
-| `delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean | false |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/table`** | Table | Table name | string | Required |
+| `/delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean | false |
 
 ### Sample
 

@@ -78,24 +78,25 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 #### Endpoint
 
-| Value | Name | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| `database` | Database | Logical database name to capture from. | String | `"postgres"` |
-| `host` | Host | Host name of the database to connect to. | String | Required |
-| `port` | Port | Port on which to connect to the database. | uint16 | `5432` |
-| `user` | User | Database user to use. | String | Required |
-| `password` | Password | User password configured within the database. | String | Required |
-| `publication_name` | Publication Name | The name of the PostgreSQL publication to replicate from. | String | `"flow_publication"` |
-| `slot_name` | Replication Slot Name | The name of the PostgreSQL replication slot to replicate from. | String | `"flow_slot"` |
-| `watermarks_table` | Watermarks Table | The name of the table used for watermark writes during backfills. | String | `"public.flow_watermarks"` |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/database`** |  | Logical database name to capture from. | string | Required, `"postgres"` |
+| **`/host`** |  | Host name of the database to connect to. | string | Required |
+| **`/password`** |  | User password configured within the database. | string | Required |
+| **`/port`** |  |  | integer | Required, `5432` |
+| `/publicationName` |  | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
+| `/slotName` |  | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
+| **`/user`** |  | Database user to use. | string | Required, `"postgres"` |
+| `/watermarksTable` |  | The name of the table used for watermark writes during backfills. | string | `"public.flow_watermarks"` |
+
 
 #### Bindings
 
-| Value | Name | Description | Type | Required/Default |
+| Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `namespace` | Namespace | The [namespace](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table, if used. | string | |
-| `stream` | Stream | Table name. | string | Required |
-| `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| `/namespace` | Namespace | The [namespace](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table, if used. | string | |
+| **`/stream`** | Stream | Table name. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 
