@@ -27,11 +27,15 @@ pub struct CaptureDef {
     /// For example, if the interval is five minutes, and an invocation of the
     /// capture finishes after two minutes, then the next invocation will be started
     /// after three additional minutes.
-    #[serde(default = "CaptureDef::default_interval", with = "humantime_serde")]
+    #[serde(
+        default = "CaptureDef::default_interval",
+        with = "humantime_serde",
+        skip_serializing_if = "CaptureDef::is_default_interval"
+    )]
     #[schemars(schema_with = "super::duration_schema")]
     pub interval: Duration,
     /// # Template for shards of this capture task.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
 }
 
@@ -47,6 +51,10 @@ impl CaptureDef {
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),
         }
+    }
+
+    fn is_default_interval(interval: &Duration) -> bool {
+        *interval == Self::default_interval()
     }
 }
 

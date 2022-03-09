@@ -23,13 +23,14 @@ pub struct CollectionDef {
     /// # Composite key of this collection.
     pub key: CompositeKey,
     /// # Projections and logical partitions of this collection.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(schema_with = "projections_schema")]
     pub projections: BTreeMap<Field, Projection>,
     /// # Derivation which builds this collection from others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derivation: Option<Derivation>,
     /// # Template for journals of this collection.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "JournalTemplate::is_empty")]
     pub journals: JournalTemplate,
 }
 
