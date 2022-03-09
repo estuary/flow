@@ -2,15 +2,18 @@ use axum::extract::{Extension, Path};
 use axum::response::IntoResponse;
 use axum::Json;
 use hyper::StatusCode;
+use models::Object;
 
 use crate::context::AppContext;
-use crate::controllers::json_api::RawJson;
+
 use crate::error::AppError;
+use crate::middleware::sessions::CurrentAccount;
 use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
 use crate::models::id::Id;
+use crate::models::names::CatalogName;
 use crate::repo::connector_images as images_repo;
-use crate::services::connectors;
-use crate::services::subprocess::Subprocess;
+use crate::repo::connectors as connectors_repo;
+use crate::services::connectors::{self, DiscoveryOptions};
 
 pub mod routes;
 mod view;
@@ -43,32 +46,27 @@ pub async fn spec(
     Path(image_id): Path<Id<ConnectorImage>>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
+    let connector = connectors_repo::fetch_one(ctx.db(), image.connector_id).await?;
+    let spec = connectors::spec(&image).await?;
 
-    // TODO: Swap `image.pinned_version()` out with `image.full_name()`?
-    let image_output = connectors::spec(&image.pinned_version()).execute().await?;
-    let spec: RawJson = serde_json::from_str(&image_output)?;
-
-    Ok((StatusCode::OK, view::spec(image, spec)))
+    Ok((StatusCode::OK, view::spec(connector, image, spec)))
 }
 
 pub async fn discovery(
     Extension(ctx): Extension<AppContext>,
     Path(image_id): Path<Id<ConnectorImage>>,
-    Json(input): Json<RawJson>,
+    CurrentAccount(current_account): CurrentAccount,
+    Json(config): Json<Object>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
+    let connector = connectors_repo::fetch_one(ctx.db(), image.connector_id).await?;
 
-    // TODO: We should probably allow `flowctl api discover` to take this from
-    // stdin so we don't have to write the config to a file. This is unnecessary
-    // and tempfile::NamedTempFile does not _guarantee_ cleanup, which is not
-    // great considering it may include credentials.
-    let tmpfile = tempfile::NamedTempFile::new()?;
-    serde_json::to_writer(&tmpfile, &input)?;
+    let opts = DiscoveryOptions {
+        catalog_name: CatalogName::new(&connector.codename()),
+        catalog_prefix: current_account.name,
+    };
 
-    let image_output = connectors::discovery(&image.pinned_version(), tmpfile.path())
-        .execute()
-        .await?;
-    let spec: RawJson = serde_json::from_str(&image_output)?;
+    let discovered_catalog = connectors::discover(connector, image, config, opts).await?;
 
-    Ok((StatusCode::OK, view::discovery(image, spec)))
+    Ok((StatusCode::OK, view::discovery(discovered_catalog)))
 }

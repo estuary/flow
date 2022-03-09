@@ -86,6 +86,43 @@ impl KafkaImage {
     }
 }
 
+pub struct RocksetConnector;
+
+impl RocksetConnector {
+    pub fn attrs(&self) -> NewConnector {
+        NewConnector {
+            description: "Writes to Rockset".to_owned(),
+            name: "Rockset".to_owned(),
+            maintainer: "Estuary Technologies".to_owned(),
+            r#type: ConnectorType::Materialization,
+        }
+    }
+
+    pub async fn create(&self, db: &PgPool) -> Connector {
+        insert_connector(db, self.attrs())
+            .await
+            .expect("to insert test data")
+    }
+}
+pub struct RocksetImage;
+
+impl RocksetImage {
+    pub fn attrs(&self, connector: &Connector) -> NewConnectorImage {
+        NewConnectorImage {
+            connector_id: connector.id,
+            name: "ghcr.io/estuary/materialize-rockset".to_owned(),
+            digest: "8a1955c057ab52a769c7ed092c12c89678047132a05dcd0a8cc2f17c02411cc2".to_owned(),
+            tag: "898776b".to_owned(),
+        }
+    }
+
+    pub async fn create(&self, db: &PgPool, connector: &Connector) -> ConnectorImage {
+        insert_image(&db, self.attrs(connector))
+            .await
+            .expect("to insert test data")
+    }
+}
+
 pub struct AdminAccount;
 
 impl AdminAccount {

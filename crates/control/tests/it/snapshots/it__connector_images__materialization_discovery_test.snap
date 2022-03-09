@@ -1,0 +1,14 @@
+---
+source: crates/control/tests/it/connector_images.rs
+assertion_line: 153
+expression: redactor.response_json(&mut response).await.unwrap()
+
+---
+{
+  "errors": [
+    {
+      "detail": "connector does not support operation: `discover`",
+      "title": "connector error"
+    }
+  ]
+}
