@@ -1,19 +1,13 @@
-use crate::support;
-use crate::support::spawn_app;
+use crate::support::test_context;
 
 #[tokio::test]
 async fn health_check_works() {
-    let db = support::test_database::test_db_pool(support::function_name!())
-        .await
-        .expect("Failed to acquire a database connection");
-    let server_address = spawn_app(db).await.expect("Failed to spawn our app.");
-    let client = reqwest::Client::new();
+    // Arrange
+    let t = test_context!();
 
-    let response = client
-        .get(format!("http://{}/health_check", server_address))
-        .send()
-        .await
-        .expect("Failed to execute request.");
+    // Act
+    let response = t.get("/health_check").await;
 
+    // Assert
     assert!(response.status().is_success());
 }

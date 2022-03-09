@@ -4,10 +4,9 @@ use control::models::sessions::NewSession;
 use control::repo::accounts as accounts_repo;
 use control::repo::credentials as credentials_repo;
 
-use crate::support::factory;
+use crate::support::context::spawn_app;
 use crate::support::redactor::Redactor;
-use crate::support::spawn_app;
-use crate::support::{self, test_context};
+use crate::support::{factory, test_context};
 
 #[tokio::test]
 async fn local_registration_test() {

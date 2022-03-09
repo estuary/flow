@@ -1,7 +1,7 @@
 use control::repo::connector_images::fetch_all;
 
 use crate::support::redactor::Redactor;
-use crate::support::{self, factory, test_context};
+use crate::support::{factory, test_context};
 
 #[tokio::test]
 async fn index_test() {
