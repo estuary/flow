@@ -54,7 +54,7 @@ async fn local_login(ctx: AppContext, input: NewSession) -> Result<impl IntoResp
     let session = Session {
         account_id: account.id,
         token: signed_token.encode()?,
-        expires_at: token.expires_at().clone(),
+        expires_at: *token.expires_at(),
     };
 
     Ok((StatusCode::CREATED, view::create(session)))

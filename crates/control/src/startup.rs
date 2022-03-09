@@ -26,7 +26,7 @@ pub fn run(
         config::settings().application.address()
     );
 
-    let app = app(ctx.clone());
+    let app = app(ctx);
 
     let server = axum::Server::from_tcp(listener)?
         .serve(app.into_make_service())

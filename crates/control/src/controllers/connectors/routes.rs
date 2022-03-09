@@ -7,12 +7,12 @@ pub fn index() -> String {
 }
 
 pub fn show(connector_id: Id<Connector>) -> String {
-    url_for(format!("/connectors/{}", connector_id.to_string()))
+    url_for(format!("/connectors/{}", connector_id))
 }
 
 pub fn images(connector_id: Id<Connector>) -> String {
     url_for(format!(
         "/connectors/{}/connector_images",
-        connector_id.to_string()
+        connector_id
     ))
 }

@@ -7,5 +7,5 @@ pub fn index() -> String {
 }
 
 pub fn show(account_id: Id<Account>) -> String {
-    url_for(format!("/accounts/{}", account_id.to_string()))
+    url_for(format!("/accounts/{}", account_id))
 }

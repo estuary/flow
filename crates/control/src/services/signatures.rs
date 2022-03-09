@@ -29,7 +29,7 @@ impl<M> MessageVerifier<M> {
     pub fn verify(&self, input: &[u8], mac: &[u8]) -> Result<(), MacError> {
         let mut hmac = self.new_hmac();
         hmac.update(input);
-        hmac.verify_slice(&mac)
+        hmac.verify_slice(mac)
     }
 
     fn new_hmac(&self) -> Hmac<Sha256> {

@@ -76,7 +76,7 @@ impl SignedToken {
 impl MessageVerifier<Token> {
     pub fn sign_token(&self, token: &Token) -> Result<SignedToken, SessionError> {
         let json_token = serde_json::to_string(&token)?;
-        let mac = self.sign(&json_token.as_bytes());
+        let mac = self.sign(json_token.as_bytes());
 
         Ok(SignedToken {
             token: RawValue::from_string(json_token)?,
@@ -85,11 +85,11 @@ impl MessageVerifier<Token> {
     }
 
     pub fn verify_token(&self, signed_token: &SignedToken) -> Result<Token, SessionError> {
-        self.verify(&signed_token.token.get().as_bytes(), &signed_token.mac)?;
+        self.verify(signed_token.token.get().as_bytes(), &signed_token.mac)?;
 
         let token: Token = serde_json::from_str(signed_token.token.get())?;
         if token.is_expired() {
-            return Err(SessionError::Expired);
+            Err(SessionError::Expired)
         } else {
             Ok(token)
         }

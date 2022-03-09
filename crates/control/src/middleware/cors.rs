@@ -27,7 +27,7 @@ pub fn cors_layer() -> cors::CorsLayer {
 }
 
 fn allowed_origins(configured_origins: &[String]) -> AnyOr<Origin> {
-    if configured_origins == &["*"] {
+    if configured_origins == ["*"] {
         cors::Any.into()
     } else {
         cors::Origin::list(configured_origins.iter().map(|o| o.parse().unwrap())).into()

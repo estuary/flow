@@ -75,7 +75,7 @@ pub async fn validate_authentication_token<B: Send>(
 
         let account_id = Id::from_str(basic_auth.username()).map_err(AuthRedirect::halt)?;
         let signed_token =
-            SignedToken::decode(&basic_auth.password()).map_err(AuthRedirect::halt)?;
+            SignedToken::decode(basic_auth.password()).map_err(AuthRedirect::halt)?;
         let token = ctx
             .session_verifier()
             .verify_token(&signed_token)
