@@ -130,7 +130,7 @@ impl IntoResponse for AuthRedirect {
 
         let mut payload = PayloadError::new(ProblemDetails {
             title: "Unauthorized".to_owned(),
-            detail: Some("Authentication is required".to_owned()),
+            detail: Some(serde_json::json!("Authentication is required")),
         });
         payload.links = IdentityProvider::iter().fold(Links::default(), |links, idp| {
             links.put(idp.to_string(), sessions_routes::create(idp))

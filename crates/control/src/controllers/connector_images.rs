@@ -3,6 +3,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use hyper::StatusCode;
 use models::Object;
+use validator::Validate;
 
 use crate::context::AppContext;
 
@@ -28,6 +29,8 @@ pub async fn create(
     Extension(ctx): Extension<AppContext>,
     Json(input): Json<NewConnectorImage>,
 ) -> Result<impl IntoResponse, AppError> {
+    input.validate()?;
+
     let image = images_repo::insert(ctx.db(), input).await?;
 
     Ok((StatusCode::CREATED, view::create(image)))

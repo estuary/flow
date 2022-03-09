@@ -1,0 +1,47 @@
+---
+source: crates/control/tests/it/connector_images.rs
+assertion_line: 179
+expression: redactor.response_json(&mut response).await.unwrap()
+
+---
+{
+  "errors": [
+    {
+      "detail": {
+        "digest": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "equal": 64,
+              "value": "d"
+            }
+          }
+        ],
+        "name": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 100,
+              "min": 5,
+              "value": "n"
+            }
+          }
+        ],
+        "tag": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 64,
+              "min": 3,
+              "value": "t"
+            }
+          }
+        ]
+      },
+      "title": "validation error"
+    }
+  ]
+}

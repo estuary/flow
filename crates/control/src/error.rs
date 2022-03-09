@@ -5,6 +5,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use hyper::StatusCode;
 use tracing::error;
+use validator::ValidationErrors;
 
 use crate::controllers::json_api::{PayloadError, ProblemDetails};
 use crate::services::connectors::ConnectorError;
@@ -37,6 +38,9 @@ pub enum AppError {
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+
+    #[error("validation error")]
+    Validation(#[from] ValidationErrors),
 }
 
 impl IntoResponse for AppError {
@@ -54,18 +58,34 @@ impl IntoResponse for AppError {
             AppError::Sqlx(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Subprocess(_e) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Other(_e) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Validation(_e) => StatusCode::UNPROCESSABLE_ENTITY,
         };
 
         if status.is_server_error() {
             error!(status = ?status, message = ?self, details = ?self.source());
         }
 
-        let body = Json(PayloadError::new(ProblemDetails {
-            title: self.to_string(),
-            detail: self.source().map(ToString::to_string),
-        }));
+        let body = Json(PayloadError::new(ProblemDetails::from(&self)));
 
         (status, body).into_response()
+    }
+}
+
+impl From<&AppError> for ProblemDetails {
+    fn from(error: &AppError) -> Self {
+        let title = error.to_string();
+        let detail = match error {
+            AppError::Validation(err) => match serde_json::to_value(err) {
+                Ok(value) => Some(value),
+                Err(serde_err) => {
+                    tracing::error!(original_error = ?err, serde_err = ?serde_err, "failed to serialize validation errors");
+                    None
+                }
+            },
+            _ => error.source().map(|err| serde_json::json!(err.to_string())),
+        };
+
+        ProblemDetails { title, detail }
     }
 }
 

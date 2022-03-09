@@ -1,3 +1,4 @@
+use control::models::connector_images::NewConnectorImage;
 use control::repo::connector_images::fetch_all;
 
 use crate::support::redactor::Redactor;
@@ -154,4 +155,27 @@ async fn materialization_discovery_test() {
         ".data.*.id" => "[nonce]",
     });
     assert_eq!(400, response.status().as_u16());
+}
+
+#[tokio::test]
+async fn validation_test() {
+    // Arrange
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
+    let connector = factory::HelloWorldConnector.create(t.db()).await;
+    let input = NewConnectorImage {
+        connector_id: connector.id,
+        name: "n".to_owned(),
+        digest: "d".to_owned(),
+        tag: "t".to_owned(),
+    };
+
+    // Act
+    let mut response = t.post("/connector_images", &input).await;
+
+    // Assert
+    let redactor = Redactor::default();
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap());
+    assert_eq!(422, response.status().as_u16());
 }

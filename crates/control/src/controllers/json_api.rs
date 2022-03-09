@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 
 use crate::models::id::Id;
 
@@ -65,7 +66,7 @@ pub type Many<T> = DocumentData<T, Vec<Resource<T>>>;
 #[derive(Debug, Serialize)]
 pub struct ProblemDetails {
     pub title: String,
-    pub detail: Option<String>,
+    pub detail: Option<JsonValue>,
 }
 
 /// A JSON:API document containing a list of errors, along with other metadata

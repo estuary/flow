@@ -1,3 +1,4 @@
+use control::models::connectors::{ConnectorType, NewConnector};
 use serde_json::Value as JsonValue;
 
 use control::repo::connectors::fetch_all;
@@ -99,4 +100,26 @@ async fn duplicate_insertion_test() {
     assert_json_snapshot!(serde_json::from_slice::<JsonValue>(body.as_ref()).expect("valid json"));
     let connectors = fetch_all(t.db()).await.expect("to insert test data");
     assert_eq!(1, connectors.len());
+}
+
+#[tokio::test]
+async fn validation_test() {
+    // Arrange
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
+    let input = NewConnector {
+        description: "d".to_owned(),
+        name: "n".to_owned(),
+        maintainer: "m".to_owned(),
+        r#type: ConnectorType::Source,
+    };
+
+    // Act
+    let mut response = t.post("/connectors", &input).await;
+
+    // Assert
+    let redactor = Redactor::default();
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {});
+    assert_eq!(422, response.status().as_u16());
 }

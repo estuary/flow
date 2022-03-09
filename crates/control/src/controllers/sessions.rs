@@ -4,6 +4,7 @@ use axum::Json;
 use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use sqlx::PgPool;
+use validator::Validate;
 
 use crate::context::AppContext;
 use crate::error::AppError;
@@ -60,20 +61,19 @@ async fn local_login(ctx: AppContext, input: NewSession) -> Result<impl IntoResp
     Ok((StatusCode::CREATED, view::create(session)))
 }
 
-async fn create_local_account(db: &PgPool, account_name: &str) -> Result<Account, sqlx::Error> {
+async fn create_local_account(db: &PgPool, account_name: &str) -> Result<Account, AppError> {
     let new_account = NewAccount {
         display_name: account_name.to_owned(),
         email: format!("{account_name}@example.com"),
         name: account_name.to_owned(),
     };
 
-    accounts_repo::insert(db, new_account).await
+    new_account.validate()?;
+
+    Ok(accounts_repo::insert(db, new_account).await?)
 }
 
-async fn create_local_credential(
-    db: &PgPool,
-    account: &Account,
-) -> Result<Credential, sqlx::Error> {
+async fn create_local_credential(db: &PgPool, account: &Account) -> Result<Credential, AppError> {
     let new_credential = NewCredential {
         account_id: account.id,
         expires_at: Utc::now() + Duration::weeks(52),
@@ -82,5 +82,7 @@ async fn create_local_credential(
         subject: account.name.to_string(),
     };
 
-    credentials_repo::insert(db, new_credential).await
+    new_credential.validate()?;
+
+    Ok(credentials_repo::insert(db, new_credential).await?)
 }

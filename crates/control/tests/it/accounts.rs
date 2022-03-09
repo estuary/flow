@@ -1,3 +1,4 @@
+use control::models::accounts::NewAccount;
 use control::repo::accounts::fetch_all;
 
 use crate::support::redactor::Redactor;
@@ -66,4 +67,25 @@ async fn show_test() {
         ".data.attributes.created_at" => "[datetime]",
         ".data.attributes.updated_at" => "[datetime]",
     });
+}
+
+#[tokio::test]
+async fn validation_test() {
+    // Arrange
+    let mut t = test_context!();
+    let account = factory::JokerAccount.create(t.db()).await;
+    t.login(account.clone());
+    let input = NewAccount {
+        display_name: "d".to_owned(),
+        email: "e".to_owned(),
+        name: "n".to_owned(),
+    };
+
+    // Act
+    let mut response = t.post("/accounts", &input).await;
+
+    // Assert
+    let redactor = Redactor::default();
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap());
+    assert_eq!(422, response.status().as_u16());
 }

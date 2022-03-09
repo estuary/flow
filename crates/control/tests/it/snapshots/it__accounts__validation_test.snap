@@ -1,0 +1,46 @@
+---
+source: crates/control/tests/it/accounts.rs
+assertion_line: 89
+expression: redactor.response_json(&mut response).await.unwrap()
+
+---
+{
+  "errors": [
+    {
+      "detail": {
+        "display_name": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 50,
+              "min": 2,
+              "value": "d"
+            }
+          }
+        ],
+        "email": [
+          {
+            "code": "email",
+            "message": null,
+            "params": {
+              "value": "e"
+            }
+          }
+        ],
+        "name": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 50,
+              "min": 3,
+              "value": "n"
+            }
+          }
+        ]
+      },
+      "title": "validation error"
+    }
+  ]
+}

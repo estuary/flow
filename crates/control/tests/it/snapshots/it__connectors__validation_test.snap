@@ -1,0 +1,48 @@
+---
+source: crates/control/tests/it/connectors.rs
+assertion_line: 123
+expression: redactor.response_json(&mut response).await.unwrap()
+
+---
+{
+  "errors": [
+    {
+      "detail": {
+        "description": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 100,
+              "min": 5,
+              "value": "d"
+            }
+          }
+        ],
+        "maintainer": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 50,
+              "min": 5,
+              "value": "m"
+            }
+          }
+        ],
+        "name": [
+          {
+            "code": "length",
+            "message": null,
+            "params": {
+              "max": 30,
+              "min": 5,
+              "value": "n"
+            }
+          }
+        ]
+      },
+      "title": "validation error"
+    }
+  ]
+}
