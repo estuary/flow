@@ -20,6 +20,7 @@ pub struct Resource<T> {
     pub id: Id<T>,
     pub r#type: &'static str,
     pub attributes: T,
+    #[serde(skip_serializing_if = "Links::is_empty")]
     pub links: Links,
 }
 

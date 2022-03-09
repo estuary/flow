@@ -101,7 +101,7 @@ async fn spec_test() {
 }
 
 #[tokio::test]
-async fn discovery_test() {
+async fn source_discovery_test() {
     // Arrange
     let mut t = test_context!();
     let account = factory::AdminAccount.create(t.db()).await;
@@ -120,12 +120,38 @@ async fn discovery_test() {
 
     // Assert
     assert_eq!(200, response.status().as_u16());
-    let redactor = Redactor::default()
-        .redact(connector.id, "c1")
-        .redact(image.id, "i1");
+    let redactor = Redactor::default().redact(image.id, "i1");
     assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
-        ".data.id" => "[nonce]",
-        ".data.attributes.created_at" => "[datetime]",
-        ".data.attributes.updated_at" => "[datetime]",
+        ".data.*.id" => "[nonce]",
     });
+}
+
+#[tokio::test]
+async fn materialization_discovery_test() {
+    // Arrange
+    let mut t = test_context!();
+    let account = factory::AdminAccount.create(t.db()).await;
+    t.login(account);
+    let connector = factory::RocksetConnector.create(t.db()).await;
+    let image = factory::RocksetImage.create(t.db(), &connector).await;
+    let config = serde_json::json!({
+        "api_key": "supersecret",
+        "http_logging": false,
+        "max_concurrent_requests": 1,
+    });
+
+    // Act
+    let mut response = t
+        .post(
+            &format!("/connector_images/{}/discovery", &image.id),
+            &config,
+        )
+        .await;
+
+    // Assert
+    let redactor = Redactor::default().redact(image.id, "i1");
+    assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
+        ".data.*.id" => "[nonce]",
+    });
+    assert_eq!(400, response.status().as_u16());
 }
