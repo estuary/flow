@@ -1,9 +1,10 @@
 use std::net::TcpListener;
 
 use axum::body::Body;
+use axum::extract::Extension;
 use axum::http::{header, Request};
 use axum::response::Response;
-use axum::{AddExtensionLayer, Router};
+use axum::Router;
 use serde::Serialize;
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -31,7 +32,7 @@ pub struct TestContext {
     pub test_name: &'static str,
     db: PgPool,
     app: Router,
-    auth: Option<AddExtensionLayer<CurrentAccount>>,
+    auth: Option<Extension<CurrentAccount>>,
 }
 
 impl TestContext {
@@ -52,7 +53,7 @@ impl TestContext {
     }
 
     pub fn login(&mut self, account: Account) {
-        self.auth = Some(AddExtensionLayer::new(CurrentAccount(account)));
+        self.auth = Some(Extension(CurrentAccount(account)));
     }
 
     // pub fn logout(&mut self) {
