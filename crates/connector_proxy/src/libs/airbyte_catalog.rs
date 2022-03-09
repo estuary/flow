@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Result};
+use serde_json::value::RawValue;
 
-//TODO: bring back validations and unmarshal logic!!!!!!!!!!
+//TODO: bring back validations and unmarshal logic!
+//      Using Enums instead of strings.
 
 #[derive(Debug, Serialize, Deserialize, strum_macros::Display, Clone)]
 #[strum(serialize_all = "snake_case")]
@@ -18,13 +19,13 @@ pub enum SyncMode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Stream {
-    name: String,
-    json_schema: Box<RawValue>,
-    supported_sync_modes: Vec<SyncMode>,
-    source_defined_cursor: bool,
-    default_cursor_field: Vec<String>,
-    source_defined_primary_key: Vec<Vec<String>>,
-    namespace: String,
+    pub name: String,
+    pub json_schema: Box<RawValue>,
+    pub supported_sync_modes: Vec<String>, //Vec<SyncMode>,
+    pub source_defined_cursor: Option<bool>,
+    pub default_cursor_field: Option<Vec<String>>,
+    pub source_defined_primary_key: Option<Vec<Vec<String>>>,
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, strum_macros::Display, Clone)]
@@ -38,14 +39,14 @@ pub enum DestinationSyncMode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct ConfiguredStream {
-    stream: Stream,
-    sync_mode: SyncMode,
-    destination_sync_mode: DestinationSyncMode,
-    cursor_field: Vec<String>,
-    primary_key: Vec<Vec<String>>,
+    pub stream: Stream,
+    pub sync_mode: String,             //SyncMode,
+    pub destination_sync_mode: String, //DestinationSyncMode,
+    pub cursor_field: Option<Vec<String>>,
+    pub primary_key: Option<Vec<Vec<String>>>,
 
     #[serde(rename = "estuary.dev/projections")]
-    projections: HashMap<String, String>,
+    pub projections: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -56,20 +57,20 @@ pub struct Catalog {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Range {
-    begin: u32,
-    end: u32,
+    pub begin: String, //u32,
+    pub end: String,   //u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfiguredCatalog {
     #[serde(rename = "streams")]
-    streams: Vec<ConfiguredStream>,
+    pub streams: Vec<ConfiguredStream>,
 
     #[serde(rename = "estuary.dev/tail")]
-    tail: bool,
+    pub tail: bool,
 
     #[serde(rename = "estuary.dev/range")]
-    range: Range,
+    pub range: Range,
 }
 
 #[derive(Debug, Serialize, Deserialize, strum_macros::Display, Clone)]
@@ -89,10 +90,10 @@ pub struct ConnectionStatus {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Record {
-    stream: String,
-    data: Box<RawValue>,
-    emitted_at: i64,
-    namespace: String,
+    pub stream: String,
+    pub data: Box<RawValue>,
+    pub emitted_at: Option<i64>,
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, strum_macros::Display, Clone)]
@@ -109,7 +110,7 @@ pub enum LogLevel {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Log {
-    level: LogLevel,
+    level: String, //LogLevel,
     message: String,
 }
 
@@ -118,12 +119,16 @@ pub struct State {
     // Data is the actual state associated with the ingestion. This must be a JSON _Object_ in order
     // to comply with the airbyte specification.
     #[serde(rename = "data")]
-    data: Box<RawValue>,
+    pub data: Box<RawValue>,
+
+    // TODO: check the logic on merging of both merge fields.
+    #[serde(rename = "estuary.dev/merge")]
+    pub ns_merge: Option<bool>,
 
     // Merge indicates that Data is an RFC 7396 JSON Merge Patch, and should
     // be be reduced into the previous state accordingly.
-    #[serde(rename = "estuary.dev/merge")]
-    merge: bool,
+    #[serde(rename = "merge")]
+    pub merge: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
