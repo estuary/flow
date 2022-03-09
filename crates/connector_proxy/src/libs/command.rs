@@ -18,6 +18,7 @@ pub struct CommandConfig {
 pub fn invoke_connector(
     stdin: Stdio,
     stdout: Stdio,
+    stderr: Stdio,
     entrypoint: &str,
     args: &[String],
 ) -> Result<Child, Error> {
@@ -26,7 +27,7 @@ pub fn invoke_connector(
     Command::new(entrypoint)
         .stdin(stdin)
         .stdout(stdout)
-        .stderr(Stdio::inherit())
+        .stderr(stderr)
         .args(args)
         .spawn()
         .map_err(|e| e.into())
@@ -54,6 +55,7 @@ pub fn invoke_connector_wrapper(entrypoint: String, args: Vec<String>) -> Result
     let child = invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
+        Stdio::inherit(),
         wrapper_entrypoint,
         &vec!["delayed-execute".to_string(), config_file_path.to_string()],
     )?;
@@ -62,6 +64,7 @@ pub fn invoke_connector_wrapper(entrypoint: String, args: Vec<String>) -> Result
     Ok(child)
 }
 
+// TODO: consider wrapping the start_process/stop_process/ pid into an object, which will be passed to interceptors.
 pub fn stop_process(pid: Option<u32>) -> Result<(), Error> {
     tracing::info!("stopping process delayed process.");
     if let Some(id) = pid {
@@ -75,7 +78,6 @@ pub fn stop_process(pid: Option<u32>) -> Result<(), Error> {
 }
 
 pub fn resume_process(pid: u32) -> Result<(), Error> {
-    //stop_process(Some(pid))?;
     tracing::info!("resuming delayed process.");
     signal::kill(
         Pid::from_raw(pid.try_into().expect("unexpected negative pid")),
@@ -96,9 +98,10 @@ pub fn check_exit_status(message: &str, result: std::io::Result<ExitStatus>) -> 
                         "{} failed with code {}.",
                         message, code
                     ))),
-                    None => Err(Error::CommandExecutionError(
-                        "process terminated by signal".to_string(),
-                    )),
+                    None => Err(Error::CommandExecutionError(format!(
+                        "{} process terminated by signal",
+                        message
+                    ))),
                 }
             }
         }

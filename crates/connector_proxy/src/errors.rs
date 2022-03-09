@@ -58,6 +58,10 @@ pub enum Error {
     UnexpectedOperation(String),
 }
 
+pub fn create_custom_error(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, message)
+}
+
 pub trait Must<T> {
     fn or_bail(self) -> T;
 }

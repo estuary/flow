@@ -7,11 +7,15 @@ use std::fs::File;
 use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::{
+    io::AsyncReadExt,
+    signal::unix::{signal, SignalKind},
+};
 
 use apis::{compose, FlowCaptureOperation, FlowMaterializeOperation, Interceptor};
 
 use flow_cli_common::{init_logging, LogArgs};
+use std::marker::PhantomData;
 
 use connector_runner::run_connector;
 use errors::Error;
@@ -106,7 +110,7 @@ async fn main() -> std::io::Result<()> {
 
     let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
-        tracing::error!(error = ?err, "connector proxy execution failed.");
+        tracing::error!("connector proxy execution failed. {:?}", err);
         std::process::exit(1);
     }
     Ok(())
@@ -141,16 +145,15 @@ async fn proxy_flow_capture(
     c: ProxyFlowCapture,
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    // Respond to OS sigterm signal.
-    tokio::task::spawn(async move { sigterm_handler().await });
-
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
     let mut interceptor: Box<dyn Interceptor<FlowCaptureOperation>> = match image_config
         .get_connector_protocol::<CaptureConnectorProtocol>(
         CaptureConnectorProtocol::Airbyte,
     ) {
-        CaptureConnectorProtocol::FlowCapture => Box::new(DefaultFlowCaptureInterceptor {}),
+        CaptureConnectorProtocol::FlowCapture => {
+            Box::new(DefaultFlowCaptureInterceptor { _type: PhantomData })
+        }
         CaptureConnectorProtocol::Airbyte => Box::new(AirbyteCaptureInterceptor::new()),
     };
 
@@ -175,7 +178,7 @@ async fn proxy_flow_materialize(
 
     // There is only one type of connector protocol for flow materialize.
     let mut interceptor: Box<dyn Interceptor<FlowMaterializeOperation>> =
-        Box::new(DefaultFlowMaterializeInterceptor {});
+        Box::new(DefaultFlowMaterializeInterceptor { _type: PhantomData });
     interceptor = compose(interceptor, Box::new(NetworkProxyMaterializeInterceptor {}));
 
     run_connector::<FlowMaterializeOperation>(
@@ -191,17 +194,29 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     tracing::info!("delayed process execution continue...");
-
     let reader = BufReader::new(File::open(command_config_path)?);
 
     let command_config: CommandConfig = serde_json::from_reader(reader)?;
 
+    // TODO: is it possible to apply the fd(1)-logic like this?
+    // https://github.com/estuary/flow/blob/d8c3be35fc8ac0657e0c4aa2e5e7ef4b3eb72905/crates/parser/src/main.rs#L102-L107
+
     let mut child = invoke_connector(
         Stdio::inherit(),
         Stdio::inherit(),
+        Stdio::piped(),
         &command_config.entrypoint,
         &command_config.args,
     )?;
+    let status = child.wait().await;
 
-    check_exit_status("delayed process", child.wait().await)
+    let mut buf = Vec::new();
+    child.stderr.take().unwrap().read_to_end(&mut buf).await?;
+    tracing::info!(
+        "command_config: {:?}. stderr from connector: {}",
+        &command_config,
+        std::str::from_utf8(&buf).unwrap()
+    );
+
+    check_exit_status("delayed process", status)
 }

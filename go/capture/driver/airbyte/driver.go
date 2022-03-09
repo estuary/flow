@@ -291,65 +291,10 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		return fmt.Errorf("parsing connector configuration: %w", err)
 	}
 
-	var open = req.Open
-	var streamToBinding = make(map[string]int)
 	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
 		ops.LogSourceField: source.Image,
-		"operation":        "read",
+		"operation":        "pull",
 	})
-
-	// Build configured Airbyte catalog.
-	var catalog = airbyte.ConfiguredCatalog{
-		Streams: nil,
-		Tail:    open.Tail,
-		Range: airbyte.Range{
-			Begin: open.KeyBegin,
-			End:   open.KeyEnd,
-		},
-	}
-	for i, binding := range open.Capture.Bindings {
-		var resource = new(ResourceSpec)
-		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, resource); err != nil {
-			return fmt.Errorf("parsing stream configuration: %w", err)
-		}
-
-		var projections = make(map[string]string)
-		for _, p := range binding.Collection.Projections {
-			projections[p.Field] = p.Ptr
-		}
-
-		var primaryKey = make([][]string, 0, len(binding.Collection.KeyPtrs))
-		for _, key := range binding.Collection.KeyPtrs {
-			if ptr, err := jsonpointer.New(key); err != nil {
-				return fmt.Errorf("parsing json pointer: %w", err)
-			} else {
-				primaryKey = append(primaryKey, ptr.DecodedTokens())
-			}
-		}
-
-		catalog.Streams = append(catalog.Streams,
-			airbyte.ConfiguredStream{
-				SyncMode:            resource.SyncMode,
-				DestinationSyncMode: airbyte.DestinationSyncModeAppend,
-				PrimaryKey:          primaryKey,
-				Stream: airbyte.Stream{
-					Name:               resource.Stream,
-					Namespace:          resource.Namespace,
-					JSONSchema:         binding.Collection.SchemaJson,
-					SupportedSyncModes: []airbyte.SyncMode{resource.SyncMode},
-				},
-				Projections: projections,
-			})
-		streamToBinding[resource.Stream] = i
-	}
-
-	catalogJSON, err := json.Marshal(&catalog)
-	if err != nil {
-		return fmt.Errorf("encoding catalog: %w", err)
-	}
-	logger.Log(logrus.DebugLevel, logrus.Fields{
-		"catalog": &catalog,
-	}, "using configured catalog")
 
 	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
 	if err != nil {
@@ -357,36 +302,26 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	}
 	defer connector.ZeroBytes(decrypted) // RunConnector will also ZeroBytes().
 
-	var invokeArgs = []string{
-		"read",
-		"--config",
-		"/tmp/config.json",
-		"--catalog",
-		"/tmp/catalog.json",
-	}
-	var invokeFiles = map[string]json.RawMessage{
-		"config.json":  decrypted,
-		"catalog.json": catalogJSON,
-	}
-
-	if len(open.DriverCheckpointJson) != 0 {
-		invokeArgs = append(invokeArgs, "--state", "/tmp/state.json")
-		// Copy because RunConnector will ZeroBytes() once sent and,
-		// as noted in driver{}, we don't own this memory.
-		invokeFiles["state.json"] = append([]byte(nil), open.DriverCheckpointJson...)
-	}
+	req.Open.Capture.EndpointSpecJson = decrypted
 
 	if err := stream.Send(&pc.PullResponse{Opened: &pc.PullResponse_Opened{}}); err != nil {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
 	var resp *pc.PullResponse
-
 	// Invoke the connector for reading.
 	if err := connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
-		invokeArgs,
-		invokeFiles,
+		[]string{"pull"},
+		nil,
 		func(w io.Writer) error {
+			var enc = protoio.NewUint32DelimitedWriter(w, binary.LittleEndian)
+			var err = enc.WriteMsg(req)
+			connector.ZeroBytes(req.Open.Capture.EndpointSpecJson) // No longer needed.
+
+			if err != nil {
+				return fmt.Errorf("proxying Open: %w", err)
+			}
+
 			for {
 				var req, err = stream.Recv()
 				if err == io.EOF {
@@ -402,29 +337,18 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 				}
 			}
 		},
-		// Expect to decode Airbyte messages.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.State != nil {
-					return pc.WritePullCheckpoint(stream, &resp,
-						&pf.DriverCheckpoint{
-							DriverCheckpointJson: rec.State.Data,
-							Rfc7396MergePatch:    rec.State.Merge,
-						})
-				} else if rec.Record != nil {
-					if b, ok := streamToBinding[rec.Record.Stream]; ok {
-						return pc.StagePullDocuments(stream, &resp, b, rec.Record.Data)
-					}
-					return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.PullResponse) },
+			func(m proto.Message) error {
+				var pullResp = m.(*pc.PullResponse)
+				if c := pullResp.Checkpoint; c != nil {
+					return pc.WritePullCheckpoint(stream, &resp, c)
+				} else if d := pullResp.Documents; d != nil {
+					return pc.StagePullDocuments(stream, &resp, int(d.Binding), json.RawMessage(d.Arena))
 				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+					return fmt.Errorf("unexpected connector message: %+v", pullResp)
 				}
-				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	); err != nil {
@@ -434,6 +358,8 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	if resp == nil {
 		return nil // Connector flushed prior to exiting. All done.
 	}
+
+	// TODO: check if the following could needs to be in the connector proxy.
 
 	// Write a final commit, followed by EOF.
 	// This happens only when a connector writes output and exits _without_
