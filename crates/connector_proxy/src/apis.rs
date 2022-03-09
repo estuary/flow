@@ -39,12 +39,13 @@ impl FlowOperation for FlowMaterializeOperation {}
 pub type InterceptorStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send + Sync>>;
 
 pub trait Interceptor<T: FlowOperation> {
-    fn convert_command_args(&mut self, op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
+    fn convert_command_args(&mut self, _op: &T, args: Vec<String>) -> Result<Vec<String>, Error> {
         Ok(args)
     }
 
     fn convert_request(
         &mut self,
+        // The pid of the connector process, which is in stopped state at first, waiting for SIGCONT signals from interceptors.
         pid: Option<u32>,
         op: &T,
         stream: InterceptorStream,
@@ -78,10 +79,9 @@ impl<T: 'static + FlowOperation> Interceptor<T> for ComposedInterceptor<T> {
         stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         // Suppressing pid for interceptor b to ensure that only the first interceptor
-        // in the chain is responsible to start the connector by sending a SIGCONT signal
-        // to that PID.
+        // in the chain is responsible to start the connector.
         // This satisfy the current requirements, and we can extend it with
-        // more complex connector starting logic that involves multiple interceptors.
+        // more complex connector triggering logic that involves multiple interceptors.
         self.a
             .convert_request(pid, op, self.b.convert_request(None, op, stream)?)
     }

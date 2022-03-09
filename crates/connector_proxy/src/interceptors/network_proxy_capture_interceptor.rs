@@ -79,16 +79,16 @@ impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
         &mut self,
         _pid: Option<u32>,
         op: &FlowCaptureOperation,
-        stream: InterceptorStream,
+        in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowCaptureOperation::Discover => Self::convert_discover_request(stream),
-            FlowCaptureOperation::Validate => Self::convert_validate_request(stream),
+            FlowCaptureOperation::Discover => Self::convert_discover_request(in_stream),
+            FlowCaptureOperation::Validate => Self::convert_validate_request(in_stream),
             FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
-                Self::convert_apply_request(stream)
+                Self::convert_apply_request(in_stream)
             }
-            FlowCaptureOperation::Pull => Self::convert_pull_request(stream),
-            _ => stream,
+            FlowCaptureOperation::Pull => Self::convert_pull_request(in_stream),
+            _ => in_stream,
         })
     }
 
