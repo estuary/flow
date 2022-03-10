@@ -79,36 +79,6 @@ pub async fn insert(
 // If a Some(Build) is returned, it's guaranteed that no parallel invocation of
 // dequeue_build will return that same Build so long as the argument Transaction
 // is alive.
-//
-// The query leverages PostgreSQL's advisory lock mechanism to obtain a
-// transaction-scoped exclusive lock on the `id` of its returned row.
-// `pg_try_advisory_xact_lock(id)` returns true if it obtains a lock on `id`,
-// or false if it's locked already.
-//
-// It's therefore important that the query plan call `pg_try_advisory_xact_lock`
-// on as few actual `id`'s as possible, as extra locking reduces parallelism.
-// For this query, we're capitalizing on the index `builds_id_where_queued`.
-// The optimizer uses it in an Index Scan to try successive increasing `id`'s
-// until one is found which is lock-able.
-//
-// This index also means that the common case (there are no queued builds) is
-// very cheap to poll, even if the total number of builds is large.
-//
-// If the query plan were to change on us then `pg_try_advisory_xact_lock(id)`
-// could lock additional non-returned `id`'s, which would reduce the potential
-// parallelism but would not be a correctness issue.
-//
-// All obtained locks are automatically released on transaction close.
-// If a builder fails its lock is automatically removed, making the Build
-// eligible again for dequeue by other workers.
-//
-/*
-                                         QUERY PLAN
----------------------------------------------------------------------------------------------
-Limit  (cost=0.13..6.18 rows=1 width=68)
-->  Index Scan using builds_id_where_queued on builds  (cost=0.13..12.22 rows=2 width=68)
-        Filter: pg_try_advisory_xact_lock(id)
-*/
 pub async fn dequeue_build<'c>(
     txn: &mut Transaction<'c, Postgres>,
 ) -> Result<Option<Build>, sqlx::Error> {
@@ -123,10 +93,10 @@ pub async fn dequeue_build<'c>(
         state as "state: Json<State>",
         updated_at
     FROM builds
-    WHERE state->>'type' = 'queued' AND
-        pg_try_advisory_xact_lock(id)
+    WHERE state->>'type' = 'queued'
     ORDER BY id ASC
     LIMIT 1
+    FOR UPDATE SKIP LOCKED
     "#,
     )
     .fetch_optional(txn)

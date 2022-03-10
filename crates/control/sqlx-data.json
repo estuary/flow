@@ -191,54 +191,6 @@
     },
     "query": "\n    SELECT id as \"id!: Id<Connector>\", description, name, maintainer, type as \"type!: ConnectorType\", created_at, updated_at\n    FROM connectors\n    WHERE id = $1\n    "
   },
-  "313ded554111cc7d36f9b1760e64a1a9b53438d60b6d070d2bf4045b3512bf62": {
-    "describe": {
-      "columns": [
-        {
-          "name": "account_id: Id<Account>",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "catalog: Option<Json<models::Catalog>>",
-          "ordinal": 1,
-          "type_info": "Json"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "id: Id<Build>",
-          "ordinal": 3,
-          "type_info": "Int8"
-        },
-        {
-          "name": "state: Json<State>",
-          "ordinal": 4,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "updated_at",
-          "ordinal": 5,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n    SELECT\n        account_id as \"account_id: Id<Account>\",\n        catalog as \"catalog: Option<Json<models::Catalog>>\",\n        created_at,\n        id as \"id: Id<Build>\",\n        state as \"state: Json<State>\",\n        updated_at\n    FROM builds\n    WHERE state->>'type' = 'queued' AND\n        pg_try_advisory_xact_lock(id)\n    ORDER BY id ASC\n    LIMIT 1\n    "
-  },
   "40eb0abd64861d5312663b9d2c80b2681950a48283d6cb34ede4e7d92757bbfc": {
     "describe": {
       "columns": [
@@ -457,6 +409,54 @@
       }
     },
     "query": "\n    SELECT\n        account_id AS \"account_id: Id<Account>\",\n        catalog AS \"catalog: Option<Json<models::Catalog>>\",\n        created_at,\n        id AS \"id: Id<Build>\",\n        state AS \"state: Json<State>\",\n        updated_at\n    FROM builds\n    WHERE id = $1 AND account_id = $2\n    "
+  },
+  "ad999cf9b68926b6f897cb66f44fe8f0a2b34bdf26c04d5284abc1c957155901": {
+    "describe": {
+      "columns": [
+        {
+          "name": "account_id: Id<Account>",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "catalog: Option<Json<models::Catalog>>",
+          "ordinal": 1,
+          "type_info": "Json"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "id: Id<Build>",
+          "ordinal": 3,
+          "type_info": "Int8"
+        },
+        {
+          "name": "state: Json<State>",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 5,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n    SELECT\n        account_id as \"account_id: Id<Account>\",\n        catalog as \"catalog: Option<Json<models::Catalog>>\",\n        created_at,\n        id as \"id: Id<Build>\",\n        state as \"state: Json<State>\",\n        updated_at\n    FROM builds\n    WHERE state->>'type' = 'queued'\n    ORDER BY id ASC\n    LIMIT 1\n    FOR UPDATE SKIP LOCKED\n    "
   },
   "b514524b7f8225168c0fb0d8b2cfb812a07a7b72b7375dc76eed95a2bc98f0ef": {
     "describe": {
