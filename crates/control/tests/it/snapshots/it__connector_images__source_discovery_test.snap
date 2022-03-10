@@ -1,6 +1,6 @@
 ---
 source: crates/control/tests/it/connector_images.rs
-assertion_line: 124
+assertion_line: 127
 expression: redactor.response_json(&mut response).await.unwrap()
 
 ---
@@ -10,14 +10,14 @@ expression: redactor.response_json(&mut response).await.unwrap()
       "attributes": {
         "data": {
           "captures": {
-            "admin/hello-world": {
+            "acmeCo/hello-world": {
               "bindings": [
                 {
                   "resource": {
                     "stream": "greetings",
                     "syncMode": "incremental"
                   },
-                  "target": "admin/greetings"
+                  "target": "acmeCo/greetings"
                 }
               ],
               "endpoint": {
@@ -29,7 +29,7 @@ expression: redactor.response_json(&mut response).await.unwrap()
             }
           },
           "collections": {
-            "admin/greetings": {
+            "acmeCo/greetings": {
               "key": [
                 "/count"
               ],
