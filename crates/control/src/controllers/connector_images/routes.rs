@@ -14,9 +14,9 @@ pub fn spec(image_id: Id<ConnectorImage>) -> String {
     url_for(format!("/connector_images/{}/spec", image_id.to_string()))
 }
 
-pub fn discovery(connector_id: Id<ConnectorImage>) -> String {
+pub fn discovered_catalog(connector_id: Id<ConnectorImage>) -> String {
     url_for(format!(
-        "/connector_images/{}/discovery",
+        "/connector_images/{}/discovered_catalog",
         connector_id.to_string()
     ))
 }

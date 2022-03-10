@@ -52,7 +52,7 @@ pub async fn spec(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DiscoveryInput {
+pub struct DiscoveredCatalogInput {
     /// The desired name of the Capture. This is used to generate all the
     /// related resource names as well.
     name: CatalogName,
@@ -60,7 +60,7 @@ pub struct DiscoveryInput {
     config: Object,
 }
 
-impl DiscoveryInput {
+impl DiscoveredCatalogInput {
     pub fn discovery_options(&self) -> Result<DiscoveryOptions, anyhow::Error> {
         // TODO: replace this with real validations.
         let (prefix, name) = self
@@ -75,10 +75,10 @@ impl DiscoveryInput {
     }
 }
 
-pub async fn discovery(
+pub async fn discovered_catalog(
     Extension(ctx): Extension<AppContext>,
     Path(image_id): Path<Id<ConnectorImage>>,
-    Json(input): Json<DiscoveryInput>,
+    Json(input): Json<DiscoveredCatalogInput>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
     let connector = connectors_repo::fetch_one(ctx.db(), image.connector_id).await?;
@@ -86,5 +86,5 @@ pub async fn discovery(
 
     let discovered_catalog = connectors::discover(connector, image, input.config, opts).await?;
 
-    Ok((StatusCode::OK, view::discovery(discovered_catalog)))
+    Ok((StatusCode::OK, view::discovered_catalog(discovered_catalog)))
 }

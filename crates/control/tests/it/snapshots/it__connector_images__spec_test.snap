@@ -1,7 +1,7 @@
 ---
 source: crates/control/tests/it/connector_images.rs
-assertion_line: 211
-expression: redactor.response_json(response).await.unwrap()
+assertion_line: 96
+expression: redactor.response_json(&mut response).await.unwrap()
 
 ---
 {
@@ -49,7 +49,7 @@ expression: redactor.response_json(response).await.unwrap()
     "id": "[nonce]",
     "links": {
       "connector": "http://127.0.0.1:0/connectors/[c1]",
-      "discovery": "http://127.0.0.1:0/connector_images/[i1]/discovery",
+      "discovered_catalog": "http://127.0.0.1:0/connector_images/[i1]/discovered_catalog",
       "image": "http://127.0.0.1:0/connector_images/[i1]",
       "self": "http://127.0.0.1:0/connector_images/[i1]/spec"
     },

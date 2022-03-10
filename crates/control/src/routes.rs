@@ -59,8 +59,8 @@ fn connector_images_routes() -> Router {
             get(controllers::connector_images::spec),
         )
         .route(
-            "/connector_images/:image_id/discovery",
-            post(controllers::connector_images::discovery),
+            "/connector_images/:image_id/discovered_catalog",
+            post(controllers::connector_images::discovered_catalog),
         )
 }
 
