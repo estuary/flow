@@ -4,7 +4,7 @@ use models::build::encode_resource_path;
 use protocol::labels;
 
 #[derive(clap::Args, Debug)]
-#[clap(global_setting(clap::AppSettings::TrailingVarArg))]
+#[clap(trailing_var_arg = true)]
 pub struct Args {
     #[clap(flatten)]
     pub task: TaskSelector,
