@@ -10,3 +10,6 @@ pub mod typescript;
 
 /// Generates Elasticsearch schemas.
 pub mod elasticsearch;
+
+// Generates Firebolt schemas.
+pub mod firebolt;
