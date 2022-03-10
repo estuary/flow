@@ -98,7 +98,7 @@ impl<T: SQLType> SQLType for Option<T> {
 /// Persist a dynamic set of tables to the database, creating their table schema
 /// if they don't yet exist, and writing all row records.
 pub fn persist_tables(db: &rusqlite::Connection, tables: &[&dyn TableObj]) -> rusqlite::Result<()> {
-    db.execute_batch("BEGIN;")?;
+    db.execute_batch("BEGIN IMMEDIATE;")?;
     for table in tables {
         db.execute_batch(&table.create_table_sql())?;
         table.persist_all(db)?;

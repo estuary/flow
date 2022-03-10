@@ -1,6 +1,7 @@
 use crate::config;
 use crate::error::SubprocessError;
-use crate::models::id::Id;
+use crate::models::{builds::Build, id::Id};
+
 use async_trait::async_trait;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::BTreeMap;
@@ -13,19 +14,17 @@ use tokio::sync::Mutex;
 mod gcs;
 mod local;
 
-// TEMPORARY: I needed something to parameterize `Id` with. This should be
-// replaced with a real `Build` type soon.
-#[derive(Debug)]
-pub struct Build;
-
 /// Allows uploading builds to the builds root.
 #[derive(Debug, Clone)]
 pub struct PutBuilds(Arc<dyn BuildsRootService>);
 
 impl PutBuilds {
     /// Uploads the given `build_db` to the builds root so that it is accessible to the data plane.
-    #[allow(dead_code)]
-    async fn put_build(&self, build_id: Id<Build>, build_db: &Path) -> Result<(), BuildsRootError> {
+    pub async fn put_build(
+        &self,
+        build_id: Id<Build>,
+        build_db: &Path,
+    ) -> Result<(), BuildsRootError> {
         self.0.put_build(build_id, build_db).await
     }
 }

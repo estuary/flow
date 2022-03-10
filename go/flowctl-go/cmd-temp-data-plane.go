@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -84,7 +85,7 @@ func (cmd cmdTempDataPlane) Execute(_ []string) error {
 
 func (cmd *cmdTempDataPlane) start(ctx context.Context, tempdir string) (etcdAddr, brokerAddr, consumerAddr string, _ error) {
 	var buildsRoot = filepath.Join(tempdir, "builds")
-	if err := os.Mkdir(buildsRoot, 0700); err != nil {
+	if err := os.Mkdir(buildsRoot, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", "", "", fmt.Errorf("creating builds dir: %w", err)
 	}
 	buildsRoot = "file://" + buildsRoot + "/"
