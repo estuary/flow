@@ -27,9 +27,6 @@ pub enum Error {
     #[error(transparent)]
     #[serde(serialize_with = "crate::serialize_as_display")]
     UTF8Error(#[from] std::str::Utf8Error),
-    #[error(transparent)]
-    #[serde(serialize_with = "crate::serialize_as_display")]
-    Rusqlite(#[from] rusqlite::Error),
     #[error("combined key cannot be empty")]
     EmptyKey,
     #[error("protocol error (invalid state or invocation)")]
