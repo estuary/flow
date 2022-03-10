@@ -208,15 +208,19 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
         &command_config.entrypoint,
         &command_config.args,
     )?;
-    let status = child.wait().await;
 
-    let mut buf = Vec::new();
-    child.stderr.take().unwrap().read_to_end(&mut buf).await?;
-    tracing::info!(
-        "command_config: {:?}. stderr from connector: {}",
-        &command_config,
-        std::str::from_utf8(&buf).unwrap()
-    );
+    match check_exit_status("delayed process", child.wait().await) {
+        Err(e) => {
+            let mut buf = Vec::new();
+            child.stderr.take().unwrap().read_to_end(&mut buf).await?;
 
-    check_exit_status("delayed process", status)
+            tracing::error!(
+                "connector failed. command_config: {:?}. stderr from connector: {}",
+                &command_config,
+                std::str::from_utf8(&buf).unwrap()
+            );
+            Err(e)
+        }
+        _ => Ok(()),
+    }
 }
