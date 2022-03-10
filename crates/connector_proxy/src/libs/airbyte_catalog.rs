@@ -52,7 +52,7 @@ pub struct ConfiguredStream {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Catalog {
     #[serde(rename = "streams")]
-    streams: Vec<Stream>,
+    pub streams: Vec<Stream>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
