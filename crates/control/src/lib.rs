@@ -8,9 +8,9 @@ pub mod middleware;
 pub mod models;
 pub mod repo;
 pub mod services;
+pub mod shutdown;
 pub mod startup;
 
 mod controllers;
 mod error;
 mod routes;
-mod shutdown;
