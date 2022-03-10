@@ -32,7 +32,7 @@ pub fn spec(connector: Connector, image: ConnectorImage, spec: RawJson) -> Json<
         .put("connector", connector_routes::show(image.connector_id));
 
     if connector.supports(ConnectorOperation::Discover) {
-        links = links.put("discovery", routes::discovery(image.id))
+        links = links.put("discovered_catalog", routes::discovered_catalog(image.id))
     }
 
     let resource = Resource {
@@ -44,9 +44,11 @@ pub fn spec(connector: Connector, image: ConnectorImage, spec: RawJson) -> Json<
     Json(DocumentData::new(resource, Links::default()))
 }
 
-pub fn discovery(catalog: DiscoveredCatalog) -> Json<Many<NamedBundle<CatalogDefinition>>> {
+pub fn discovered_catalog(
+    catalog: DiscoveredCatalog,
+) -> Json<Many<NamedBundle<CatalogDefinition>>> {
     let links = Links::default()
-        .put("self", routes::discovery(catalog.image().id))
+        .put("self", routes::discovered_catalog(catalog.image().id))
         // put("builds", "/builds")
         .put("image", routes::show(catalog.image().id));
 

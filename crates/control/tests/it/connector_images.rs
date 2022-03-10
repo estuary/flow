@@ -101,7 +101,7 @@ async fn spec_test() {
 }
 
 #[tokio::test]
-async fn source_discovery_test() {
+async fn source_discovered_catalog_test() {
     // Arrange
     let mut t = test_context!();
     let account = factory::AdminAccount.create(t.db()).await;
@@ -116,7 +116,7 @@ async fn source_discovery_test() {
     // Act
     let mut response = t
         .post(
-            &format!("/connector_images/{}/discovery", &image.id),
+            &format!("/connector_images/{}/discovered_catalog", &image.id),
             &input,
         )
         .await;
@@ -130,7 +130,7 @@ async fn source_discovery_test() {
 }
 
 #[tokio::test]
-async fn materialization_discovery_test() {
+async fn materialization_discovered_catalog_test() {
     // Arrange
     let mut t = test_context!();
     let account = factory::AdminAccount.create(t.db()).await;
@@ -149,7 +149,7 @@ async fn materialization_discovery_test() {
     // Act
     let mut response = t
         .post(
-            &format!("/connector_images/{}/discovery", &image.id),
+            &format!("/connector_images/{}/discovered_catalog", &image.id),
             &input,
         )
         .await;

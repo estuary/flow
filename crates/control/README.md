@@ -235,15 +235,21 @@ $ xh -j --session batman :3000/connectors | jq '.data[] | select(.attributes.nam
 $ xh --session batman :3000/connectors/JqyiG4kABAU/connector_images | jq '.data[0].links.spec'
 "http://127.0.0.1:3000/connector_images/JqyiG4mABAY/spec"
 
-# Grab the link for discovery
-$ xh --session batman :3000/connector_images/JqyiG4mABAY/spec | jq ".data.links.discovery"
-"http://127.0.0.1:3000/connector_images/JqyiG4mABAY/discovery"
+# Grab the link for generating a discovered catalog
+$ xh --session batman :3000/connector_images/JqyiG4mABAY/spec | jq ".data.links.discovered_catalog"
+"http://127.0.0.1:3000/connector_images/JqyiG4mABAY/discovered_catalog"
 
-# Grab the table names discovered in a Postgres database
-$ xh -j --session batman :3000/connector_images/JqyiG4mABAY/discovery @path/to/postgres-config.json | jq '.data.attributes.bindings[].recommendedName'
-"_sqlx_migrations"
-"accounts"
-"connector_images"
-"connectors"
-"credentials"
+# Grab the collection names discovered in a Postgres database
+$ xh -j --session batman \
+  http://127.0.0.1:3000/connector_images/JqyiG4mABAY/discovered_catalog \
+  name=batman/control_development \
+  config:=@path/to/postgres-config.json \
+  | jq '.data[] | select(.type == "discovered_catalog").attributes.data.collections | keys'
+[
+  "batman/_sqlx_migrations",
+  "batman/accounts",
+  "batman/connector_images",
+  "batman/connectors",
+  "batman/credentials"
+]
 ```
