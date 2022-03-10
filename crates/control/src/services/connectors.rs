@@ -42,8 +42,8 @@ fn spec_cmd(image: &str) -> Command {
 
 /// Settings for controlling names generated as part of the discovered catalog.
 pub struct DiscoveryOptions {
-    /// The name given to the generated catalog itself. eg. `postgres` in `postgres.flow.json`
-    pub catalog_name: CatalogName,
+    /// The name given to the generated capture itself. eg. `anvils` in `acmeCo/anvils`
+    pub capture_name: CatalogName,
     /// The prefix used for named catalog entities. eg. `acmeCo` in `acmeCo/anvils`
     pub catalog_prefix: CatalogName,
 }

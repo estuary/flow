@@ -176,7 +176,7 @@ impl DiscoveredCatalog {
 
     fn capture_name(&self) -> Capture {
         let prefix = &self.options.catalog_prefix;
-        let name = &self.options.catalog_name;
+        let name = &self.options.capture_name;
         Capture::new(format!("{prefix}/{name}"))
     }
 

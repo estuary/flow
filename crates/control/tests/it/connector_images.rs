@@ -108,13 +108,16 @@ async fn source_discovery_test() {
     t.login(account);
     let connector = factory::HelloWorldConnector.create(t.db()).await;
     let image = factory::HelloWorldImage.create(t.db(), &connector).await;
-    let config = serde_json::json!({"greetings": 10});
+    let input = serde_json::json!({
+        "name": "acmeCo/hello-world".to_owned(),
+        "config": {"greetings": 10},
+    });
 
     // Act
     let mut response = t
         .post(
             &format!("/connector_images/{}/discovery", &image.id),
-            &config,
+            &input,
         )
         .await;
 
@@ -134,17 +137,20 @@ async fn materialization_discovery_test() {
     t.login(account);
     let connector = factory::RocksetConnector.create(t.db()).await;
     let image = factory::RocksetImage.create(t.db(), &connector).await;
-    let config = serde_json::json!({
-        "api_key": "supersecret",
-        "http_logging": false,
-        "max_concurrent_requests": 1,
+    let input = serde_json::json!({
+        "name": "acmeCo/hello-world".to_owned(),
+        "config":  {
+            "api_key": "supersecret",
+            "http_logging": false,
+            "max_concurrent_requests": 1,
+        }
     });
 
     // Act
     let mut response = t
         .post(
             &format!("/connector_images/{}/discovery", &image.id),
-            &config,
+            &input,
         )
         .await;
 
