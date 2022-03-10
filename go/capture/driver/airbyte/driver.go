@@ -13,7 +13,6 @@ import (
 	"github.com/estuary/flow/go/protocols/airbyte"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/go-openapi/jsonpointer"
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
@@ -136,78 +135,37 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 		return nil, err
 	}
 	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+	req.EndpointSpecJson = decrypted
 
-	var catalog *airbyte.Catalog
+	var resp *pc.DiscoverResponse
 	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
 			"discover",
-			"--config",
-			"/tmp/config.json",
 		},
-		// Write configuration JSON to connector input.
-		map[string]json.RawMessage{"config.json": decrypted},
-		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
-		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.Catalog != nil {
-					catalog = rec.Catalog
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		nil,
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.ValidateResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one ValidateResponse")
 				}
+				resp = m.(*pc.DiscoverResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
-	if err == nil && catalog == nil {
+	if err == nil && resp == nil {
 		err = fmt.Errorf("connector didn't produce a Catalog")
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, err
-	}
-
-	var resp = new(pc.DiscoverResponse)
-	for _, stream := range catalog.Streams {
-		// Use incremental mode if available.
-		var mode = airbyte.SyncModeFullRefresh
-		for _, m := range stream.SupportedSyncModes {
-			if m == airbyte.SyncModeIncremental {
-				mode = m
-			}
-		}
-
-		var resourceSpec, err = json.Marshal(ResourceSpec{
-			Stream:    stream.Name,
-			Namespace: stream.Namespace,
-			SyncMode:  mode,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("encoding resource spec: %w", err)
-		}
-
-		// Encode array of hierarchical properties as a JSON-pointer.
-		var keyPtrs []string
-		for _, tokens := range stream.SourceDefinedPrimaryKey {
-			for i := range tokens {
-				tokens[i] = jsonpointer.Escape(tokens[i])
-			}
-			keyPtrs = append(keyPtrs, "/"+strings.Join(tokens, "/"))
-		}
-
-		resp.Bindings = append(resp.Bindings, &pc.DiscoverResponse_Binding{
-			RecommendedName:    stream.Name,
-			ResourceSpecJson:   json.RawMessage(resourceSpec),
-			DocumentSchemaJson: stream.JSONSchema,
-			KeyPtrs:            keyPtrs,
-		})
 	}
 
 	return resp, nil
