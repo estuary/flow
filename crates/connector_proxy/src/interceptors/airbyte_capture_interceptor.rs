@@ -12,8 +12,8 @@ use crate::libs::stream::stream_all_airbyte_messages;
 use async_stream::stream;
 use bytes::Bytes;
 use protocol::capture::{
-    validate_response, DiscoverRequest, DiscoverResponse, Documents, PullRequest, PullResponse,
-    SpecResponse, ValidateRequest, ValidateResponse,
+    discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
+    PullRequest, PullResponse, SpecResponse, ValidateRequest, ValidateResponse,
 };
 use protocol::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
@@ -101,9 +101,10 @@ impl AirbyteCaptureInterceptor {
             write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).unwrap();
 
             resume_process(pid).unwrap();
-            yield Err(create_custom_error("Unexpected read to this empty capture discover stream."))
+            yield Ok(Bytes::from(""));
         })
     }
+
     fn convert_discover_response(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
@@ -115,14 +116,32 @@ impl AirbyteCaptureInterceptor {
                             Ok(m) => m,
                             Err(e) => {
                                 yield Err(create_custom_error(&format!("failed receiving discover airbyte message: {:?}", e)));
-                                return
+                                return;
                             }
                         }
                     }
                 };
-                let catalog = message.catalog.expect("failed to fetch expected catalog object");
-                let resp = DiscoverResponse::default();
-                // TODO: fill resp with message.
+
+                let mut resp = DiscoverResponse::default();
+                // TODO: check message.log.
+                if let Some(catalog) = message.catalog {
+                    for stream in catalog.streams {
+                        let mode = if stream.supported_sync_modes.contains(&"incremental".to_string()) {"incremental"} else {"full_refresh"};
+                        let resource_spec = ResourceSpec {
+                            stream: stream.name.clone(),
+                            namespace: stream.namespace,
+                            sync_mode: mode.into()
+                        };
+                        let key_ptrs: Vec<String> = Vec::new();  // TODO derive key_prs from stream.source_defined_primary_key
+                        resp.bindings.push(discover_response::Binding{
+                            recommended_name: stream.name.clone(),
+                            resource_spec_json: serde_json::to_string(&resource_spec)?,
+                            key_ptrs: key_ptrs,
+                            document_schema_json: stream.json_schema.to_string(),
+                        })
+                    }
+                }
+
                 yield encode_message(&resp);
            }
         })
@@ -167,6 +186,7 @@ impl AirbyteCaptureInterceptor {
                         }
                     }
                 };
+
                 let connection_status = message.connection_status.expect("failed to fetch expected connection_status object");
                 // TODO: fix constants.
                 if connection_status.status !=  "SUCCEEDED" {
@@ -339,7 +359,7 @@ impl Interceptor<FlowCaptureOperation> for AirbyteCaptureInterceptor {
         let state_file_path = self.input_file_path(STATE_FILE_NAME);
 
         let airbyte_args = match op {
-            FlowCaptureOperation::Spec => vec!["spec", "--config", &config_file_path],
+            FlowCaptureOperation::Spec => vec!["spec"],
             FlowCaptureOperation::Discover => vec!["discover", "--config", &config_file_path],
             FlowCaptureOperation::Validate => vec!["check", "--config", &config_file_path],
             FlowCaptureOperation::Pull => {
