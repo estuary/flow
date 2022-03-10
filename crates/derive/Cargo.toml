@@ -20,7 +20,6 @@ librocksdb-sys = { version = "*", default-features = false, features = ["snappy"
 pin-utils = "*"
 prost = "*"
 rocksdb = { version = "*", default-features = false, features = ["snappy", "rtti"] }
-rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*"}
 stats_alloc = "*"
