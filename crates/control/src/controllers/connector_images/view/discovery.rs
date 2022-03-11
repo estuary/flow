@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bytes::Bytes;
 use models::Capture;
 use models::CaptureBinding;
 use models::CaptureDef;
@@ -9,18 +10,22 @@ use models::Collection;
 use models::CollectionDef;
 use models::Config;
 use models::ConnectorConfig;
+use models::ContentFormat;
+use models::ContentType;
+use models::Import;
 use models::Object;
 use models::RelativeUrl;
+use models::ResourceDef;
 use models::Schema;
 use models::ShardTemplate;
 
 use crate::models::connector_images::{ConnectorImage, DiscoveryOptions};
-use crate::models::connectors::Connector;
 use crate::services::connectors::DiscoveredBinding;
+
+type Resources = BTreeMap<String, ResourceDef>;
 
 /// View model for rendering a Catalog from a DiscoveryResponse.
 pub struct DiscoveredCatalog {
-    connector: Connector,
     image: ConnectorImage,
     config: Object,
     bindings: Vec<DiscoveredBinding>,
@@ -29,14 +34,12 @@ pub struct DiscoveredCatalog {
 
 impl DiscoveredCatalog {
     pub fn new(
-        connector: Connector,
         image: ConnectorImage,
         config: Object,
         bindings: Vec<DiscoveredBinding>,
         options: DiscoveryOptions,
     ) -> Self {
         Self {
-            connector,
             image,
             config,
             bindings,
@@ -48,7 +51,51 @@ impl DiscoveredCatalog {
         &self.image
     }
 
-    pub fn render_catalog(&self) -> Catalog {
+    /// Generates a catalog from the data gathered during discovery. This will
+    /// produce a top level catalog which mostly inlines content as additional
+    /// resources and imports them.
+    pub fn root_catalog(&self) -> Result<Catalog, serde_json::Error> {
+        let catalog = Catalog {
+            resources: self.inlined_resources()?,
+            import: self.imports(),
+            ..Default::default()
+        };
+        Ok(catalog)
+    }
+
+    /// Import the inlined catalog definition we created for the discovered capture.
+    fn imports(&self) -> Vec<Import> {
+        let capture_catalog = Import::Extended {
+            content_type: ContentType::Catalog(ContentFormat::Json),
+            url: RelativeUrl::new(self.capture_catalog_name()),
+        };
+
+        vec![capture_catalog]
+    }
+
+    /// Generates inlined resource definitions for all of the items we found
+    /// during discovery. This includes the catalog with the capture definition,
+    /// the collections, the config, and the schemas.
+    fn inlined_resources(&self) -> Result<Resources, serde_json::Error> {
+        let mut resources = BTreeMap::new();
+
+        resources.insert(
+            self.capture_catalog_name(),
+            as_resource_def(self.capture_catalog())?,
+        );
+        resources.insert(self.config_name(), as_resource_def(self.config_content())?);
+
+        for binding in self.bindings.iter() {
+            resources.insert(
+                binding.schema_name(),
+                as_resource_def(Schema::Object(binding.document_schema_json.clone()))?,
+            );
+        }
+
+        Ok(resources)
+    }
+
+    fn capture_catalog(&self) -> Catalog {
         Catalog {
             captures: self.capture_definitions(),
             collections: self.discovered_collections(),
@@ -56,27 +103,8 @@ impl DiscoveredCatalog {
         }
     }
 
-    pub fn render_config(&self) -> Config {
+    fn config_content(&self) -> Config {
         Config::Inline(self.config.clone())
-    }
-
-    pub fn render_schemas(&self) -> BTreeMap<String, Schema> {
-        let mut schemas = BTreeMap::new();
-        for binding in self.bindings.iter() {
-            schemas.insert(
-                binding.schema_name(),
-                Schema::Object(binding.document_schema_json.clone()),
-            );
-        }
-        schemas
-    }
-
-    pub fn name(&self) -> String {
-        format!("{}.flow.json", self.connector.codename())
-    }
-
-    pub fn config_name(&self) -> String {
-        format!("{}.config.json", self.connector.codename())
     }
 
     fn capture_definitions(&self) -> BTreeMap<Capture, CaptureDef> {
@@ -129,9 +157,16 @@ impl DiscoveredCatalog {
         collections
     }
 
+    fn capture_catalog_name(&self) -> String {
+        format!("{}.flow.json", self.options.capture_name)
+    }
+
+    fn config_name(&self) -> String {
+        format!("{}.config.json", self.options.capture_name)
+    }
+
     fn config_url(&self) -> Config {
-        let name = format!("{}.config.json", self.connector.codename());
-        Config::Url(RelativeUrl::new(name))
+        Config::Url(RelativeUrl::new(self.config_name()))
     }
 
     fn capture_name(&self) -> Capture {
@@ -142,9 +177,40 @@ impl DiscoveredCatalog {
 
     fn collection_name(&self, binding: &DiscoveredBinding) -> Collection {
         let prefix = &self.options.catalog_prefix;
-        // TODO: Should this binding's name get wrapped in a `CatalogName::new`
-        // to ensure proper unicode handling?
         let name = &binding.recommended_name;
         Collection::new(format!("{prefix}/{name}"))
     }
+}
+
+trait TypedContent {
+    fn content_type(&self) -> ContentType;
+}
+
+impl TypedContent for Catalog {
+    fn content_type(&self) -> ContentType {
+        ContentType::Catalog(ContentFormat::Json)
+    }
+}
+impl TypedContent for Config {
+    fn content_type(&self) -> ContentType {
+        ContentType::Config(ContentFormat::Json)
+    }
+}
+impl TypedContent for Schema {
+    fn content_type(&self) -> ContentType {
+        ContentType::JsonSchema(ContentFormat::Json)
+    }
+}
+
+fn as_resource_def<C>(content: C) -> Result<ResourceDef, serde_json::Error>
+where
+    C: TypedContent + serde::Serialize,
+{
+    let content_type = content.content_type();
+    let json_content = serde_json::to_vec(&content)?;
+
+    Ok(ResourceDef {
+        content_type,
+        content: Bytes::from(json_content),
+    })
 }
