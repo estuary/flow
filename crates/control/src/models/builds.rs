@@ -12,7 +12,7 @@ use crate::models::id::Id;
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum State {
     Queued,
-    Done,
+    Success,
     BuildFailed { code: Option<i32> },
     TestFailed { code: Option<i32> },
 }
@@ -39,7 +39,7 @@ impl fmt::Debug for Build {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Build")
             .field("account_id", &self.account_id)
-            // catalog is omitted.
+            .field("catalog", &"<omitted>".to_string())
             .field("created_at", &self.created_at)
             .field("id", &self.id)
             .field("state", &self.state)

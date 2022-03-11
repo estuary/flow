@@ -16,9 +16,7 @@ pub async fn index(
     Extension(ctx): Extension<AppContext>,
     CurrentAccount(account): CurrentAccount,
 ) -> Result<impl IntoResponse, AppError> {
-    tracing::debug!(?account.id, "entered index");
     let builds = builds_repo::fetch_for_account(ctx.db(), account.id).await?;
-
     Ok((StatusCode::OK, view::index(builds)))
 }
 
@@ -28,7 +26,6 @@ pub async fn create(
     Json(catalog): Json<models::Catalog>,
 ) -> Result<impl IntoResponse, AppError> {
     let build = builds_repo::insert(ctx.db(), catalog, account.id).await?;
-
     Ok((StatusCode::CREATED, view::create(build)))
 }
 
