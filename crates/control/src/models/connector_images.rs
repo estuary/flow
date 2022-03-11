@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
+use models::Object;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::models::connectors::Connector;
 use crate::models::id::Id;
+use crate::models::names::CatalogName;
 
 /// A ConnectorImage is a specific version of a Connector.
 ///
@@ -52,4 +54,36 @@ pub struct NewConnectorImage {
     pub name: String,
     pub digest: String,
     pub tag: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewDiscoveredCatalog {
+    /// The desired name of the Capture. This is used to generate all the
+    /// related resource names as well.
+    pub name: CatalogName,
+    /// The endpoint configuration for the source connector.
+    pub config: Object,
+}
+
+impl NewDiscoveredCatalog {
+    pub fn discovery_options(&self) -> Result<DiscoveryOptions, anyhow::Error> {
+        // TODO: replace this with real validations.
+        let (prefix, name) = self
+            .name
+            .split_once('/')
+            .ok_or_else(|| anyhow::anyhow!("invalid name"))?;
+
+        Ok(DiscoveryOptions {
+            capture_name: CatalogName::new(name),
+            catalog_prefix: CatalogName::new(prefix),
+        })
+    }
+}
+
+/// Settings for controlling names generated as part of the discovered catalog.
+pub struct DiscoveryOptions {
+    /// The name given to the generated capture itself. eg. `anvils` in `acmeCo/anvils`
+    pub capture_name: CatalogName,
+    /// The prefix used for named catalog entities. eg. `acmeCo` in `acmeCo/anvils`
+    pub catalog_prefix: CatalogName,
 }
