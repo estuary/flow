@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::anyhow;
-use models::Object;
+use models::{CompositeKey, JsonPointer, Object, RelativeUrl, Schema};
 use tokio::process::Command;
 
 use crate::config::settings;
@@ -9,7 +9,6 @@ use crate::controllers::json_api::RawJson;
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::{Connector, ConnectorOperation};
 use crate::models::names::CatalogName;
-use crate::services::discovery::{DiscoverResponse, DiscoveredCatalog};
 use crate::services::subprocess::Subprocess;
 
 #[derive(Debug, thiserror::Error)]
@@ -48,12 +47,50 @@ pub struct DiscoveryOptions {
     pub catalog_prefix: CatalogName,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DiscoverResponse {
+    pub bindings: Vec<DiscoveredBinding>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredBinding {
+    /// A recommended display name for this discovered binding.
+    pub recommended_name: String,
+    /// JSON-encoded object which specifies the endpoint resource to be captured.
+    #[serde(rename = "resourceSpec")]
+    pub resource_spec_json: Object,
+    /// JSON schema of documents produced by this binding.
+    #[serde(rename = "documentSchema")]
+    pub document_schema_json: Object,
+    /// Composite key of documents (if known), as JSON-Pointers.
+    pub key_ptrs: Vec<String>,
+}
+
+impl DiscoveredBinding {
+    pub fn key(&self) -> models::CompositeKey {
+        CompositeKey::new(
+            self.key_ptrs
+                .iter()
+                .map(JsonPointer::new)
+                .collect::<Vec<JsonPointer>>(),
+        )
+    }
+
+    pub fn schema_url(&self) -> Schema {
+        Schema::Url(RelativeUrl::new(self.schema_name()))
+    }
+
+    pub fn schema_name(&self) -> String {
+        format!("{}.schema.json", self.recommended_name)
+    }
+}
+
 pub async fn discover(
-    connector: Connector,
-    image: ConnectorImage,
-    config: Object,
-    options: DiscoveryOptions,
-) -> Result<DiscoveredCatalog, ConnectorError> {
+    connector: &Connector,
+    image: &ConnectorImage,
+    config: &Object,
+) -> Result<DiscoverResponse, ConnectorError> {
     if !connector.supports(ConnectorOperation::Discover) {
         return Err(ConnectorError::UnsupportedOperation(
             ConnectorOperation::Discover,
@@ -63,7 +100,7 @@ pub async fn discover(
     // TODO: Use a named pipe so that this file can only be read once.
     let tmpfile =
         tempfile::NamedTempFile::new().map_err(|e| ConnectorError::ConnectorFailed(anyhow!(e)))?;
-    serde_json::to_writer(&tmpfile, &config).map_err(ConnectorError::MalformedConfig)?;
+    serde_json::to_writer(&tmpfile, config).map_err(ConnectorError::MalformedConfig)?;
 
     // TODO: Read this output as protobufs, rather than json? There is a
     // `protocol::capture::DiscoverResponse` type we could use directly.
@@ -72,12 +109,7 @@ pub async fn discover(
         .await
         .map_err(|e| ConnectorError::ConnectorFailed(anyhow!(e)))?;
 
-    let DiscoverResponse { bindings } =
-        serde_json::from_str(&image_output).map_err(ConnectorError::MalformedOutput)?;
-
-    Ok(DiscoveredCatalog::new(
-        connector, image, config, bindings, options,
-    ))
+    Ok(serde_json::from_str(&image_output).map_err(ConnectorError::MalformedOutput)?)
 }
 
 pub fn discovery_cmd(image: &str, config_path: &Path) -> Command {

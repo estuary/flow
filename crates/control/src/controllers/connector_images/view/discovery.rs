@@ -7,10 +7,8 @@ use models::CaptureEndpoint;
 use models::Catalog;
 use models::Collection;
 use models::CollectionDef;
-use models::CompositeKey;
 use models::Config;
 use models::ConnectorConfig;
-use models::JsonPointer;
 use models::Object;
 use models::RelativeUrl;
 use models::Schema;
@@ -18,47 +16,10 @@ use models::ShardTemplate;
 
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::Connector;
+use crate::services::connectors::DiscoveredBinding;
 use crate::services::connectors::DiscoveryOptions;
 
-#[derive(Debug, Deserialize)]
-pub struct DiscoverResponse {
-    pub bindings: Vec<DiscoveredBinding>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveredBinding {
-    /// A recommended display name for this discovered binding.
-    pub recommended_name: String,
-    /// JSON-encoded object which specifies the endpoint resource to be captured.
-    #[serde(rename = "resourceSpec")]
-    pub resource_spec_json: Object,
-    /// JSON schema of documents produced by this binding.
-    #[serde(rename = "documentSchema")]
-    pub document_schema_json: Object,
-    /// Composite key of documents (if known), as JSON-Pointers.
-    pub key_ptrs: Vec<String>,
-}
-
-impl DiscoveredBinding {
-    fn key(&self) -> models::CompositeKey {
-        CompositeKey::new(
-            self.key_ptrs
-                .iter()
-                .map(JsonPointer::new)
-                .collect::<Vec<JsonPointer>>(),
-        )
-    }
-
-    pub fn schema_url(&self) -> Schema {
-        Schema::Url(RelativeUrl::new(self.schema_name()))
-    }
-
-    pub fn schema_name(&self) -> String {
-        format!("{}.schema.json", self.recommended_name)
-    }
-}
-
+/// View model for rendering a Catalog from a DiscoveryResponse.
 pub struct DiscoveredCatalog {
     connector: Connector,
     image: ConnectorImage,
