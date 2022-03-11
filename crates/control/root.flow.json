@@ -1,0 +1,42 @@
+resources:
+  anvils.config.json:
+    contentType: CONFIG
+    contentEncoding: JSON
+    content:
+      greetings: 1000
+  anvils.flow.json:
+    contentType: CATALOG
+    contentEncoding: JSON
+    content:
+      captures:
+        acmeCo/anvils:
+          bindings:
+            - resource:
+                stream: greetings
+                syncMode: incremental
+              target: acmeCo/greetings
+          endpoint:
+            connector:
+              config: anvils.config.json
+              image: ghcr.io/estuary/source-hello-world@sha256:bc9d52b6d3bcc9fa52fe48c267111ae6b158d2835131a0fe17b070f9a25eafd6
+      collections:
+        acmeCo/greetings:
+          key:
+            - /count
+          schema: greetings.schema.json
+  greetings.schema.json:
+    contentType: JSON_SCHEMA
+    contentEncoding: JSON
+    content:
+      properties:
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+        - count
+        - message
+      type: object
+import:
+  - url: anvils.flow.json
+    contentType: CATALOG

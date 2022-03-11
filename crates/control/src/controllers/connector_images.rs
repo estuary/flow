@@ -60,12 +60,11 @@ pub async fn discovered_catalog(
 
     let discover_response = connectors::discover(&connector, &image, &input.config).await?;
     let catalog = view::discovery::DiscoveredCatalog::new(
-        connector,
         image,
         input.config,
         discover_response.bindings,
         opts,
     );
 
-    Ok((StatusCode::OK, view::discovered_catalog(catalog)))
+    Ok((StatusCode::OK, view::discovered_catalog(catalog)?))
 }

@@ -1,5 +1,5 @@
 use axum::Json;
-use models::{Catalog, Config, Schema};
+use models::Catalog;
 
 use crate::controllers::connector_images::routes;
 use crate::controllers::connectors::routes as connector_routes;
@@ -47,46 +47,20 @@ pub fn spec(connector: Connector, image: ConnectorImage, spec: RawJson) -> Json<
 
 pub fn discovered_catalog(
     catalog: discovery::DiscoveredCatalog,
-) -> Json<Many<NamedBundle<CatalogDefinition>>> {
+) -> Result<Json<One<Catalog>>, serde_json::Error> {
     let links = Links::default()
         .put("self", routes::discovered_catalog(catalog.image().id))
         // put("builds", "/builds")
         .put("image", routes::show(catalog.image().id));
 
-    let mut resources = vec![
-        Resource {
-            id: Id::nonce(),
-            r#type: "discovered_catalog",
-            attributes: NamedBundle {
-                name: catalog.name(),
-                data: CatalogDefinition::Catalog(catalog.render_catalog()),
-            },
-            links: Links::default(),
-        },
-        Resource {
-            id: Id::nonce(),
-            r#type: "discovered_config",
-            attributes: NamedBundle {
-                name: catalog.config_name(),
-                data: CatalogDefinition::Config(catalog.render_config()),
-            },
-            links: Links::default(),
-        },
-    ];
+    let resource = Resource {
+        id: Id::nonce(),
+        r#type: "discovered_catalog",
+        attributes: catalog.root_catalog()?,
+        links: Links::default(),
+    };
 
-    for (name, schema) in catalog.render_schemas().into_iter() {
-        resources.push(Resource {
-            id: Id::nonce(),
-            r#type: "discovered_schema",
-            attributes: NamedBundle {
-                name,
-                data: CatalogDefinition::Schema(schema),
-            },
-            links: Links::default(),
-        });
-    }
-
-    Json(DocumentData::new(resources, links))
+    Ok(Json(DocumentData::new(resource, links)))
 }
 
 impl From<ConnectorImage> for Resource<ConnectorImage> {
@@ -103,18 +77,4 @@ impl From<ConnectorImage> for Resource<ConnectorImage> {
             links,
         }
     }
-}
-
-#[derive(Default, Serialize)]
-pub struct NamedBundle<T> {
-    name: String,
-    data: T,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase", untagged)]
-pub enum CatalogDefinition {
-    Catalog(Catalog),
-    Config(Config),
-    Schema(Schema),
 }
