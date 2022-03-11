@@ -230,7 +230,7 @@ async fn process_build(
         ));
     }
 
-    Ok((State::Done, db_path))
+    Ok((State::Success, db_path))
 }
 
 // run_task spawns the provided Command, capturing its stdout and stderr
