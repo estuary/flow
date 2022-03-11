@@ -7,7 +7,8 @@ use crate::controllers::json_api::{DocumentData, Links, Many, One, RawJson, Reso
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::{Connector, ConnectorOperation};
 use crate::models::id::Id;
-use crate::services::discovery::DiscoveredCatalog;
+
+pub mod discovery;
 
 pub fn index(images: Vec<ConnectorImage>) -> Json<Many<ConnectorImage>> {
     let resources = images.into_iter().map(Resource::from).collect();
@@ -45,7 +46,7 @@ pub fn spec(connector: Connector, image: ConnectorImage, spec: RawJson) -> Json<
 }
 
 pub fn discovered_catalog(
-    catalog: DiscoveredCatalog,
+    catalog: discovery::DiscoveredCatalog,
 ) -> Json<Many<NamedBundle<CatalogDefinition>>> {
     let links = Links::default()
         .put("self", routes::discovered_catalog(catalog.image().id))

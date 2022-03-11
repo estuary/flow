@@ -84,7 +84,14 @@ pub async fn discovered_catalog(
     let connector = connectors_repo::fetch_one(ctx.db(), image.connector_id).await?;
     let opts = input.discovery_options()?;
 
-    let discovered_catalog = connectors::discover(connector, image, input.config, opts).await?;
+    let discover_response = connectors::discover(&connector, &image, &input.config).await?;
+    let catalog = view::discovery::DiscoveredCatalog::new(
+        connector,
+        image,
+        input.config,
+        discover_response.bindings,
+        opts,
+    );
 
-    Ok((StatusCode::OK, view::discovered_catalog(discovered_catalog)))
+    Ok((StatusCode::OK, view::discovered_catalog(catalog)))
 }
