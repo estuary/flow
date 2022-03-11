@@ -2,17 +2,15 @@ use axum::extract::{Extension, Path};
 use axum::response::IntoResponse;
 use axum::Json;
 use hyper::StatusCode;
-use models::Object;
 
 use crate::context::AppContext;
 
 use crate::error::AppError;
-use crate::models::connector_images::{ConnectorImage, NewConnectorImage};
+use crate::models::connector_images::{ConnectorImage, NewConnectorImage, NewDiscoveredCatalog};
 use crate::models::id::Id;
-use crate::models::names::CatalogName;
 use crate::repo::connector_images as images_repo;
 use crate::repo::connectors as connectors_repo;
-use crate::services::connectors::{self, DiscoveryOptions};
+use crate::services::connectors;
 
 pub mod routes;
 mod view;
@@ -51,34 +49,10 @@ pub async fn spec(
     Ok((StatusCode::OK, view::spec(connector, image, spec)))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct DiscoveredCatalogInput {
-    /// The desired name of the Capture. This is used to generate all the
-    /// related resource names as well.
-    name: CatalogName,
-    /// The endpoint configuration for the source connector.
-    config: Object,
-}
-
-impl DiscoveredCatalogInput {
-    pub fn discovery_options(&self) -> Result<DiscoveryOptions, anyhow::Error> {
-        // TODO: replace this with real validations.
-        let (prefix, name) = self
-            .name
-            .split_once('/')
-            .ok_or_else(|| anyhow::anyhow!("invalid name"))?;
-
-        Ok(DiscoveryOptions {
-            capture_name: CatalogName::new(name),
-            catalog_prefix: CatalogName::new(prefix),
-        })
-    }
-}
-
 pub async fn discovered_catalog(
     Extension(ctx): Extension<AppContext>,
     Path(image_id): Path<Id<ConnectorImage>>,
-    Json(input): Json<DiscoveredCatalogInput>,
+    Json(input): Json<NewDiscoveredCatalog>,
 ) -> Result<impl IntoResponse, AppError> {
     let image = images_repo::fetch_one(ctx.db(), image_id).await?;
     let connector = connectors_repo::fetch_one(ctx.db(), image.connector_id).await?;

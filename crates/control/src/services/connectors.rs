@@ -8,7 +8,6 @@ use crate::config::settings;
 use crate::controllers::json_api::RawJson;
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::{Connector, ConnectorOperation};
-use crate::models::names::CatalogName;
 use crate::services::subprocess::Subprocess;
 
 #[derive(Debug, thiserror::Error)]
@@ -37,14 +36,6 @@ fn spec_cmd(image: &str) -> Command {
     cmd.arg("api").arg("spec").arg("--image").arg(image);
 
     cmd
-}
-
-/// Settings for controlling names generated as part of the discovered catalog.
-pub struct DiscoveryOptions {
-    /// The name given to the generated capture itself. eg. `anvils` in `acmeCo/anvils`
-    pub capture_name: CatalogName,
-    /// The prefix used for named catalog entities. eg. `acmeCo` in `acmeCo/anvils`
-    pub catalog_prefix: CatalogName,
 }
 
 #[derive(Debug, Deserialize)]
