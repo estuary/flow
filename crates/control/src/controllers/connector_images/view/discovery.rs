@@ -14,10 +14,9 @@ use models::RelativeUrl;
 use models::Schema;
 use models::ShardTemplate;
 
-use crate::models::connector_images::ConnectorImage;
+use crate::models::connector_images::{ConnectorImage, DiscoveryOptions};
 use crate::models::connectors::Connector;
 use crate::services::connectors::DiscoveredBinding;
-use crate::services::connectors::DiscoveryOptions;
 
 /// View model for rendering a Catalog from a DiscoveryResponse.
 pub struct DiscoveredCatalog {
