@@ -108,7 +108,7 @@ async fn dequeue_builds_test() {
     std::mem::drop(txn_3);
 
     // Second transaction updates its build and commits.
-    update_build_state(&mut txn_2, build_2.id, State::Done)
+    update_build_state(&mut txn_2, build_2.id, State::Success)
         .await
         .unwrap();
     txn_2.commit().await.unwrap();
