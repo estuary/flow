@@ -1,4 +1,4 @@
-module github.com/estuary/flow
+module github.com/mdibaiee/flow
 
 go 1.16
 
