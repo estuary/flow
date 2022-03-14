@@ -7,6 +7,9 @@ before you can do this, you'll need a properly configured SSH server on your int
 This guide includes setup steps for popular cloud platforms,
 as well as generalized setup that provide a basic roadmap for on-premise servers or other cloud platforms.
 
+After completing the appropriate setup requirements, proceed to the [configuration](#configuration) section
+to add your SSH server to your Flow catalog spec.
+
 ## General setup
 
 1. Activate an [SSH implementation on a server](https://www.ssh.com/academy/ssh/server#availability-of-ssh-servers), if you don't have one already.
@@ -49,7 +52,7 @@ basic configuration options.
 
 ## Setup for AWS
 
-To allow SSH tunneling to a database instance hosted on AWS, you'll need to create a virtual computing environment, or instance, in EC2.
+To allow SSH tunneling to a database instance hosted on AWS, you'll need to create a virtual computing environment, or *instance*, in Amazon EC2.
 
 1. Begin by finding your public SSH key on your local machine.
    In the `.ssh` subdirectory of your user home directory,
@@ -67,14 +70,13 @@ To allow SSH tunneling to a database instance hosted on AWS, you'll need to crea
 2. [Import your SSH key into AWS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#how-to-generate-your-own-key-and-import-it-to-aws).
 
 3. [Launch a new instance in EC2](https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/LaunchingAndUsingInstances.html). During setup:
-  * Configure the security group to allow SSH connection from anywhere.
-  * When selecting a key pair, choose the key you just imported.
+   * Configure the security group to allow SSH connection from anywhere.
+   * When selecting a key pair, choose the key you just imported.
 
 4. [Connect to the instance](https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/connecting_to_windows_instance.html),
 setting the user name to `ec2-user`.
 
-5. Find and note the [instance's hostname](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-naming.html). This will be formatted like `ssh://ec2-198-21-98-1.compute-1.amazonaws.com`.
-**FOR REVIEW** per that link above, there are different formats of hostnames - does it matter which one we use?
+5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
 
 6. Find and note the host and port for your capture or materialization endpoint.
   :::tip
@@ -104,7 +106,8 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
 
 3. [Add your public key to the VM](https://cloud.google.com/compute/docs/connect/add-ssh-keys#os-login).
 
-5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM.
+5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
+Note the generated address.
 
 6. Find and note the host and port for your capture or materialization endpoint.
   :::tip
@@ -133,13 +136,16 @@ To allow SSH tunneling to a database instance hosted on Azure, you'll need to cr
 
 2. Create a VM in a [virtual network](https://docs.microsoft.com/en-us/azure/virtual-network/virtual-networks-overview), and add the endpoint database to the network.
 
-  a. [Create a new virtual network and subnet](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-cli?context=%2Fazure%2Fvirtual-machines%2Fcontext%2Fcontext#create-a-resource-group-and-a-virtual-network).
+   1. [Create a new virtual network and subnet](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-cli?context=%2Fazure%2Fvirtual-machines%2Fcontext%2Fcontext#create-a-resource-group-and-a-virtual-network).
 
-  b. Create a VM within the virtual network, using the `--ssh-key-value` option to use the public key you generated previously.
+   2. [Create a VM within the virtual network](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-cli?context=%2Fazure%2Fvirtual-machines%2Fcontext%2Fcontext#create-virtual-machines),
+   using the `--ssh-key-value` [option](https://docs.microsoft.com/en-us/cli/azure/vm?view=azure-cli-latest#az-vm-create) to use the public key you generated previously.
 
-  c. Note the public IP that is output on VM creation; you'll need this later.
+   3. Note the public IP that is output on VM creation; you'll need this later.
 
-3. Create a service endpoint for your database in the same virtual network as your VM. Instructions for Azure PostgreSQL can be found [here](https://docs.microsoft.com/en-us/azure/postgresql/howto-manage-vnet-using-portal); note that instructions for other database engines may be different.
+3. Create a service endpoint for your database in the same virtual network as your VM.
+Instructions for Azure Database For PostgreSQL can be found [here](https://docs.microsoft.com/en-us/azure/postgresql/howto-manage-vnet-using-portal);
+note that instructions for other database engines may be different.
 
 4. Find and note the host and port for your capture or materialization endpoint.
   :::tip
@@ -154,7 +160,7 @@ To allow SSH tunneling to a database instance hosted on Azure, you'll need to cr
 
 After you've completed the prerequisites, you should have the following parameters:
 
-* `sshEndpoint`: the SSH server's hostname, or public IP address
+* `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://hostname[:port]`
 * `privateKey`: the contents of the PEM file
 * `user`: the username used to connect to the SSH server
 * `forwardHost`: the capture or materialization endpoint's host
@@ -164,8 +170,8 @@ After you've completed the prerequisites, you should have the following paramete
 1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
   in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
 
-Proxies like SSH are always run on an open port on your localhost, so you'll need to re-configure other fields in your
-capture or materialization definition.
+  Proxies like SSH are always run on an open port on your localhost, so you'll need to re-configure other fields in your
+  capture or materialization definition.
 
 2. Set the host to `localhost`.
 
