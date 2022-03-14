@@ -1,6 +1,6 @@
 use crate::apis::{FlowCaptureOperation, InterceptorStream};
 
-use crate::errors::{create_custom_error, Error, Must};
+use crate::errors::{create_custom_error, raise_custom_error, Error};
 use crate::libs::airbyte_catalog::{
     self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Range, ResourceSpec, Status,
     SyncMode,
@@ -10,7 +10,7 @@ use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_airbyte_messages;
 
-use async_stream::stream;
+use async_stream::try_stream;
 use bytes::Bytes;
 use protocol::capture::{
     discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
@@ -56,34 +56,26 @@ impl AirbyteSourceInterceptor {
         pid: u32,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        send_sigcont(pid).unwrap();
+        send_sigcont(pid).expect("failed sending sigcont.");
         in_stream
     }
 
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
-            let message = match airbyte_message_stream
+            let message = airbyte_message_stream
                 .next()
-                .await
-                .expect("missing expected spec response.")
-            {
-                Ok(m) => m,
-                Err(e) => {
-                    yield Err(create_custom_error(&format!("failed receiving discover airbyte message: {:?}", e)));
-                    return
-                },
-            };
+                .await.ok_or(create_custom_error("missing spec response."))??;
 
-            let spec = message.spec.expect("failed to fetch expected spec object");
+            let spec = message.spec.ok_or(create_custom_error("failed to fetch expected spec object."))?;
             let mut resp = SpecResponse::default();
             resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
-            resp.resource_spec_schema_json = serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>()).expect("unexpected failure in encoding ResourceSpec schema.");
+            resp.resource_spec_schema_json = serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
             if let Some(url) = spec.documentation_url {
                 resp.documentation_url = url;
             }
 
-            yield encode_message(&resp);
+            yield encode_message(&resp)?;
         })
     }
 
@@ -93,14 +85,14 @@ impl AirbyteSourceInterceptor {
         config_file_path: String,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<DiscoverRequest, _>(&mut reader).await.or_bail().expect("expected discover request is not received.");
+            let request = decode_message::<DiscoverRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing discover request."))?;
 
-            write!(File::create(config_file_path).or_bail(), "{}",  request.endpoint_spec_json).expect("unexpected failure when creating config file.");
+            File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            send_sigcont(pid).unwrap();
-            yield Ok(Bytes::from(""));
+            send_sigcont(pid)?;
+            yield Bytes::from("");
         })
     }
 
@@ -108,20 +100,12 @@ impl AirbyteSourceInterceptor {
         &mut self,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => {
-                        match message {
-                            Ok(m) => m,
-                            Err(e) => {
-                                yield Err(create_custom_error(&format!("failed receiving discover airbyte message: {:?}", e)));
-                                return;
-                            }
-                        }
-                    }
+                    Some(message) => message?
                 };
 
                 if let Some(catalog) = message.catalog {
@@ -145,12 +129,11 @@ impl AirbyteSourceInterceptor {
                             document_schema_json: stream.json_schema.to_string(),
                         })
                     }
-                    yield encode_message(&resp);
+
+                    yield encode_message(&resp)?;
                 }  else if let Some(mlog) = message.log {
                     mlog.log();
                 }
-
-
            }
         })
     }
@@ -162,15 +145,15 @@ impl AirbyteSourceInterceptor {
         validate_request: Arc<Mutex<Option<ValidateRequest>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected validate request is not received.");
+            let request = decode_message::<ValidateRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing validate request"))?;
             *validate_request.lock().await = Some(request.clone());
 
-            write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).or_bail();
+            File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            send_sigcont(pid).unwrap();
-            yield Ok(Bytes::from(""));
+            send_sigcont(pid)?;
+            yield Bytes::from("");
         })
     }
 
@@ -179,38 +162,30 @@ impl AirbyteSourceInterceptor {
         validate_request: Arc<Mutex<Option<ValidateRequest>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => {
-                        match message {
-                            Ok(m) => m,
-                            Err(e) => {
-                                yield Err(create_custom_error(&format!("failed receiving discover airbyte message: {:?}", e)));
-                                return
-                            }
-                        }
-                    }
+                    Some(message) => message?
                 };
 
-                let connection_status = message.connection_status.expect("failed to fetch expected connection_status object");
+                let connection_status = message.connection_status.ok_or(create_custom_error("missing connection_status object"))?;
                 if connection_status.status !=  Status::Succeeded {
-                    yield Err(create_custom_error(&format!("validation failed {:?}", connection_status)));
+                    raise_custom_error(&format!("validation failed {:?}", connection_status))?;
                 }
 
                 let req = validate_request.lock().await;
-                let req = req.as_ref().expect("unexpectedly missing validate request.");
+                let req = req.as_ref().ok_or(create_custom_error("missing validate request."))?;
                 let mut resp = ValidateResponse::default();
                 for binding in &req.bindings {
-                    let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json).expect("failed serialize resource");
+                    let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
                     resp.bindings.push(validate_response::Binding {
                                     resource_path: vec![resource.stream]
                     });
                 }
                 drop(req);
-                yield encode_message(&resp);
+                yield encode_message(&resp)?;
            }
         })
     }
@@ -224,14 +199,14 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<PullRequest, _>(&mut reader).await.or_bail().expect("expected pull request is not received.");
+            let mut request = decode_message::<PullRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing pull request"))?;
             if let Some(ref mut o) = request.open {
-                File::create(state_file_path).or_bail().write_all(&o.driver_checkpoint_json).or_bail();
+                File::create(state_file_path)?.write_all(&o.driver_checkpoint_json)?;
 
                 if let Some(ref mut c) = o.capture {
-                    write!(File::create(config_file_path).or_bail(), "{}", c.endpoint_spec_json).or_bail();
+                    File::create(config_file_path)?.write_all(&c.endpoint_spec_json.as_bytes())?;
 
                     let mut catalog = ConfiguredCatalog {
                         streams: Vec::new(), // nil???
@@ -242,7 +217,7 @@ impl AirbyteSourceInterceptor {
                     let mut stream_to_binding = stream_to_binding.lock().await;
 
                     for (i, binding) in c.bindings.iter().enumerate() {
-                        let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json).expect("failed serialize resource.");
+                        let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
                         stream_to_binding.insert(resource.stream.clone(), i);
 
                         let mut projections = HashMap::new();
@@ -277,9 +252,9 @@ impl AirbyteSourceInterceptor {
                 drop(stream_to_binding);
 
                 // Resume the connector process.
-                send_sigcont(pid).unwrap();
+                send_sigcont(pid)?;
 
-                yield Ok(Bytes::from(""));
+                yield Bytes::from("");
             }
         })
     }
@@ -289,20 +264,12 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => {
-                        match message {
-                            Ok(m) => m,
-                            Err(e) => {
-                                yield Err(create_custom_error(&format!("failed receiving airbyte pull message: {:?}", e)));
-                                return
-                            }
-                        }
-                    }
+                    Some(message) => message?
                 };
 
                 let mut resp = PullResponse::default();
@@ -318,8 +285,7 @@ impl AirbyteSourceInterceptor {
                     let stream_to_binding = stream_to_binding.lock().await;
                     match stream_to_binding.get(&record.stream) {
                         None => {
-                            yield Err(create_custom_error(&format!("connector record with unknown stream {}", record.stream)));
-                            return
+                            raise_custom_error(&format!("connector record with unknown stream {}", record.stream))?;
                         }
                         Some(binding) => {
                             let arena = record.data.get().as_bytes().to_vec();
@@ -338,7 +304,7 @@ impl AirbyteSourceInterceptor {
                     }
                     continue
                 }
-                yield encode_message(&resp);
+                yield encode_message(&resp)?;
             }
 
         })
