@@ -3,6 +3,14 @@ use clap::ArgEnum;
 use futures_core::stream::Stream;
 use std::pin::Pin;
 
+// The protocol that FlowRuntime is speaking with.
+#[derive(Debug, strum_macros::Display, ArgEnum, PartialEq, Clone)]
+#[strum(serialize_all = "snake_case")]
+pub enum FlowRuntimeProtocol {
+    Capture,
+    Materialize,
+}
+
 // Flow Capture operations defined in
 // https://github.com/estuary/flow/blob/master/go/protocols/capture/capture.proto
 #[derive(Debug, strum_macros::Display, ArgEnum, Clone)]
