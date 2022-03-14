@@ -241,7 +241,7 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops | ${PKGDIR}/bin/flow-connector-proxy
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
