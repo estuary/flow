@@ -266,9 +266,8 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	var resp *pc.PullResponse
 	// Invoke the connector for reading.
-	if err := connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
+	return connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
 		[]string{"pull"},
 		nil,
 		func(w io.Writer) error {
@@ -298,37 +297,28 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		connector.NewProtoOutput(
 			func() proto.Message { return new(pc.PullResponse) },
 			func(m proto.Message) error {
-				var pullResp = m.(*pc.PullResponse)
-				if c := pullResp.Checkpoint; c != nil {
-					return pc.WritePullCheckpoint(stream, &resp, c)
-				} else if d := pullResp.Documents; d != nil {
-					return pc.StagePullDocuments(stream, &resp, int(d.Binding), json.RawMessage(d.Arena))
-				} else {
-					return fmt.Errorf("unexpected connector message: %+v", pullResp)
-				}
+				return stream.Send(m.(*pc.PullResponse))
 			},
 		),
 		logger,
-	); err != nil {
-		return err
-	}
+	)
 
-	if resp == nil {
-		return nil // Connector flushed prior to exiting. All done.
-	}
+	// TODO: should the new logic send out a final commit if there are pending documents without a checkpoint?
 
-	// TODO: check if the following could needs to be in the connector proxy.
+	//if resp == nil {
+	//	return nil // Connector flushed prior to exiting. All done.
+	//}
 
 	// Write a final commit, followed by EOF.
 	// This happens only when a connector writes output and exits _without_
 	// writing a final state checkpoint. We generate a synthetic commit now,
 	// and the nil checkpoint means the assumed behavior of the next invocation
 	// will be "full refresh".
-	return pc.WritePullCheckpoint(stream, &resp,
-		&pf.DriverCheckpoint{
-			DriverCheckpointJson: nil,
-			Rfc7396MergePatch:    false,
-		})
+	//return pc.WritePullCheckpoint(stream, &resp,
+	//	&pf.DriverCheckpoint{
+	//		DriverCheckpointJson: nil,
+	//		Rfc7396MergePatch:    false,
+	//	})
 }
 
 // onStdoutDecodeError returns a function that is invoked whenever there's an error parsing a line

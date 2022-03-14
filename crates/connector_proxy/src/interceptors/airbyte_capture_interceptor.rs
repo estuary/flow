@@ -1,11 +1,12 @@
-use crate::apis::{FlowCaptureOperation, Interceptor, InterceptorStream};
+use crate::apis::{FlowCaptureOperation, InterceptorStream};
 
 use crate::errors::{create_custom_error, Error};
 use crate::libs::airbyte_catalog::{
-    self, ConfiguredCatalog, ConfiguredStream, Range, ResourceSpec,
+    self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Range, ResourceSpec, Status,
+    SyncMode,
 };
-use crate::libs::command::resume_process;
-use crate::libs::json::create_root_schema;
+use crate::libs::command::send_sigcont;
+use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_airbyte_messages;
 
@@ -18,10 +19,10 @@ use protocol::capture::{
 use protocol::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
 use std::sync::Arc;
-// TODO: switch to std::sync::Mutex;
 use tokio::sync::Mutex;
 
 use futures_util::StreamExt;
+use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
 use std::fs::File;
 use std::io::Write;
@@ -40,28 +41,26 @@ pub struct AirbyteCaptureInterceptor {
 
 impl AirbyteCaptureInterceptor {
     pub fn new() -> Self {
-        // TODO: keep tempdir inside container only, not mounted to any local dir.
-        // -- tmpfs mount? https://docs.docker.com/storage/tmpfs/
         AirbyteCaptureInterceptor {
             validate_request: Arc::new(Mutex::new(None)),
             stream_to_binding: Arc::new(Mutex::new(HashMap::new())),
             tmp_dir: Builder::new()
-                .prefix("airbyte-capture")
-                .tempdir()
+                .prefix("airbyte-capture-")
+                .tempdir_in("/connector-tmpfs")
                 .expect("failed to create temp dir."),
         }
     }
 
-    fn convert_spec_request(
+    fn adapt_spec_request_stream(
         &mut self,
         pid: u32,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        resume_process(pid).unwrap();
+        send_sigcont(pid).unwrap();
         in_stream
     }
 
-    fn convert_spec_response(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
             let message = match airbyte_message_stream
@@ -100,12 +99,15 @@ impl AirbyteCaptureInterceptor {
 
             write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).unwrap();
 
-            resume_process(pid).unwrap();
+            send_sigcont(pid).unwrap();
             yield Ok(Bytes::from(""));
         })
     }
 
-    fn convert_discover_response(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_discover_response_stream(
+        &mut self,
+        in_stream: InterceptorStream,
+    ) -> InterceptorStream {
         Box::pin(stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
             loop {
@@ -122,17 +124,20 @@ impl AirbyteCaptureInterceptor {
                     }
                 };
 
-                let mut resp = DiscoverResponse::default();
-                // TODO: check message.log.
                 if let Some(catalog) = message.catalog {
+                    let mut resp = DiscoverResponse::default();
                     for stream in catalog.streams {
-                        let mode = if stream.supported_sync_modes.contains(&"incremental".to_string()) {"incremental"} else {"full_refresh"};
+                        let mode = if stream.supported_sync_modes.contains(&SyncMode::Incremental) {SyncMode::Incremental} else {SyncMode::FullRefresh};
                         let resource_spec = ResourceSpec {
                             stream: stream.name.clone(),
                             namespace: stream.namespace,
-                            sync_mode: mode.into()
+                            sync_mode: mode
                         };
-                        let key_ptrs: Vec<String> = Vec::new();  // TODO derive key_prs from stream.source_defined_primary_key
+
+                        let key_ptrs = match stream.source_defined_primary_key {
+                            None => Vec::new(),
+                            Some(keys) => keys.iter().map(|k| JsonPointer::new(k).to_string()).collect()
+                        };
                         resp.bindings.push(discover_response::Binding{
                             recommended_name: stream.name.clone(),
                             resource_spec_json: serde_json::to_string(&resource_spec)?,
@@ -140,14 +145,17 @@ impl AirbyteCaptureInterceptor {
                             document_schema_json: stream.json_schema.to_string(),
                         })
                     }
+                    yield encode_message(&resp);
+                }  else if let Some(mlog) = message.log {
+                    mlog.log();
                 }
 
-                yield encode_message(&resp);
+
            }
         })
     }
 
-    fn convert_validate_request(
+    fn adapt_validate_request_stream(
         &mut self,
         pid: u32,
         config_file_path: String,
@@ -161,12 +169,12 @@ impl AirbyteCaptureInterceptor {
 
             write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).unwrap();
 
-            resume_process(pid).unwrap();
+            send_sigcont(pid).unwrap();
             yield Ok(Bytes::from(""));
         })
     }
 
-    fn convert_validate_response(
+    fn adapt_validate_stream(
         &mut self,
         validate_request: Arc<Mutex<Option<ValidateRequest>>>,
         in_stream: InterceptorStream,
@@ -188,9 +196,8 @@ impl AirbyteCaptureInterceptor {
                 };
 
                 let connection_status = message.connection_status.expect("failed to fetch expected connection_status object");
-                // TODO: fix constants.
-                if connection_status.status !=  "SUCCEEDED" {
-                    yield Err(create_custom_error(&format!("validation failed {}, {}", connection_status.status, connection_status.message)));
+                if connection_status.status !=  Status::Succeeded {
+                    yield Err(create_custom_error(&format!("validation failed {:?}", connection_status)));
                 }
 
                 let req = validate_request.lock().await;
@@ -208,7 +215,7 @@ impl AirbyteCaptureInterceptor {
         })
     }
 
-    fn convert_pull_request(
+    fn adapt_pull_request_stream(
         &mut self,
         pid: u32,
         config_file_path: String,
@@ -229,10 +236,7 @@ impl AirbyteCaptureInterceptor {
                     let mut catalog = ConfiguredCatalog {
                         streams: Vec::new(), // nil???
                         tail: o.tail,
-                        range: Range {
-                            begin: format!("{:x}", o.key_begin),
-                            end: format!("{:x}", o.key_end),
-                        }
+                        range: Range { begin: o.key_begin, end: o.key_end }
                     };
 
                     let mut stream_to_binding = stream_to_binding.lock().await;
@@ -246,13 +250,13 @@ impl AirbyteCaptureInterceptor {
                             for p in &collection.projections {
                                 projections.insert(p.field.clone(), p.ptr.clone());
                             }
-                            // TODO: extract primary_key from collection.key_ptrs.
-                            //       could use docs/src/ptr.rs.
+
+                            let primary_key: Vec<Vec<String>> = collection.key_ptrs.iter().map(|ptr| tokenize_jsonpointer(ptr)).collect();
                             catalog.streams.push(ConfiguredStream{
                                 sync_mode: resource.sync_mode.clone(),
-                                destination_sync_mode: "append".to_string(),
+                                destination_sync_mode: DestinationSyncMode::Append,
                                 cursor_field: None,
-                                primary_key: None, // TODO.
+                                primary_key: Some(primary_key),
                                 stream: airbyte_catalog::Stream{
                                     name:  resource.stream,
                                     namespace:          resource.namespace,
@@ -260,7 +264,7 @@ impl AirbyteCaptureInterceptor {
                                     supported_sync_modes: vec![resource.sync_mode.clone()],
                                     default_cursor_field: None,
                                     source_defined_cursor: None,
-                                    source_defined_primary_key: None,
+                                    source_defined_primary_key: None, // ???
                                 },
                                 projections: projections,
                             });
@@ -273,14 +277,14 @@ impl AirbyteCaptureInterceptor {
                 drop(stream_to_binding);
 
                 // Resume the connector process.
-                resume_process(pid).unwrap();
+                send_sigcont(pid).unwrap();
 
                 yield Ok(Bytes::from(""));
             }
         })
     }
 
-    fn convert_pull_response(
+    fn adapt_pull_response_stream(
         &mut self,
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
@@ -302,7 +306,6 @@ impl AirbyteCaptureInterceptor {
                 };
 
                 let mut resp = PullResponse::default();
-                // TODO: check message.log.
                 if let Some(state) = message.state {
                     resp.checkpoint = Some(DriverCheckpoint{
                             driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
@@ -330,6 +333,9 @@ impl AirbyteCaptureInterceptor {
                     }
                     drop(stream_to_binding);
                 } else {
+                    if let Some(mlog) = message.log {
+                        mlog.log();
+                    }
                     continue
                 }
                 yield encode_message(&resp);
@@ -348,8 +354,8 @@ impl AirbyteCaptureInterceptor {
     }
 }
 
-impl Interceptor<FlowCaptureOperation> for AirbyteCaptureInterceptor {
-    fn convert_command_args(
+impl AirbyteCaptureInterceptor {
+    pub fn adapt_command_args(
         &mut self,
         op: &FlowCaptureOperation,
         args: Vec<String>,
@@ -381,9 +387,9 @@ impl Interceptor<FlowCaptureOperation> for AirbyteCaptureInterceptor {
         Ok([airbyte_args, args].concat())
     }
 
-    fn convert_request(
+    pub fn adapt_request_stream(
         &mut self,
-        pid: Option<u32>,
+        pid: u32,
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
@@ -391,46 +397,43 @@ impl Interceptor<FlowCaptureOperation> for AirbyteCaptureInterceptor {
         let catalog_file_path = self.input_file_path(CATALOG_FILE_NAME);
         let state_file_path = self.input_file_path(STATE_FILE_NAME);
 
-        match pid {
-            None => Err(Error::MissingPid),
-            Some(pid) => match op {
-                FlowCaptureOperation::Spec => Ok(self.convert_spec_request(pid, in_stream)),
-                FlowCaptureOperation::Discover => {
-                    Ok(self.convert_discover_request(pid, config_file_path, in_stream))
-                }
-                FlowCaptureOperation::Validate => Ok(self.convert_validate_request(
-                    pid,
-                    config_file_path,
-                    Arc::clone(&self.validate_request),
-                    in_stream,
-                )),
-                FlowCaptureOperation::Pull => Ok(self.convert_pull_request(
-                    pid,
-                    config_file_path,
-                    catalog_file_path,
-                    state_file_path,
-                    Arc::clone(&self.stream_to_binding),
-                    in_stream,
-                )),
+        match op {
+            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid, in_stream)),
+            FlowCaptureOperation::Discover => {
+                Ok(self.convert_discover_request(pid, config_file_path, in_stream))
+            }
+            FlowCaptureOperation::Validate => Ok(self.adapt_validate_request_stream(
+                pid,
+                config_file_path,
+                Arc::clone(&self.validate_request),
+                in_stream,
+            )),
+            FlowCaptureOperation::Pull => Ok(self.adapt_pull_request_stream(
+                pid,
+                config_file_path,
+                catalog_file_path,
+                state_file_path,
+                Arc::clone(&self.stream_to_binding),
+                in_stream,
+            )),
 
-                _ => Err(Error::UnexpectedOperation(op.to_string())),
-            },
+            _ => Err(Error::UnexpectedOperation(op.to_string())),
         }
     }
 
-    fn convert_response(
+    pub fn adapt_response_stream(
         &mut self,
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         match op {
-            FlowCaptureOperation::Spec => Ok(self.convert_spec_response(in_stream)),
-            FlowCaptureOperation::Discover => Ok(self.convert_discover_response(in_stream)),
+            FlowCaptureOperation::Spec => Ok(self.adapt_spec_response_stream(in_stream)),
+            FlowCaptureOperation::Discover => Ok(self.adapt_discover_response_stream(in_stream)),
             FlowCaptureOperation::Validate => {
-                Ok(self.convert_validate_response(Arc::clone(&self.validate_request), in_stream))
+                Ok(self.adapt_validate_stream(Arc::clone(&self.validate_request), in_stream))
             }
             FlowCaptureOperation::Pull => {
-                Ok(self.convert_pull_response(Arc::clone(&self.stream_to_binding), in_stream))
+                Ok(self.adapt_pull_response_stream(Arc::clone(&self.stream_to_binding), in_stream))
             }
             _ => Err(Error::UnexpectedOperation(op.to_string())),
         }

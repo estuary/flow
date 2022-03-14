@@ -20,6 +20,7 @@ byteorder="*"
 clap = { version = "^3", features = ["derive"] }
 futures-core = "*"
 futures-util="*"
+json-pointer="*"
 nix = "*"
 prost = "*"
 schemars = "*"
@@ -33,3 +34,4 @@ thiserror = "*"
 tokio = { version = "1.15.0", features = ["full"] }
 tokio-util = { version = "*", features = ["io"] }
 tracing="*"
+validator = { version = "*", features = ["derive"] }

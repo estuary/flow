@@ -1,4 +1,4 @@
-use crate::apis::{FlowCaptureOperation, Interceptor, InterceptorStream};
+use crate::apis::{FlowCaptureOperation, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
@@ -16,7 +16,7 @@ use tokio_util::io::StreamReader;
 pub struct NetworkProxyCaptureInterceptor {}
 
 impl NetworkProxyCaptureInterceptor {
-    fn convert_discover_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_discover_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<DiscoverRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -27,7 +27,7 @@ impl NetworkProxyCaptureInterceptor {
         })
     }
 
-    fn convert_validate_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_validate_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -52,7 +52,7 @@ impl NetworkProxyCaptureInterceptor {
         })
     }
 
-    fn convert_pull_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_pull_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<PullRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -74,26 +74,23 @@ impl NetworkProxyCaptureInterceptor {
     }
 }
 
-impl Interceptor<FlowCaptureOperation> for NetworkProxyCaptureInterceptor {
-    fn convert_request(
-        &mut self,
-        _pid: Option<u32>,
+impl NetworkProxyCaptureInterceptor {
+    pub fn adapt_request_stream(
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowCaptureOperation::Discover => Self::convert_discover_request(in_stream),
-            FlowCaptureOperation::Validate => Self::convert_validate_request(in_stream),
+            FlowCaptureOperation::Discover => Self::adapt_discover_request_stream(in_stream),
+            FlowCaptureOperation::Validate => Self::adapt_validate_request_stream(in_stream),
             FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
                 Self::convert_apply_request(in_stream)
             }
-            FlowCaptureOperation::Pull => Self::convert_pull_request(in_stream),
+            FlowCaptureOperation::Pull => Self::adapt_pull_request_stream(in_stream),
             _ => in_stream,
         })
     }
 
-    fn convert_response(
-        &mut self,
+    pub fn adapt_response_stream(
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {

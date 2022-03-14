@@ -1,3 +1,4 @@
+use doc::ptr::{Pointer, Token};
 use schemars::{schema::RootSchema, JsonSchema};
 use serde_json::Value;
 
@@ -18,4 +19,31 @@ pub fn remove_subobject(mut v: Value, key: &str) -> (Option<Value>, Value) {
     }
 
     (sub_object, v)
+}
+
+pub fn tokenize_jsonpointer(ptr: &str) -> Vec<String> {
+    Pointer::from_str(&ptr)
+        .iter()
+        .map(|t| match t {
+            // Keep the index and next index for now. Could adjust based on usecases.
+            Token::Index(ind) => ind.to_string(),
+            Token::Property(prop) => prop.to_string(),
+            Token::NextIndex => "-".to_string(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_tokenize_jsonpointer() {
+        let expected: Vec<String> = vec!["p1", "p2", "56", "p3", "-"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert!(expected == tokenize_jsonpointer("/p1/p2/56/p3/-"));
+    }
 }

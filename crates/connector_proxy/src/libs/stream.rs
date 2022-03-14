@@ -8,6 +8,7 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use serde_json::{Deserializer, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
+use validator::Validate;
 
 pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
     mut reader: R,
@@ -55,6 +56,11 @@ pub fn stream_all_airbyte_messages(
                 match value {
                     Ok(v) => {
                         let message: Message = serde_json::from_value(v).unwrap();
+                        if let Err(e) = message.validate() {
+                            yield Err(create_custom_error(&format!(
+                            "error in validating message: {:?}, {:?}",
+                             e, std::str::from_utf8(&chunk[value_stream.byte_offset()..]))));
+                        }
                         tracing::debug!("read message:: {:?}", &message);
                         yield Ok(message);
                     }
