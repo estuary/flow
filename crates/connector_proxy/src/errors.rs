@@ -27,6 +27,9 @@ pub enum Error {
     #[error("missing process id where expected.")]
     MissingPid,
 
+    #[error("mismatching runtime protocol")]
+    MismatchingRuntimeProtocol,
+
     #[error("invalid endpoint json config.")]
     InvalidEndpointConfig,
 
