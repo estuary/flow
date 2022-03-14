@@ -1,4 +1,4 @@
-use crate::apis::{FlowMaterializeOperation, Interceptor, InterceptorStream};
+use crate::apis::{FlowMaterializeOperation, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
@@ -64,10 +64,8 @@ impl NetworkProxyMaterializeInterceptor {
     }
 }
 
-impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeInterceptor {
-    fn convert_request(
-        &mut self,
-        _pid: Option<u32>,
+impl NetworkProxyMaterializeInterceptor {
+    pub fn adapt_request_stream(
         op: &FlowMaterializeOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
@@ -81,8 +79,7 @@ impl Interceptor<FlowMaterializeOperation> for NetworkProxyMaterializeIntercepto
         })
     }
 
-    fn convert_response(
-        &mut self,
+    pub fn adapt_response_stream(
         op: &FlowMaterializeOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
