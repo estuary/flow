@@ -135,20 +135,21 @@ to allow Flow to connect to databases ports in secure networks.
 
 To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
 
-## PostgreSQL on Amazon RDS
+## PostgreSQL on managed cloud platforms
 
-Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
-of popular relational databases, including PostgreSQL.
+In addition to standard PostgreSQL, this connector supports cloud-based MySQL instances on certain platforms.
 
-You can use this connector for PostgreSQL instances on RDS, but the setup requirements are different.
+### Amazon RDS
 
-### Setup
+You can use this connector for PostgreSQL instances on Amazon RDS using the following setup instructions.
+
+#### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Currently, Estuary supports SSH tunneling to allow this.
   Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
 
-2. Enable logical replication on your existing RDS PostgreSQL instance.
+2. Enable logical replication on your RDS PostgreSQL instance.
 
   a. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html)
   with the following properties:
@@ -179,7 +180,80 @@ and set up the watermarks table and publication.
 with the additional of the `proxy` stanza to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the `remoteHost` and `remotePort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+You can find the `forwardHost` and `forwardPort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+
+### Google Cloud SQL
+
+You can use this connector for PostgreSQL instances on Google Cloud SQL using the following setup instructions.
+
+#### Setup
+
+1. Allow the connector to access your PostgreSQL instance using one of the following methods:
+
+  a. Configure secure access. Currently, Estuary supports SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+  You'll need to set up a Google Cloud Virtual Machine to act as a proxy;
+  be sure to follow the prerequisites outlined in the [Google Cloud section](../../../../guides/connect-network#google-cloud)
+  section of the guide.
+
+  b. Configure the instance to allow unsecured connections.
+  In your Cloud SQL settings, [disable the requirement for SSL/TLS](https://cloud.google.com/sql/docs/mysql/configure-ssl-instance#enforcing-ssl).
+
+2. Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your loud SQL PostgreSQL instance.
+
+3. In your PostgreSQL client, issue the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table and publication.
+
+  ```sql
+  CREATE USER flow_capture WITH REPLICATION
+  IN ROLE cloudsqlsuperuser LOGIN PASSWORD '<secret>';
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
+  CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+  GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  ```
+
+4. Configure your connector as described in the [configuration](#configuration) section above,
+with the additional of the `proxy` stanza to enable the SSH tunnel.
+See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+for additional details and a sample.
+You can find the `forwardHost` as Server Name, and port under Connection Strings (usually, `5432`).
+
+### Azure Database for PostgreSQL
+
+You can use this connector for PostgreSQL instances on Azure Database for PostgreSQL using the following setup instructions.
+
+#### Setup
+
+1. You'll need to configure secure access to the database to enable the Flow capture.
+  Currently, Estuary supports SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+
+2. In your Azure PostgreSQL instance's server parameters, [set `wal_level` to `logical`](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical#pre-requisites-for-logical-replication-and-logical-decoding) to enable logical replication.
+
+3. In the PostgreSQL client, run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table and publication.
+
+```sql
+GRANT pg_read_all_data TO flow_capture;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
+GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
+
+GRANT SELECT ON information_schema.columns, information_schema.tables, pg_catalog.pg_attribute, pg_catalog.pg_class, pg_catalog.pg_index, pg_catalog.pg_namespace TO flow_capture;
+
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication FOR ALL TABLES;
+```
+
+4. Configure your connector as described in the [configuration](#configuration) section above,
+with the additional of the `proxy` stanza to enable the SSH tunnel.
+See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+for additional details and a sample.
+You can find the `forwardHost` as Public IP Address,
+and `forwardPort` should be set to `5432`.
 
 ## TOASTed values
 

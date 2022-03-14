@@ -118,18 +118,19 @@ to allow Flow to connect to databases ports in secure networks.
 
 To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
 
-## MySQL on Amazon RDS
+## MySQL on managed cloud platforms
 
-Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
-of popular relational databases, including MySQL.
+In addition to standard MySQL, this connector supports cloud-based MySQL instances on certain platforms.
 
-You can use this Flow connector for MySQL instances on RDS, but the setup requirements are different.
+### Amazon RDS
+
+You can use this connector for MySQL instances on Amazon RDS using the following setup instructions.
 
 Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
 in RDS for use with Flow; however, it's not required.
 You're able to apply the connector directly to the primary instance if you'd like.
 
-### Setup
+#### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Estuary recommends SSH tunneling to allow this.
@@ -152,7 +153,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
     * read_only: 0
 
   c. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-  with the database and reboot the database to allow the change to take effect
+  with the database and reboot the database to allow the change to take effect.
 
 3. Create a read replica with the new parameter group applied (recommended).
 
@@ -184,3 +185,24 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
+
+### Google Cloud SQL
+
+Google Cloud SQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
+As a result, this connector can't be used directly for MySQL instance on Google Cloud.
+
+As an alternative, you can create a [read replica outside of Google cloud](https://cloud.google.com/sql/docs/mysql/replication#external-read-replicas).
+The replica can be treated as a standard MySQL instance.
+
+1. [Set up an external replica](https://cloud.google.com/sql/docs/mysql/replication/configure-external-replica).
+
+2. Follow the [standard setup instructions](#setup) for this connector.
+
+### Azure Database for MySQL
+
+Azure Database for MySQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
+As a result, this connector can't be used for MySQL instance on Azure.
+
+Contact your account manager or [Estuary support](mailto:support@estuary.dev) for help using a third-party connector.
+Note that third party connectors will require you to [create a read replica](https://docs.microsoft.com/en-us/azure/mysql/howto-read-replicas-portal).
+
