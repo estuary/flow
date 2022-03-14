@@ -67,6 +67,10 @@ pub enum Error {
     UnexpectedOperation(String),
 }
 
+pub fn raise_custom_error(message: &str) -> Result<(), std::io::Error> {
+    Err(create_custom_error(message))
+}
+
 pub fn create_custom_error(message: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, message)
 }

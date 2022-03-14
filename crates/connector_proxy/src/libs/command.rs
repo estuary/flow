@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::errors::{raise_custom_error, Error};
 
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -130,13 +130,16 @@ pub fn write_ready() {
         .expect("failed flushing to stdout");
 }
 
-pub fn send_sigcont(pid: u32) -> Result<(), Error> {
+pub fn send_sigcont(pid: u32) -> Result<(), std::io::Error> {
     tracing::info!("resuming bouncer process.");
-    signal::kill(
+    if let Err(errno) = signal::kill(
         Pid::from_raw(pid.try_into().expect("unexpected negative pid")),
         Signal::SIGCONT,
-    )
-    .map_err(|errno| Error::SigcontError(errno))
+    ) {
+        raise_custom_error(&format!("failed sending SIGCONT with errno: {}", errno))
+    } else {
+        Ok(())
+    }
 }
 
 // A more flexible API for starting the connector.

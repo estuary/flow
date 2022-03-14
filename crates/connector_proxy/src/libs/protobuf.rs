@@ -1,5 +1,3 @@
-use crate::errors::Error;
-
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::{BufMut, Bytes, BytesMut};
 use prost::Message;
@@ -10,14 +8,14 @@ pub async fn decode_message<
     R: AsyncRead + std::marker::Unpin,
 >(
     reader: &mut R,
-) -> Result<Option<T>, Error> {
+) -> Result<Option<T>, std::io::Error> {
     let mut length_buf: [u8; 4] = [0; 4];
 
     match reader.read_exact(&mut length_buf).await {
         Err(e) => match e.kind() {
             // By the current communication protocol, UnexpectedEof indicates the ending of the stream.
             std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            _ => return Err(e.into()),
+            _ => return Err(e),
         },
         Ok(_) => {}
     }
