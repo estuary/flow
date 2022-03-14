@@ -1,6 +1,6 @@
 use crate::apis::{FlowCaptureOperation, InterceptorStream};
 
-use crate::errors::{create_custom_error, Error};
+use crate::errors::{create_custom_error, Error, Must};
 use crate::libs::airbyte_catalog::{
     self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Range, ResourceSpec, Status,
     SyncMode,
@@ -33,15 +33,15 @@ const CONFIG_FILE_NAME: &str = "config.json";
 const CATALOG_FILE_NAME: &str = "catalog.json";
 const STATE_FILE_NAME: &str = "state.json";
 
-pub struct AirbyteCaptureInterceptor {
+pub struct AirbyteSourceInterceptor {
     validate_request: Arc<Mutex<Option<ValidateRequest>>>,
     stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
     tmp_dir: TempDir,
 }
 
-impl AirbyteCaptureInterceptor {
+impl AirbyteSourceInterceptor {
     pub fn new() -> Self {
-        AirbyteCaptureInterceptor {
+        AirbyteSourceInterceptor {
             validate_request: Arc::new(Mutex::new(None)),
             stream_to_binding: Arc::new(Mutex::new(HashMap::new())),
             tmp_dir: Builder::new()
@@ -95,9 +95,9 @@ impl AirbyteCaptureInterceptor {
     ) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<DiscoverRequest, _>(&mut reader).await.expect("expected request is not received.").unwrap();
+            let request = decode_message::<DiscoverRequest, _>(&mut reader).await.or_bail().expect("expected discover request is not received.");
 
-            write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).unwrap();
+            write!(File::create(config_file_path).or_bail(), "{}",  request.endpoint_spec_json).expect("unexpected failure when creating config file.");
 
             send_sigcont(pid).unwrap();
             yield Ok(Bytes::from(""));
@@ -164,10 +164,10 @@ impl AirbyteCaptureInterceptor {
     ) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<ValidateRequest, _>(&mut reader).await.expect("expected request is not received.").unwrap();
+            let request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected validate request is not received.");
             *validate_request.lock().await = Some(request.clone());
 
-            write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).unwrap();
+            write!(File::create(config_file_path).unwrap(), "{}",  request.endpoint_spec_json).or_bail();
 
             send_sigcont(pid).unwrap();
             yield Ok(Bytes::from(""));
@@ -226,12 +226,12 @@ impl AirbyteCaptureInterceptor {
     ) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<PullRequest, _>(&mut reader).await.expect("expected request is not received.").unwrap();
+            let mut request = decode_message::<PullRequest, _>(&mut reader).await.or_bail().expect("expected pull request is not received.");
             if let Some(ref mut o) = request.open {
-                File::create(state_file_path).unwrap().write_all(&o.driver_checkpoint_json).unwrap();
+                File::create(state_file_path).or_bail().write_all(&o.driver_checkpoint_json).or_bail();
 
                 if let Some(ref mut c) = o.capture {
-                    write!(File::create(config_file_path).unwrap(), "{}", c.endpoint_spec_json).unwrap();
+                    write!(File::create(config_file_path).or_bail(), "{}", c.endpoint_spec_json).or_bail();
 
                     let mut catalog = ConfiguredCatalog {
                         streams: Vec::new(), // nil???
@@ -354,7 +354,7 @@ impl AirbyteCaptureInterceptor {
     }
 }
 
-impl AirbyteCaptureInterceptor {
+impl AirbyteSourceInterceptor {
     pub fn adapt_command_args(
         &mut self,
         op: &FlowCaptureOperation,

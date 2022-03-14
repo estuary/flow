@@ -7,7 +7,7 @@ use std::io::Write;
 use std::process::{ExitStatus, Stdio};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
 const READY: &[u8] = "READY".as_bytes();
@@ -16,11 +16,11 @@ const READY: &[u8] = "READY".as_bytes();
 pub fn invoke_connector_direct(
     entrypoint: String,
     args: Vec<String>,
-) -> Result<(Child, ChildStdin, ChildStdout), Error> {
+) -> Result<(Child, ChildStdin, ChildStdout, ChildStderr), Error> {
     let child = invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
-        Stdio::inherit(),
+        Stdio::piped(),
         &entrypoint,
         &args,
     )?;
@@ -67,7 +67,7 @@ pub struct CommandConfig {
 pub async fn invoke_delayed_connector(
     entrypoint: String,
     args: Vec<String>,
-) -> Result<(Child, ChildStdin, ChildStdout), Error> {
+) -> Result<(Child, ChildStdin, ChildStdout, ChildStderr), Error> {
     tracing::info!("invoke delayed connector {}, {:?}", entrypoint, args);
 
     // Saves the configs to start the connector.
@@ -91,24 +91,24 @@ pub async fn invoke_delayed_connector(
     let child = invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
-        Stdio::inherit(),
+        Stdio::piped(),
         bouncer_process_entrypoint,
         &vec!["delayed-execute".to_string(), config_file_path.to_string()],
     )?;
 
-    let (child, stdin, mut stdout) = parse_child(child)?;
+    let (child, stdin, stdout, mut stderr) = parse_child(child)?;
 
     // Waiting for "READY" from the bouncer process.
     let mut ready_buf: Vec<u8> = vec![0; READY.len()];
     match timeout(
         std::time::Duration::from_secs(1),
-        stdout.read_exact(&mut ready_buf),
+        stderr.read_exact(&mut ready_buf),
     )
     .await
     {
         Ok(_) => {
             if &ready_buf == READY {
-                return Ok((child, stdin, stdout));
+                return Ok((child, stdin, stdout, stderr));
             } else {
                 tracing::error!("received unexpected bytes.");
             }
@@ -122,7 +122,7 @@ pub async fn invoke_delayed_connector(
 }
 
 pub fn write_ready() {
-    std::io::stdout()
+    std::io::stderr()
         .write_all(READY)
         .expect("failed writing to stdout");
     std::io::stdout()
@@ -158,9 +158,10 @@ pub fn invoke_connector(
         .map_err(|e| e.into())
 }
 
-fn parse_child(mut child: Child) -> Result<(Child, ChildStdin, ChildStdout), Error> {
+fn parse_child(mut child: Child) -> Result<(Child, ChildStdin, ChildStdout, ChildStderr), Error> {
     let stdout = child.stdout.take().ok_or(Error::MissingIOPipe)?;
     let stdin = child.stdin.take().ok_or(Error::MissingIOPipe)?;
+    let stderr = child.stderr.take().ok_or(Error::MissingIOPipe)?;
 
-    Ok((child, stdin, stdout))
+    Ok((child, stdin, stdout, stderr))
 }
