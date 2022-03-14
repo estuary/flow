@@ -1,3 +1,3 @@
-pub mod airbyte_capture_interceptor;
+pub mod airbyte_source_interceptor;
 pub mod network_proxy_capture_interceptor;
 pub mod network_proxy_materialize_interceptor;

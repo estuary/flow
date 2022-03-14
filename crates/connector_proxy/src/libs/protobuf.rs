@@ -11,7 +11,6 @@ pub async fn decode_message<
 >(
     reader: &mut R,
 ) -> Result<Option<T>, Error> {
-    // Deserialize the proto message.
     let mut length_buf: [u8; 4] = [0; 4];
 
     match reader.read_exact(&mut length_buf).await {
