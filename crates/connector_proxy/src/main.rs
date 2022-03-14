@@ -13,7 +13,7 @@ use tokio::{
     time::timeout,
 };
 
-use apis::{FlowCaptureOperation, FlowMaterializeOperation};
+use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 
 use flow_cli_common::{init_logging, LogArgs};
 
@@ -23,7 +23,7 @@ use connector_runner::{
 use errors::Error;
 use libs::{
     command::{check_exit_status, invoke_connector, write_ready, CommandConfig},
-    image_config::ImageConfig,
+    image_inspect::ImageInspect,
 };
 use std::process::Stdio;
 
@@ -140,10 +140,14 @@ async fn proxy_flow_capture(
     c: ProxyFlowCapture,
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
-    let entrypoint = image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+    let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
+    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Capture {
+        return Err(Error::MismatchingRuntimeProtocol);
+    }
 
-    match image_config
+    let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+
+    match image_inspect
         .get_connector_protocol::<CaptureConnectorProtocol>(CaptureConnectorProtocol::Airbyte)
     {
         CaptureConnectorProtocol::FlowCapture => {
@@ -162,11 +166,14 @@ async fn proxy_flow_materialize(
     // Respond to OS sigterm signal.
     tokio::task::spawn(async move { sigterm_handler().await });
 
-    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
+    let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
+    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Materialize {
+        return Err(Error::MismatchingRuntimeProtocol);
+    }
 
     run_flow_materialize_connector(
         &m.operation,
-        image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
+        image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
     )
     .await
 }
