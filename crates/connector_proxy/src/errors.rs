@@ -1,10 +1,16 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("failed in starting bouncer process.")]
+    BouncerProcessStartError,
+
     #[error("channel timeout in receiving messages after 5 seconds.")]
     ChannelTimeoutError,
 
     #[error("command execution failed: {0}.")]
     CommandExecutionError(String),
+
+    #[error("delayed process timeout in receiving messages after 1 seconds.")]
+    DelayedProcessTimeoutError,
 
     #[error("duplicated key: {0}.")]
     DuplicatedKeyError(&'static str),

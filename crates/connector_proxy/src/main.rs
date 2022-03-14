@@ -10,27 +10,22 @@ use clap::{ArgEnum, Parser, Subcommand};
 use tokio::{
     io::AsyncReadExt,
     signal::unix::{signal, SignalKind},
+    time::timeout,
 };
 
-use apis::{compose, FlowCaptureOperation, FlowMaterializeOperation, Interceptor};
+use apis::{FlowCaptureOperation, FlowMaterializeOperation};
 
 use flow_cli_common::{init_logging, LogArgs};
-use std::marker::PhantomData;
 
-use connector_runner::run_connector;
+use connector_runner::{
+    run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
+};
 use errors::Error;
 use libs::{
-    command::{check_exit_status, invoke_connector, CommandConfig},
+    command::{check_exit_status, invoke_connector, write_ready, CommandConfig},
     image_config::ImageConfig,
 };
 use std::process::Stdio;
-
-use interceptors::{
-    airbyte_capture_interceptor::AirbyteCaptureInterceptor,
-    default_interceptors::{DefaultFlowCaptureInterceptor, DefaultFlowMaterializeInterceptor},
-    network_proxy_capture_interceptor::NetworkProxyCaptureInterceptor,
-    network_proxy_materialize_interceptor::NetworkProxyMaterializeInterceptor,
-};
 
 #[derive(Debug, ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -146,25 +141,18 @@ async fn proxy_flow_capture(
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
+    let entrypoint = image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
 
-    let mut interceptor: Box<dyn Interceptor<FlowCaptureOperation>> = match image_config
-        .get_connector_protocol::<CaptureConnectorProtocol>(
-        CaptureConnectorProtocol::Airbyte,
-    ) {
+    match image_config
+        .get_connector_protocol::<CaptureConnectorProtocol>(CaptureConnectorProtocol::Airbyte)
+    {
         CaptureConnectorProtocol::FlowCapture => {
-            Box::new(DefaultFlowCaptureInterceptor { _type: PhantomData })
+            run_flow_capture_connector(&c.operation, entrypoint).await
         }
-        CaptureConnectorProtocol::Airbyte => Box::new(AirbyteCaptureInterceptor::new()),
-    };
-
-    interceptor = compose(interceptor, Box::new(NetworkProxyCaptureInterceptor {}));
-
-    run_connector::<FlowCaptureOperation>(
-        c.operation,
-        image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        interceptor,
-    )
-    .await
+        CaptureConnectorProtocol::Airbyte => {
+            run_airbyte_source_connector(&c.operation, entrypoint).await
+        }
+    }
 }
 
 async fn proxy_flow_materialize(
@@ -176,26 +164,31 @@ async fn proxy_flow_materialize(
 
     let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
 
-    // There is only one type of connector protocol for flow materialize.
-    let mut interceptor: Box<dyn Interceptor<FlowMaterializeOperation>> =
-        Box::new(DefaultFlowMaterializeInterceptor { _type: PhantomData });
-    interceptor = compose(interceptor, Box::new(NetworkProxyMaterializeInterceptor {}));
-
-    run_connector::<FlowMaterializeOperation>(
-        m.operation,
+    run_flow_materialize_connector(
+        &m.operation,
         image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        interceptor,
     )
     .await
 }
 
 async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
-    // Sleep for some time to allow parent process to stop the current process.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    let wait_handler = tokio::spawn(async {
+        let mut signal_stream = signal(SignalKind::from_raw(18)).expect("failed creating signal.");
+        signal_stream
+            .recv()
+            .await
+            .expect("failed receiving os signals.");
+    });
+
+    // Send "READY" to indicate the process is ready to receive sigcont signals, and keep waiting.
+    write_ready();
+    if let Err(_) = timeout(std::time::Duration::from_secs(1), wait_handler).await {
+        return Err(Error::DelayedProcessTimeoutError);
+    }
 
     tracing::info!("delayed process execution continue...");
-    let reader = BufReader::new(File::open(command_config_path)?);
 
+    let reader = BufReader::new(File::open(command_config_path)?);
     let command_config: CommandConfig = serde_json::from_reader(reader)?;
 
     // TODO: is it possible to apply the fd(1)-logic like this?

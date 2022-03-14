@@ -99,6 +99,8 @@ func Run(
 		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
 	}
 
+	imageArgs = append(imageArgs, "--mount", "type=tmpfs,destination=/connector-tmpfs")
+
 	var tempdir, err = ioutil.TempDir("", "connector-files")
 	if err != nil {
 		return fmt.Errorf("creating tempdir: %w", err)
