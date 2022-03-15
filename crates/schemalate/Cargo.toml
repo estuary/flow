@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 json = { path = "../json", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
 flow_cli_common = { path = "../flow_cli_common" }
 
 anyhow = "*"

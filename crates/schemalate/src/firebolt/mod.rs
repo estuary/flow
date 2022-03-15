@@ -1,4 +1,5 @@
 pub mod errors;
+pub mod firebolt_projections;
 pub mod firebolt_schema_builder;
 pub mod firebolt_types;
 
