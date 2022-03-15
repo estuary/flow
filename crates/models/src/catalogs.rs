@@ -12,7 +12,7 @@ use super::{
 /// collections, derivations, tests, and materializations of the Catalog.
 /// Catalog sources may reference and import other sources, in order to
 /// collections and other entities that source defines.
-#[derive(Default, Deserialize, JsonSchema, Serialize)]
+#[derive(Debug, Default, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
@@ -196,4 +196,42 @@ fn storage_mappings_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars
         }],
     }))
     .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::*;
+
+    #[test]
+    fn catalog_serialization() {
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "foo/bar.json".to_string(),
+            ResourceDef {
+                content_type: ContentType::Config(ContentFormat::Json),
+                content: bytes::Bytes::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "foo": "bar",
+                        "baz": [1,2,3]
+                    }))
+                    .unwrap(),
+                ),
+            },
+        );
+        let import = vec![Import::Url(RelativeUrl::new("foo/bar.json"))];
+        let catalog = Catalog {
+            resources,
+            import,
+            ..Default::default()
+        };
+
+        // insta::assert_json_snapshot!(&catalog);
+
+        let serialized = serde_json::to_string(&catalog).unwrap();
+        println!("{serialized}");
+        let reserialized_json: Catalog = serde_json::from_str(&serialized).unwrap();
+        let reserialized_yaml: Catalog = serde_yaml::from_str(&serialized).unwrap();
+    }
 }

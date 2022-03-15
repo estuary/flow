@@ -1,0 +1,43 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 131
+expression: tables
+---
+Tables {
+    capture_bindings: [],
+    captures: [],
+    collections: [],
+    derivations: [],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml,
+            error: failed to parse YAML (location None)
+            
+            Caused by:
+                invalid type: newtype struct, expected any valid JSON value,
+        },
+    ],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materialization_bindings: [],
+    materializations: [],
+    named_schemas: [],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "application/vnd.flow.catalog+yaml",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [],
+    storage_mappings: [],
+    test_steps: [],
+    transforms: [],
+}

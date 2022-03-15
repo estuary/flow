@@ -1,0 +1,16 @@
+---
+source: crates/models/src/catalogs.rs
+assertion_line: 230
+expression: "&catalog"
+---
+{
+  "resources": {
+    "foo/bar.json": {
+      "contentType": "application/vnd.flow.config+json",
+      "content": {"baz":[1,2,3],"foo":"bar"}
+    }
+  },
+  "import": [
+    "foo/bar.json"
+  ]
+}

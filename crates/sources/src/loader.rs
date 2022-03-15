@@ -250,6 +250,8 @@ impl<F: Fetcher> Loader<F> {
                 .insert_row(resource.clone(), content_type, &content);
             let scope = scope.push_resource(&resource);
 
+            tracing::info!("load_resource_content");
+
             match content_type {
                 models::ContentType::Catalog(_) => self.load_catalog(scope, content.as_ref()).await,
                 models::ContentType::JsonSchema(_) => {
@@ -494,11 +496,16 @@ impl<F: Fetcher> Loader<F> {
 
     // Load a top-level catalog specification.
     async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
-        let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
+        let result = serde_yaml::from_slice(&content);
+        tracing::info!(?result, "parse top-level as yaml");
+        let dom: serde_yaml::Value = self.fallible(scope, result)?;
         // We allow and support YAML merge keys in catalog documents.
-        let dom: serde_yaml::Value =
-            self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
+        let merge_result = yaml_merge_keys::merge_keys_serde(dom);
+        tracing::info!(?merge_result, "merging keys");
+        let dom: serde_yaml::Value = self.fallible(scope, merge_result)?;
 
+        let dom_result = serde_yaml::from_value(dom);
+        tracing::info!(?dom_result, "parsing merged dom");
         let models::Catalog {
             _schema,
             resources,
@@ -509,7 +516,9 @@ impl<F: Fetcher> Loader<F> {
             captures,
             tests,
             storage_mappings,
-        } = self.fallible(scope, serde_yaml::from_value(dom))?;
+        } = self.fallible(scope, dom_result)?;
+
+        tracing::info!("traversing resources");
 
         // Collect inlined resources. These don't participate in loading until
         // we encounter an import of the resource.
@@ -521,6 +530,8 @@ impl<F: Fetcher> Loader<F> {
                 self.inlined.borrow_mut().insert(url, resource);
             }
         }
+
+        tracing::info!("collecting npm deps");
 
         // Collect NPM dependencies.
         for (package, version) in npm_dependencies {

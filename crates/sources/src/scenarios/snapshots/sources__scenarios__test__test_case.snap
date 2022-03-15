@@ -1,7 +1,7 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
-
 ---
 Tables {
     capture_bindings: [],
@@ -132,47 +132,47 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog-err-not-an-array.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog-err-not-an-object.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/not-an-array.json,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/snapshots/ingest.json,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/snapshots/verify.json,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
     ],

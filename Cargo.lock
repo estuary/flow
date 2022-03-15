@@ -3604,6 +3604,7 @@ dependencies = [
  "serde_yaml",
  "thiserror",
  "tracing",
+ "tracing-subscriber 0.3.9",
  "url",
  "yaml-merge-keys",
 ]

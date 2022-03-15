@@ -53,7 +53,7 @@ mod test {
             "resources": {
                 "https://absolute/path/to/c.yaml": {
                     "content": c,
-                    "contentType": "CATALOG",
+                    "contentType": "application/vnd.flow.catalog+yaml",
                 }
             },
             "import": [
@@ -72,7 +72,7 @@ mod test {
                 "resources": {
                     "test://example/B.yaml": {
                         "content": b,
-                        "contentType": "CATALOG",
+                        "contentType": "application/vnd.flow.catalog+yaml",
                     }
                 },
                 "import": [
@@ -92,34 +92,36 @@ mod test {
 
     #[test]
     fn test_inline_schema() {
+        tracing_subscriber::fmt::init();
+        tracing::error!("running inline schema test");
         let schema1 = json!({
             "$anchor": "Email",
             "type": "string",
         });
-        let schema1 = base64::encode(serde_json::to_vec(&schema1).unwrap());
+        // let schema1 = base64::encode(serde_json::to_vec(&schema1).unwrap());
 
         let schema2 = json!({
             "$ref": "path/to/email.schema.json",
             "format": "email",
         });
-        let schema2 = base64::encode(serde_json::to_vec(&schema2).unwrap());
+        // let schema2 = base64::encode(serde_json::to_vec(&schema2).unwrap());
 
         let fixture = json!({
             "test://example/catalog.yaml": {
                 "resources": {
                     "test://example/path/to/email.schema.json": {
                         "content": schema1,
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
                     },
                     "test://example/schema.json": {
                         "content": schema2,
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
                     },
                 },
                 "import": [
                     {
                         "url": "schema.json",
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
                     },
                 ],
             }

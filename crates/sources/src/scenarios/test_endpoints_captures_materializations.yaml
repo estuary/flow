@@ -2,7 +2,7 @@ test://example/catalog.yaml:
   resources:
     test://example/malformed-config.yaml:
       content: abcd1234
-      contentType: CONFIG
+      contentType: application/vnd.flow.config+yaml
 
   captures:
     first/capture:

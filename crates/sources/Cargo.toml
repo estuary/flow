@@ -23,6 +23,7 @@ serde-transcode = "*"
 serde_yaml = "*"
 thiserror = "*"
 tracing = "*"
+tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 url = "*"
 yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
 
