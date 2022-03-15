@@ -251,13 +251,13 @@ impl<F: Fetcher> Loader<F> {
             let scope = scope.push_resource(&resource);
 
             match content_type {
-                models::ContentType::Catalog => self.load_catalog(scope, content.as_ref()).await,
-                models::ContentType::JsonSchema => {
+                models::ContentType::Catalog(_) => self.load_catalog(scope, content.as_ref()).await,
+                models::ContentType::JsonSchema(_) => {
                     self.load_schema_document(scope, content.as_ref()).await
                 }
 
                 // Require that the config parses as a YAML or JSON object.
-                models::ContentType::Config => self
+                models::ContentType::Config(_) => self
                     .fallible(
                         scope,
                         serde_yaml::from_slice(&content).map_err(|e| LoadError::ConfigParseErr(e)),
@@ -359,7 +359,13 @@ impl<F: Fetcher> Loader<F> {
                             // Concurrently fetch |uri| while continuing to walk the schema.
                             let ((), ()) = futures::join!(
                                 recurse,
-                                self.load_import(scope, &uri, models::ContentType::JsonSchema)
+                                self.load_import(
+                                    scope,
+                                    &uri,
+                                    models::ContentType::JsonSchema(models::ContentFormat::from(
+                                        &uri
+                                    ))
+                                )
                             );
                         } else {
                             let () = recurse.await;
@@ -389,15 +395,23 @@ impl<F: Fetcher> Loader<F> {
             let fragment = import.fragment().map(str::to_string);
             import.set_fragment(None);
 
-            self.load_import(scope, &import, models::ContentType::JsonSchema)
-                .await;
+            self.load_import(
+                scope,
+                &import,
+                models::ContentType::JsonSchema(models::ContentFormat::from(&import)),
+            )
+            .await;
 
             import.set_fragment(fragment.as_deref());
             Some(import)
         } else {
             Some(
-                self.load_synthetic_resource(scope, &schema, models::ContentType::JsonSchema)
-                    .await,
+                self.load_synthetic_resource(
+                    scope,
+                    &schema,
+                    models::ContentType::JsonSchema(models::ContentFormat::Json),
+                )
+                .await,
             )
         }
     }
@@ -934,8 +948,12 @@ impl<F: Fetcher> Loader<F> {
         }) = endpoint
         {
             let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, models::ContentType::Config)
-                .await;
+            self.load_import(
+                scope,
+                &absolute,
+                models::ContentType::Config(models::ContentFormat::from(&absolute)),
+            )
+            .await;
 
             endpoint = Connector(models::ConnectorConfig {
                 image,
@@ -967,8 +985,12 @@ impl<F: Fetcher> Loader<F> {
         }) = endpoint
         {
             let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, models::ContentType::Config)
-                .await;
+            self.load_import(
+                scope,
+                &absolute,
+                models::ContentType::Config(models::ContentFormat::from(&absolute)),
+            )
+            .await;
 
             endpoint = Connector(models::ConnectorConfig {
                 image,

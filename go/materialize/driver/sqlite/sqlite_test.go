@@ -32,7 +32,7 @@ func TestSQLGeneration(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///sql-gen.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		},
 		MaterializeDriverFn: materialize.NewDriver,
 	}
@@ -98,7 +98,7 @@ func TestSQLiteDriver(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///driver-steps.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		},
 		MaterializeDriverFn: materialize.NewDriver,
 	}

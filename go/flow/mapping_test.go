@@ -200,7 +200,7 @@ func buildCombineFixtures(t *testing.T) []Mappable {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///mapping_test.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 

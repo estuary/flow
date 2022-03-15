@@ -1,7 +1,7 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
-
 ---
 Tables {
     capture_bindings: [],
@@ -101,32 +101,32 @@ Tables {
     resources: [
         Resource {
             resource: test://example/a-schema.json,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/alt-schema.json,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.ts,
-            content_type: "TYPESCRIPT_MODULE",
+            content_type: "application/vnd.flow.typescript+text",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/reg-schema.json,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
     ],

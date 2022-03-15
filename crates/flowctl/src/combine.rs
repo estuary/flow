@@ -119,12 +119,12 @@ fn get_indexed_schemas_and_key(
     let (src, src_type) = if schema.is_none() {
         (
             source.clone().unwrap(),
-            protocol::flow::ContentType::CatalogSpec as i32,
+            protocol::flow::ContentType::CatalogYaml as i32,
         )
     } else {
         (
             schema.clone().unwrap(),
-            protocol::flow::ContentType::JsonSchema as i32,
+            protocol::flow::ContentType::JsonSchemaYaml as i32,
         )
     };
 

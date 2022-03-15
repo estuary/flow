@@ -1,8 +1,7 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 90
+assertion_line: 89
 expression: tables
-
 ---
 Tables {
     capture_bindings: [],
@@ -25,7 +24,7 @@ Tables {
         },
         Fetch {
             depth: 3,
-            resource: https://absolute/path/to/c.yaml,
+            resource: https://absolute/path/to/c.json,
         },
         Fetch {
             depth: 3,
@@ -38,14 +37,14 @@ Tables {
     ],
     imports: [
         Import {
-            scope: https://absolute/path/to/c.yaml,
-            from_resource: https://absolute/path/to/c.yaml,
+            scope: https://absolute/path/to/c.json,
+            from_resource: https://absolute/path/to/c.json,
             to_resource: https://absolute/path/to/c.ts,
         },
         Import {
             scope: test://example/B.yaml#/import/0,
             from_resource: test://example/B.yaml,
-            to_resource: https://absolute/path/to/c.yaml,
+            to_resource: https://absolute/path/to/c.json,
         },
         Import {
             scope: test://example/B.yaml,
@@ -70,18 +69,18 @@ Tables {
     projections: [],
     resources: [
         Resource {
-            resource: https://absolute/path/to/c.yaml,
-            content_type: "CATALOG",
+            resource: https://absolute/path/to/c.json,
+            content_type: "application/vnd.flow.catalog+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/B.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
     ],
@@ -100,7 +99,7 @@ Tables {
             foreign_build_id: NULL,
         },
         StorageMapping {
-            scope: https://absolute/path/to/c.yaml#/storageMappings/C~1,
+            scope: https://absolute/path/to/c.json#/storageMappings/C~1,
             prefix: C/,
             stores: [{"provider":"AZURE","bucket":"az-bucket","prefix":null}],
             foreign_build_id: NULL,

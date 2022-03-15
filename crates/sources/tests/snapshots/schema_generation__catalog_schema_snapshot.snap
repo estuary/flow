@@ -2,7 +2,6 @@
 source: crates/sources/tests/schema_generation.rs
 assertion_line: 4
 expression: "&schema"
-
 ---
 {
   "$schema": "https://json-schema.org/draft/2019-09/schema",
@@ -456,17 +455,18 @@ expression: "&schema"
     },
     "ContentType": {
       "description": "ContentType is the type of an imported resource's content.",
-      "examples": [
-        "CATALOG"
-      ],
       "type": "string",
       "enum": [
-        "CATALOG",
-        "JSON_SCHEMA",
-        "TYPESCRIPT_MODULE",
-        "CONFIG",
-        "DOCUMENTS_FIXTURE"
-      ]
+        "application/vnd.flow.catalog+json",
+        "application/vnd.flow.catalog+yaml",
+        "application/vnd.flow.jsonSchema+json",
+        "application/vnd.flow.jsonSchema+yaml",
+        "application/vnd.flow.typescript+text",
+        "application/vnd.flow.config+json",
+        "application/vnd.flow.config+yaml",
+        "application/vnd.flow.documentsFixture+yaml"
+      ],
+      "example": "application/vnd.flow.catalog+yaml"
     },
     "Derivation": {
       "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
@@ -585,7 +585,7 @@ expression: "&schema"
       "examples": [
         "./a/flow.yaml",
         {
-          "contentType": "JSON_SCHEMA",
+          "contentType": "application/vnd.flow.jsonSchema+json",
           "url": "https://example/schema.json"
         }
       ],
@@ -983,9 +983,8 @@ expression: "&schema"
       ],
       "properties": {
         "content": {
-          "title": "Byte content of the Resource.",
-          "type": "string",
-          "contentEncoding": "base64"
+          "title": "Content of the Resource.",
+          "type": "string"
         },
         "contentType": {
           "title": "Content type of the Resource.",

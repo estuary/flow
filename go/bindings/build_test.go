@@ -23,7 +23,7 @@ func TestBuildCatalog(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///build.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
@@ -105,7 +105,7 @@ func TestBuildSchema(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///b.schema.yaml",
-			SourceType: pf.ContentType_JSON_SCHEMA,
+			SourceType: pf.ContentType_JSON_SCHEMA_YAML,
 		}}
 	require.NoError(t, BuildCatalog(args))
 

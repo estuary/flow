@@ -35,7 +35,7 @@ pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
     RelativeUrl, Test, Transform,
 };
-pub use resources::{ContentType, Import, ResourceDef};
+pub use resources::{ContentFormat, ContentType, Import, ResourceDef};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use shuffles::{Lambda, PartitionSelector, Shuffle};

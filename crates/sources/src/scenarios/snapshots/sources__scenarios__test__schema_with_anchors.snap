@@ -1,7 +1,7 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
-
 ---
 Tables {
     capture_bindings: [],
@@ -57,12 +57,12 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/schema.json,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
     ],

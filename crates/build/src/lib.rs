@@ -42,8 +42,10 @@ where
     let root_url = source_to_url(config.source.as_str())?;
 
     let root_spec = match flow::ContentType::from_i32(config.source_type) {
-        Some(flow::ContentType::CatalogSpec) => flow::ContentType::CatalogSpec,
-        Some(flow::ContentType::JsonSchema) => flow::ContentType::JsonSchema,
+        Some(flow::ContentType::CatalogJson) => flow::ContentType::CatalogJson,
+        Some(flow::ContentType::CatalogYaml) => flow::ContentType::CatalogYaml,
+        Some(flow::ContentType::JsonSchemaJson) => flow::ContentType::JsonSchemaJson,
+        Some(flow::ContentType::JsonSchemaYaml) => flow::ContentType::JsonSchemaYaml,
         _ => anyhow::bail!("unexpected content type (must be CatalogSpec or JsonSchema)"),
     };
 

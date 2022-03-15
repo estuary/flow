@@ -2,7 +2,6 @@
 source: crates/sources/src/scenarios/mod.rs
 assertion_line: 27
 expression: tables
-
 ---
 Tables {
     capture_bindings: [
@@ -48,7 +47,7 @@ Tables {
             scope: test://example/catalog.yaml#/captures/capture~1config-parse-error,
             capture: capture/config-parse-error,
             endpoint_type: "AirbyteSource",
-            endpoint_spec: null,
+            endpoint_spec: {"image":"another/image","config":"abcd1234"},
             interval_seconds: 300,
             shards: {},
         },
@@ -82,11 +81,10 @@ Tables {
     errors: [
         Error {
             scope: test://example/malformed-config.yaml,
-            error: failed to parse configuration document (location None) (https://go.estuary.dev/qpSUoq)
+            error: failed to parse configuration document (location Some(Location { index: 0, line: 1, column: 1 })) (https://go.estuary.dev/qpSUoq)
             
             Caused by:
-                0: invalid utf-8 sequence of 1 bytes from index 1
-                1: invalid utf-8 sequence of 1 bytes from index 1,
+                invalid type: string "abcd1234", expected a map at line 1 column 1,
         },
         Error {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
@@ -240,17 +238,17 @@ Tables {
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/malformed-config.yaml,
-            content_type: "CONFIG",
+            content_type: "application/vnd.flow.config+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/referenced/config.yaml,
-            content_type: "CONFIG",
+            content_type: "application/vnd.flow.config+yaml",
             content: ".. binary ..",
         },
     ],

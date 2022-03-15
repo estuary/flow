@@ -2,7 +2,6 @@
 source: crates/validation/tests/scenario_tests.rs
 assertion_line: 21
 expression: tables
-
 ---
 All {
     built_captures: [
@@ -5389,122 +5388,122 @@ All {
     resources: [
         Resource {
             resource: test://example/array-key,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/array-key.schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/cdc-config.yaml,
-            content_type: "CONFIG",
+            content_type: "application/vnd.flow.config+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/db-views,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/from-array-key,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-halve,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-halve.ts,
-            content_type: "TYPESCRIPT_MODULE",
+            content_type: "application/vnd.flow.typescript+text",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-reverse,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-reverse.ts,
-            content_type: "TYPESCRIPT_MODULE",
+            content_type: "application/vnd.flow.typescript+text",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+json",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string-captures,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string-len.schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string-tests,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string-tests?ptr=/tests/testing~1test/0,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string-tests?ptr=/tests/testing~1test/1,
-            content_type: "DOCUMENTS_FIXTURE",
+            content_type: "application/vnd.flow.documentsFixture+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/int-string.schema,
-            content_type: "JSON_SCHEMA",
+            content_type: "application/vnd.flow.jsonSchema+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/webhook-config.yaml,
-            content_type: "CONFIG",
+            content_type: "application/vnd.flow.config+yaml",
             content: ".. binary ..",
         },
         Resource {
             resource: test://example/webhook-deliveries,
-            content_type: "CATALOG",
+            content_type: "application/vnd.flow.catalog+yaml",
             content: ".. binary ..",
         },
     ],

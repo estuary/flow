@@ -1,20 +1,25 @@
+use std::fmt::Display;
+use std::str::FromStr;
+
 use bytes::Bytes;
 use protocol::flow::ContentType as ProtoContentType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use super::RelativeUrl;
 
+mod deserialization;
+mod serialization;
+
 /// A Resource is binary content with an associated ContentType.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+#[derive(Debug, JsonSchema, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ResourceDef {
     /// # Content type of the Resource.
     pub content_type: ContentType,
-    /// # Byte content of the Resource.
-    #[serde(serialize_with = "as_base64", deserialize_with = "from_base64")]
-    #[schemars(schema_with = "base64_schema")]
+    /// # Content of the Resource.
+    #[schemars(schema_with = "serialization::content_schema")]
     pub content: Bytes,
 }
 
@@ -46,7 +51,13 @@ impl Import {
     // Get the ContentType of this Import.
     pub fn content_type(&self) -> ContentType {
         match self {
-            Self::Url(_) => ContentType::Catalog,
+            Self::Url(url) => {
+                if url.ends_with(".json") {
+                    ContentType::Catalog(ContentFormat::Json)
+                } else {
+                    ContentType::Catalog(ContentFormat::Yaml)
+                }
+            }
             Self::Extended { content_type, .. } => *content_type,
         }
     }
@@ -57,45 +68,137 @@ impl Import {
     fn example_extended() -> Self {
         Self::Extended {
             url: RelativeUrl::new("https://example/schema.json"),
-            content_type: ContentType::JsonSchema,
+            content_type: ContentType::JsonSchema(ContentFormat::Json),
+        }
+    }
+}
+
+/// ContentFormat describes the format for a resource.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ContentFormat {
+    Json,
+    Yaml,
+}
+
+impl From<&url::Url> for ContentFormat {
+    fn from(value: &url::Url) -> Self {
+        if value.path().ends_with(".json") {
+            ContentFormat::Json
+        } else {
+            // TODO: Should this be a TryFrom implementation instead? I expect
+            // the callers from within most of Flow are going to default to Yaml
+            // format, so I don't know there's a lot to gain by indicating an
+            // inference failure.
+            ContentFormat::Yaml
         }
     }
 }
 
 /// ContentType is the type of an imported resource's content.
-#[derive(Deserialize, Debug, Serialize, JsonSchema, Copy, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-#[schemars(example = "ContentType::example")]
+#[derive(Clone, Copy, Debug, DeserializeFromStr, Eq, PartialEq, SerializeDisplay)]
 pub enum ContentType {
     /// Resource is a Flow catalog (as YAML or JSON).
-    Catalog,
+    Catalog(ContentFormat),
     /// Resource is a JSON schema (as YAML or JSON).
-    JsonSchema,
+    JsonSchema(ContentFormat),
     /// Resource is a TypeScript module file.
     TypescriptModule,
     /// Configuration file.
-    Config,
+    Config(ContentFormat),
     /// Fixture of documents.
     DocumentsFixture,
     /// Resource is a compiled NPM package.
-    #[schemars(skip)]
     NpmPackage,
+}
+
+impl JsonSchema for ContentType {
+    fn schema_name() -> String {
+        "ContentType".to_string()
+    }
+
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        serde_json::from_value(serde_json::json!({
+            "description": "ContentType is the type of an imported resource's content.",
+            "type": "string",
+            "enum": [
+                "application/vnd.flow.catalog+json",
+                "application/vnd.flow.catalog+yaml",
+                "application/vnd.flow.jsonSchema+json",
+                "application/vnd.flow.jsonSchema+yaml",
+                "application/vnd.flow.typescript+text",
+                "application/vnd.flow.config+json",
+                "application/vnd.flow.config+yaml",
+                "application/vnd.flow.documentsFixture+yaml",
+                // Deliberately omitting npm packages from the schema. TODO: Find out why.
+                // "application/vnd.flow.npmPackage+base64",
+            ],
+            "example": Self::example(),
+        }))
+        .unwrap()
+    }
 }
 
 impl ContentType {
     pub fn example() -> Self {
-        Self::Catalog
+        Self::Catalog(ContentFormat::Yaml)
+    }
+}
+
+impl Display for ContentType {
+    #[rustfmt::skip]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ContentFormat::*;
+        use ContentType::*;
+
+        match self {
+            Catalog(Json)    => write!(f, "application/vnd.flow.catalog+json"),
+            Catalog(Yaml)    => write!(f, "application/vnd.flow.catalog+yaml"),
+            JsonSchema(Json) => write!(f, "application/vnd.flow.jsonSchema+json"),
+            JsonSchema(Yaml) => write!(f, "application/vnd.flow.jsonSchema+yaml"),
+            TypescriptModule => write!(f, "application/vnd.flow.typescript+text"),
+            Config(Json)     => write!(f, "application/vnd.flow.config+json"),
+            Config(Yaml)     => write!(f, "application/vnd.flow.config+yaml"),
+            DocumentsFixture => write!(f, "application/vnd.flow.documentsFixture+yaml"),
+            NpmPackage       => write!(f, "application/vnd.flow.npmPackage+base64"),
+        }
+    }
+}
+
+impl FromStr for ContentType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use ContentFormat::*;
+        use ContentType::*;
+
+        let content_type = match s {
+            "application/vnd.flow.catalog+json" => Catalog(Json),
+            "application/vnd.flow.catalog+yaml" => Catalog(Yaml),
+            "application/vnd.flow.jsonSchema+json" => JsonSchema(Json),
+            "application/vnd.flow.jsonSchema+yaml" => JsonSchema(Yaml),
+            "application/vnd.flow.typescript+text" => TypescriptModule,
+            "application/vnd.flow.config+json" => Config(Json),
+            "application/vnd.flow.config+yaml" => Config(Yaml),
+            "application/vnd.flow.documentsFixture+yaml" => DocumentsFixture,
+            "application/vnd.flow.npmPackage+base64" => NpmPackage,
+            otherwise => return Err(format!("ContentType not recognized: `{otherwise}`")),
+        };
+
+        Ok(content_type)
     }
 }
 
 impl From<ProtoContentType> for ContentType {
     fn from(t: ProtoContentType) -> Self {
         match t {
-            ProtoContentType::CatalogSpec => Self::Catalog,
-            ProtoContentType::JsonSchema => Self::JsonSchema,
+            ProtoContentType::CatalogJson => Self::Catalog(ContentFormat::Json),
+            ProtoContentType::CatalogYaml => Self::Catalog(ContentFormat::Yaml),
+            ProtoContentType::JsonSchemaJson => Self::JsonSchema(ContentFormat::Json),
+            ProtoContentType::JsonSchemaYaml => Self::JsonSchema(ContentFormat::Yaml),
             ProtoContentType::TypescriptModule => Self::TypescriptModule,
             ProtoContentType::NpmPackage => Self::NpmPackage,
-            ProtoContentType::Config => Self::Config,
+            ProtoContentType::ConfigJson => Self::Config(ContentFormat::Json),
+            ProtoContentType::ConfigYaml => Self::Config(ContentFormat::Yaml),
             ProtoContentType::DocumentsFixture => Self::DocumentsFixture,
         }
     }
@@ -103,41 +206,15 @@ impl From<ProtoContentType> for ContentType {
 impl Into<ProtoContentType> for ContentType {
     fn into(self) -> ProtoContentType {
         match self {
-            Self::Catalog => ProtoContentType::CatalogSpec,
-            Self::JsonSchema => ProtoContentType::JsonSchema,
+            Self::Catalog(ContentFormat::Json) => ProtoContentType::CatalogJson,
+            Self::Catalog(ContentFormat::Yaml) => ProtoContentType::CatalogYaml,
+            Self::JsonSchema(ContentFormat::Json) => ProtoContentType::JsonSchemaJson,
+            Self::JsonSchema(ContentFormat::Yaml) => ProtoContentType::JsonSchemaYaml,
             Self::TypescriptModule => ProtoContentType::TypescriptModule,
             Self::NpmPackage => ProtoContentType::NpmPackage,
-            Self::Config => ProtoContentType::Config,
+            Self::Config(ContentFormat::Json) => ProtoContentType::ConfigJson,
+            Self::Config(ContentFormat::Yaml) => ProtoContentType::ConfigYaml,
             Self::DocumentsFixture => ProtoContentType::DocumentsFixture,
         }
     }
-}
-
-fn as_base64<T, S>(bytes: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: AsRef<[u8]>,
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&base64::encode(bytes.as_ref()))
-}
-
-fn from_base64<'de, D>(deserializer: D) -> Result<bytes::Bytes, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    String::deserialize(deserializer)
-        .and_then(|string| {
-            base64::decode(&string)
-                .map_err(|err| Error::custom(format!("decoding base64 resource content: {}", err)))
-        })
-        .map(Into::into)
-}
-
-fn base64_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    from_value(json!({
-        "type": "string",
-        "contentEncoding": "base64",
-    }))
-    .unwrap()
 }

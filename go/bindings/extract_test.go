@@ -58,7 +58,7 @@ func TestExtractorValidation(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-string.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, BuildCatalog(args))
 

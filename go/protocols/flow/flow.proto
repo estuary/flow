@@ -806,12 +806,15 @@ message DeriveAPI {
 
 // ContentType enumerates the content types understood by Flow.
 enum ContentType {
-  CATALOG_SPEC = 0;
-  JSON_SCHEMA = 1;
-  TYPESCRIPT_MODULE = 2;
-  NPM_PACKAGE = 3;
-  CONFIG = 4;
-  DOCUMENTS_FIXTURE = 5;
+  CATALOG_JSON = 0;
+  CATALOG_YAML = 1;
+  JSON_SCHEMA_JSON = 2;
+  JSON_SCHEMA_YAML = 3;
+  TYPESCRIPT_MODULE = 4;
+  NPM_PACKAGE = 5;
+  CONFIG_JSON = 6;
+  CONFIG_YAML = 7;
+  DOCUMENTS_FIXTURE = 8;
 }
 
 // BuildAPI is a meta-message which name spaces messages of the Build API

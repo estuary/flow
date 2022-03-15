@@ -37,7 +37,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			BuildId:    "a-build-id",
 			Directory:  t.TempDir(),
 			Source:     "file:///ab.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 

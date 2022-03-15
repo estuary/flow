@@ -28,7 +28,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-strings.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
@@ -106,7 +106,7 @@ func TestCombineBindings(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-strings.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG_YAML,
 		}}
 	require.NoError(t, BuildCatalog(args))
 

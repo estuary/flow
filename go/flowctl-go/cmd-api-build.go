@@ -19,17 +19,18 @@ import (
 )
 
 type apiBuild struct {
-	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
-	Directory   string                `long:"directory" default:"." description:"Build directory"`
-	FileRoot    string                `long:"fs-root" default:"/" description:"Filesystem root of fetched file:// resources"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
-	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
-	SourceType  string                `long:"source-type" default:"catalog" choice:"catalog" choice:"jsonSchema" description:"Type of the source to build."`
-	TSCompile   bool                  `long:"ts-compile" description:"Should TypeScript modules be compiled and linted? Implies generation."`
-	TSGenerate  bool                  `long:"ts-generate" description:"Should TypeScript types be generated?"`
-	TSPackage   bool                  `long:"ts-package" description:"Should TypeScript modules be packaged? Implies generation and compilation."`
-	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
-	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
+	BuildID      string                `long:"build-id" required:"true" description:"ID of this build"`
+	Directory    string                `long:"directory" default:"." description:"Build directory"`
+	FileRoot     string                `long:"fs-root" default:"/" description:"Filesystem root of fetched file:// resources"`
+	Network      string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Source       string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
+	SourceType   string                `long:"source-type" default:"catalog" choice:"catalog" choice:"jsonSchema" description:"Type of the source to build."`
+	SourceFormat string                `long:"source-format" default:"yaml" choice:"yaml" choice:"json" description:"Format of the source."`
+	TSCompile    bool                  `long:"ts-compile" description:"Should TypeScript modules be compiled and linted? Implies generation."`
+	TSGenerate   bool                  `long:"ts-generate" description:"Should TypeScript types be generated?"`
+	TSPackage    bool                  `long:"ts-package" description:"Should TypeScript modules be packaged? Implies generation and compilation."`
+	Log          mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
+	Diagnostics  mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
 func (cmd apiBuild) execute(ctx context.Context) error {
@@ -41,9 +42,19 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 	var sourceType pf.ContentType
 	switch cmd.SourceType {
 	case "catalog":
-		sourceType = pf.ContentType_CATALOG_SPEC
+		switch cmd.SourceFormat {
+		case "json":
+			sourceType = pf.ContentType_CATALOG_JSON
+		case "yaml":
+			sourceType = pf.ContentType_CATALOG_YAML
+		}
 	case "jsonSchema":
-		sourceType = pf.ContentType_JSON_SCHEMA
+		switch cmd.SourceFormat {
+		case "json":
+			sourceType = pf.ContentType_JSON_SCHEMA_JSON
+		case "yaml":
+			sourceType = pf.ContentType_JSON_SCHEMA_YAML
+		}
 	}
 
 	var args = bindings.BuildArgs{

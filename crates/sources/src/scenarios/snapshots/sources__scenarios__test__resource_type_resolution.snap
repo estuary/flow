@@ -1,0 +1,121 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 189
+expression: tables
+---
+Tables {
+    capture_bindings: [],
+    captures: [],
+    collections: [],
+    derivations: [],
+    errors: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/catalog.ts,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/email.schema.json,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/important.ts,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/name.schema.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/npm.zip,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/email.schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/2,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/important.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/name.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/3,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/npm.zip,
+        },
+    ],
+    materialization_bindings: [],
+    materializations: [],
+    named_schemas: [
+        NamedSchema {
+            scope: test://example/email.schema.json,
+            anchor: test://example/email.schema.json#Email,
+            anchor_name: Email,
+        },
+        NamedSchema {
+            scope: test://example/name.schema.yaml,
+            anchor: test://example/name.schema.yaml#Name,
+            anchor_name: Name,
+        },
+    ],
+    npm_dependencies: [],
+    projections: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "application/vnd.flow.catalog+yaml",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/email.schema.json,
+            content_type: "application/vnd.flow.jsonSchema+json",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/important.ts,
+            content_type: "application/vnd.flow.typescript+text",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/name.schema.yaml,
+            content_type: "application/vnd.flow.jsonSchema+yaml",
+            content: ".. binary ..",
+        },
+        Resource {
+            resource: test://example/npm.zip,
+            content_type: "application/vnd.flow.npmPackage+base64",
+            content: ".. binary ..",
+        },
+    ],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://example/email.schema.json,
+            dom: {"$anchor":"Email","type":"string"},
+        },
+        SchemaDoc {
+            schema: test://example/name.schema.yaml,
+            dom: {"$anchor":"Name","type":"string"},
+        },
+    ],
+    storage_mappings: [],
+    test_steps: [],
+    transforms: [],
+}

@@ -47,32 +47,31 @@ mod test {
                 }
             }
         });
-        let c = base64::encode(serde_json::to_vec(&c).unwrap());
 
-        let b = json!({
+        let b = serde_yaml::to_string(&json!({
             "resources": {
-                "https://absolute/path/to/c.yaml": {
+                "https://absolute/path/to/c.json": {
                     "content": c,
-                    "contentType": "CATALOG",
+                    "contentType": "application/vnd.flow.catalog+json",
                 }
             },
             "import": [
-                "https://absolute/path/to/c.yaml"
+                "https://absolute/path/to/c.json"
             ],
             "storageMappings": {
                 "B/": {
                     "stores": [{ "provider": "S3", "bucket": "s3-bucket" }]
                 }
             }
-        });
-        let b = base64::encode(serde_json::to_vec(&b).unwrap());
+        }))
+        .unwrap();
 
         let fixture = json!({
             "test://example/catalog.yaml": {
                 "resources": {
                     "test://example/B.yaml": {
                         "content": b,
-                        "contentType": "CATALOG",
+                        "contentType": "application/vnd.flow.catalog+yaml",
                     }
                 },
                 "import": [
@@ -96,30 +95,88 @@ mod test {
             "$anchor": "Email",
             "type": "string",
         });
-        let schema1 = base64::encode(serde_json::to_vec(&schema1).unwrap());
 
         let schema2 = json!({
             "$ref": "path/to/email.schema.json",
             "format": "email",
         });
-        let schema2 = base64::encode(serde_json::to_vec(&schema2).unwrap());
 
         let fixture = json!({
             "test://example/catalog.yaml": {
                 "resources": {
                     "test://example/path/to/email.schema.json": {
                         "content": schema1,
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
                     },
                     "test://example/schema.json": {
                         "content": schema2,
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
                     },
                 },
                 "import": [
                     {
                         "url": "schema.json",
-                        "contentType": "JSON_SCHEMA",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
+                    },
+                ],
+            }
+        });
+
+        let tables = evaluate_fixtures(Default::default(), &fixture);
+        insta::assert_debug_snapshot!(tables);
+    }
+
+    #[test]
+    fn test_resource_type_resolution() {
+        let json_schema = json!({
+            "$anchor": "Email",
+            "type": "string",
+        });
+
+        let yaml_schema = "
+            $anchor: Name
+            type: string
+        ";
+
+        let typescript = "a typescript module should be left unchanged";
+        let npm_package = base64::encode(b"binary blob representing a zipped npm package");
+
+        let fixture = json!({
+            "test://example/catalog.yaml": {
+                "resources": {
+                    "test://example/email.schema.json": {
+                        "content": json_schema,
+                        "contentType": "application/vnd.flow.jsonSchema+json",
+                    },
+                    "test://example/name.schema.yaml": {
+                        "content": yaml_schema,
+                        "contentType": "application/vnd.flow.jsonSchema+yaml",
+                    },
+                    "test://example/important.ts": {
+                        "content": typescript,
+                        "contentType": "application/vnd.flow.typescript+text",
+                    },
+                    "test://example/npm.zip": {
+                        "content": npm_package,
+                        "contentType": "application/vnd.flow.npmPackage+base64",
+                    },
+                },
+                "import": [
+                    {
+                        "url": "email.schema.json",
+                        "contentType": "application/vnd.flow.jsonSchema+json",
+                    },
+                    {
+                        "url": "name.schema.yaml",
+                        "contentType": "application/vnd.flow.jsonSchema+yaml",
+                    },
+                    {
+                        "url": "important.ts",
+                        "contentType": "application/vnd.flow.typescript+text",
+                    },
+                    {
+                        "url": "npm.zip",
+                        "contentType": "application/vnd.flow.npmPackage+base64",
                     },
                 ],
             }
@@ -192,7 +249,11 @@ pub fn evaluate_fixtures(catalog: Tables, fixture: &serde_json::Value) -> Tables
     // whole mess fully deterministic.
 
     let mut fut = loader
-        .load_resource(Scope::new(&root), &root, models::ContentType::Catalog)
+        .load_resource(
+            Scope::new(&root),
+            &root,
+            models::ContentType::Catalog(models::ContentFormat::Yaml),
+        )
         .boxed_local();
 
     let waker = futures::task::noop_waker();
