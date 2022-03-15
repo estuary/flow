@@ -3,51 +3,50 @@ use std::collections::{BTreeMap, HashSet};
 use protocol::flow::{inference::Exists, materialization_spec::Binding, CollectionSpec};
 use protocol::materialize::{constraint, Constraint};
 
-pub fn validate_new_projection(proposed: CollectionSpec) -> BTreeMap<String, Constraint> {
+/*pub fn validate_selected_fields(
+    constraints: BTreeMap<String, Constraint>,
+    proposed: Binding,
+) -> Result<(), InvalidSelectedFields> {
+}*/
+
+pub fn validate_new_projection(proposed: Binding) -> BTreeMap<String, Constraint> {
     proposed
+        .collection
+        .unwrap()
         .projections
         .iter()
-        .map({
-            |projection| {
-                let constraint = {
-                    if projection.is_primary_key {
+        .map(|projection| {
+            let constraint = {
+                if projection.is_primary_key {
+                    Constraint {
+                        r#type: constraint::Type::LocationRequired.into(),
+                        reason: "All locations that are part of the collection key are required."
+                            .to_string(),
+                    }
+                } else if projection.ptr.len() == 0 {
+                    // root document
+                    Constraint {
+                        r#type: constraint::Type::LocationRecommended.into(),
+                        reason: "The root document should usually be materialized.".to_string(),
+                    }
+                } else if let Some(infer) = &projection.inference {
+                    if infer.types.len() != 1 {
                         Constraint {
-                            r#type: constraint::Type::LocationRequired.into(),
-                            reason:
-                                "All locations that are part of the collection key are required."
-                                    .to_string(),
+                            r#type: constraint::Type::FieldForbidden.into(),
+                            reason: "Cannot materialize field with multiple or no types."
+                                .to_string(),
                         }
-                    } else if projection.ptr.len() == 0 {
-                        // root document
+                    } else if ["boolean", "integer", "numeric", "string"]
+                        .contains(&infer.types[0].as_str())
+                    {
                         Constraint {
                             r#type: constraint::Type::LocationRecommended.into(),
-                            reason: "The root document should usually be materialized.".to_string(),
+                            reason: "Scalar values are recommended to be materialized.".to_string(),
                         }
-                    } else if let Some(infer) = &projection.inference {
-                        if infer.types.len() != 1 {
-                            Constraint {
-                                r#type: constraint::Type::FieldForbidden.into(),
-                                reason: "Cannot materialize field with multiple or no types."
-                                    .to_string(),
-                            }
-                        } else if ["boolean", "integer", "numeric", "string"]
-                            .contains(&infer.types[0].as_str())
-                        {
-                            Constraint {
-                                r#type: constraint::Type::LocationRecommended.into(),
-                                reason: "Scalar values are recommended to be materialized."
-                                    .to_string(),
-                            }
-                        } else if ["object", "array"].contains(&infer.types[0].as_str()) {
-                            Constraint {
-                                r#type: constraint::Type::FieldOptional.into(),
-                                reason: "Object and array fields can be materialized.".to_string(),
-                            }
-                        } else {
-                            Constraint {
-                                r#type: constraint::Type::FieldForbidden.into(),
-                                reason: "Cannot materialize this field.".to_string(),
-                            }
+                    } else if ["object", "array"].contains(&infer.types[0].as_str()) {
+                        Constraint {
+                            r#type: constraint::Type::FieldOptional.into(),
+                            reason: "Object and array fields can be materialized.".to_string(),
                         }
                     } else {
                         Constraint {
@@ -55,28 +54,34 @@ pub fn validate_new_projection(proposed: CollectionSpec) -> BTreeMap<String, Con
                             reason: "Cannot materialize this field.".to_string(),
                         }
                     }
-                };
+                } else {
+                    Constraint {
+                        r#type: constraint::Type::FieldForbidden.into(),
+                        reason: "Cannot materialize this field.".to_string(),
+                    }
+                }
+            };
 
-                (projection.field.clone(), constraint)
-            }
+            (projection.field.clone(), constraint)
         })
         .collect()
 }
 
 pub fn validate_existing_projection(
     existing: Binding,
-    proposed: CollectionSpec,
+    proposed: Binding,
 ) -> BTreeMap<String, Constraint> {
     let fs = existing.field_selection.unwrap();
     let existing_projections = existing.collection.unwrap().projections;
-    let fields: Vec<String> = Vec::from([fs.keys, fs.values, Vec::from([fs.document])]).concat();
+    let fields: Vec<String> = vec![fs.keys, fs.values, vec![fs.document]].concat();
+    let collection = proposed.collection.unwrap();
     let mut constraints: BTreeMap<String, Constraint> = {
         fields
             .iter()
             .filter_map({
                 |field| {
                     let ep = existing_projections.iter().find(|p| &p.field == field)?;
-                    let pp = proposed.projections.iter().find(|p| &p.field == field)?;
+                    let pp = collection.projections.iter().find(|p| &p.field == field)?;
 
                     // TODO: Should we handle an error for None case of these?
                     let ep_infer = ep.inference.as_ref()?;
@@ -116,7 +121,7 @@ pub fn validate_existing_projection(
             .collect()
     };
 
-    proposed.projections.iter().for_each({
+    collection.projections.iter().for_each({
         |projection| {
             if !constraints.contains_key(&projection.field) {
                 constraints.insert(
@@ -140,8 +145,11 @@ mod tests {
 
     use super::*;
     fn check_validate_new_projection(projection: Projection, constraint: Constraint) {
-        let result = validate_new_projection(CollectionSpec {
-            projections: [projection.clone()].to_vec(),
+        let result = validate_new_projection(Binding {
+            collection: Some(CollectionSpec {
+                projections: vec![projection.clone()],
+                ..Default::default()
+            }),
             ..Default::default()
         });
         assert_eq!(result[&projection.field], constraint);
@@ -157,13 +165,16 @@ mod tests {
             Binding {
                 field_selection: Some(existing_fs),
                 collection: Some(CollectionSpec {
-                    projections: [existing_projection].to_vec(),
+                    projections: vec![existing_projection],
                     ..Default::default()
                 }),
                 ..Default::default()
             },
-            CollectionSpec {
-                projections: [projection.clone()].to_vec(),
+            Binding {
+                collection: Some(CollectionSpec {
+                    projections: vec![projection.clone()],
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         );
@@ -202,7 +213,7 @@ mod tests {
                 field: "multi_types".to_string(),
                 ptr: "multi_types".to_string(),
                 inference: Some(Inference {
-                    types: ["numeric", r"integer"].map(|s| s.to_string()).to_vec(),
+                    types: vec!["numeric".to_string(), "integer".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -247,7 +258,7 @@ mod tests {
                 field: "boolean".to_string(),
                 ptr: "boolean".to_string(),
                 inference: Some(Inference {
-                    types: ["boolean".to_string()].to_vec(),
+                    types: vec!["boolean".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -263,7 +274,7 @@ mod tests {
                 field: "int".to_string(),
                 ptr: "int".to_string(),
                 inference: Some(Inference {
-                    types: ["integer".to_string()].to_vec(),
+                    types: vec!["integer".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -279,7 +290,7 @@ mod tests {
                 field: "num".to_string(),
                 ptr: "num".to_string(),
                 inference: Some(Inference {
-                    types: ["numeric".to_string()].to_vec(),
+                    types: vec!["numeric".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -295,7 +306,7 @@ mod tests {
                 field: "string".to_string(),
                 ptr: "string".to_string(),
                 inference: Some(Inference {
-                    types: ["string".to_string()].to_vec(),
+                    types: vec!["string".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -311,7 +322,7 @@ mod tests {
                 field: "obj".to_string(),
                 ptr: "obj".to_string(),
                 inference: Some(Inference {
-                    types: ["object".to_string()].to_vec(),
+                    types: vec!["object".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -327,7 +338,7 @@ mod tests {
                 field: "arr".to_string(),
                 ptr: "arr".to_string(),
                 inference: Some(Inference {
-                    types: ["array".to_string()].to_vec(),
+                    types: vec!["array".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -343,7 +354,7 @@ mod tests {
                 field: "null".to_string(),
                 ptr: "null".to_string(),
                 inference: Some(Inference {
-                    types: ["null".to_string()].to_vec(),
+                    types: vec!["null".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -359,13 +370,13 @@ mod tests {
     fn test_validate_existing_projection() {
         check_validate_existing_projection(
             FieldSelection {
-                keys: Vec::from(["test".to_string()]),
+                keys: vec!["test".to_string()],
                 ..Default::default()
             },
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: ["boolean".to_string()].to_vec(),
+                    types: vec!["boolean".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -373,7 +384,7 @@ mod tests {
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: ["boolean".to_string()].to_vec(),
+                    types: vec!["boolean".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -386,7 +397,7 @@ mod tests {
 
         check_validate_existing_projection(
             FieldSelection {
-                keys: Vec::from(["test".to_string()]),
+                keys: vec!["test".to_string()],
                 ..Default::default()
             },
             Projection {
@@ -405,13 +416,13 @@ mod tests {
 
         check_validate_existing_projection(
             FieldSelection {
-                keys: Vec::from(["test".to_string()]),
+                keys: vec!["test".to_string()],
                 ..Default::default()
             },
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: ["boolean".to_string()].to_vec(),
+                    types: vec!["boolean".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -419,7 +430,7 @@ mod tests {
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: ["numeric".to_string()].to_vec(),
+                    types: vec!["numeric".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -432,7 +443,7 @@ mod tests {
 
         check_validate_existing_projection(
             FieldSelection {
-                keys: Vec::from(["test".to_string()]),
+                keys: vec!["test".to_string()],
                 ..Default::default()
             },
             Projection {
@@ -459,13 +470,13 @@ mod tests {
 
         check_validate_existing_projection(
             FieldSelection {
-                keys: Vec::from(["test".to_string()]),
+                keys: vec!["test".to_string()],
                 ..Default::default()
             },
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: ["null".to_string()].to_vec(),
+                    types: vec!["null".to_string()],
                     exists: Exists::Must.into(),
                     ..Default::default()
                 }),

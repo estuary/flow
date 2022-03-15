@@ -1,18 +1,55 @@
-#[derive(Clone, Debug)]
+use std::fmt::{self, Display};
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Table {
+    pub name: String,
+    pub r#type: TableType,
+    pub schema: TableSchema,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TableType {
+    Fact,
+    Dimension,
+    External,
+}
+
+impl Display for TableType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TableType::Fact => write!(f, "{}", "FACT"),
+            TableType::Dimension => write!(f, "{}", "DIMENSION"),
+            TableType::External => write!(f, "{}", "EXTERNAL"),
+        }
+    }
+}
+
+impl From<String> for TableType {
+    fn from(string: String) -> Self {
+        match string.as_str() {
+            "fact" => TableType::Fact,
+            "dimension" => TableType::Dimension,
+            "external" => TableType::External,
+            _ => panic!("could not parse table type"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableSchema {
     pub columns: Vec<Column>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Column {
     pub key: String,
-    pub typ: FireboltType,
+    pub r#type: FireboltType,
     pub nullable: bool,
+    pub is_key: bool,
 }
 
-// The basic elastic search data types to represent data in Flow.
-#[derive(Clone, Debug)]
-pub enum BasicType {
+#[derive(Clone, Debug, PartialEq)]
+pub enum FireboltType {
     // Numeric Types https://docs.firebolt.io/general-reference/data-types.html#numeric
     Int,
     BigInt,
@@ -30,36 +67,23 @@ pub enum BasicType {
 
     // Boolean https://docs.firebolt.io/general-reference/data-types.html#boolean
     Boolean,
-}
-#[derive(Clone, Debug)]
-pub enum FireboltType {
-    Basic(BasicType),
+
     // Array type https://docs.firebolt.io/general-reference/data-types.html#array
     Array(Box<FireboltType>),
 }
 
-use std::fmt::{self, Display};
-use FireboltType::{Array, Basic};
-impl Display for BasicType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let str = match self {
-            BasicType::Int => "INT",
-            BasicType::BigInt => "BIGINT",
-            BasicType::Float => "FLOAT",
-            BasicType::Double => "DOUBLE",
-            BasicType::Text => "TEXT",
-            BasicType::Date => "DATE",
-            BasicType::Timestamp => "TIMESTAMP",
-            BasicType::Boolean => "BOOLEAN",
-        };
-        write!(f, "{}", str)
-    }
-}
 impl Display for FireboltType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Basic(basic_type) => basic_type.fmt(f),
-            Array(nested_type) => write!(f, "ARRAY({})", nested_type),
+            FireboltType::Int => write!(f, "{}", "INT"),
+            FireboltType::BigInt => write!(f, "{}", "BIGINT"),
+            FireboltType::Float => write!(f, "{}", "FLOAT"),
+            FireboltType::Double => write!(f, "{}", "DOUBLE"),
+            FireboltType::Text => write!(f, "{}", "TEXT"),
+            FireboltType::Date => write!(f, "{}", "DATE"),
+            FireboltType::Timestamp => write!(f, "{}", "TIMESTAMP"),
+            FireboltType::Boolean => write!(f, "{}", "BOOLEAN"),
+            FireboltType::Array(nested_type) => write!(f, "ARRAY({})", nested_type),
         }
     }
 }
@@ -69,12 +93,12 @@ impl Display for Column {
             f,
             "{} {}{}",
             self.key,
-            self.typ,
+            self.r#type,
             if self.nullable { " NULL" } else { "" }
         )
     }
 }
-impl Display for Table {
+impl Display for TableSchema {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, column) in self.columns.iter().enumerate() {
             column.fmt(f)?;
@@ -83,5 +107,83 @@ impl Display for Table {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_table_display() {
+        assert_eq!(
+            TableSchema {
+                columns: vec![
+                    Column {
+                        key: "str".to_string(),
+                        r#type: FireboltType::Text,
+                        nullable: false,
+                        is_key: false,
+                    },
+                    Column {
+                        key: "int".to_string(),
+                        r#type: FireboltType::Int,
+                        nullable: true,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "num".to_string(),
+                        r#type: FireboltType::Double,
+                        nullable: false,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "big".to_string(),
+                        r#type: FireboltType::BigInt,
+                        nullable: false,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "float".to_string(),
+                        r#type: FireboltType::Float,
+                        nullable: false,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "date".to_string(),
+                        r#type: FireboltType::Date,
+                        nullable: false,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "timestamp".to_string(),
+                        r#type: FireboltType::Timestamp,
+                        nullable: false,
+                        is_key: true,
+                    },
+                    Column {
+                        key: "boolean".to_string(),
+                        r#type: FireboltType::Boolean,
+                        nullable: false,
+                        is_key: true,
+                    }
+                ],
+            }
+            .to_string(),
+            "str TEXT,int INT NULL,num DOUBLE,big BIGINT,float FLOAT,date DATE,timestamp TIMESTAMP,boolean BOOLEAN"
+        );
+
+        assert_eq!(
+            TableSchema {
+                columns: vec![Column {
+                    key: "arr".to_string(),
+                    r#type: FireboltType::Array(Box::new(FireboltType::Text)),
+                    nullable: false,
+                    is_key: true,
+                }]
+            }
+            .to_string(),
+            "arr ARRAY(TEXT)"
+        );
     }
 }

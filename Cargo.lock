@@ -3234,6 +3234,7 @@ name = "schemalate"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap 3.1.6",
  "doc 0.0.0",
  "flow_cli_common",
@@ -3241,6 +3242,7 @@ dependencies = [
  "itertools",
  "json 0.0.0",
  "lazy_static",
+ "prost",
  "protocol",
  "regex",
  "serde 1.0.136",
