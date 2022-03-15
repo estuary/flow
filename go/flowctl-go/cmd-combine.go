@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
@@ -51,7 +52,7 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		BuildId:          newBuildID(),
 		Directory:        cmd.Directory,
 		Source:           cmd.Source,
-		SourceType:       pf.ContentType_CATALOG_SPEC,
+		SourceType:       catalogSourceType(cmd.Source),
 		ConnectorNetwork: cmd.Network,
 	}
 	// Cleanup output database.
@@ -170,4 +171,11 @@ func drainToStdout(combiner *bindings.Combine) (*pf.CombineAPI_Stats, error) {
 		fmt.Println(string(doc))
 		return nil
 	})
+}
+
+func catalogSourceType(source string) pf.ContentType {
+	if strings.HasSuffix(source, ".json") {
+		return pf.ContentType_CATALOG_JSON
+	}
+	return pf.ContentType_CATALOG_YAML
 }

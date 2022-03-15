@@ -221,7 +221,7 @@ func (cmd cmdDiscover) writeConfigStub(ctx context.Context, w io.WriteCloser) er
 		BuildId:    newBuildID(),
 		Directory:  tmpdir,
 		Source:     tmpfile,
-		SourceType: pf.ContentType_JSON_SCHEMA,
+		SourceType: pf.ContentType_JSON_SCHEMA_YAML,
 	}
 	// Cleanup output database.
 	defer func() { _ = os.Remove(buildConfig.OutputPath()) }()

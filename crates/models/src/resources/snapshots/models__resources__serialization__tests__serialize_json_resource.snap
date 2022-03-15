@@ -1,0 +1,12 @@
+---
+source: crates/models/src/resources/serialization.rs
+assertion_line: 175
+expression: "&resource"
+---
+{
+  "contentType": "application/vnd.flow.config+json",
+  "content": {
+    "foo": "bar",
+    "baz": [1, 2]
+}
+}

@@ -2170,6 +2170,7 @@ dependencies = [
  "schemars",
  "serde 1.0.136",
  "serde_json",
+ "serde_with",
  "serde_yaml",
  "superslice",
  "unicode-normalization",

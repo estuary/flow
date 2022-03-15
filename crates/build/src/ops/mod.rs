@@ -31,7 +31,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
             schema.url.clone(),
-            models::ContentType::JsonSchema,
+            models::ContentType::JsonSchema(models::ContentFormat::Json),
             bytes::Bytes::from_static(schema.content),
         );
         let dom = serde_json::from_slice::<Value>(schema.content)
@@ -48,7 +48,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     let importers = tables
         .resources
         .iter()
-        .filter(|r| r.content_type == models::ContentType::Catalog)
+        .filter(|r| matches!(r.content_type, models::ContentType::Catalog(_)))
         .map(|r| r.resource.clone())
         .collect::<Vec<_>>();
     for importer in importers {

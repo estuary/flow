@@ -1,0 +1,9 @@
+---
+source: crates/models/src/resources/serialization.rs
+assertion_line: 191
+expression: "&resource"
+---
+{
+  "contentType": "application/vnd.flow.config+yaml",
+  "content": "# yaml content\nfoo: \"bar\",\n\"baz\":\n  - 1\n  - 2\n"
+}

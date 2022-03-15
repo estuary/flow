@@ -192,7 +192,11 @@ pub fn evaluate_fixtures(catalog: Tables, fixture: &serde_json::Value) -> Tables
     // whole mess fully deterministic.
 
     let mut fut = loader
-        .load_resource(Scope::new(&root), &root, models::ContentType::Catalog)
+        .load_resource(
+            Scope::new(&root),
+            &root,
+            models::ContentType::Catalog(models::ContentFormat::Yaml),
+        )
         .boxed_local();
 
     let waker = futures::task::noop_waker();

@@ -1,0 +1,9 @@
+---
+source: crates/models/src/resources/serialization.rs
+assertion_line: 205
+expression: "&resource"
+---
+{
+  "contentType": "application/vnd.flow.npmPackage+base64",
+  "content": "YmluYXJ5IGNvbnRlbnQgb2YgYSB6aXAgYXJjaGl2ZQogICAgICAgICAgICB3aXRoIGludmFsaWQgdXRmOCBzZXF1ZW5jZXMgbGlrZSD/IG9yIMLAIHdoaWNoCiAgICAgICAgICAgIGNhbm5vdCBiZSBlbWJlZGRlZCBkaXJlY3RseSBpbiB1dGY4IHN0cmluZ3M="
+}
