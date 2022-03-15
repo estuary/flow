@@ -134,14 +134,14 @@ To allow SSH tunneling to a database instance hosted on Azure, you'll need to cr
       ssh-keygen -p -N "" -m pem -f /path/to/key
       ```
 
-2. Create a VM in a [virtual network](https://docs.microsoft.com/en-us/azure/virtual-network/virtual-networks-overview), and add the endpoint database to the network.
+2. Create and connect to a VM in a [virtual network](https://docs.microsoft.com/en-us/azure/virtual-network/virtual-networks-overview), and add the endpoint database to the network.
 
-   1. [Create a new virtual network and subnet](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-cli?context=%2Fazure%2Fvirtual-machines%2Fcontext%2Fcontext#create-a-resource-group-and-a-virtual-network).
+   1. [Create a new virtual network and subnet](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-portal).
 
-   2. [Create a VM within the virtual network](https://docs.microsoft.com/en-us/azure/virtual-network/quick-create-cli?context=%2Fazure%2Fvirtual-machines%2Fcontext%2Fcontext#create-virtual-machines),
-   using the `--ssh-key-value` [option](https://docs.microsoft.com/en-us/cli/azure/vm?view=azure-cli-latest#az-vm-create) to use the public key you generated previously.
+   2. Create a [Linux](https://docs.microsoft.com/en-us/azure/virtual-machines/linux/quick-create-portal) or [Windows](https://docs.microsoft.com/en-us/azure/virtual-machines/windows/quick-create-portal) VM within the virtual network,
+   directing the SSH public key source to the public key you generated previously.
 
-   3. Note the public IP that is output on VM creation; you'll need this later.
+   3. Note the VM's public IP; you'll need this later.
 
 3. Create a service endpoint for your database in the same virtual network as your VM.
 Instructions for Azure Database For PostgreSQL can be found [here](https://docs.microsoft.com/en-us/azure/postgresql/howto-manage-vnet-using-portal);
