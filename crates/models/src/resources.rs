@@ -74,8 +74,7 @@ impl Import {
 }
 
 /// ContentFormat describes the format for a resource.
-#[derive(Deserialize, Debug, Serialize, JsonSchema, Copy, Clone, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ContentFormat {
     Json,
     Yaml,
@@ -96,9 +95,7 @@ impl From<&url::Url> for ContentFormat {
 }
 
 /// ContentType is the type of an imported resource's content.
-#[derive(Clone, Copy, Debug, DeserializeFromStr, Eq, JsonSchema, PartialEq, SerializeDisplay)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-#[schemars(example = "ContentType::example")]
+#[derive(Clone, Copy, Debug, DeserializeFromStr, Eq, PartialEq, SerializeDisplay)]
 pub enum ContentType {
     /// Resource is a Flow catalog (as YAML or JSON).
     Catalog(ContentFormat),
@@ -111,8 +108,34 @@ pub enum ContentType {
     /// Fixture of documents.
     DocumentsFixture,
     /// Resource is a compiled NPM package.
-    #[schemars(skip)]
     NpmPackage,
+}
+
+impl JsonSchema for ContentType {
+    fn schema_name() -> String {
+        "ContentType".to_string()
+    }
+
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        serde_json::from_value(serde_json::json!({
+            "description": "ContentType is the type of an imported resource's content.",
+            "type": "string",
+            "enum": [
+                "application/vnd.flow.catalog+json",
+                "application/vnd.flow.catalog+yaml",
+                "application/vnd.flow.jsonSchema+json",
+                "application/vnd.flow.jsonSchema+yaml",
+                "application/vnd.flow.typescript+text",
+                "application/vnd.flow.config+json",
+                "application/vnd.flow.config+yaml",
+                "application/vnd.flow.documentsFixture+yaml",
+                // Deliberately omitting npm packages from the schema.
+                // "application/vnd.flow.npmPackage+base64",
+            ],
+            "example": Self::example(),
+        }))
+        .unwrap()
+    }
 }
 
 impl ContentType {
