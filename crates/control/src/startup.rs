@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::net::TcpListener;
 
-use axum::{AddExtensionLayer, Router};
+use axum::Router;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -40,7 +40,7 @@ pub fn app(ctx: AppContext) -> Router {
         .layer(cors::cors_layer())
         .layer(TraceLayer::new_for_http())
         .layer(ConcurrencyLimitLayer::new(64))
-        .layer(AddExtensionLayer::new(ctx))
+        .layer(axum::extract::Extension(ctx))
 }
 
 pub async fn connect_to_postgres(db_settings: &DatabaseSettings) -> PgPool {

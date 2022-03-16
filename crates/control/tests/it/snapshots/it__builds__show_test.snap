@@ -1,0 +1,54 @@
+---
+source: crates/control/tests/it/builds.rs
+assertion_line: 79
+expression: redactor.response_json(&mut response).await.unwrap()
+---
+{
+  "data": {
+    "attributes": {
+      "account_id": "[account<batman>]",
+      "catalog": {
+        "$schema": null,
+        "captures": {},
+        "collections": {
+          "acmeCo/collection": {
+            "derivation": null,
+            "journals": {
+              "fragments": {}
+            },
+            "key": [
+              "/key"
+            ],
+            "projections": {},
+            "schema": {
+              "properties": {
+                "key": {
+                  "type": "integer"
+                }
+              },
+              "required": "key",
+              "type": "object"
+            }
+          }
+        },
+        "import": [],
+        "materializations": {},
+        "npmDependencies": {},
+        "resources": {},
+        "storageMappings": {},
+        "tests": {}
+      },
+      "created_at": "[datetime]",
+      "id": "[build<batman>]",
+      "state": {
+        "type": "queued"
+      },
+      "updated_at": "[datetime]"
+    },
+    "id": "[build<batman>]",
+    "links": {
+      "self": "http://127.0.0.1:0/builds/[build<batman>]"
+    },
+    "type": "build"
+  }
+}

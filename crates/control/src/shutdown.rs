@@ -2,7 +2,7 @@ use tracing::info;
 
 /// Sets up a termination signal handlers. The Future returned by this async
 /// function will resolve when one of these handlers is triggered.
-pub(crate) async fn signal() {
+pub async fn signal() {
     use tokio::signal;
 
     let ctrl_c = async {

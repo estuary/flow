@@ -28,7 +28,7 @@ url = "*"
 sources = { path = "../sources", version = "0.0.0" }
 
 insta = "*"
-rusqlite = { version = "*", features = ["bundled", "collation", "column_decltype", "functions", "serde_json", "url"] }
+rusqlite = { version = "*", features = ["bundled-full"] }
 serde = "*"
 serde_yaml = "*"
 
