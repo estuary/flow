@@ -104,7 +104,7 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
 
 2. [Create and start a new VM in GCP](https://cloud.google.com/compute/docs/instances/create-start-instance), [choosing an image that supports OS Login](https://cloud.google.com/compute/docs/images/os-details#user-space-features).
 
-3. [Add your public key to the VM](https://cloud.google.com/compute/docs/connect/add-ssh-keys#os-login).
+3. [Add your public key to the VM](https://cloud.google.com/compute/docs/connect/add-ssh-keys).
 
 5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
 Note the generated address.
