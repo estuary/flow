@@ -49,12 +49,13 @@ fn test_database_round_trip() {
 
 #[test]
 fn test_golden_error() {
-    run_test_errors(&GOLDEN, "{}");
+    let errors = run_test_errors(&GOLDEN, "{}");
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_collection_names_prefixes_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -80,11 +81,12 @@ test://example/catalog.yaml:
     testing/Int-Halve: *spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_partition_names_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -108,11 +110,12 @@ test://example/int-string:
         str: /int
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_transform_names_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-reverse:
@@ -135,11 +138,12 @@ test://example/int-reverse:
           reVeRsEIntString: *spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_capture_names_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -173,11 +177,12 @@ test://example/captures:
     testing/SoMe-source: *spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_materialization_names_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -211,11 +216,12 @@ test://example/materializations:
     testing/SoMe-target: *spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_test_names_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -241,11 +247,12 @@ test://example/catalog.yaml:
     testing/TeSt: *spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_cross_entity_name_prefixes_and_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -291,11 +298,12 @@ test://example/catalog.yaml:
     testing/b/4/suffix: *test_spec
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_transform_source_not_found() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-halve:
@@ -309,11 +317,12 @@ test://example/int-halve:
             source: { name: wildly/off/name }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_capture_target_not_found() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-captures:
@@ -326,11 +335,12 @@ test://example/int-string-captures:
           resource: { stream: v2-stream }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_capture_target_is_missing_imports() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-captures:
@@ -344,11 +354,12 @@ test://example/int-string-captures:
           resource: { }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_capture_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-captures:
@@ -375,11 +386,12 @@ driver:
         - resourcePath: [target, two]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_duplicates() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/db-views:
@@ -409,11 +421,12 @@ driver:
           resourcePath: [target, two]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_use_without_import() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -426,11 +439,12 @@ test://example/webhook-deliveries:
   import: [] # Clear.
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_schema_fragment_not_found() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -454,11 +468,12 @@ test://example/int-halve:
               schema: test://example/int-string-len.schema#/not/found
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_keyed_location_wrong_type() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string.schema:
@@ -466,11 +481,12 @@ test://example/int-string.schema:
     int: { type: [number, object] }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_unknown_locations() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -490,11 +506,12 @@ test://example/int-halve:
               key: [/len, /int, /unknown/shuffle]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_shuffle_key_length_mismatch() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-halve:
@@ -510,11 +527,12 @@ test://example/int-halve:
               key: [/len, /int]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_shuffle_key_types_mismatch() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-halve:
@@ -530,11 +548,12 @@ test://example/int-halve:
               key: [/str, /int]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_shuffle_key_relaxed() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-reverse:
@@ -553,11 +572,12 @@ test://example/int-reverse:
             publish: { lambda: typescript }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_collection_key_empty() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -566,11 +586,12 @@ test://example/int-string:
       key: []
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_shuffle_key_empty() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-reverse:
@@ -582,11 +603,12 @@ test://example/int-reverse:
             shuffle: {key: []}
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_partition_selections() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-halve:
@@ -607,11 +629,12 @@ test://example/int-halve:
                   AlsoUnknown: ["whoops"]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_redundant_source_schema_and_shuffle() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-reverse:
@@ -627,11 +650,12 @@ test://example/int-reverse:
               key: [/int]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_must_have_update_or_publish() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-reverse:
@@ -644,11 +668,12 @@ test://example/int-reverse:
             update: null
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_initial_register() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-halve:
@@ -659,11 +684,12 @@ test://example/int-halve:
           initial: "should be an integer"
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_shape_inspections() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-len.schema:
@@ -674,22 +700,24 @@ test://example/int-string-len.schema:
       reduce: { strategy: sum }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_schema_reference_verification() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-len.schema:
   $ref: test://example/int-string.schema#/whoops
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_source_not_found() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/db-views:
@@ -702,11 +730,12 @@ test://example/db-views:
           resource: { table: other_table }
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_field_errors() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/webhook-deliveries:
@@ -731,11 +760,12 @@ test://example/webhook-deliveries:
             recommended: false
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_capture_driver_returns_error() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 driver:
@@ -744,11 +774,12 @@ driver:
       error: "A driver error!"
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_driver_returns_error() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 driver:
@@ -758,11 +789,12 @@ driver:
       error: "A driver error!"
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_driver_unknown_constraint() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 driver:
@@ -779,11 +811,12 @@ driver:
           resourcePath: [tar!get, two]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_driver_conflicts() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 
@@ -815,11 +848,12 @@ driver:
           resourcePath: [tar!get]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_test_step_unknown_collection() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-tests:
@@ -833,11 +867,12 @@ test://example/int-string-tests:
           documents: []
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_test_step_ingest_schema_error() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-tests:
@@ -850,11 +885,12 @@ test://example/int-string-tests:
             - {int: 52, str_whoops: "string B", bit: true}
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_test_step_verify_key_order() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-tests:
@@ -865,11 +901,12 @@ test://example/int-string-tests:
           documents: [{int: 52}, {int: 62}, {int: 42}]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_test_step_verify_selector() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string-tests:
@@ -889,11 +926,12 @@ test://example/int-string-tests:
               AlsoUnknown: ["whoops"]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_materialization_selector() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/db-views:
@@ -913,11 +951,12 @@ test://example/db-views:
               AlsoUnknown: ["whoops"]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_duplicate_named_schema() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 # Repeat a named anchor, in a different schema.
@@ -928,11 +967,12 @@ test://example/int-string-len.schema:
       type: string
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_incompatible_npm_packages() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -948,11 +988,12 @@ test://example/int-string:
     pkg-three: "3"
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_invalid_and_duplicate_storage_mappings() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/int-string:
@@ -975,11 +1016,12 @@ test://example/int-string:
     "/leading/Slash/": {stores: *stores}
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_storage_mappings_not_imported() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -993,11 +1035,12 @@ test://example/array-key:
       stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_storage_mappings_not_found() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -1013,22 +1056,24 @@ test://example/int-string:
       stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_no_storage_mappings_defined() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
   storageMappings: null
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_storage_mappings_without_prefix() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -1038,11 +1083,12 @@ test://example/catalog.yaml:
       stores: [{provider: S3, bucket: a-bucket}]
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
 fn test_collection_schema_string() {
-    run_test_errors(
+    let errors = run_test_errors(
         &GOLDEN,
         r#"
 test://example/catalog.yaml:
@@ -1055,6 +1101,7 @@ test://example/string-schema:
       key: ['']
 "#,
     );
+    insta::assert_debug_snapshot!(errors);
 }
 
 #[derive(serde::Deserialize)]
@@ -1286,7 +1333,8 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
     }
 }
 
-fn run_test_errors(fixture: &Value, patch: &str) {
+#[must_use]
+fn run_test_errors(fixture: &Value, patch: &str) -> tables::Errors {
     let mut fixture = fixture.clone();
     let patch: Value = serde_yaml::from_str(patch).unwrap();
     json_patch::merge(&mut fixture, &patch);
@@ -1298,5 +1346,5 @@ fn run_test_errors(fixture: &Value, patch: &str) {
             ..Default::default()
         },
     );
-    insta::assert_debug_snapshot!(errors);
+    errors
 }

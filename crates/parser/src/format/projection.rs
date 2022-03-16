@@ -89,42 +89,33 @@ impl Projections {
                 Pointer::from(&field_as_ptr)
             });
 
-        if let Some((shape, exists)) = self.shape.locate(&ptr) {
-            // If the inferrence says that this location cannot exist, then we'll log a warning as
-            // a kindness to the user, since they will soon be engaged in debugging.
-            if let Exists::Cannot = exists {
+        match self.shape.locate(&ptr) {
+            (shape, exists @ (Exists::Must | Exists::May)) => {
+                tracing::debug!(
+                    ?shape,
+                    ?exists,
+                    field = field_name,
+                    pointer = ?ptr,
+                    "located field within schema"
+                );
+                Projection::from_shape(ptr, shape, exists)
+            }
+            (shape, exists @ (Exists::Cannot | Exists::Implicit)) => {
+                // If the inference says that this location cannot exist, or exists only implicitly,
+                // then we'll log a warning as a kindness to the user since they will soon be engaged
+                // in debugging.
                 tracing::warn!(
                     ?shape,
                     ?exists,
                     field = field_name,
                     pointer = ?ptr,
-                    "inferred type information says that this field cannot exist within a valid document"
+                    "inferred type information says that this field is not usable within a valid document"
                 );
-            };
-            tracing::debug!(
-                ?shape,
-                ?exists,
-                field = field_name,
-                pointer = ?ptr,
-                "located field within schema"
-            );
-            Projection::from_shape(ptr, shape, exists)
-        } else {
-            // This isn't an error because there may be files that we can still parse correctly
-            // even without knowing the types from the schema. For example, this could be a
-            // location that simply allows any valid JSON, and the projection may be only for the
-            // sake of putting things into the right shape. But we definitely want to log here
-            // because this may be very helpful if the parser starts producing documents that fail
-            // validation.
-            tracing::info!(
-                pointer = ?ptr,
-                field = field_name,
-                "could not locate projection within schema"
-            );
-            Projection {
-                possible_types: None,
-                must_exist: false,
-                target_location: ptr,
+                Projection {
+                    possible_types: None,
+                    must_exist: false,
+                    target_location: ptr,
+                }
             }
         }
     }

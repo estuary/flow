@@ -10,6 +10,8 @@ bytes = "*"
 humantime-serde = "*"
 prost = "*"
 prost-types = "*"
+tonic = {version = "*", optional = true}
+tonic-types = {version = "*", optional = true}
 serde = "*"
 tracing = "*"
 
@@ -19,9 +21,33 @@ serde_json = "*"
 
 [build-dependencies]
 prost-build = "*"
+tonic-build = "*"
+
 
 [features]
 default = []
 # The test-support feature enables additional functionality for use during tests. This feature is
 # intended to only be used from "dev-dependencies"
 test-support = []
+
+# The grpc feature is required for any client/server features.
+grpc = ["tonic", "tonic-types"]
+
+# The features below correspond to the various services defined in the protobuf files.
+# The conditional compilation attributes are setup in `build.rs`, so this list of features matches
+# the ones used there.
+materialize_client = ["grpc"]
+materialize_server = ["grpc"]
+
+capture_client = ["grpc"]
+capture_server = ["grpc"]
+
+flow_client = ["grpc"]
+flow_server = ["grpc"]
+
+gaz_consumer_client = ["grpc"]
+gaz_consumer_server = ["grpc"]
+
+gaz_broker_client = ["grpc"]
+gaz_broker_server = ["grpc"]
+

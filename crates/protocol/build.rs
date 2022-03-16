@@ -119,8 +119,9 @@ fn main() {
     // any files in the crate root are modified.
     println!("cargo:rerun-if-changed=.");
 
+    let out_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
     let mut builder = prost_build::Config::new();
-    builder.out_dir(Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src"));
+    builder.out_dir(&out_dir);
 
     for attrs in TYPE_ATTRS {
         if !attrs.type_attrs.is_empty() {
@@ -132,7 +133,23 @@ fn main() {
         }
     }
 
-    builder
-        .compile_protos(&proto_build, &proto_include)
-        .expect("failed to compile protobuf");
+    tonic_build::configure()
+        .build_client(true)
+        .build_server(true)
+        // Every client/server module is gated behind a feature flag so that the tonic runtime
+        // dependencies can be optional. The corresponding features are explicitly defined in
+        // Cargo.toml to make them more obvious.
+        .server_mod_attribute("materialize", "#[cfg(feature = \"materialize_server\")]")
+        .client_mod_attribute("materialize", "#[cfg(feature = \"materialize_client\")]")
+        .server_mod_attribute("capture", "#[cfg(feature = \"capture_server\")]")
+        .client_mod_attribute("capture", "#[cfg(feature = \"capture_client\")]")
+        .server_mod_attribute("flow", "#[cfg(feature = \"flow_server\")]")
+        .client_mod_attribute("flow", "#[cfg(feature = \"flow_client\")]")
+        .server_mod_attribute("protocol", "#[cfg(feature = \"gaz_broker_server\")]")
+        .client_mod_attribute("protocol", "#[cfg(feature = \"gaz_broker_client\")]")
+        .server_mod_attribute("consumer", "#[cfg(feature = \"gaz_consumer_server\")]")
+        .client_mod_attribute("consumer", "#[cfg(feature = \"gaz_consumer_client\")]")
+        .out_dir(out_dir)
+        .compile_with_config(builder, &proto_build, &proto_include)
+        .expect("tonic build failed");
 }

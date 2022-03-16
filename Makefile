@@ -52,8 +52,10 @@ GO_MODULE_PATH = $(shell go list -f '{{ .Dir }}' -m $(module))
 ##########################################################################
 # Configure Go build & test behaviors.
 
-# Enable the sqlite3 JSON extension.
-GO_BUILD_TAGS += json1
+# Tell the go-sqlite3 package to link against a pre-built library
+# rather than statically compiling in its own definition.
+# This will use the static library definitions provided by libbindings.a.
+GO_BUILD_TAGS += libsqlite3
 
 # Targets which Go targets rely on in order to build.
 GO_BUILD_DEPS = \

@@ -57,10 +57,8 @@ where
 
     // Output database path is implied from the configured directory and ID.
     let output_path = directory.join(&config.build_id);
-    // Create or truncate the output database.
-    std::fs::write(&output_path, &[]).context("failed to create catalog database")?;
-
     let db = rusqlite::Connection::open(&output_path).context("failed to open catalog database")?;
+
     tables::persist_tables(&db, &all_tables.as_tables())
         .context("failed to persist catalog tables")?;
     tracing::info!(?output_path, "wrote build database");

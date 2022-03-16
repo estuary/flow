@@ -1,10 +1,11 @@
+use futures::TryFutureExt;
 use std::net::TcpListener;
 
 use crate::cmd::{async_runtime, ConfigArgs};
 use crate::config;
 use crate::context::AppContext;
 pub use crate::services::builds_root::init_builds_root;
-use crate::startup;
+use crate::{shutdown, startup};
 
 #[derive(clap::Args, Debug)]
 pub struct Args {
@@ -29,10 +30,16 @@ async fn serve(listener: TcpListener) -> anyhow::Result<()> {
     let (put_builds, fetch_builds) = init_builds_root(&config::settings().builds_root)?;
     let ctx = AppContext::new(db, put_builds, fetch_builds);
 
-    let server = startup::run(listener, ctx)?;
+    // TODO(johnny): For now, we run the API server and builder daemon together.
+    // We'll probably want to separate and independently deploy & scale these.
+    let server = startup::run(listener, ctx.clone())?.map_err(Into::into);
 
-    // The server runs until it receives a shutdown signal.
-    server.await?;
+    let builder_daemon =
+        crate::services::builder::serve_builds(ctx.clone(), shutdown::signal()).map_err(Into::into);
+
+    // Run until the builder_daemon and server both exit.
+    let out: Result<_, anyhow::Error> = futures::try_join!(server, builder_daemon);
+    out?;
 
     Ok(())
 }

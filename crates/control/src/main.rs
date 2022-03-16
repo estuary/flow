@@ -1,12 +1,13 @@
 use clap::Parser;
 use flow_cli_common::LogArgs;
+use futures::TryFutureExt;
 use std::net::TcpListener;
 
 use control::config;
 use control::config::app_env::{self, AppEnv};
 use control::context::AppContext;
 use control::services::builds_root::init_builds_root;
-use control::startup;
+use control::{shutdown, startup};
 
 /// Runs the control plane api server in development mode.
 #[derive(Debug, Parser)]
@@ -36,10 +37,13 @@ async fn main() -> anyhow::Result<()> {
     let (put_builds, fetch_builds) = init_builds_root(&settings.builds_root)?;
     let ctx = AppContext::new(db, put_builds, fetch_builds);
 
-    let server = startup::run(listener, ctx)?;
+    let server = startup::run(listener, ctx.clone())?.map_err(Into::into);
+    let builder_daemon = control::services::builder::serve_builds(ctx.clone(), shutdown::signal())
+        .map_err(Into::into);
 
-    // The server runs until it receives a shutdown signal.
-    server.await?;
+    // Run until the builder_daemon and server both exit.
+    let out: Result<_, anyhow::Error> = futures::try_join!(server, builder_daemon);
+    out?;
 
     Ok(())
 }
