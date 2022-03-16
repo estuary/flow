@@ -61,8 +61,9 @@ In the majority of cases, the capture and materialization each rely on a plug-in
 6. Leave that process running and open a new shell window.
    There, deploy your catalog, substituting your file location and broker and consumer addresses:
     ```console
-    flowctl deploy --source=your_file.flow.yaml --wait-and-cleanup export BROKER_ADDRESS=http://localhost:8080
+    export BROKER_ADDRESS=http://localhost:8080
     export CONSUMER_ADDRESS=http://localhost:9000
+    flowctl deploy --source=your_file.flow.yaml --wait-and-cleanup
     ```
     You'll now be able to see data flowing between your source and destination systems.
 
