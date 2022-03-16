@@ -87,7 +87,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 | `/publicationName` |  | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
 | `/slotName` |  | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
 | **`/user`** |  | Database user to use. | string | Required, `"postgres"` |
-| `/watermarksTable` |  | The name of the table used for watermark writes during backfills. | string | `"public.flow_watermarks"` |
+| `/watermarksTable` |  | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
 
 
 #### Bindings

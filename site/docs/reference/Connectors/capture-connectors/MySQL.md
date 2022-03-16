@@ -68,7 +68,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 | **`/password`** |  | Password for the specified database user. | string | Required |
 | **`/server_id`** |  | Server ID for replication. | integer | Required |
 | **`/user`** |  | Database user to connect as. | string | Required, `"flow_capture"` |
-| `/watermarks_table` |  | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
+| `/watermarks_table` |  | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"flow.watermarks"` |
 
 #### Bindings
 
