@@ -61,22 +61,22 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 #### Endpoint
 
-| Value | Name | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| `address` | Address | IP address and port of the database host. | String | Required |
-| `user` | User | Database user to connect as. | String | Required |
-| `password` | Password | Password for the specified database user. | string | Required |
-| `dbname` | Database name | Name of the database to connect to. | string | Required |
-| `server_id` | Server ID | Server ID for replication. | int | Required |
-| `watermarks_table`| Watermarks Table | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/address`** |  | Database host:port to connect to. | string | Required, `"127.0.0.1:3306"` |
+| **`/dbname`** |  | Name of the database to connect to. | string | Required |
+| **`/password`** |  | Password for the specified database user. | string | Required |
+| **`/server_id`** |  | Server ID for replication. | integer | Required |
+| **`/user`** |  | Database user to connect as. | string | Required, `"flow_capture"` |
+| `/watermarks_table` |  | The name of the table used for watermark writes during backfills. | string | `"flow.watermarks"` |
 
 #### Bindings
 
-| Value | Name | Description | Type | Required/Default |
+| Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
-| `stream` | Stream | Table name. | string | Required |
-| `syncMode` | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| `/namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
+| **`/stream`** | Stream | Table name. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 A minimal capture definition within the catalog spec will look like the following:
@@ -118,18 +118,19 @@ to allow Flow to connect to databases ports in secure networks.
 
 To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
 
-## MySQL on Amazon RDS
+## MySQL on managed cloud platforms
 
-Amazon Relational Database Service (RDS) is a managed web service providing cloud-based instances
-of popular relational databases, including MySQL.
+In addition to standard MySQL, this connector supports cloud-based MySQL instances on certain platforms.
 
-You can use this Flow connector for MySQL instances on RDS, but the setup requirements are different.
+### Amazon RDS
+
+You can use this connector for MySQL instances on Amazon RDS using the following setup instructions.
 
 Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
 in RDS for use with Flow; however, it's not required.
 You're able to apply the connector directly to the primary instance if you'd like.
 
-### Setup
+#### Setup
 
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Estuary recommends SSH tunneling to allow this.
@@ -141,30 +142,31 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
 2. Create a RDS parameter group to enable replication in MySQL.
 
-  a. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
-  Create a unique name and description and set the following properties:
-    * **Family**: mysql
-    * **Type**: DB Parameter group
+   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
+   Create a unique name and description and set the following properties:
+      * **Family**: mysql 8.0
+      * **Type**: DB Parameter group
 
-  b. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
-    * binlog_format: ROW
-    * binlog_row_metadata: FULL
-    * read_only: 0
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
+      * binlog_format: ROW
+      * binlog_row_metadata: FULL
+      * read_only: 0
 
-  c. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-  with the database and reboot the database to allow the change to take effect
+   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
+   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
+   Reboot the database to allow the changes to take effect.
 
 3. Create a read replica with the new parameter group applied (recommended).
 
-  a. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-  of your MySQL database.
+   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
+   of your MySQL database.
 
-  b. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-  and set the following:
-    * **DB parameter group**: choose the parameter group you created previously
-    * **Backup retention period**: 7 days
+   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
+   and set the following:
+      * **DB parameter group**: choose the parameter group you created previously
+      * **Backup retention period**: 7 days
 
-  c. Reboot the replica to allow the changes to take effect.
+   3. Reboot the replica to allow the changes to take effect.
 
 4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table:
@@ -184,3 +186,24 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
+
+### Google Cloud SQL
+
+Google Cloud SQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
+As a result, this connector can't be used directly for MySQL instance on Google Cloud.
+
+As an alternative, you can create a [read replica outside of Google cloud](https://cloud.google.com/sql/docs/mysql/replication#external-read-replicas).
+The replica can be treated as a standard MySQL instance.
+
+1. [Set up an external replica](https://cloud.google.com/sql/docs/mysql/replication/configure-external-replica).
+
+2. Follow the [standard setup instructions](#setup) for this connector.
+
+### Azure Database for MySQL
+
+Azure Database for MySQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
+As a result, this connector can't be used for MySQL instance on Azure.
+
+Contact your account manager or [Estuary support](mailto:support@estuary.dev) for help using a third-party connector.
+Note that third party connectors will require you to [create a read replica](https://docs.microsoft.com/en-us/azure/mysql/howto-read-replicas-portal).
+
