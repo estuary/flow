@@ -20,20 +20,19 @@ To use this connector, begin with a Flow catalog that has at least one **collect
 
 #### Endpoint
 
-| Value | Name | Description | Type | Required/Default |
+| Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `api_key` | API Key | Rockset API key generated from the web UI. | String | Required |
-| `HttpLogging` | HTTP Logging | Enable verbose logging of the HTTP calls to the Rockset API | bool | false |
-| `MaxConcurrentRequests` | Maximum Concurrent Requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
-| `workspace` | Workspace | For each binding, name of the Rockset workspace | String | Required |
-| `collection` | Rockset collection | For each binding, the name of the destination Rockset table | String | Required|
+| **`/api_key`** | API Key | Rockset API key generated from the web UI. | String | Required |
+| `/http_logging`| HTTP Logging | Enable verbose logging of the HTTP calls to the Rockset API | bool | false |
+| `/max_concurrent_requests` | Maximum Concurrent Requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
+
 
 #### Bindings
 
-| Value | Name | Description | Type | Required/Default |
+| Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `workspace` | Workspace | Rockset namespace. If it doesn't exist, the connector will create it. | string | Required |
-| `collection` | Collection | Rockset collection name. If it doesn't exist, the connector will create it. | string | Required |
+| **`/workspace`** | Workspace | Rockset namespace. If it doesn't exist, the connector will create it. | string | Required |
+| **`/collection`** | Collection | Rockset collection name. If it doesn't exist, the connector will create it. | string | Required |
 
 ### Sample
 
