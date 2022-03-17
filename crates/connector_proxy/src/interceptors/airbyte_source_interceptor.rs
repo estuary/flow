@@ -63,19 +63,26 @@ impl AirbyteSourceInterceptor {
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
-            let message = airbyte_message_stream
-                .next()
-                .await.ok_or(create_custom_error("missing spec response."))??;
+            loop {
+                let message = match airbyte_message_stream.next().await {
+                    None => break,
+                    Some(message) => message?
+                };
 
-            let spec = message.spec.ok_or(create_custom_error("failed to fetch expected spec object."))?;
-            let mut resp = SpecResponse::default();
-            resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
-            resp.resource_spec_schema_json = serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
-            if let Some(url) = spec.documentation_url {
-                resp.documentation_url = url;
+                if let Some(mlog) = message.log {
+                    mlog.log();
+                } else if let Some(spec) = message.spec {
+                    let mut resp = SpecResponse::default();
+                    resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
+                    resp.resource_spec_schema_json = serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
+                    if let Some(url) = spec.documentation_url {
+                        resp.documentation_url = url;
+                    }
+                    yield encode_message(&resp)?;
+                } else {
+                    raise_custom_error("unexpected spec response.")?;
+                }
             }
-
-            yield encode_message(&resp)?;
         })
     }
 
@@ -108,7 +115,9 @@ impl AirbyteSourceInterceptor {
                     Some(message) => message?
                 };
 
-                if let Some(catalog) = message.catalog {
+                if let Some(mlog) = message.log {
+                    mlog.log();
+                } else if let Some(catalog) = message.catalog {
                     let mut resp = DiscoverResponse::default();
                     for stream in catalog.streams {
                         let mode = if stream.supported_sync_modes.contains(&SyncMode::Incremental) {SyncMode::Incremental} else {SyncMode::FullRefresh};
@@ -131,8 +140,8 @@ impl AirbyteSourceInterceptor {
                     }
 
                     yield encode_message(&resp)?;
-                }  else if let Some(mlog) = message.log {
-                    mlog.log();
+                } else {
+                    raise_custom_error("unexpected discover response.")?;
                 }
            }
         })
@@ -170,22 +179,27 @@ impl AirbyteSourceInterceptor {
                     Some(message) => message?
                 };
 
-                let connection_status = message.connection_status.ok_or(create_custom_error("missing connection_status object"))?;
-                if connection_status.status !=  Status::Succeeded {
-                    raise_custom_error(&format!("validation failed {:?}", connection_status))?;
-                }
+                if let Some(mlog) = message.log {
+                    mlog.log();
+                } else if let Some(connection_status) = message.connection_status {
+                    if connection_status.status !=  Status::Succeeded {
+                        raise_custom_error(&format!("validation failed {:?}", connection_status))?;
+                    }
 
-                let req = validate_request.lock().await;
-                let req = req.as_ref().ok_or(create_custom_error("missing validate request."))?;
-                let mut resp = ValidateResponse::default();
-                for binding in &req.bindings {
-                    let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
-                    resp.bindings.push(validate_response::Binding {
-                                    resource_path: vec![resource.stream]
-                    });
+                    let req = validate_request.lock().await;
+                    let req = req.as_ref().ok_or(create_custom_error("missing validate request."))?;
+                    let mut resp = ValidateResponse::default();
+                    for binding in &req.bindings {
+                        let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
+                        resp.bindings.push(validate_response::Binding {
+                                        resource_path: vec![resource.stream]
+                        });
+                    }
+                    drop(req);
+                    yield encode_message(&resp)?;
+                } else {
+                    raise_custom_error("unexpected validate response.")?;
                 }
-                drop(req);
-                yield encode_message(&resp)?;
            }
         })
     }
@@ -273,14 +287,17 @@ impl AirbyteSourceInterceptor {
                 };
 
                 let mut resp = PullResponse::default();
-                if let Some(state) = message.state {
+                if let Some(mlog) = message.log {
+                        mlog.log();continue
+                } else if let Some(state) = message.state {
                     resp.checkpoint = Some(DriverCheckpoint{
                             driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
                             rfc7396_merge_patch: match state.ns_merge {
                                 Some(b) => b,
                                 None => false, // TODO: figure out the right value.
                             },
-                    })
+                    });
+                    yield encode_message(&resp)?;
                 } else if let Some(record) = message.record {
                     let stream_to_binding = stream_to_binding.lock().await;
                     match stream_to_binding.get(&record.stream) {
@@ -298,15 +315,11 @@ impl AirbyteSourceInterceptor {
                         }
                     }
                     drop(stream_to_binding);
+                    yield encode_message(&resp)?;
                 } else {
-                    if let Some(mlog) = message.log {
-                        mlog.log();
-                    }
-                    continue
+                    raise_custom_error("unexpected pull response.")?;
                 }
-                yield encode_message(&resp)?;
             }
-
         })
     }
 
