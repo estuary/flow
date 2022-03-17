@@ -138,7 +138,7 @@ ${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
 .PHONY: ${RUSTBIN}/flow-connector-proxy
-${RUSTBIN}/flowctl:
+${RUSTBIN}/flow-connector-proxy:
 	cargo build --release --locked -p connector_proxy
 
 # Statically linked binaries using MUSL:
@@ -207,10 +207,8 @@ ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PK
 # Building a rust-binaries for unit tests.
 ${TESTPKGDIR}:
 	mkdir -p ${TESTPKGDIR}/bin
-	mkdir ${TESTPKGDIR}/lib
 ${TESTPKGDIR}/bin/flow-connector-proxy: ${RUSTBIN}/flow-connector-proxy | ${TESTPKGDIR}
 	cp ${RUSTBIN}/flow-connector-proxy $@
-
 
 ##########################################################################
 # Make targets used by CI:
