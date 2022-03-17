@@ -2,8 +2,8 @@ use crate::apis::{FlowCaptureOperation, InterceptorStream};
 
 use crate::errors::{create_custom_error, raise_custom_error, Error};
 use crate::libs::airbyte_catalog::{
-    self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Message, Range, ResourceSpec,
-    Status, SyncMode,
+    self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Range, ResourceSpec, Status,
+    SyncMode,
 };
 use crate::libs::command::send_sigcont;
 use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
@@ -53,13 +53,11 @@ impl AirbyteSourceInterceptor {
         }
     }
 
-    fn adapt_spec_request_stream(
-        &mut self,
-        pid: u32,
-        in_stream: InterceptorStream,
-    ) -> InterceptorStream {
-        send_sigcont(pid).expect("failed sending sigcont.");
-        in_stream
+    fn adapt_spec_request_stream(&mut self, pid: u32) -> InterceptorStream {
+        Box::pin(try_stream! {
+            send_sigcont(pid)?;
+            yield Bytes::from("");
+        })
     }
 
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
@@ -68,9 +66,8 @@ impl AirbyteSourceInterceptor {
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => Self::validate_and_log_airbyte_message(message?)?
+                    Some(message) => message?
                 };
-
                 if let Some(spec) = message.spec {
                     let mut resp = SpecResponse::default();
                     resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
@@ -79,7 +76,9 @@ impl AirbyteSourceInterceptor {
                         resp.documentation_url = url;
                     }
                     yield encode_message(&resp)?;
-                } else if message.log.is_none() {
+                } else if let Some(mlog) = message.log {
+                    mlog.log();
+                } else {
                     raise_custom_error("unexpected spec response.")?;
                 }
             }
@@ -112,7 +111,7 @@ impl AirbyteSourceInterceptor {
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => Self::validate_and_log_airbyte_message(message?)?
+                    Some(message) => message?
                 };
 
                 if let Some(catalog) = message.catalog {
@@ -138,7 +137,9 @@ impl AirbyteSourceInterceptor {
                     }
 
                     yield encode_message(&resp)?;
-                } else if message.log.is_none() {
+                } else if let Some(mlog) = message.log {
+                    mlog.log();
+                } else {
                     raise_custom_error("unexpected discover response.")?;
                 }
            }
@@ -174,7 +175,7 @@ impl AirbyteSourceInterceptor {
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => Self::validate_and_log_airbyte_message(message?)?
+                    Some(message) => message?
                 };
 
                 if let Some(connection_status) = message.connection_status {
@@ -191,7 +192,9 @@ impl AirbyteSourceInterceptor {
                     }
                     drop(req);
                     yield encode_message(&resp)?;
-                } else if message.log.is_none() {
+                } else if let Some(mlog) = message.log {
+                    mlog.log();
+                } else {
                     raise_custom_error("unexpected validate response.")?;
                 }
            }
@@ -282,7 +285,7 @@ impl AirbyteSourceInterceptor {
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
-                    Some(message) => Self::validate_and_log_airbyte_message(message?)?
+                    Some(message) => message?
                 };
 
                 let mut resp = PullResponse::default();
@@ -313,7 +316,9 @@ impl AirbyteSourceInterceptor {
                     }
                     drop(stream_to_binding);
                     yield encode_message(&resp)?;
-                } else if message.log.is_none() {
+                } else if let Some(mlog) = message.log {
+                    mlog.log();
+                } else {
                     raise_custom_error("unexpected pull response.")?;
                 }
             }
@@ -327,17 +332,6 @@ impl AirbyteSourceInterceptor {
             .to_str()
             .expect("failed construct config file name.")
             .into()
-    }
-
-    fn validate_and_log_airbyte_message(message: Message) -> Result<Message, std::io::Error> {
-        if let Err(e) = message.validate() {
-            raise_custom_error(&format!("invalid message: {:?}", e))?
-        }
-
-        if let Some(ref mlog) = message.log {
-            mlog.log();
-        }
-        Ok(message)
     }
 }
 
@@ -385,7 +379,7 @@ impl AirbyteSourceInterceptor {
         let state_file_path = self.input_file_path(STATE_FILE_NAME);
 
         match op {
-            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid, in_stream)),
+            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid)),
             FlowCaptureOperation::Discover => {
                 Ok(self.convert_discover_request(pid, config_file_path, in_stream))
             }
