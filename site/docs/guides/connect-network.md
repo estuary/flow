@@ -101,6 +101,10 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
    ```console
       ssh-keygen -p -N "" -m pem -f /path/to/key
       ```
+   * If your Google login differs from your local username, add your Gmail or organizational Google email address as a comment:
+   ```console
+      ssh-keygen -p -N "" -m pem -f /path/to/key -C user@domain.com
+      ```
 
 2. [Create and start a new VM in GCP](https://cloud.google.com/compute/docs/instances/create-start-instance), [choosing an image that supports OS Login](https://cloud.google.com/compute/docs/images/os-details#user-space-features).
 
@@ -162,7 +166,7 @@ After you've completed the prerequisites, you should have the following paramete
 
 * `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://hostname[:port]`
 * `privateKey`: the contents of the PEM file
-* `user`: the username used to connect to the SSH server
+* `user`: the username used to connect to the SSH server.
 * `forwardHost`: the capture or materialization endpoint's host
 * `forwardPort`: the capture or materialization endpoint's port
 * `localPort`: the port on the localhost used to connect to the SSH server, step 7

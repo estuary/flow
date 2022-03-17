@@ -76,6 +76,6 @@ for additional details and a sample.
 :::tip
 You can find the values for `forwardHost` and `forwardPort` in the following locations in each platform's console:
 * Amazon RDS: `forwardHost` as Endpoint; `forwardPort` as Port.
-* Google Cloud SQL: `forwardHost` as Public IP Address; `forwardPort` is always `5432`.
+* Google Cloud SQL: `forwardHost` as Private IP Address; `forwardPort` is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
 * Azure Database: `forwardHost` as Server Name; `forwardPort` under Connection Strings (usually `5432`).
 :::
