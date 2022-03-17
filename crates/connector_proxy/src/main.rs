@@ -189,7 +189,7 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
 
     // Send "READY" to indicate the process is ready to receive sigcont signals, and keep waiting.
     write_ready();
-    if let Err(_) = timeout(std::time::Duration::from_secs(1), wait_handler).await {
+    if let Err(_) = timeout(std::time::Duration::from_secs(5), wait_handler).await {
         return Err(Error::DelayedProcessTimeoutError);
     }
 
