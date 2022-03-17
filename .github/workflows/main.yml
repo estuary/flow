@@ -34,7 +34,7 @@ jobs:
         run: rustup show
 
       - name: Install libgcc
-        run: sudo apt-get install -y libgcc1 && sudo ldconfig
+        run: sudo ldconfig -v
 
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2

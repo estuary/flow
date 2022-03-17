@@ -247,11 +247,15 @@ impl AirbyteSourceInterceptor {
                                     supported_sync_modes: vec![resource.sync_mode.clone()],
                                     default_cursor_field: None,
                                     source_defined_cursor: None,
-                                    source_defined_primary_key: None, // ???
+                                    source_defined_primary_key: None,
                                 },
                                 projections: projections,
                             });
                         }
+                    }
+
+                    if let Err(e) = catalog.validate() {
+                        raise_custom_error(&format!("invalid config_catalog: {:?}", e))?
                     }
 
                     serde_json::to_writer(File::create(catalog_file_path)?, &catalog)?
