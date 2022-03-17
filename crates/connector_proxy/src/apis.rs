@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 // The protocol used by FlowRuntime to speak with connector-proxy.
 // There are two ways to infer the protocol.
-// 1. From the proxy command that invokes the connector proxy.
+// 1. From the proxy command passed in from FlowRuntime to the connector proxy.
 // 2. From the connector image labels and tags.
 // The proxy raises an error if both are inconsistent.
 #[derive(Debug, strum_macros::Display, ArgEnum, PartialEq, Clone)]
