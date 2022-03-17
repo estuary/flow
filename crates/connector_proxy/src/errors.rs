@@ -9,7 +9,7 @@ pub enum Error {
     #[error("command execution failed: {0}.")]
     CommandExecutionError(String),
 
-    #[error("delayed process timeout in receiving messages after 1 seconds.")]
+    #[error("delayed process timeout in receiving messages after 5 seconds.")]
     DelayedProcessTimeoutError,
 
     #[error("duplicated key: {0}.")]

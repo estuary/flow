@@ -26,6 +26,8 @@ RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
 WORKDIR  = $(realpath .)/.build
 # Packaged build outputs.
 PKGDIR = ${WORKDIR}/package
+# Testing binary outputs
+TESTPKGDIR = ${WORKDIR}/test-package
 
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.4.13
@@ -135,6 +137,10 @@ ${RUSTBIN}/librocks-exp/librocksdb.a:
 ${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
+.PHONY: ${RUSTBIN}/flow-connector-proxy
+${RUSTBIN}/flowctl:
+	cargo build --release --locked -p connector_proxy
+
 # Statically linked binaries using MUSL:
 
 .PHONY: ${RUST_MUSL_BIN}/flow-schemalate
@@ -198,6 +204,13 @@ ${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy | ${PKGDIR
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
 
+# Building a rust-binaries for unit tests.
+${TESTPKGDIR}:
+	mkdir -p ${TESTPKGDIR}/bin
+	mkdir ${TESTPKGDIR}/lib
+${TESTPKGDIR}/bin/flow-connector-proxy: ${RUSTBIN}/flow-connector-proxy | ${TESTPKGDIR}
+	cp ${RUSTBIN}/flow-connector-proxy $@
+
 
 ##########################################################################
 # Make targets used by CI:
@@ -241,8 +254,8 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
-	PATH=${PKGDIR}/bin:$$PATH ;\
+go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops ${TESTPKGDIR}/bin/flow-connector-proxy
+	PATH=${PKGDIR}/bin:${TESTPKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
