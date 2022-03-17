@@ -134,7 +134,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	if err != nil {
 		return nil, err
 	}
-	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+	defer connector.ZeroBytes(decrypted)
 	req.EndpointSpecJson = decrypted
 
 	var resp *pc.DiscoverResponse
@@ -152,7 +152,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 			func() proto.Message { return new(pc.ValidateResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
-					return fmt.Errorf("read more than one ValidateResponse")
+					return fmt.Errorf("read more than one DiscoverResponse")
 				}
 				resp = m.(*pc.DiscoverResponse)
 				return nil
@@ -197,7 +197,7 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		[]string{
 			"validate",
 		},
-		nil, // No configuration is passed as files.
+		nil,
 		func(w io.Writer) error {
 			defer connector.ZeroBytes(decrypted)
 			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
@@ -216,6 +216,9 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		logger,
 	)
 
+	if err == nil && resp == nil {
+		err = fmt.Errorf("connector didn't produce a response")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +254,7 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 
 	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
 		ops.LogSourceField: source.Image,
-		"operation":        "pull",
+		"operation":        "read",
 	})
 
 	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
@@ -271,9 +274,9 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		[]string{"pull"},
 		nil,
 		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
 			var enc = protoio.NewUint32DelimitedWriter(w, binary.LittleEndian)
 			var err = enc.WriteMsg(req)
-			connector.ZeroBytes(req.Open.Capture.EndpointSpecJson) // No longer needed.
 
 			if err != nil {
 				return fmt.Errorf("proxying Open: %w", err)
