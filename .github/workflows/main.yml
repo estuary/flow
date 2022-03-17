@@ -292,7 +292,6 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
 
-
       - name: make end-to-end-test
         run: |
           make end-to-end-test \
@@ -305,7 +304,6 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
-
 
       - name: make package (tar only)
         run: |

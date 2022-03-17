@@ -172,13 +172,9 @@ pub struct State {
     // to comply with the airbyte specification.
     pub data: Box<RawValue>,
 
-    // TODO: check the logic on merging of both merge fields.
-    #[serde(alias = "estuary.dev/merge")]
-    pub ns_merge: Option<bool>,
-
     // Merge indicates that Data is an RFC 7396 JSON Merge Patch, and should
     // be be reduced into the previous state accordingly.
-    #[serde(alias = "merge")]
+    #[serde(alias = "estuary.dev/merge")]
     pub merge: Option<bool>,
 }
 
