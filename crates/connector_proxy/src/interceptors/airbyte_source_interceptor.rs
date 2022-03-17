@@ -289,8 +289,8 @@ impl AirbyteSourceInterceptor {
                 if let Some(state) = message.state {
                     resp.checkpoint = Some(DriverCheckpoint{
                             driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
-                            rfc7396_merge_patch: match state.ns_merge {
-                                Some(b) => b,
+                            rfc7396_merge_patch: match state.merge {
+                                Some(m) => m,
                                 None => false, // TODO: figure out the right value.
                             },
                     });

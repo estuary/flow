@@ -134,7 +134,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 	if err != nil {
 		return nil, err
 	}
-	defer connector.ZeroBytes(decrypted)
+	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
 	req.EndpointSpecJson = decrypted
 
 	var resp *pc.DiscoverResponse
@@ -149,7 +149,7 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 				WriteMsg(req)
 		},
 		connector.NewProtoOutput(
-			func() proto.Message { return new(pc.ValidateResponse) },
+			func() proto.Message { return new(pc.DiscoverResponse) },
 			func(m proto.Message) error {
 				if resp != nil {
 					return fmt.Errorf("read more than one DiscoverResponse")
