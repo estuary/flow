@@ -59,12 +59,12 @@ pub struct CommandConfig {
     pub entrypoint: String,
     pub args: Vec<String>,
 }
-// Instead of starting the connector directly, `invoke_delayed_connector` starts a bouncer process first, which will
+// Instead of starting the connector directly, `invoke_connector_delayed` starts a bouncer process first, which will
 // start the real connector after receiving a sigcont signal. Two actions are involved,
 // 1. the bouncer process calls the `write_ready` function to inform the parent process that it is ready to receive sigcont signal.
 // 2. upon informed, the parent process starts preparing for the connector execution (e.g. creating the input data file),
 //    and triggers the bouncer process to start the connector (via the `send_sigcont` function) once preparation is done.
-pub async fn invoke_delayed_connector(
+pub async fn invoke_connector_delayed(
     entrypoint: String,
     args: Vec<String>,
 ) -> Result<(Child, ChildStdin, ChildStdout, ChildStderr), Error> {
@@ -124,16 +124,16 @@ pub async fn invoke_delayed_connector(
 pub fn write_ready() {
     std::io::stderr()
         .write_all(READY)
-        .expect("failed writing to stdout");
-    std::io::stdout()
+        .expect("failed writing to stderr");
+    std::io::stderr()
         .flush()
-        .expect("failed flushing to stdout");
+        .expect("failed flushing to stderr");
 }
 
 pub fn send_sigcont(pid: u32) -> Result<(), std::io::Error> {
     tracing::info!("resuming bouncer process.");
     if let Err(errno) = signal::kill(
-        Pid::from_raw(pid.try_into().expect("unexpected negative pid")),
+        Pid::from_raw(pid.try_into().expect("unexpected pid")),
         Signal::SIGCONT,
     ) {
         raise_custom_error(&format!("failed sending SIGCONT with errno: {}", errno))

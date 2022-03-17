@@ -36,6 +36,7 @@ pub fn stream_all_airbyte_messages(
 ) -> impl Stream<Item = std::io::Result<Message>> {
     try_stream! {
         let mut buf = BytesMut::new();
+
         while let Some(bytes) = in_stream.next().await {
             match bytes {
                 Ok(b) => {
