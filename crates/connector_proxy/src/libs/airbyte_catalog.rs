@@ -234,6 +234,7 @@ pub struct Message {
 // ResourceSpec is the configuration for Airbyte source streams.
 pub struct ResourceSpec {
     pub stream: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     pub sync_mode: SyncMode,
 }
