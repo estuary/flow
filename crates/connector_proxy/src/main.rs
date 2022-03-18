@@ -178,27 +178,17 @@ async fn proxy_flow_materialize(
 }
 
 async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
-    let wait_handler = tokio::spawn(async {
-        let mut signal_stream = signal(SignalKind::from_raw(18)).expect("failed creating signal.");
-        signal_stream
-            .recv()
-            .await
-            .expect("failed receiving os signals.");
-    });
-
     // Send "READY" to indicate the process is ready to receive sigcont signals, and keep waiting.
     write_ready();
-    if let Err(_) = timeout(std::time::Duration::from_secs(5), wait_handler).await {
-        return Err(Error::DelayedProcessTimeoutError);
+    // Stop itself
+    unsafe {
+        libc::kill(std::process::id() as i32, libc::SIGSTOP);
     }
 
     tracing::info!("delayed process execution continue...");
 
     let reader = BufReader::new(File::open(command_config_path)?);
     let command_config: CommandConfig = serde_json::from_reader(reader)?;
-
-    // TODO: is it possible to apply the fd(1)-logic like this?
-    // https://github.com/estuary/flow/blob/d8c3be35fc8ac0657e0c4aa2e5e7ef4b3eb72905/crates/parser/src/main.rs#L102-L107
 
     let mut child = invoke_connector(
         Stdio::inherit(),

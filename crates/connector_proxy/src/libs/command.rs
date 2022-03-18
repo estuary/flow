@@ -50,7 +50,7 @@ pub fn check_exit_status(message: &str, result: std::io::Result<ExitStatus>) -> 
     }
 }
 
-// For storing the entrypoint and args to start a connector.
+// For storing the entrypoint and args to start a delayed connector.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct CommandConfig {
