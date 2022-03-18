@@ -42,9 +42,9 @@ impl NetworkProxyMaterializeInterceptor {
         })
     }
 
-    fn convert_transactions_request(stream: InterceptorStream) -> InterceptorStream {
+    fn convert_transactions_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
-            let mut reader = StreamReader::new(stream);
+            let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<TransactionRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
             if let Some(ref mut o) = request.open {
                 if let Some(ref mut m) = o.materialization {
