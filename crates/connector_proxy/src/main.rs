@@ -126,7 +126,6 @@ async fn async_main(
     image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
 ) -> Result<(), Error> {
-    // TODO(jixiang): add a check to make sure the proxy_command passed in from commandline is consistent with the protocol inferred from image.
     match proxy_command {
         ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
         ProxyCommand::ProxyFlowMaterialize(m) => {

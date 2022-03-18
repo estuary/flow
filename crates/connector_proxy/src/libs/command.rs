@@ -1,7 +1,5 @@
 use crate::errors::{raise_custom_error, Error};
 
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::process::{ExitStatus, Stdio};
@@ -132,14 +130,10 @@ pub fn write_ready() {
 
 pub fn send_sigcont(pid: u32) -> Result<(), std::io::Error> {
     tracing::info!("resuming bouncer process.");
-    if let Err(errno) = signal::kill(
-        Pid::from_raw(pid.try_into().expect("unexpected pid")),
-        Signal::SIGCONT,
-    ) {
-        raise_custom_error(&format!("failed sending SIGCONT with errno: {}", errno))
-    } else {
-        Ok(())
+    unsafe {
+        libc::kill(pid as i32, libc::SIGCONT);
     }
+    Ok(())
 }
 
 // A more flexible API for starting the connector.
