@@ -18,6 +18,17 @@ const config = {
   projectName: 'flow',
   trailingSlash: true,
 
+  plugins: [
+    [
+      require.resolve('docusaurus-lunr-search'), 
+      {
+        // @ts-ignore
+        excludeRoutes: [
+            'blog/**/*',
+        ]
+    }]
+  ],
+
   presets: [
     [
       'classic',
