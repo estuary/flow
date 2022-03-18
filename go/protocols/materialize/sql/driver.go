@@ -111,9 +111,16 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 			return nil, err
 		}
 
-		if current != nil && current.DeltaUpdates != resource.DeltaUpdates() {
+		// There's no particular reason why we _need_ to constrain this, but it seems smart to only
+		// relax it if we need to. We previously disallowed all changes to the delta_updates
+		// configuration, and relaxed it because we wanted to enable delta_updates for an existing
+		// binding, and couldn't think of why it would hurt anything. But disabling delta_updates
+		// for an existing binding might not be as simple, since Load implementations may not be
+		// prepared to deal with the potential for duplicate primary keys. So I'm leaving this
+		// validation in place for now, since there's no need to relax it further at the moment.
+		if current != nil && current.DeltaUpdates && !resource.DeltaUpdates() {
 			return nil, fmt.Errorf(
-				"cannot alter delta-updates mode of existing target %s", target)
+				"cannot disable delta-updates mode of existing target %s", target)
 		}
 
 		resp.Bindings = append(resp.Bindings,
