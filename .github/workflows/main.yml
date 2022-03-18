@@ -192,6 +192,11 @@ jobs:
       - name: Install protobuf compiler (it's not already included in CI runner)
         run: sudo apt install -y libprotobuf-dev protobuf-compiler
 
+      # We require a minimal Go version of 1.17.
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.17.3"
+
       - name: Install rust toolchain
         run: rustup show
       - run: make extra-ci-runner-setup
