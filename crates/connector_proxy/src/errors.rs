@@ -54,9 +54,6 @@ pub enum Error {
     #[error(transparent)]
     NetworkProxyError(#[from] network_proxy::errors::Error),
 
-    #[error("Failed sending sigcont, with errno: {0:?}")]
-    SigcontError(nix::errno::Errno),
-
     #[error(transparent)]
     TempfilePersistError(#[from] tempfile::PersistError),
 
