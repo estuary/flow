@@ -1,8 +1,6 @@
 ---
 source: crates/control/tests/it/connector_images.rs
-assertion_line: 211
-expression: redactor.response_json(response).await.unwrap()
-
+expression: redactor.response_json(&mut response).await.unwrap()
 ---
 {
   "data": {
@@ -16,6 +14,62 @@ expression: redactor.response_json(response).await.unwrap()
             "description": "Number of greeting documents to produce when running in non-tailing mode",
             "title": "Number of Greetings",
             "type": "integer"
+          },
+          "networkProxy": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "sshForwarding": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "forwardHost": {
+                        "description": "Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.",
+                        "type": "string"
+                      },
+                      "forwardPort": {
+                        "description": "Port of the remote destination.",
+                        "format": "uint16",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "localPort": {
+                        "description": "Local port to start the SSH tunnel.",
+                        "format": "uint16",
+                        "minimum": 0.0,
+                        "type": "integer"
+                      },
+                      "privateKey": {
+                        "description": "Private key to connect to the remote SSH server.",
+                        "type": "string"
+                      },
+                      "sshEndpoint": {
+                        "description": "Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]",
+                        "type": "string"
+                      },
+                      "user": {
+                        "description": "User name to connect to the remote SSH server.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "forwardHost",
+                      "forwardPort",
+                      "localPort",
+                      "privateKey",
+                      "sshEndpoint",
+                      "user"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "sshForwarding"
+                ],
+                "type": "object"
+              }
+            ],
+            "title": "NetworkProxyConfig"
           }
         },
         "required": [
@@ -25,16 +79,22 @@ expression: redactor.response_json(response).await.unwrap()
         "type": "object"
       },
       "resourceSpecSchema": {
-        "$schema": "http://json-schema.org/draft-04/schema#",
-        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "properties": {
           "namespace": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "stream": {
             "type": "string"
           },
           "syncMode": {
+            "enum": [
+              "incremental",
+              "full_refresh"
+            ],
             "type": "string"
           }
         },
@@ -42,6 +102,7 @@ expression: redactor.response_json(response).await.unwrap()
           "stream",
           "syncMode"
         ],
+        "title": "ResourceSpec",
         "type": "object"
       },
       "type": "capture"
