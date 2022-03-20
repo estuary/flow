@@ -1,4 +1,4 @@
-use crate::errors::{raise_custom_error, Error};
+use crate::errors::Error;
 
 use serde::{Deserialize, Serialize};
 use std::io::Write;

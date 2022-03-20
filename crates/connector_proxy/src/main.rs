@@ -10,7 +10,6 @@ use clap::{ArgEnum, Parser, Subcommand};
 use tokio::{
     io::AsyncReadExt,
     signal::unix::{signal, SignalKind},
-    time::timeout,
 };
 
 use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
@@ -201,12 +200,17 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
     match check_exit_status("delayed process", child.wait().await) {
         Err(e) => {
             let mut buf = Vec::new();
-            child.stderr.take().unwrap().read_to_end(&mut buf).await?;
+            child
+                .stderr
+                .take()
+                .ok_or(Error::MissingIOPipe)?
+                .read_to_end(&mut buf)
+                .await?;
 
             tracing::error!(
                 "connector failed. command_config: {:?}. stderr from connector: {}",
                 &command_config,
-                std::str::from_utf8(&buf).unwrap()
+                std::str::from_utf8(&buf).expect("error when decoding stderr")
             );
             Err(e)
         }
