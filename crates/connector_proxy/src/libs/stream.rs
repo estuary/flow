@@ -46,12 +46,11 @@ pub fn stream_all_airbyte_messages(
                     raise_custom_error(&format!("error in reading next in_stream: {:?}", e))?;
                 }
             }
-            let buf_split = buf.split();
-            let chunk = buf_split.chunk();
 
+            let chunk = buf.chunk();
             let deserializer = Deserializer::from_slice(&chunk);
 
-            // Deserialize to Value first, to avoid missing 'is_eof' signals in error.
+            // Deserialize to Value first, instead of Message, to avoid missing 'is_eof' signals in error.
             let mut value_stream = deserializer.into_iter::<Value>();
             while let Some(value) = value_stream.next() {
                 match value {
@@ -77,18 +76,14 @@ pub fn stream_all_airbyte_messages(
                 }
             }
 
-            // TODO(Jixiang): Improve efficiency here.
-            // There are unnecessary copying activities in and out from the buf, especially for large messages that spans multiple
-            // bytes messages in the stream. Ideally, we could both write and read from the same buf. However, both reading and writing
-            // from the same buf is not recommended, which yields warning of https://github.com/rust-lang/rust/issues/59159.
-            let remaining = &chunk[value_stream.byte_offset()..];
-            buf.extend_from_slice(remaining);
+            let byte_offset = value_stream.byte_offset();
+            drop(buf.split_to(byte_offset));
         }
 
         if buf.len() > 0 {
-            raise_custom_error("unconsumed content in stream found!")?;
+            raise_custom_error("unconsumed content in stream found.")?;
         }
 
-        tracing::info!("done reading all in_stream");
+        tracing::info!("done reading all in_stream.");
     }
 }
