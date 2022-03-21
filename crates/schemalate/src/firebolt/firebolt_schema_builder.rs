@@ -1,7 +1,10 @@
+use std::iter::FromIterator;
+
 use super::errors::*;
 use super::firebolt_queries::{CreateTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
 
+use json::schema::types;
 use protocol::flow::MaterializationSpec;
 use protocol::flow::{inference::Exists, materialization_spec::Binding};
 use serde::{Deserialize, Serialize};
@@ -10,7 +13,6 @@ pub const FAKE_BUNDLE_URL: &str = "https://fake-bundle-schema.estuary.io";
 
 #[derive(Serialize, PartialEq, Debug)]
 pub struct BindingBundle {
-    pub binding: u32,
     pub create_table: String,
     pub create_external_table: String,
     pub insert_from_table: String,
@@ -63,10 +65,8 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
             let projection = projections.iter().find(|p| &p.field == field).unwrap();
             let inference = projection.inference.as_ref().unwrap();
             let is_key = keys.contains(field);
-            let r#type = inference
-                .types
+            let r#type = (types::Set::from_iter(inference.types.iter()) - types::NULL)
                 .iter()
-                .filter(|t| t != &"null")
                 .next()
                 .unwrap();
 
@@ -126,7 +126,6 @@ pub fn build_firebolt_queries_bundle(
         };
 
         Ok(BindingBundle {
-            binding: 0, // FIXME
             create_table: CreateTable {
                 table: table.clone(),
                 if_not_exists: true,
@@ -213,7 +212,6 @@ mod tests {
             .unwrap(),
             FireboltQueriesBundle {
                 bindings: vec![BindingBundle {
-                    binding: 0,
                     create_table:
                         "CREATE FACT TABLE IF NOT EXISTS test_table (test TEXT,source_file_name TEXT) PRIMARY INDEX test ;"
                             .to_string(),

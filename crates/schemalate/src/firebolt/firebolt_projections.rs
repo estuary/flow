@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+use std::iter::FromIterator;
 
-use protocol::flow::{inference::Exists, materialization_spec::Binding, CollectionSpec};
-use protocol::materialize::{constraint, Constraint};
+use json::schema::types;
+use protocol::flow::{inference::Exists, materialization_spec, CollectionSpec};
+use protocol::materialize::{constraint, validate_request, Constraint};
 
 /*pub fn validate_selected_fields(
     constraints: BTreeMap<String, Constraint>,
@@ -9,13 +11,16 @@ use protocol::materialize::{constraint, Constraint};
 ) -> Result<(), InvalidSelectedFields> {
 }*/
 
-pub fn validate_new_projection(proposed: Binding) -> BTreeMap<String, Constraint> {
+pub fn validate_new_projection(
+    proposed: validate_request::Binding,
+) -> BTreeMap<String, Constraint> {
     proposed
         .collection
         .unwrap()
         .projections
         .iter()
         .map(|projection| {
+            let infer = projection.inference.as_ref().unwrap();
             let constraint = {
                 if projection.is_primary_key {
                     Constraint {
@@ -26,38 +31,31 @@ pub fn validate_new_projection(proposed: Binding) -> BTreeMap<String, Constraint
                 } else if projection.ptr.len() == 0 {
                     // root document
                     Constraint {
-                        r#type: constraint::Type::LocationRecommended.into(),
-                        reason: "The root document should usually be materialized.".to_string(),
+                        r#type: constraint::Type::FieldOptional.into(),
+                        reason:
+                            "The root document is usually not necessary in delta-update connectors."
+                                .to_string(),
                     }
-                } else if let Some(infer) = &projection.inference {
-                    if infer.types.len() != 1 {
+                } else {
+                    let types = types::Set::from_iter(infer.types.iter());
+                    if !types.is_single_type() {
                         Constraint {
                             r#type: constraint::Type::FieldForbidden.into(),
                             reason: "Cannot materialize field with multiple or no types."
                                 .to_string(),
                         }
-                    } else if ["boolean", "integer", "numeric", "string"]
-                        .contains(&infer.types[0].as_str())
-                    {
+                    } else if types.is_single_scalar_type() {
                         Constraint {
                             r#type: constraint::Type::LocationRecommended.into(),
                             reason: "Scalar values are recommended to be materialized.".to_string(),
                         }
-                    } else if ["object", "array"].contains(&infer.types[0].as_str()) {
+                    } else if matches!(types - types::NULL, types::OBJECT | types::ARRAY) {
                         Constraint {
                             r#type: constraint::Type::FieldOptional.into(),
                             reason: "Object and array fields can be materialized.".to_string(),
                         }
                     } else {
-                        Constraint {
-                            r#type: constraint::Type::FieldForbidden.into(),
-                            reason: "Cannot materialize this field.".to_string(),
-                        }
-                    }
-                } else {
-                    Constraint {
-                        r#type: constraint::Type::FieldForbidden.into(),
-                        reason: "Cannot materialize this field.".to_string(),
+                        unreachable!("Binding is malformed!")
                     }
                 }
             };
@@ -68,42 +66,51 @@ pub fn validate_new_projection(proposed: Binding) -> BTreeMap<String, Constraint
 }
 
 pub fn validate_existing_projection(
-    existing: Binding,
-    proposed: Binding,
+    existing: materialization_spec::Binding,
+    proposed: validate_request::Binding,
 ) -> BTreeMap<String, Constraint> {
     let fs = existing.field_selection.unwrap();
     let existing_projections = existing.collection.unwrap().projections;
-    let fields: Vec<String> = vec![fs.keys, fs.values, vec![fs.document]].concat();
+    let mut fields = vec![fs.keys, fs.values].concat();
+    if fs.document != "" {
+        fields.push(fs.document);
+    }
     let collection = proposed.collection.unwrap();
+
     let mut constraints: BTreeMap<String, Constraint> = {
         fields
             .iter()
             .filter_map({
                 |field| {
-                    let ep = existing_projections.iter().find(|p| &p.field == field)?;
-                    let pp = collection.projections.iter().find(|p| &p.field == field)?;
+                    let ep = existing_projections.iter().find(|p| &p.field == field).unwrap();
+                    let pp = match collection.projections.iter().find(|p| &p.field == field) {
+                        Some(p) => p,
+                        None => return Some((field.clone(), Constraint {
+                            r#type: constraint::Type::Unsatisfiable.into(),
+                            reason: "The proposed materialization is missing the projection, which is required because it's included in the existing materialization".to_string()
+                        }))
+                    };
 
-                    // TODO: Should we handle an error for None case of these?
-                    let ep_infer = ep.inference.as_ref()?;
-                    let pp_infer = pp.inference.as_ref()?;
+                    let ep_infer = ep.inference.as_ref().unwrap();
+                    let pp_infer = pp.inference.as_ref().unwrap();
 
-                    let ep_type_set: HashSet<&String> = ep_infer.types.iter().collect();
-                    let pp_type_set: HashSet<&String> = pp_infer.types.iter().collect();
-                    let diff = pp_type_set.difference(&ep_type_set);
+                    let ep_type_set = types::Set::from_iter(ep_infer.types.iter());
+                    let pp_type_set = types::Set::from_iter(pp_infer.types.iter());
+                    let diff = pp_type_set - ep_type_set;
 
                     let constraint =
-                        if diff.clone().count() > 0 {
-                            let new_types: String = diff.map(|s| s.to_owned().to_owned()).collect::<Vec<String>>().join(", ");
+                        if diff != types::INVALID {
+                            let new_types: String = diff.to_vec().join(", ");
                             Constraint {
-                                r#type: constraint::Type::FieldForbidden.into(),
+                                r#type: constraint::Type::Unsatisfiable.into(),
                                 reason: format!("The proposed projection may contain types {}, which are not part of the original projection.", new_types)
                                     .to_string(),
                             }
                         } else if ep_infer.exists == i32::from(Exists::Must) &&
-                                  !ep_type_set.contains(&"null".to_string()) &&
+                                  !ep_type_set.overlaps(types::NULL) &&
                                   pp_infer.exists != i32::from(Exists::Must) {
                             Constraint {
-                                r#type: constraint::Type::FieldForbidden.into(),
+                                r#type: constraint::Type::Unsatisfiable.into(),
                                 reason: "The existing projection must exist and be non-null, so the new projection must also exist."
                                     .to_string(),
                             }
@@ -145,7 +152,7 @@ mod tests {
 
     use super::*;
     fn check_validate_new_projection(projection: Projection, constraint: Constraint) {
-        let result = validate_new_projection(Binding {
+        let result = validate_new_projection(validate_request::Binding {
             collection: Some(CollectionSpec {
                 projections: vec![projection.clone()],
                 ..Default::default()
@@ -162,7 +169,7 @@ mod tests {
         constraint: Constraint,
     ) {
         let result = validate_existing_projection(
-            Binding {
+            materialization_spec::Binding {
                 field_selection: Some(existing_fs),
                 collection: Some(CollectionSpec {
                     projections: vec![existing_projection],
@@ -170,7 +177,7 @@ mod tests {
                 }),
                 ..Default::default()
             },
-            Binding {
+            validate_request::Binding {
                 collection: Some(CollectionSpec {
                     projections: vec![projection.clone()],
                     ..Default::default()
@@ -187,6 +194,9 @@ mod tests {
             Projection {
                 field: "pk".to_string(),
                 is_primary_key: true,
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             Constraint {
@@ -200,11 +210,15 @@ mod tests {
             Projection {
                 field: "root".to_string(),
                 ptr: "".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             Constraint {
-                r#type: constraint::Type::LocationRecommended.into(),
-                reason: "The root document should usually be materialized.".to_string(),
+                r#type: constraint::Type::FieldOptional.into(),
+                reason: "The root document is usually not necessary in delta-update connectors."
+                    .to_string(),
             },
         );
 
@@ -213,7 +227,7 @@ mod tests {
                 field: "multi_types".to_string(),
                 ptr: "multi_types".to_string(),
                 inference: Some(Inference {
-                    types: vec!["numeric".to_string(), "integer".to_string()],
+                    types: vec!["number".to_string(), "string".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -237,19 +251,6 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Cannot materialize field with multiple or no types.".to_string(),
-            },
-        );
-
-        check_validate_new_projection(
-            Projection {
-                field: "no_inference".to_string(),
-                ptr: "no_inference".to_string(),
-                inference: None,
-                ..Default::default()
-            },
-            Constraint {
-                r#type: constraint::Type::FieldForbidden.into(),
-                reason: "Cannot materialize this field.".to_string(),
             },
         );
 
@@ -290,7 +291,7 @@ mod tests {
                 field: "num".to_string(),
                 ptr: "num".to_string(),
                 inference: Some(Inference {
-                    types: vec!["numeric".to_string()],
+                    types: vec!["number".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -361,7 +362,7 @@ mod tests {
             },
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
-                reason: "Cannot materialize this field.".to_string(),
+                reason: "Cannot materialize field with multiple or no types.".to_string(),
             },
         );
     }
@@ -402,10 +403,18 @@ mod tests {
             },
             Projection {
                 field: "test".to_string(),
+                inference: Some(Inference {
+                    types: vec!["boolean".to_string()],
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             Projection {
                 field: "new_field".to_string(),
+                inference: Some(Inference {
+                    types: vec!["boolean".to_string()],
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             Constraint {
@@ -430,14 +439,14 @@ mod tests {
             Projection {
                 field: "test".to_string(),
                 inference: Some(Inference {
-                    types: vec!["numeric".to_string()],
+                    types: vec!["number".to_string()],
                     ..Default::default()
                 }),
                 ..Default::default()
             },
             Constraint {
-                r#type: constraint::Type::FieldForbidden.into(),
-                reason: "The proposed projection may contain types numeric, which are not part of the original projection.".to_string(),
+                r#type: constraint::Type::Unsatisfiable.into(),
+                reason: "The proposed projection may contain types number, which are not part of the original projection.".to_string(),
             },
         );
 
@@ -463,7 +472,7 @@ mod tests {
                 ..Default::default()
             },
             Constraint {
-                r#type: constraint::Type::FieldForbidden.into(),
+                r#type: constraint::Type::Unsatisfiable.into(),
                 reason: "The existing projection must exist and be non-null, so the new projection must also exist.".to_string(),
             },
         );

@@ -10,7 +10,6 @@ use anyhow::Context;
 use firebolt_schema_builder::build_firebolt_queries_bundle;
 use prost::Message;
 use protocol::flow::MaterializationSpec;
-use serde::Deserialize;
 
 pub fn run() -> Result<(), anyhow::Error> {
     let mut buf: Vec<u8> = Vec::new();
