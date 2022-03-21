@@ -7,14 +7,14 @@ use crate::firebolt::firebolt_types::TableType;
 use super::firebolt_types::Table;
 
 #[derive(Debug, PartialEq)]
-pub struct CreateTable {
-    pub table: Table,
+pub struct CreateTable<'a> {
+    pub table: &'a Table,
     pub if_not_exists: bool,
     /// Extra SQL string passed on table creation
-    pub extra: String,
+    pub extra: &'a str,
 }
 
-impl Display for CreateTable {
+impl<'a> Display for CreateTable<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let if_not_exists = if self.if_not_exists {
             "IF NOT EXISTS"
@@ -55,15 +55,26 @@ impl Display for CreateTable {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct DropTable<'a> {
+    pub table: &'a Table,
+}
+
+impl<'a> Display for DropTable<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "DROP TABLE {};", self.table.name,)
+    }
+}
+
 /// Query to insert from one table (source) into another (destination)
 /// Assumes that all the fields in the destination are available in the source
 #[derive(Debug, PartialEq)]
-pub struct InsertFromTable {
-    pub destination: Table,
-    pub source_name: String,
+pub struct InsertFromTable<'a> {
+    pub destination: &'a Table,
+    pub source_name: &'a str,
 }
 
-impl Display for InsertFromTable {
+impl<'a> Display for InsertFromTable<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let column_list = self
             .destination
@@ -91,7 +102,7 @@ mod tests {
     fn test_create_table() {
         assert_eq!(
             CreateTable {
-                table: Table {
+                table: &Table {
                     name: "test_table".to_string(),
                     schema: TableSchema {
                         columns: vec![
@@ -112,7 +123,7 @@ mod tests {
                     r#type: TableType::Fact,
                 },
                 if_not_exists: true,
-                extra: "".to_string()
+                extra: ""
             }
             .to_string(),
             "CREATE FACT TABLE IF NOT EXISTS test_table (str TEXT,int INT NULL) PRIMARY INDEX str ;"
@@ -120,7 +131,7 @@ mod tests {
 
         assert_eq!(
             CreateTable {
-                table: Table {
+                table: &Table {
                     name: "test_table".to_string(),
                     schema: TableSchema {
                         columns: vec![
@@ -141,7 +152,7 @@ mod tests {
                     r#type: TableType::Dimension,
                 },
                 if_not_exists: false,
-                extra: "".to_string()
+                extra: ""
             }
             .to_string(),
             "CREATE DIMENSION TABLE  test_table (str TEXT,int INT NULL) PRIMARY INDEX str,int ;"
@@ -149,7 +160,7 @@ mod tests {
 
         assert_eq!(
             CreateTable {
-                table: Table {
+                table: &Table {
                     name: "test_table".to_string(),
                     schema: TableSchema {
                         columns: vec![Column {
@@ -162,7 +173,7 @@ mod tests {
                     r#type: TableType::External,
                 },
                 if_not_exists: false,
-                extra: "CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = ''".to_string()
+                extra: "CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = ''"
             }
             .to_string(),
             "CREATE EXTERNAL TABLE  test_table (str TEXT)  CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = '';"
@@ -170,10 +181,25 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_table() {
+        assert_eq!(
+            DropTable {
+                table: &Table {
+                    name: "test_table".to_string(),
+                    schema: TableSchema { columns: vec![] },
+                    r#type: TableType::Fact,
+                }
+            }
+            .to_string(),
+            "DROP TABLE test_table;"
+        );
+    }
+
+    #[test]
     fn test_insert_into() {
         assert_eq!(
             InsertFromTable {
-                destination: Table {
+                destination: &Table {
                     name: "destination_test".to_string(),
                     schema: TableSchema {
                         columns: vec![
@@ -193,7 +219,7 @@ mod tests {
                     },
                     r#type: TableType::Fact,
                 },
-                source_name: "source_test".to_string()
+                source_name: "source_test"
             }
             .to_string(),
             "INSERT INTO destination_test (str,int) SELECT str,int FROM source_test WHERE source_file_name IN (?);"

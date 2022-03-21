@@ -1,7 +1,7 @@
 use std::iter::FromIterator;
 
 use super::errors::*;
-use super::firebolt_queries::{CreateTable, InsertFromTable};
+use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
 
 use json::schema::types;
@@ -15,6 +15,8 @@ pub const FAKE_BUNDLE_URL: &str = "https://fake-bundle-schema.estuary.io";
 pub struct BindingBundle {
     pub create_table: String,
     pub create_external_table: String,
+    pub drop_table: String,
+    pub drop_external_table: String,
     pub insert_from_table: String,
 }
 
@@ -127,25 +129,31 @@ pub fn build_firebolt_queries_bundle(
 
         Ok(BindingBundle {
             create_table: CreateTable {
-                table: table.clone(),
+                table: &table,
                 if_not_exists: true,
-                extra: "".to_string(),
+                extra: "",
             }
             .to_string(),
             create_external_table: CreateTable {
-                table: external_table,
+                table: &external_table,
                 if_not_exists: true,
                 extra: format!(
-                    "CREDENTIALS ( AWS_KEY_ID = '{}' AWS_SECRET_KEY = '{}' ) URL = 's3://{}{}' OBJECT_PATTERN = '*.json'",
+                    "CREDENTIALS = ( AWS_KEY_ID = '{}' AWS_SECRET_KEY = '{}' ) URL = 's3://{}{}' OBJECT_PATTERN = '*.json' TYPE = (JSON)",
                     config.aws_key_id,
                     config.aws_secret_key,
                     config.s3_bucket,
                     config.s3_prefix,
-                )
+                ).as_str()
+            }.to_string(),
+            drop_table: DropTable {
+                table: &table
+            }.to_string(),
+            drop_external_table: DropTable {
+                table: &external_table
             }.to_string(),
             insert_from_table: InsertFromTable {
-                destination: table,
-                source_name: external_table_name,
+                destination: &table,
+                source_name: &external_table_name,
             }.to_string(),
         })
     }).collect();
@@ -217,6 +225,8 @@ mod tests {
                             .to_string(),
                     create_external_table:
                         "CREATE EXTERNAL TABLE IF NOT EXISTS test_table_external (test TEXT)  CREDENTIALS ( AWS_KEY_ID = 'aws_key' AWS_SECRET_KEY = 'aws_secret' ) URL = 's3://my-bucket/test' OBJECT_PATTERN = '*.json';".to_string(),
+                    drop_table: "DROP TABLE test_table;".to_string(),
+                    drop_external_table: "DROP TABLE test_table_external;".to_string(),
                     insert_from_table:
                         "INSERT INTO test_table (test,source_file_name) SELECT test,source_file_name FROM test_table_external WHERE source_file_name IN (?);".to_string()
                 }]

@@ -25,7 +25,7 @@ enum Subcommand {
     /// Generates an Elasticsearch schema
     ElasticsearchSchema(schemalate::elasticsearch::Args),
     // Generates a Firebolt table schema
-    FireboltSchema,
+    FireboltSchema(schemalate::firebolt::Args),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -42,7 +42,7 @@ fn run_subcommand(subcommand: Subcommand) -> Result<(), anyhow::Error> {
         Subcommand::Markdown(md_args) => schemalate::markdown::run(md_args),
         Subcommand::Typescript(ts_args) => schemalate::typescript::run(ts_args),
         Subcommand::ElasticsearchSchema(es_args) => schemalate::elasticsearch::run(es_args),
-        Subcommand::FireboltSchema => schemalate::firebolt::run(),
+        Subcommand::FireboltSchema(fb_args) => schemalate::firebolt::run(fb_args),
     };
 
     if let Err(err) = result.as_ref() {

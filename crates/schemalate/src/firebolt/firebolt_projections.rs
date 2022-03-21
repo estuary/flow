@@ -2,13 +2,24 @@ use std::collections::BTreeMap;
 use std::iter::FromIterator;
 
 use json::schema::types;
-use protocol::flow::{inference::Exists, materialization_spec, CollectionSpec};
+use protocol::flow::{inference::Exists, materialization_spec, CollectionSpec, FieldSelection};
 use protocol::materialize::{constraint, validate_request, Constraint};
+use serde_json::{json, Map};
+
+// Can we make this a method on FieldSelection itself?
+fn all_fields(fs: FieldSelection) -> Vec<String> {
+    let mut fields = vec![fs.keys, fs.values].concat();
+    if fs.document != "" {
+        fields.push(fs.document);
+    }
+    fields
+}
 
 /*pub fn validate_selected_fields(
     constraints: BTreeMap<String, Constraint>,
-    proposed: Binding,
+    proposed: materialization_spec::Binding,
 ) -> Result<(), InvalidSelectedFields> {
+    let fields = all_fields(proposed.field_selection.unwrap());
 }*/
 
 pub fn validate_new_projection(
@@ -65,16 +76,23 @@ pub fn validate_new_projection(
         .collect()
 }
 
+/// ValidateExistingProjectionRequest used to parse stdin input for validate_existing_projection.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ValidateExistingProjectionRequest {
+    /// Existing Materialization Binding
+    #[prost(message, tag = "1")]
+    pub existing_binding: Option<materialization_spec::Binding>,
+    /// Proposed ValidateRequest Binding
+    #[prost(message, tag = "2")]
+    pub proposed_binding: Option<validate_request::Binding>,
+}
+
 pub fn validate_existing_projection(
     existing: materialization_spec::Binding,
     proposed: validate_request::Binding,
 ) -> BTreeMap<String, Constraint> {
-    let fs = existing.field_selection.unwrap();
     let existing_projections = existing.collection.unwrap().projections;
-    let mut fields = vec![fs.keys, fs.values].concat();
-    if fs.document != "" {
-        fields.push(fs.document);
-    }
+    let fields = all_fields(existing.field_selection.unwrap());
     let collection = proposed.collection.unwrap();
 
     let mut constraints: BTreeMap<String, Constraint> = {
@@ -146,6 +164,28 @@ pub fn validate_existing_projection(
     constraints
 }
 
+pub fn project_json(
+    spec: materialization_spec::Binding,
+    doc: serde_json::Value,
+) -> serde_json::Value {
+    let projections = spec.collection.unwrap().projections;
+    let fields = all_fields(spec.field_selection.unwrap());
+
+    fields
+        .iter()
+        .fold(Map::new(), |mut acc, field| {
+            let projection = projections.iter().find(|p| &p.field == field).unwrap();
+            let pointer = doc::Pointer::from_str(&projection.ptr);
+
+            acc.insert(
+                projection.field.clone(),
+                pointer.query(&doc).unwrap().clone(),
+            );
+            acc
+        })
+        .into()
+}
+
 #[cfg(test)]
 mod tests {
     use protocol::flow::{FieldSelection, Inference, Projection};
@@ -186,6 +226,28 @@ mod tests {
             },
         );
         assert_eq!(result[&projection.field], constraint);
+    }
+
+    fn check_project_json(
+        field_selection: FieldSelection,
+        projection: Projection,
+        input: serde_json::Value,
+        expected: serde_json::Value,
+    ) {
+        assert_eq!(
+            project_json(
+                materialization_spec::Binding {
+                    field_selection: Some(field_selection),
+                    collection: Some(CollectionSpec {
+                        projections: vec![projection],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                input
+            ),
+            expected
+        );
     }
 
     #[test]
@@ -503,6 +565,51 @@ mod tests {
                 r#type: constraint::Type::FieldRequired.into(),
                 reason: "This field is part of the current materialization.".to_string(),
             },
+        );
+    }
+
+    #[test]
+    fn test_project_json() {
+        check_project_json(
+            FieldSelection {
+                keys: vec!["user_id".to_string()],
+                ..Default::default()
+            },
+            Projection {
+                field: "user_id".to_string(),
+                ptr: "/user/id".to_string(),
+                ..Default::default()
+            },
+            json!({"user": {"id": 2}}),
+            json!({"user_id": 2}),
+        );
+
+        check_project_json(
+            FieldSelection {
+                values: vec!["user".to_string()],
+                ..Default::default()
+            },
+            Projection {
+                field: "user".to_string(),
+                ptr: "/user".to_string(),
+                ..Default::default()
+            },
+            json!({"user": {"id": 2}}),
+            json!({"user": {"id": 2}}),
+        );
+
+        check_project_json(
+            FieldSelection {
+                values: vec!["user_id".to_string()],
+                ..Default::default()
+            },
+            Projection {
+                field: "user_id".to_string(),
+                ptr: "/user/id".to_string(),
+                ..Default::default()
+            },
+            json!({"user": {"id": 2}, "extra_field": {}}),
+            json!({"user_id": 2}),
         );
     }
 }
