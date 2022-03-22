@@ -169,8 +169,8 @@ fn projection_type_to_firebolt_type(projection_type: &str) -> Option<FireboltTyp
         "integer" => Some(FireboltType::Int),
         "number" => Some(FireboltType::Double),
         "boolean" => Some(FireboltType::Boolean),
-        // TODO: handle arrays?
-        //"array" => Some(FireboltType::Array),
+        // TODO: how do we get the inner type of Arrays?
+        "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
         "object" => Some(FireboltType::Text),
         _ => None,
     }

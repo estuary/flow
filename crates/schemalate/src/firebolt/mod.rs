@@ -11,9 +11,7 @@ use firebolt_projections::{validate_existing_projection, validate_new_projection
 use firebolt_schema_builder::build_firebolt_queries_bundle;
 use prost::Message;
 use protocol::flow::MaterializationSpec;
-use protocol::materialize::validate_request;
-
-use self::firebolt_projections::ValidateExistingProjectionRequest;
+use protocol::materialize::{extra, validate_request};
 
 #[derive(clap::Args, Debug)]
 pub struct Args {
@@ -28,6 +26,10 @@ pub struct Args {
     /// Generate query bundle
     #[clap(long)]
     query_bundle: bool,
+
+    /// Map a materialization document according to projections
+    #[clap(long)]
+    project_json: bool,
 }
 
 pub fn run(args: Args) -> Result<(), anyhow::Error> {
@@ -47,7 +49,7 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
         let result = validate_new_projection(projection);
         serde_json::to_string(&result)?
     } else {
-        let req = ValidateExistingProjectionRequest::decode(Cursor::new(buf))?;
+        let req = extra::ValidateExistingProjectionRequest::decode(Cursor::new(buf))?;
 
         let result = validate_existing_projection(
             req.existing_binding.unwrap(),
