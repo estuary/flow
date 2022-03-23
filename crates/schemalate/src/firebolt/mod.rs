@@ -4,7 +4,9 @@ pub mod firebolt_queries;
 pub mod firebolt_schema_builder;
 pub mod firebolt_types;
 
+use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
+use std::iter::FromIterator;
 
 use anyhow::Context;
 use firebolt_projections::{validate_existing_projection, validate_new_projection};
@@ -12,6 +14,8 @@ use firebolt_schema_builder::build_firebolt_queries_bundle;
 use prost::Message;
 use protocol::flow::MaterializationSpec;
 use protocol::materialize::{extra, validate_request};
+
+use self::firebolt_projections::validate_binding_against_constraints;
 
 #[derive(clap::Args, Debug)]
 pub struct Args {
@@ -23,13 +27,13 @@ pub struct Args {
     #[clap(long)]
     validate_existing_projection: bool,
 
+    /// Validate a materialization binding against some constraints
+    #[clap(long)]
+    validate_binding_against_constraints: bool,
+
     /// Generate query bundle
     #[clap(long)]
     query_bundle: bool,
-
-    /// Map a materialization document according to projections
-    #[clap(long)]
-    project_json: bool,
 }
 
 pub fn run(args: Args) -> Result<(), anyhow::Error> {
@@ -48,7 +52,7 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
 
         let result = validate_new_projection(projection);
         serde_json::to_string(&result)?
-    } else {
+    } else if args.validate_existing_projection {
         let req = extra::ValidateExistingProjectionRequest::decode(Cursor::new(buf))?;
 
         let result = validate_existing_projection(
@@ -56,6 +60,21 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
             req.proposed_binding.unwrap(),
         );
         serde_json::to_string(&result)?
+    } else if args.validate_binding_against_constraints {
+        let req = extra::ValidateBindingAgainstConstraints::decode(Cursor::new(buf))?;
+
+        let result = validate_binding_against_constraints(
+            BTreeMap::from_iter(req.constraints.into_iter()),
+            req.binding.unwrap(),
+        );
+        if result.is_ok() {
+            "".to_string()
+        } else {
+            serde_json::to_string(&result)?
+        }
+    } else {
+        // TODO: use subcommands so we don't have to handle this
+        "you have to select one of the actions".to_string()
     };
 
     io::stdout().write_all(output.as_bytes())?;
