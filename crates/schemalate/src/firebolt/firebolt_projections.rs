@@ -5,6 +5,8 @@ use json::schema::types;
 use protocol::flow::{inference::Exists, materialization_spec, FieldSelection};
 use protocol::materialize::{constraint, validate_request, Constraint};
 
+use crate::firebolt::errors::Error;
+
 // Can we make this a method on FieldSelection itself?
 fn all_fields(fs: FieldSelection) -> Vec<String> {
     let mut fields = vec![fs.keys, fs.values].concat();
@@ -14,12 +16,67 @@ fn all_fields(fs: FieldSelection) -> Vec<String> {
     fields
 }
 
-/*pub fn validate_selected_fields(
+pub fn validate_selected_fields(
     constraints: BTreeMap<String, Constraint>,
     proposed: materialization_spec::Binding,
-) -> Result<(), InvalidSelectedFields> {
+) -> Result<(), Error> {
     let fields = all_fields(proposed.field_selection.unwrap());
-}*/
+    let projections = proposed.collection.unwrap().projections;
+    let mut projected_pointers: Vec<String> = Vec::new();
+
+    fields.iter().try_for_each(|field| {
+        let projection =
+            projections
+                .iter()
+                .find(|p| &p.field == field)
+                .ok_or(Error::NoProjectionForField {
+                    field: field.to_string(),
+                })?;
+
+        projected_pointers.push(projection.ptr.to_string());
+
+        let constraint = &constraints[field];
+        let ctype = constraint::Type::from_i32(constraint.r#type).unwrap();
+        if vec![
+            constraint::Type::FieldForbidden,
+            constraint::Type::Unsatisfiable,
+        ]
+        .contains(&ctype)
+        {
+            return Err(Error::NotMaterializableField {
+                field: field.to_string(),
+                constraint: format!("{:?}", ctype),
+                reason: constraint.reason.to_string(),
+            });
+        }
+
+        Ok(())
+    })?;
+
+    constraints.iter().try_for_each(|(field, constraint)| {
+        match constraint::Type::from_i32(constraint.r#type).unwrap() {
+            constraint::Type::FieldRequired if !fields.contains(field) => {
+                return Err(Error::RequiredFieldMissing {
+                    field: field.to_string(),
+                    reason: constraint.reason.to_string(),
+                })
+            }
+            constraint::Type::LocationRequired => {
+                let projection = projections.iter().find(|p| &p.field == field).unwrap();
+                if !projected_pointers.contains(&projection.ptr) {
+                    return Err(Error::MissingProjection {
+                        ptr: projection.ptr.clone(),
+                    });
+                }
+            }
+            _ => (),
+        };
+
+        Ok(())
+    })?;
+
+    Ok(())
+}
 
 pub fn validate_new_projection(
     proposed: validate_request::Binding,
@@ -157,6 +214,24 @@ mod tests {
     use protocol::flow::{CollectionSpec, FieldSelection, Inference, Projection};
 
     use super::*;
+    fn simple_validate_selected_fields(
+        constraints: BTreeMap<String, Constraint>,
+        field_selection: FieldSelection,
+        projection: Projection,
+    ) -> Result<(), Error> {
+        validate_selected_fields(
+            constraints,
+            materialization_spec::Binding {
+                field_selection: Some(field_selection),
+                collection: Some(CollectionSpec {
+                    projections: vec![projection.clone()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+    }
+
     fn check_validate_new_projection(projection: Projection, constraint: Constraint) {
         let result = validate_new_projection(validate_request::Binding {
             collection: Some(CollectionSpec {
@@ -192,6 +267,130 @@ mod tests {
             },
         );
         assert_eq!(result[&projection.field], constraint);
+    }
+
+    #[test]
+    fn test_validate_selected_fields() {
+        assert!(matches!(
+            simple_validate_selected_fields(
+                BTreeMap::from([(
+                    "pk".to_string(),
+                    Constraint {
+                        r#type: constraint::Type::FieldRequired.into(),
+                        reason: "".to_string(),
+                    },
+                )]),
+                FieldSelection {
+                    keys: vec![],
+                    ..Default::default()
+                },
+                Projection {
+                    field: "blah".to_string(),
+                    inference: Some(Inference {
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ),
+            Err(Error::RequiredFieldMissing { .. })
+        ));
+
+        assert!(matches!(
+            simple_validate_selected_fields(
+                BTreeMap::from([(
+                    "pk".to_string(),
+                    Constraint {
+                        r#type: constraint::Type::LocationRequired.into(),
+                        reason: "".to_string(),
+                    },
+                )]),
+                FieldSelection {
+                    keys: vec![],
+                    ..Default::default()
+                },
+                Projection {
+                    field: "pk".to_string(),
+                    inference: Some(Inference {
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ),
+            Err(Error::MissingProjection { .. })
+        ));
+
+        assert!(matches!(
+            simple_validate_selected_fields(
+                BTreeMap::from([(
+                    "pk".to_string(),
+                    Constraint {
+                        r#type: constraint::Type::LocationRequired.into(),
+                        reason: "".to_string(),
+                    },
+                )]),
+                FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                },
+                Projection {
+                    field: "pk".to_string(),
+                    inference: Some(Inference {
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ),
+            // No projection for "test"
+            Err(Error::NoProjectionForField { .. })
+        ));
+
+        assert!(matches!(
+            simple_validate_selected_fields(
+                BTreeMap::from([(
+                    "pk".to_string(),
+                    Constraint {
+                        r#type: constraint::Type::Unsatisfiable.into(),
+                        reason: "".to_string(),
+                    },
+                )]),
+                FieldSelection {
+                    keys: vec!["pk".to_string()],
+                    ..Default::default()
+                },
+                Projection {
+                    field: "pk".to_string(),
+                    inference: Some(Inference {
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ),
+            Err(Error::NotMaterializableField { .. })
+        ));
+
+        assert!(matches!(
+            simple_validate_selected_fields(
+                BTreeMap::from([(
+                    "pk".to_string(),
+                    Constraint {
+                        r#type: constraint::Type::FieldForbidden.into(),
+                        reason: "".to_string(),
+                    },
+                )]),
+                FieldSelection {
+                    keys: vec!["pk".to_string()],
+                    ..Default::default()
+                },
+                Projection {
+                    field: "pk".to_string(),
+                    inference: Some(Inference {
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ),
+            Err(Error::NotMaterializableField { .. })
+        ));
     }
 
     #[test]

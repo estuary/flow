@@ -41,58 +41,41 @@ pub struct Resource {
 
 pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     // TODO / question: is it safe to assume these are available when the driver sends them?
-    let fs = binding
-        .field_selection
-        .clone()
-        .ok_or(Error::FieldSelectionMissing)?;
-    let projections = binding
-        .collection
-        .clone()
-        .ok_or(Error::CollectionMissing)?
-        .projections;
+    let fs = binding.field_selection.as_ref().unwrap();
+    let projections = &binding.collection.as_ref().unwrap().projections;
 
     let doc_field = if fs.document.len() > 0 {
-        vec![fs.document]
+        vec![fs.document.clone()]
     } else {
         vec![]
     };
-    let keys = fs.keys.clone();
-    let fields: Vec<String> = vec![fs.keys, fs.values, doc_field].concat();
+    let fields: Vec<String> = vec![fs.keys.clone(), fs.values.clone(), doc_field].concat();
 
     let mut columns = Vec::new();
 
-    let errors = fields
-        .iter()
-        .map(|field| {
-            let projection = projections.iter().find(|p| &p.field == field).unwrap();
-            let inference = projection.inference.as_ref().unwrap();
-            let is_key = keys.contains(field);
-            let r#type = (types::Set::from_iter(inference.types.iter()) - types::NULL)
-                .iter()
-                .next()
-                .unwrap();
+    fields.iter().try_for_each(|field| -> Result<(), Error> {
+        let projection = projections.iter().find(|p| &p.field == field).unwrap();
+        let inference = projection.inference.as_ref().unwrap();
+        let is_key = fs.keys.contains(field);
+        let r#type = (types::Set::from_iter(inference.types.iter()) - types::NULL)
+            .iter()
+            .next()
+            .unwrap();
 
-            let fb_type = projection_type_to_firebolt_type(r#type).ok_or(Error::UnknownType {
-                r#type: r#type.to_string(),
-                field: field.clone(),
-            })?;
+        let fb_type = projection_type_to_firebolt_type(r#type).ok_or(Error::UnknownType {
+            r#type: r#type.to_string(),
+            field: field.clone(),
+        })?;
 
-            columns.push(Column {
-                key: projection.field.clone(),
-                r#type: fb_type,
-                nullable: inference.exists != i32::from(Exists::Must)
-                    || inference.types.contains(&"null".to_string()),
-                is_key,
-            });
-            Ok(())
-        })
-        .filter(|r| r.is_err())
-        .next();
-
-    if let Some(err) = errors {
-        // We have filtered on is_err, so this is a safe unwrap
-        return Err(err.unwrap_err());
-    }
+        columns.push(Column {
+            key: projection.field.clone(),
+            r#type: fb_type,
+            nullable: inference.exists != i32::from(Exists::Must)
+                || inference.types.contains(&"null".to_string()),
+            is_key,
+        });
+        Ok(())
+    })?;
 
     Ok(TableSchema { columns })
 }
@@ -170,6 +153,8 @@ fn projection_type_to_firebolt_type(projection_type: &str) -> Option<FireboltTyp
         "number" => Some(FireboltType::Double),
         "boolean" => Some(FireboltType::Boolean),
         // TODO: how do we get the inner type of Arrays?
+        // One idea from Johnny is to run inference manually with
+        // doc::inference::Shape
         "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
         "object" => Some(FireboltType::Text),
         _ => None,
