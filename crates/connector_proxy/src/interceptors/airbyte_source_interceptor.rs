@@ -289,6 +289,10 @@ impl AirbyteSourceInterceptor {
     ) -> InterceptorStream {
         Box::pin(try_stream! {
             let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
+            // transaction_pending is true if the connector writes output messages and exits _without_ writing
+            // a final state checkpoint.
+            let mut transaction_pending = false;
+
             loop {
                 let message = match airbyte_message_stream.next().await {
                     None => break,
@@ -304,7 +308,9 @@ impl AirbyteSourceInterceptor {
                                 None => false,
                             },
                     });
+
                     yield encode_message(&resp)?;
+                    transaction_pending = false;
                 } else if let Some(record) = message.record {
                     let stream_to_binding = stream_to_binding.lock().await;
                     match stream_to_binding.get(&record.stream) {
@@ -323,11 +329,23 @@ impl AirbyteSourceInterceptor {
                     }
                     drop(stream_to_binding);
                     yield encode_message(&resp)?;
+                    transaction_pending = true;
                 } else if let Some(mlog) = message.log {
                     mlog.log();
                 } else {
                     raise_custom_error("unexpected pull response.")?;
                 }
+            }
+
+            if transaction_pending {
+                // We generate a synthetic commit now,
+                // and the empty checkpoint means the assumed behavior of the next invocation will be "full refresh".
+                let mut resp = PullResponse::default();
+                resp.checkpoint = Some(DriverCheckpoint{
+                    driver_checkpoint_json: Vec::new(),
+                    rfc7396_merge_patch: false
+                });
+                yield encode_message(&resp)?;
             }
         })
     }

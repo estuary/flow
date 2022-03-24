@@ -316,23 +316,6 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		),
 		logger,
 	)
-
-	// TODO: should the new logic send out a final commit if there are pending documents without a checkpoint?
-
-	//if resp == nil {
-	//	return nil // Connector flushed prior to exiting. All done.
-	//}
-
-	// Write a final commit, followed by EOF.
-	// This happens only when a connector writes output and exits _without_
-	// writing a final state checkpoint. We generate a synthetic commit now,
-	// and the nil checkpoint means the assumed behavior of the next invocation
-	// will be "full refresh".
-	//return pc.WritePullCheckpoint(stream, &resp,
-	//	&pf.DriverCheckpoint{
-	//		DriverCheckpointJson: nil,
-	//		Rfc7396MergePatch:    false,
-	//	})
 }
 
 // onStdoutDecodeError returns a function that is invoked whenever there's an error parsing a line
