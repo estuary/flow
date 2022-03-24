@@ -15,7 +15,7 @@ use tokio_util::io::StreamReader;
 pub struct NetworkProxyMaterializeInterceptor {}
 
 impl NetworkProxyMaterializeInterceptor {
-    fn convert_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -28,7 +28,7 @@ impl NetworkProxyMaterializeInterceptor {
         })
     }
 
-    fn convert_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -42,7 +42,7 @@ impl NetworkProxyMaterializeInterceptor {
         })
     }
 
-    fn convert_transactions_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_transactions_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<TransactionRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -70,11 +70,11 @@ impl NetworkProxyMaterializeInterceptor {
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowMaterializeOperation::Validate => Self::convert_spec_request(in_stream),
+            FlowMaterializeOperation::Validate => Self::adapt_spec_request(in_stream),
             FlowMaterializeOperation::ApplyUpsert | FlowMaterializeOperation::ApplyDelete => {
-                Self::convert_apply_request(in_stream)
+                Self::adapt_apply_request(in_stream)
             }
-            FlowMaterializeOperation::Transactions => Self::convert_transactions_request(in_stream),
+            FlowMaterializeOperation::Transactions => Self::adapt_transactions_request(in_stream),
             _ => in_stream,
         })
     }
