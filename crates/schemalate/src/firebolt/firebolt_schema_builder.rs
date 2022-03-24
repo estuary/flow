@@ -155,8 +155,9 @@ fn projection_type_to_firebolt_type(projection_type: &str) -> Option<FireboltTyp
         // TODO: how do we get the inner type of Arrays?
         // One idea from Johnny is to run inference manually with
         // doc::inference::Shape
-        "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
-        "object" => Some(FireboltType::Text),
+        // "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
+        // TODO: test JSON: see if we can store it as raw
+        // "object" => Some(FireboltType::Text),
         _ => None,
     }
 }
