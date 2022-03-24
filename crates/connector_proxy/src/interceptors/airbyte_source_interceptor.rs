@@ -48,7 +48,7 @@ impl AirbyteSourceInterceptor {
             stream_to_binding: Arc::new(Mutex::new(HashMap::new())),
             tmp_dir: Builder::new()
                 .prefix("airbyte-source-")
-                .tempdir_in("/connector-tmpfs")
+                .tempdir_in("/var/tmp")
                 .expect("failed to create temp dir."),
         }
     }
