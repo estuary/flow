@@ -14,7 +14,7 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use protocol::capture::{
     discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
-    PullRequest, PullResponse, SpecResponse, ValidateRequest, ValidateResponse,
+    PullRequest, PullResponse, SpecRequest, SpecResponse, ValidateRequest, ValidateResponse,
 };
 use protocol::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
@@ -53,8 +53,15 @@ impl AirbyteSourceInterceptor {
         }
     }
 
-    fn adapt_spec_request_stream(&mut self, pid: u32) -> InterceptorStream {
+    fn adapt_spec_request_stream(
+        &mut self,
+        pid: u32,
+        in_stream: InterceptorStream,
+    ) -> InterceptorStream {
         Box::pin(try_stream! {
+            let mut reader = StreamReader::new(in_stream);
+            decode_message::<SpecRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing spec request."))?;
+
             send_sigcont(pid)?;
             yield Bytes::from("");
         })
@@ -294,7 +301,7 @@ impl AirbyteSourceInterceptor {
                             driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
                             rfc7396_merge_patch: match state.merge {
                                 Some(m) => m,
-                                None => false, // TODO: figure out the right value.
+                                None => false,
                             },
                     });
                     yield encode_message(&resp)?;
@@ -379,7 +386,7 @@ impl AirbyteSourceInterceptor {
         let state_file_path = self.input_file_path(STATE_FILE_NAME);
 
         match op {
-            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid)),
+            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid, in_stream)),
             FlowCaptureOperation::Discover => {
                 Ok(self.convert_discover_request(pid, config_file_path, in_stream))
             }

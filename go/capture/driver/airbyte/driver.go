@@ -93,13 +93,24 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 		"operation":        "spec",
 	})
 
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+	req.EndpointSpecJson = decrypted
+
 	var resp *pc.SpecResponse
-	var err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
+	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
 		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
 		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
 		connector.NewProtoOutput(
 			func() proto.Message { return new(pc.SpecResponse) },
