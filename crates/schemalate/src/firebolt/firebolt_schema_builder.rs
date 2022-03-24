@@ -155,8 +155,9 @@ fn projection_type_to_firebolt_type(projection_type: &str) -> Option<FireboltTyp
         // TODO: how do we get the inner type of Arrays?
         // One idea from Johnny is to run inference manually with
         // doc::inference::Shape
-        "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
-        "object" => Some(FireboltType::Text),
+        // "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
+        // TODO: test JSON: see if we can store it as raw
+        // "object" => Some(FireboltType::Text),
         _ => None,
     }
 }
@@ -335,36 +336,6 @@ mod tests {
                 columns: vec![Column {
                     key: "test".to_string(),
                     r#type: FireboltType::Double,
-                    nullable: true,
-                    is_key: true,
-                }],
-            },
-        );
-
-        assert_eq!(
-            build_firebolt_schema(&Binding {
-                field_selection: Some(FieldSelection {
-                    keys: vec!["test".to_string()],
-                    ..Default::default()
-                }),
-                collection: Some(CollectionSpec {
-                    projections: vec![Projection {
-                        field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["object".to_string()],
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .unwrap(),
-            TableSchema {
-                columns: vec![Column {
-                    key: "test".to_string(),
-                    r#type: FireboltType::Text,
                     nullable: true,
                     is_key: true,
                 }],
