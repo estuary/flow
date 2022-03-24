@@ -38,7 +38,7 @@ impl NetworkProxyCaptureInterceptor {
         })
     }
 
-    fn convert_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
+    fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream! {
             let mut reader = StreamReader::new(in_stream);
             let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
@@ -83,7 +83,7 @@ impl NetworkProxyCaptureInterceptor {
             FlowCaptureOperation::Discover => Self::adapt_discover_request_stream(in_stream),
             FlowCaptureOperation::Validate => Self::adapt_validate_request_stream(in_stream),
             FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
-                Self::convert_apply_request(in_stream)
+                Self::adapt_apply_request(in_stream)
             }
             FlowCaptureOperation::Pull => Self::adapt_pull_request_stream(in_stream),
             _ => in_stream,

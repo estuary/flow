@@ -92,7 +92,7 @@ impl AirbyteSourceInterceptor {
         })
     }
 
-    fn convert_discover_request(
+    fn adapt_discover_request(
         &mut self,
         pid: u32,
         config_file_path: String,
@@ -406,7 +406,7 @@ impl AirbyteSourceInterceptor {
         match op {
             FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid, in_stream)),
             FlowCaptureOperation::Discover => {
-                Ok(self.convert_discover_request(pid, config_file_path, in_stream))
+                Ok(self.adapt_discover_request(pid, config_file_path, in_stream))
             }
             FlowCaptureOperation::Validate => Ok(self.adapt_validate_request_stream(
                 pid,
