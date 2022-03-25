@@ -1,4 +1,5 @@
 use crate::context::AppContext;
+use crate::models::JsonValue;
 use crate::models::{
     builds::{Build, State},
     id::Id,
@@ -19,6 +20,8 @@ pub enum Error {
     CreateDir(#[source] std::io::Error),
     #[error("failed to create source catalog file")]
     CreateSource(#[source] std::io::Error),
+    #[error("invalid catalog: {0}")]
+    InvalidCatalog(String),
     #[error("processing job {job:?} failed")]
     Job {
         job: String,
@@ -73,7 +76,13 @@ where
             let tmpdir = tempfile::TempDir::new().map_err(|e| Error::CreateDir(e))?;
             info!(%id, %account_id, tmpdir=?tmpdir.path(), %created_at, %updated_at, "processing dequeued build");
 
-            let (state, db_path) = process_build(id, catalog.unwrap().0, tmpdir.path()).await?;
+            let catalog = process_catalog(catalog).await?;
+            debug!(
+                processed_catalog = %serde_json::to_string_pretty(&catalog).unwrap(),
+                "finished processing catalog"
+            );
+
+            let (state, db_path) = process_build(id, catalog, tmpdir.path()).await?;
             info!(?state, "processed build");
 
             ctx.put_builds()
@@ -93,9 +102,77 @@ where
     }
 }
 
+async fn process_catalog(
+    catalog: Option<sqlx::types::Json<JsonValue>>,
+) -> Result<JsonValue, Error> {
+    let mut catalog = catalog
+        .ok_or_else(|| Error::InvalidCatalog("Missing catalog definition".to_owned()))?
+        .0;
+
+    inject_storage_mapping(&mut catalog)?;
+    encode_resources(&mut catalog)?;
+
+    Ok(catalog.into())
+}
+
+/// Injects valid StorageMappings into the Catalog. We're setting these up upon
+/// signup and this avoids the need for users to include these in every Build's
+/// catalog json individually.
+fn inject_storage_mapping(catalog: &mut JsonValue) -> Result<(), Error> {
+    let c = catalog
+        .as_object_mut()
+        .ok_or_else(|| Error::InvalidCatalog("Catalog must be an object".to_owned()))?;
+
+    // TODO: Once we start to collect Storage Mapping information during signup,
+    // we can inject their real storage mappings here. Until then, this allows
+    // catalogs created by the UI to actually build successfully.
+    let store = serde_json::json!({"provider": "GCS", "bucket": "flow-example"});
+
+    // TODO: How should we setup global resolution of ops/ storage mappings?
+    // Using an Account-specific prefix here fails because it does not match the
+    // ops/ collections. It seems like we should be able to omit ops/ mappings
+    // from individual builds? Or inject them all here?
+    let prefix = "";
+
+    c.insert(
+        "storageMappings".to_owned(),
+        serde_json::json!({ prefix: { "stores": [store] } }),
+    );
+    Ok(())
+}
+
+/// We expose the Catalog format over the control plane api as json. To this
+/// end, we allow submitting json resources directly, without base64 encoding
+/// them. However, this isn't expected by flowctl, so we base64 encode them for
+/// the purposes of the build process. Any resources which are already encoded
+/// are left as-is.
+fn encode_resources(catalog: &mut serde_json::Value) -> Result<(), Error> {
+    let resources = &mut catalog["resources"];
+
+    if let Some(res) = resources.as_object_mut() {
+        for (_res_url, resource) in res.iter_mut() {
+            if let Some(content) = resource["content"].as_object() {
+                let serialized = serde_json::to_string(&content).map_err(|_e| {
+                    Error::InvalidCatalog(
+                        "Catalog json-content could not be re-serialized".to_owned(),
+                    )
+                })?;
+                let encoded = base64::encode(serialized);
+                resource["content"] = serde_json::Value::String(encoded);
+            }
+        }
+
+        // We've base64 encoded all the json resources.
+        Ok(())
+    } else {
+        // A catalog without embedded resources is good to go.
+        Ok(())
+    }
+}
+
 async fn process_build(
     id: Id<Build>,
-    catalog: serde_json::Value,
+    catalog: JsonValue,
     tmp_dir: &Path,
 ) -> Result<(State, PathBuf), Error> {
     // We perform the build under a ./builds/ subdirectory, which is a

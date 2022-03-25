@@ -43,6 +43,12 @@ impl Deref for CatalogName {
     }
 }
 
+impl From<CatalogName> for String {
+    fn from(name: CatalogName) -> Self {
+        name.0.clone()
+    }
+}
+
 /// The representation of the entity name which will be used for enforcing
 /// uniqueness and prefixing constraints. Entity names should not differ by
 /// unicode constructor or by case. By unicode-normalizing and case-folding the
