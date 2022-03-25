@@ -45,7 +45,6 @@ pub struct ConfiguredStream {
     pub cursor_field: Option<Vec<String>>,
     pub primary_key: Option<Vec<Vec<String>>>,
 
-    // TODO: might be broken if both 'projection' and its alias is present in the JSON data.
     #[serde(alias = "estuary.dev/projections")]
     pub projections: HashMap<String, String>,
 }
