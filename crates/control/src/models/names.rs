@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use models::collate::{collate, normalize};
+use super::collate::{collate, normalize};
 
 /// The canonical entity name as it is understood in the data plane. This is a
 /// unicode-normalized version of the user-provided name. This will be what

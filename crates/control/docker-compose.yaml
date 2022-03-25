@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: flow
       POSTGRES_PASSWORD: flow
       POSTGRES_DB: control_development
-    ports: ['5432:5432']
+    network_mode: host
 
 volumes:
   postgres_data: {}

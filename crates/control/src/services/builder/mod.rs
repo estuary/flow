@@ -95,7 +95,7 @@ where
 
 async fn process_build(
     id: Id<Build>,
-    catalog: models::Catalog,
+    catalog: serde_json::Value,
     tmp_dir: &Path,
 ) -> Result<(State, PathBuf), Error> {
     // We perform the build under a ./builds/ subdirectory, which is a

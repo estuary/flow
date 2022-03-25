@@ -23,7 +23,7 @@ pub async fn index(
 pub async fn create(
     Extension(ctx): Extension<AppContext>,
     CurrentAccount(account): CurrentAccount,
-    Json(catalog): Json<models::Catalog>,
+    Json(catalog): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
     let build = builds_repo::insert(ctx.db(), catalog, account.id).await?;
     Ok((StatusCode::CREATED, view::create(build)))

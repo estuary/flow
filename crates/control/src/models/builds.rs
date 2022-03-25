@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use models;
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json, FromRow};
 use std::fmt;
@@ -23,7 +22,7 @@ pub struct Build {
     pub account_id: Id<accounts::Account>,
     /// Root catalog built by this build, which may inline additional resources.
     /// The catalog may not be retrieved in all contexts.
-    pub catalog: Option<Json<models::Catalog>>,
+    pub catalog: Option<Json<serde_json::Value>>,
     /// When this record was created.
     pub created_at: DateTime<Utc>,
     /// Primary key for this record.

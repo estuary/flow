@@ -15,7 +15,7 @@ pub async fn fetch_for_account<'e>(
         r#"
     SELECT
         account_id AS "account_id: Id<Account>",
-        NULL AS "catalog: Json<models::Catalog>", -- Skip catalog JSON in index listing.
+        NULL AS "catalog: Json<serde_json::Value>", -- Skip catalog JSON in index listing.
         created_at,
         id AS "id: Id<Build>",
         state AS "state: Json<State>",
@@ -39,7 +39,7 @@ pub async fn fetch_one(
         r#"
     SELECT
         account_id AS "account_id: Id<Account>",
-        catalog AS "catalog: Option<Json<models::Catalog>>",
+        catalog AS "catalog: Option<Json<serde_json::Value>>",
         created_at,
         id AS "id: Id<Build>",
         state AS "state: Json<State>",
@@ -56,7 +56,7 @@ pub async fn fetch_one(
 
 pub async fn insert(
     db: &PgPool,
-    catalog: models::Catalog,
+    catalog: serde_json::Value,
     account_id: Id<Account>,
 ) -> Result<Build, sqlx::Error> {
     sqlx::query!(
@@ -67,7 +67,7 @@ pub async fn insert(
         id as "id!: Id<Build>"
     "#,
         account_id as Id<Account>,
-        Json(catalog) as Json<models::Catalog>,
+        Json(catalog) as Json<serde_json::Value>,
         Json(State::Queued) as Json<State>,
     )
     .fetch_one(db)
@@ -87,7 +87,7 @@ pub async fn dequeue_build<'c>(
         r#"
     SELECT
         account_id as "account_id: Id<Account>",
-        catalog as "catalog: Option<Json<models::Catalog>>",
+        catalog as "catalog: Option<Json<serde_json::Value>>",
         created_at,
         id as "id: Id<Build>",
         state as "state: Json<State>",

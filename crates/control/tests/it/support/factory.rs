@@ -143,8 +143,8 @@ impl JokerAccount {
 pub struct AcmeBuild;
 
 impl AcmeBuild {
-    pub fn attrs(&self) -> models::Catalog {
-        serde_json::from_value(serde_json::json!({
+    pub fn attrs(&self) -> serde_json::Value {
+        serde_json::json!({
             "collections": {
                 "acmeCo/collection": {
                     "key": ["/key"],
@@ -157,8 +157,7 @@ impl AcmeBuild {
                     }
                 }
             }
-        }))
-        .unwrap()
+        })
     }
 
     pub async fn create(&self, db: &PgPool, account_id: Id<Account>) -> Build {
