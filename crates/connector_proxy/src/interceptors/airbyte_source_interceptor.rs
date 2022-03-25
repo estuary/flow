@@ -62,8 +62,8 @@ impl AirbyteSourceInterceptor {
             let mut reader = StreamReader::new(in_stream);
             decode_message::<SpecRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing spec request."))?;
 
-            send_sigcont(pid)?;
-            yield Bytes::from("");
+            //send_sigcont(pid)?;
+            yield Bytes::from("READY");
         })
     }
 
@@ -104,8 +104,8 @@ impl AirbyteSourceInterceptor {
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            send_sigcont(pid)?;
-            yield Bytes::from("");
+            //send_sigcont(pid)?;
+            yield Bytes::from("READY");
         })
     }
 
@@ -167,8 +167,8 @@ impl AirbyteSourceInterceptor {
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            send_sigcont(pid)?;
-            yield Bytes::from("");
+            //send_sigcont(pid)?;
+            yield Bytes::from("READY");
         })
     }
 
@@ -275,9 +275,8 @@ impl AirbyteSourceInterceptor {
                 drop(stream_to_binding);
 
                 // Resume the connector process.
-                send_sigcont(pid)?;
-
-                yield Bytes::from("");
+                //send_sigcont(pid)?;
+                yield Bytes::from("READY");
             }
         })
     }

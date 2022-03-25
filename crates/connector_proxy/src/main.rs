@@ -25,6 +25,7 @@ use libs::{
     image_inspect::ImageInspect,
 };
 use std::process::Stdio;
+use tokio::time::timeout;
 
 #[derive(Debug, ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -180,9 +181,27 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
     // Send "READY" to indicate the process is ready to receive sigcont signals, and keep waiting.
     write_ready();
     // Stop itself
-    unsafe {
-        libc::kill(std::process::id() as i32, libc::SIGSTOP);
-    }
+    //unsafe {
+    //    libc::kill(std::process::id() as i32, libc::SIGSTOP);
+    //}
+
+    // Waiting for "READY" from the parent process.
+    let mut ready_buf: Vec<u8> = vec![0; 5];
+    match timeout(
+        std::time::Duration::from_secs(1),
+        tokio::io::stdin().read_exact(&mut ready_buf),
+    )
+    .await
+    {
+        Ok(_) => {
+            if &ready_buf != "READY".as_bytes() {
+                panic!("received unexpected bytes.");
+            }
+        }
+        Err(_) => {
+            panic!("timeout: reading from parent process.");
+        }
+    };
 
     tracing::info!("delayed process execution continue...");
 
