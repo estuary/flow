@@ -577,3 +577,22 @@ message TransactionResponse {
   message Acknowledged {}
   Acknowledged acknowledged = 5;
 }
+
+// Extra messages used by connectors
+message Extra {
+  message ValidateExistingProjectionRequest {
+      // Existing Materialization Binding
+      flow.MaterializationSpec.Binding existing_binding = 1;
+
+      // Proposed ValidateRequest Binding
+      ValidateRequest.Binding proposed_binding = 2;
+  }
+
+  message ValidateBindingAgainstConstraints {
+      // Materialization Binding
+      flow.MaterializationSpec.Binding binding = 1;
+
+      // Constraints map
+      map<string, Constraint> constraints = 2;
+  }
+}
