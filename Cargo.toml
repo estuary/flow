@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [ "crates/*"]
+
+[profile.release]
+incremental = true
+debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
