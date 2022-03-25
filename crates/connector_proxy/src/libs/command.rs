@@ -130,9 +130,9 @@ pub fn write_ready() {
 
 pub fn send_sigcont(pid: u32) -> Result<(), std::io::Error> {
     tracing::info!("resuming bouncer process.");
-    unsafe {
-        libc::kill(pid as i32, libc::SIGCONT);
-    }
+    //unsafe {
+    //    libc::kill(pid as i32, libc::SIGCONT);
+    //}
     Ok(())
 }
 
