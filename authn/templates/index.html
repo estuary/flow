@@ -1,0 +1,33 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html>
+
+<head>
+    <title>Estuary Accounts</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
+    <!-- load bulma css -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- load fontawesome -->
+    <style>
+        body {
+            padding-top: 70px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="jumbotron text-center text-success">
+            <h1><span class="fa fa-lock"></span> Authentication</h1>
+            <form method="get">
+                <p>Next: <input type="text" name="next" value="" size="36"></input></p>
+
+                <p>Login with:</p>
+                <button formaction="/auth/google" class="btn btn-danger"><span class="fa fa-google"></span> SignIn with
+                    Google</button>
+            </form>
+        </div>
+    </div>
+</body>
+
+</html>
