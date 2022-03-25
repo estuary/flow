@@ -40,7 +40,6 @@ pub struct Resource {
 }
 
 pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
-    // TODO / question: is it safe to assume these are available when the driver sends them?
     let fs = binding.field_selection.as_ref().unwrap();
     let projections = &binding.collection.as_ref().unwrap().projections;
 
