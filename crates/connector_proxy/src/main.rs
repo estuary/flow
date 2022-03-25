@@ -21,11 +21,10 @@ use connector_runner::{
 };
 use errors::Error;
 use libs::{
-    command::{check_exit_status, invoke_connector, write_ready, CommandConfig},
+    command::{check_exit_status, invoke_connector, read_ready, CommandConfig},
     image_inspect::ImageInspect,
 };
 use std::process::Stdio;
-use tokio::time::timeout;
 
 #[derive(Debug, ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -178,30 +177,8 @@ async fn proxy_flow_materialize(
 }
 
 async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
-    // Send "READY" to indicate the process is ready to receive sigcont signals, and keep waiting.
-    write_ready();
-    // Stop itself
-    //unsafe {
-    //    libc::kill(std::process::id() as i32, libc::SIGSTOP);
-    //}
-
-    // Waiting for "READY" from the parent process.
-    let mut ready_buf: Vec<u8> = vec![0; 5];
-    match timeout(
-        std::time::Duration::from_secs(1),
-        tokio::io::stdin().read_exact(&mut ready_buf),
-    )
-    .await
-    {
-        Ok(_) => {
-            if &ready_buf != "READY".as_bytes() {
-                panic!("received unexpected bytes.");
-            }
-        }
-        Err(_) => {
-            panic!("timeout: reading from parent process.");
-        }
-    };
+    // Wait for the "READY" signal from the parent process before starting the connector.
+    read_ready(&mut tokio::io::stdin()).await?;
 
     tracing::info!("delayed process execution continue...");
 

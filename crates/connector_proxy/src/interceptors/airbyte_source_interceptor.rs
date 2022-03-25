@@ -5,7 +5,7 @@ use crate::libs::airbyte_catalog::{
     self, ConfiguredCatalog, ConfiguredStream, DestinationSyncMode, Range, ResourceSpec, Status,
     SyncMode,
 };
-use crate::libs::command::send_sigcont;
+use crate::libs::command::READY;
 use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_airbyte_messages;
@@ -18,7 +18,6 @@ use protocol::capture::{
 };
 use protocol::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
@@ -53,17 +52,12 @@ impl AirbyteSourceInterceptor {
         }
     }
 
-    fn adapt_spec_request_stream(
-        &mut self,
-        pid: u32,
-        in_stream: InterceptorStream,
-    ) -> InterceptorStream {
+    fn adapt_spec_request_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(try_stream! {
             let mut reader = StreamReader::new(in_stream);
             decode_message::<SpecRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing spec request."))?;
 
-            //send_sigcont(pid)?;
-            yield Bytes::from("READY");
+            yield Bytes::from(READY);
         })
     }
 
@@ -94,7 +88,6 @@ impl AirbyteSourceInterceptor {
 
     fn adapt_discover_request(
         &mut self,
-        pid: u32,
         config_file_path: String,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
@@ -104,8 +97,7 @@ impl AirbyteSourceInterceptor {
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            //send_sigcont(pid)?;
-            yield Bytes::from("READY");
+            yield Bytes::from(READY);
         })
     }
 
@@ -155,7 +147,6 @@ impl AirbyteSourceInterceptor {
 
     fn adapt_validate_request_stream(
         &mut self,
-        pid: u32,
         config_file_path: String,
         validate_request: Arc<Mutex<Option<ValidateRequest>>>,
         in_stream: InterceptorStream,
@@ -167,8 +158,7 @@ impl AirbyteSourceInterceptor {
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            //send_sigcont(pid)?;
-            yield Bytes::from("READY");
+            yield Bytes::from(READY);
         })
     }
 
@@ -210,7 +200,6 @@ impl AirbyteSourceInterceptor {
 
     fn adapt_pull_request_stream(
         &mut self,
-        pid: u32,
         config_file_path: String,
         catalog_file_path: String,
         state_file_path: String,
@@ -274,9 +263,7 @@ impl AirbyteSourceInterceptor {
                 // release the lock.
                 drop(stream_to_binding);
 
-                // Resume the connector process.
-                //send_sigcont(pid)?;
-                yield Bytes::from("READY");
+                yield Bytes::from(READY);
             }
         })
     }
@@ -337,8 +324,8 @@ impl AirbyteSourceInterceptor {
             }
 
             if transaction_pending {
-                // We generate a synthetic commit now,
-                // and the empty checkpoint means the assumed behavior of the next invocation will be "full refresh".
+                // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
+                // of the next invocation will be "full refresh".
                 let mut resp = PullResponse::default();
                 resp.checkpoint = Some(DriverCheckpoint{
                     driver_checkpoint_json: Vec::new(),
@@ -394,7 +381,6 @@ impl AirbyteSourceInterceptor {
 
     pub fn adapt_request_stream(
         &mut self,
-        pid: u32,
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
@@ -403,18 +389,16 @@ impl AirbyteSourceInterceptor {
         let state_file_path = self.input_file_path(STATE_FILE_NAME);
 
         match op {
-            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(pid, in_stream)),
+            FlowCaptureOperation::Spec => Ok(self.adapt_spec_request_stream(in_stream)),
             FlowCaptureOperation::Discover => {
-                Ok(self.adapt_discover_request(pid, config_file_path, in_stream))
+                Ok(self.adapt_discover_request(config_file_path, in_stream))
             }
             FlowCaptureOperation::Validate => Ok(self.adapt_validate_request_stream(
-                pid,
                 config_file_path,
                 Arc::clone(&self.validate_request),
                 in_stream,
             )),
             FlowCaptureOperation::Pull => Ok(self.adapt_pull_request_stream(
-                pid,
                 config_file_path,
                 catalog_file_path,
                 state_file_path,
