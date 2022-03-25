@@ -213,7 +213,7 @@ mod tests {
                     drop_table: "DROP TABLE test_table;".to_string(),
                     drop_external_table: "DROP TABLE test_table_external;".to_string(),
                     insert_from_table:
-                        "INSERT INTO test_table (test,source_file_name) SELECT test,source_file_name FROM test_table_external WHERE source_file_name IN (?);".to_string()
+                        "INSERT INTO test_table (test,source_file_name) SELECT test,source_file_name FROM test_table_external WHERE source_file_name IN (?) AND ((SELECT count(*) FROM test_table WHERE source_file_name IN (?)) < 1);".to_string()
                 }]
             },
         );

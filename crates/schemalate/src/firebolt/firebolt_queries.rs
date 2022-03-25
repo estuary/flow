@@ -86,8 +86,9 @@ impl<'a> Display for InsertFromTable<'a> {
 
         write!(
             f,
-            "INSERT INTO {} ({}) SELECT {} FROM {} WHERE source_file_name IN (?);",
-            self.destination.name, column_list, column_list, self.source_name
+            "INSERT INTO {} ({}) SELECT {} FROM {} WHERE source_file_name IN (?) AND ((SELECT count(*) FROM {} WHERE source_file_name IN (?)) < 1);",
+            self.destination.name, column_list, column_list, self.source_name,
+            self.destination.name
         )
     }
 }
@@ -222,7 +223,7 @@ mod tests {
                 source_name: "source_test"
             }
             .to_string(),
-            "INSERT INTO destination_test (str,int) SELECT str,int FROM source_test WHERE source_file_name IN (?);"
+            "INSERT INTO destination_test (str,int) SELECT str,int FROM source_test WHERE source_file_name IN (?) AND ((SELECT count(*) FROM destination_test WHERE source_file_name IN (?)) < 1);"
         );
     }
 }
