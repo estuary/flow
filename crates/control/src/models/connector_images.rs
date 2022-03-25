@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
-use models::Object;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::models::connectors::Connector;
 use crate::models::id::Id;
 use crate::models::names::CatalogName;
+use crate::models::JsonObject;
 
 /// A ConnectorImage is a specific version of a Connector.
 ///
@@ -62,7 +62,7 @@ pub struct NewDiscoveredCatalog {
     /// related resource names as well.
     pub name: CatalogName,
     /// The endpoint configuration for the source connector.
-    pub config: Object,
+    pub config: JsonObject,
 }
 
 impl NewDiscoveredCatalog {

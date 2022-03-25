@@ -1,13 +1,13 @@
 use std::path::Path;
 
 use anyhow::anyhow;
-use models::{CompositeKey, JsonPointer, Object, RelativeUrl, Schema};
 use tokio::process::Command;
 
 use crate::config::settings;
 use crate::controllers::json_api::RawJson;
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::{Connector, ConnectorOperation};
+use crate::models::JsonObject;
 use crate::services::subprocess::Subprocess;
 
 #[derive(Debug, thiserror::Error)]
@@ -50,26 +50,21 @@ pub struct DiscoveredBinding {
     pub recommended_name: String,
     /// JSON-encoded object which specifies the endpoint resource to be captured.
     #[serde(rename = "resourceSpec")]
-    pub resource_spec_json: Object,
+    pub resource_spec_json: JsonObject,
     /// JSON schema of documents produced by this binding.
     #[serde(rename = "documentSchema")]
-    pub document_schema_json: Object,
+    pub document_schema_json: JsonObject,
     /// Composite key of documents (if known), as JSON-Pointers.
     pub key_ptrs: Vec<String>,
 }
 
 impl DiscoveredBinding {
-    pub fn key(&self) -> models::CompositeKey {
-        CompositeKey::new(
-            self.key_ptrs
-                .iter()
-                .map(JsonPointer::new)
-                .collect::<Vec<JsonPointer>>(),
-        )
+    pub fn key(&self) -> &[String] {
+        self.key_ptrs.as_ref()
     }
 
-    pub fn schema_url(&self) -> Schema {
-        Schema::Url(RelativeUrl::new(self.schema_name()))
+    pub fn schema_url(&self) -> String {
+        self.schema_name()
     }
 
     pub fn schema_name(&self) -> String {
@@ -80,7 +75,7 @@ impl DiscoveredBinding {
 pub async fn discover(
     connector: &Connector,
     image: &ConnectorImage,
-    config: &Object,
+    config: &JsonObject,
 ) -> Result<DiscoverResponse, ConnectorError> {
     if !connector.supports(ConnectorOperation::Discover) {
         return Err(ConnectorError::UnsupportedOperation(

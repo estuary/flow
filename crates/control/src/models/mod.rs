@@ -7,3 +7,6 @@ pub mod credentials;
 pub mod id;
 pub mod names;
 pub mod sessions;
+
+pub type JsonObject = serde_json::value::Map<String, serde_json::Value>;
+pub type JsonValue = serde_json::Value;

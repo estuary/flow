@@ -1,5 +1,4 @@
 use axum::Json;
-use models::{Catalog, Config, Schema};
 
 use crate::controllers::connector_images::routes;
 use crate::controllers::connectors::routes as connector_routes;
@@ -7,6 +6,7 @@ use crate::controllers::json_api::{DocumentData, Links, Many, One, RawJson, Reso
 use crate::models::connector_images::ConnectorImage;
 use crate::models::connectors::{Connector, ConnectorOperation};
 use crate::models::id::Id;
+use crate::models::{JsonObject, JsonValue};
 
 pub mod discovery;
 
@@ -45,48 +45,61 @@ pub fn spec(connector: Connector, image: ConnectorImage, spec: RawJson) -> Json<
     Json(DocumentData::new(resource, Links::default()))
 }
 
-pub fn discovered_catalog(
-    catalog: discovery::DiscoveredCatalog,
-) -> Json<Many<NamedBundle<CatalogDefinition>>> {
+pub fn discovered_catalog(catalog: discovery::DiscoveredCatalog) -> Json<One<JsonValue>> {
     let links = Links::default()
         .put("self", routes::discovered_catalog(catalog.image().id))
-        // put("builds", "/builds")
         .put("image", routes::show(catalog.image().id));
 
-    let mut resources = vec![
-        Resource {
-            id: Id::nonce(),
-            r#type: "discovered_catalog",
-            attributes: NamedBundle {
-                name: catalog.name(),
-                data: CatalogDefinition::Catalog(catalog.render_catalog()),
-            },
-            links: Links::default(),
-        },
-        Resource {
-            id: Id::nonce(),
-            r#type: "discovered_config",
-            attributes: NamedBundle {
-                name: catalog.config_name(),
-                data: CatalogDefinition::Config(catalog.render_config()),
-            },
-            links: Links::default(),
-        },
-    ];
+    let resource = Resource {
+        id: Id::nonce(),
+        r#type: "discovered_catalog",
+        attributes: render_root_catalog(&catalog),
+        links: Links::default(),
+    };
+
+    Json(DocumentData::new(resource, links))
+}
+
+/// We're rendering a discovered catalog as a nested catalog. At the root level,
+/// it only includes an import statement and a list of resources. The inner
+/// catalog specifies the details for the Capture, Config, and any Schemas. This
+/// allows us to keep these individual units separate from each other while
+/// still adhering closely to the Catalog format.
+fn render_root_catalog(catalog: &discovery::DiscoveredCatalog) -> serde_json::Value {
+    let mut bundled = JsonObject::new();
+    bundled.insert(
+        import_url(catalog.name()),
+        serde_json::json!({
+            "contentType": "CATALOG",
+            "content": catalog.render_catalog(),
+        }),
+    );
+    bundled.insert(
+        import_url(catalog.config_name()),
+        serde_json::json!({
+            "contentType": "CONFIG",
+            "content": catalog.render_config(),
+        }),
+    );
 
     for (name, schema) in catalog.render_schemas().into_iter() {
-        resources.push(Resource {
-            id: Id::nonce(),
-            r#type: "discovered_schema",
-            attributes: NamedBundle {
-                name,
-                data: CatalogDefinition::Schema(schema),
-            },
-            links: Links::default(),
-        });
+        bundled.insert(
+            import_url(name),
+            serde_json::json!({
+                "contentType": "JSON_SCHEMA",
+                "content": schema,
+            }),
+        );
     }
 
-    Json(DocumentData::new(resources, links))
+    serde_json::json!({
+        "import": [import_url(catalog.name())],
+        "resources": bundled
+    })
+}
+
+fn import_url(path: impl AsRef<str>) -> String {
+    format!("flow://discovered/{}", path.as_ref())
 }
 
 impl From<ConnectorImage> for Resource<ConnectorImage> {
@@ -103,18 +116,4 @@ impl From<ConnectorImage> for Resource<ConnectorImage> {
             links,
         }
     }
-}
-
-#[derive(Default, Serialize)]
-pub struct NamedBundle<T> {
-    name: String,
-    data: T,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase", untagged)]
-pub enum CatalogDefinition {
-    Catalog(Catalog),
-    Config(Config),
-    Schema(Schema),
 }

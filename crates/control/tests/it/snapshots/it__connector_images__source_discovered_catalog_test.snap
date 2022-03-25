@@ -2,81 +2,77 @@
 source: crates/control/tests/it/connector_images.rs
 assertion_line: 127
 expression: redactor.response_json(&mut response).await.unwrap()
-
 ---
 {
-  "data": [
-    {
-      "attributes": {
-        "data": {
-          "captures": {
-            "acmeCo/hello-world": {
-              "bindings": [
-                {
-                  "resource": {
-                    "stream": "greetings",
-                    "syncMode": "incremental"
-                  },
-                  "target": "acmeCo/greetings"
+  "data": {
+    "attributes": {
+      "import": [
+        "flow://discovered/hello-world.flow.json"
+      ],
+      "resources": {
+        "flow://discovered/greetings.schema.json": {
+          "content": {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "count",
+              "message"
+            ],
+            "type": "object"
+          },
+          "contentType": "JSON_SCHEMA"
+        },
+        "flow://discovered/hello-world.config.json": {
+          "content": {
+            "greetings": 10
+          },
+          "contentType": "CONFIG"
+        },
+        "flow://discovered/hello-world.flow.json": {
+          "content": {
+            "captures": {
+              "acmeCo/hello-world": {
+                "bindings": [
+                  {
+                    "resource": {
+                      "stream": "greetings",
+                      "syncMode": "incremental"
+                    },
+                    "target": "acmeCo/greetings"
+                  }
+                ],
+                "endpoint": {
+                  "connector": {
+                    "config": "hello-world.config.json",
+                    "image": "ghcr.io/estuary/source-hello-world@sha256:15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600"
+                  }
                 }
-              ],
-              "endpoint": {
-                "connector": {
-                  "config": "hello-world.config.json",
-                  "image": "ghcr.io/estuary/source-hello-world@sha256:15751ba960870e5ba233ebfe9663fe8a236c8ce213b43fbf4cccc4e485594600"
-                }
+              }
+            },
+            "collections": {
+              "acmeCo/greetings": {
+                "key": [
+                  "/count"
+                ],
+                "schema": "greetings.schema.json"
               }
             }
           },
-          "collections": {
-            "acmeCo/greetings": {
-              "key": [
-                "/count"
-              ],
-              "schema": "greetings.schema.json"
-            }
-          }
-        },
-        "name": "hello-world.flow.json"
-      },
-      "id": "[nonce]",
-      "type": "discovered_catalog"
+          "contentType": "CATALOG"
+        }
+      }
     },
-    {
-      "attributes": {
-        "data": {
-          "greetings": 10
-        },
-        "name": "hello-world.config.json"
-      },
-      "id": "[nonce]",
-      "type": "discovered_config"
-    },
-    {
-      "attributes": {
-        "data": {
-          "properties": {
-            "count": {
-              "type": "integer"
-            },
-            "message": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "count",
-            "message"
-          ],
-          "type": "object"
-        },
-        "name": "greetings.schema.json"
-      },
-      "id": "[nonce]",
-      "type": "discovered_schema"
-    }
-  ],
+    "id": "[nonce]",
+    "type": "discovered_catalog"
+  },
   "links": {
     "image": "http://127.0.0.1:0/connector_images/[i1]",
-    "self": "http://127.0.0.1:0/connector_images/[i1]/discovery"
+    "self": "http://127.0.0.1:0/connector_images/[i1]/discovered_catalog"
   }
 }

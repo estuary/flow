@@ -125,7 +125,7 @@ async fn source_discovered_catalog_test() {
     assert_eq!(200, response.status().as_u16());
     let redactor = Redactor::default().redact(image.id, "i1");
     assert_json_snapshot!(redactor.response_json(&mut response).await.unwrap(), {
-        ".data.*.id" => "[nonce]",
+        ".data.id" => "[nonce]",
     });
 }
 
