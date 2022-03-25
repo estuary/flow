@@ -5,7 +5,9 @@ use crate::interceptors::{
     network_proxy_capture_interceptor::NetworkProxyCaptureInterceptor,
     network_proxy_materialize_interceptor::NetworkProxyMaterializeInterceptor,
 };
-use crate::libs::command::{check_exit_status, invoke_connector_delayed, invoke_connector_direct};
+use crate::libs::command::{
+    check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
+};
 use tokio::io::copy;
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -18,7 +20,7 @@ pub async fn run_flow_capture_connector(
     args.push(op.to_string());
 
     let (mut child, child_stdin, child_stdout, child_stderr) =
-        invoke_connector_direct(entrypoint, args)?;
+        parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
     let adapted_request_stream =
         NetworkProxyCaptureInterceptor::adapt_request_stream(op, request_stream())?;
@@ -45,7 +47,7 @@ pub async fn run_flow_materialize_connector(
     args.push(op.to_string());
 
     let (mut child, child_stdin, child_stdout, child_stderr) =
-        invoke_connector_direct(entrypoint, args)?;
+        parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
     let adapted_request_stream =
         NetworkProxyMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
@@ -76,10 +78,9 @@ pub async fn run_airbyte_source_connector(
     let args = airbyte_interceptor.adapt_command_args(op, args)?;
 
     let (mut child, child_stdin, child_stdout, child_stderr) =
-        invoke_connector_delayed(entrypoint, args).await?;
+        parse_child(invoke_connector_delayed(entrypoint, args).await?)?;
 
     let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
-        child.id().ok_or(Error::MissingPid)?,
         op,
         NetworkProxyCaptureInterceptor::adapt_request_stream(op, request_stream())?,
     )?;

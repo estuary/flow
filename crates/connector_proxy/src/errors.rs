@@ -21,11 +21,11 @@ pub enum Error {
     #[error("missing process io pipes.")]
     MissingIOPipe,
 
-    #[error("missing process id where expected.")]
-    MissingPid,
-
     #[error("mismatching runtime protocol")]
     MismatchingRuntimeProtocol,
+
+    #[error("No ready signal is received. {0}")]
+    NotReady(&'static str),
 
     #[error("invalid endpoint json config.")]
     InvalidEndpointConfig,
