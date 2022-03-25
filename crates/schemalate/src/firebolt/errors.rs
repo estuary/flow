@@ -6,6 +6,10 @@ pub enum Error {
     SchemaJsonParsing(#[from] serde_json::Error),
     #[error("Unknown type {r#type} in projection for field '{field}'")]
     UnknownType { r#type: String, field: String },
+    #[error("failed building schema")]
+    SchemaBuildError(#[from] json::schema::BuildError),
+    #[error("failed indexing schema")]
+    SchemaIndexError(#[from] json::schema::index::Error),
 }
 
 #[derive(thiserror::Error, Debug, Serialize)]
