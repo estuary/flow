@@ -53,7 +53,7 @@ Shard stores use
 [recovery logs](https://gazette.readthedocs.io/en/latest/consumers-concepts.html#recovery-logs)
 to replicate updates and implement transaction semantics.
 
-Recovery logs are regular [journals](/workspaces/flow/site/docs/concepts/advanced/journals.md),
+Recovery logs are regular [journals](./journals.md),
 but hold binary data and are not intended for direct use.
 However, they can hold your user data.
 Recovery logs of [derivations](../derivations.md) hold your derivation register values.
