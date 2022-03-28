@@ -80,7 +80,7 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
         })?;
 
         columns.push(Column {
-            key: projection.field.clone().replace("/", "_"),
+            key: projection.field.clone(),
             r#type: fb_type,
             nullable: !exists.must() || shape.type_.overlaps(types::NULL),
             is_key,
@@ -442,49 +442,6 @@ mod tests {
                 columns: vec![Column {
                     key: "test".to_string(),
                     r#type: FireboltType::Array(Box::new(FireboltType::Text)),
-                    nullable: false,
-                    is_key: true,
-                }],
-            },
-        );
-
-        assert_eq!(
-            build_firebolt_schema(&Binding {
-                field_selection: Some(FieldSelection {
-                    keys: vec!["obj/name".to_string()],
-                    ..Default::default()
-                }),
-                collection: Some(CollectionSpec {
-                    schema_json: json!({
-                        "properties": {
-                            "obj": {
-                                "type": "object",
-                                "properties": {
-                                    "name": {
-                                        "type": "string"
-                                    }
-                                },
-                                "required": ["name"]
-                            },
-                        },
-                        "type": "object",
-                        "required": ["obj"]
-                    })
-                    .to_string(),
-                    projections: vec![Projection {
-                        field: "obj/name".to_string(),
-                        ptr: "/obj/name".to_string(),
-                        ..Default::default()
-                    }],
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .unwrap(),
-            TableSchema {
-                columns: vec![Column {
-                    key: "obj_name".to_string(),
-                    r#type: FireboltType::Text,
                     nullable: false,
                     is_key: true,
                 }],
