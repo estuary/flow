@@ -1,0 +1,6 @@
+{
+    "[sql]": {
+        // Disable SQL formatting because it's - frankly - terrible.
+        "editor.formatOnSave": false
+    }
+}
