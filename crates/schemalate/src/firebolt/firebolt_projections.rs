@@ -597,6 +597,36 @@ mod tests {
                 reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
             },
         );
+
+        check_validate_new_projection(
+            Projection {
+                field: "2name".to_string(),
+                ptr: "name".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+            },
+        );
+
+        check_validate_new_projection(
+            Projection {
+                field: "💥".to_string(),
+                ptr: "name".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+            },
+        );
     }
 
     #[test]
