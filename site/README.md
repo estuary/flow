@@ -1,5 +1,7 @@
 # Website
 
+_Full guidelines for writing and deploying Estuary docs can be found on [Google Drive](https://docs.google.com/document/d/1SRC9VS9zyCzWl3n4HXHbc4wPB1eLxJHkA2rtu9ZNokM/edit#)._
+
 This website is built using [Docusaurus 2](https://docusaurus.io/), a modern static website generator.
 
 ### Installation
