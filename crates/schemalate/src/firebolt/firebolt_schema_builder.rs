@@ -1,12 +1,12 @@
-use std::iter::FromIterator;
-
 use super::errors::*;
 use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
 
-use json::schema::types;
+use doc::inference::Shape;
+use doc::{Annotation, Pointer};
+use json::schema::{self, types};
+use protocol::flow::materialization_spec::Binding;
 use protocol::flow::MaterializationSpec;
-use protocol::flow::{inference::Exists, materialization_spec::Binding};
 use serde::{Deserialize, Serialize};
 
 pub const FAKE_BUNDLE_URL: &str = "https://fake-bundle-schema.estuary.io";
@@ -39,9 +39,25 @@ pub struct Resource {
     pub table_type: String,
 }
 
+fn build_shape_from_schema(schema_str: &str) -> Result<Shape, Error> {
+    let schema_uri =
+        url::Url::parse("https://estuary.dev").expect("parse should not fail on hard-coded url");
+
+    let parsed_schema = serde_json::from_str(schema_str)?;
+    let schema = schema::build::build_schema::<Annotation>(schema_uri, &parsed_schema)?;
+
+    let mut index = schema::index::IndexBuilder::new();
+    index.add(&schema)?;
+    index.verify_references()?;
+    let index = index.into_index();
+
+    Ok(Shape::infer(&schema, &index))
+}
+
 pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     let fs = binding.field_selection.as_ref().unwrap();
     let projections = &binding.collection.as_ref().unwrap().projections;
+    let schema_str = &binding.collection.as_ref().unwrap().schema_json;
 
     let doc_field = if fs.document.len() > 0 {
         vec![fs.document.clone()]
@@ -51,26 +67,22 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     let fields: Vec<String> = vec![fs.keys.clone(), fs.values.clone(), doc_field].concat();
 
     let mut columns = Vec::new();
+    let schema_shape = build_shape_from_schema(schema_str)?;
 
     fields.iter().try_for_each(|field| -> Result<(), Error> {
         let projection = projections.iter().find(|p| &p.field == field).unwrap();
-        let inference = projection.inference.as_ref().unwrap();
         let is_key = fs.keys.contains(field);
-        let r#type = (types::Set::from_iter(inference.types.iter()) - types::NULL)
-            .iter()
-            .next()
-            .unwrap();
+        let (shape, exists) = schema_shape.locate(&Pointer::from_str(&projection.ptr));
 
-        let fb_type = projection_type_to_firebolt_type(r#type).ok_or(Error::UnknownType {
-            r#type: r#type.to_string(),
+        let fb_type = projection_type_to_firebolt_type(shape).ok_or(Error::UnknownType {
+            r#type: shape.type_.to_string(),
             field: field.clone(),
         })?;
 
         columns.push(Column {
             key: projection.field.clone(),
             r#type: fb_type,
-            nullable: inference.exists != i32::from(Exists::Must)
-                || inference.types.contains(&"null".to_string()),
+            nullable: !exists.must() || shape.type_.overlaps(types::NULL),
             is_key,
         });
         Ok(())
@@ -145,26 +157,27 @@ pub fn build_firebolt_queries_bundle(
     })
 }
 
-fn projection_type_to_firebolt_type(projection_type: &str) -> Option<FireboltType> {
-    match projection_type {
-        "string" => Some(FireboltType::Text),
-        "integer" => Some(FireboltType::Int),
-        "number" => Some(FireboltType::Double),
-        "boolean" => Some(FireboltType::Boolean),
-        // TODO: how do we get the inner type of Arrays?
-        // One idea from Johnny is to run inference manually with
-        // doc::inference::Shape
-        // "array" => Some(FireboltType::Array(Box::new(FireboltType::Text))),
-        // TODO: test JSON: see if we can store it as raw
-        // "object" => Some(FireboltType::Text),
-        _ => None,
+fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
+    if shape.type_.overlaps(types::STRING) {
+        Some(FireboltType::Text)
+    } else if shape.type_.overlaps(types::ARRAY) && matches!(shape.array.additional, Some(_)) {
+        let inner_type = projection_type_to_firebolt_type(shape.array.additional.as_ref()?)?;
+        Some(FireboltType::Array(Box::new(inner_type)))
+    } else if shape.type_.overlaps(types::BOOLEAN) {
+        Some(FireboltType::Boolean)
+    } else if shape.type_.overlaps(types::FRACTIONAL) {
+        Some(FireboltType::Double)
+    } else if shape.type_.overlaps(types::INTEGER) {
+        Some(FireboltType::Int)
+    } else {
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::flow::{CollectionSpec, FieldSelection, Inference, Projection};
+    use protocol::flow::{CollectionSpec, FieldSelection, Projection};
     use serde_json::json;
 
     #[test]
@@ -187,13 +200,16 @@ mod tests {
                         ..Default::default()
                     }),
                     collection: Some(CollectionSpec {
+                        schema_json: json!({
+                            "properties": {
+                                "test": {"type": "string"},
+                            },
+                            "required": ["test"],
+                            "type": "object"
+                        }).to_string(),
                         projections: vec![Projection {
                             field: "test".to_string(),
-                            inference: Some(Inference {
-                                types: vec!["string".to_string()],
-                                exists: Exists::Must.into(),
-                                ..Default::default()
-                            }),
+                            ptr: "/test".to_string(),
                             ..Default::default()
                         }],
                         ..Default::default()
@@ -228,12 +244,15 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {"type": "string"},
+                        }
+                    })
+                    .to_string(),
                     projections: vec![Projection {
                         field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["string".to_string()],
-                            ..Default::default()
-                        }),
+                        ptr: "/test".to_string(),
                         ..Default::default()
                     }],
                     ..Default::default()
@@ -258,12 +277,15 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {"type": "boolean"},
+                        }
+                    })
+                    .to_string(),
                     projections: vec![Projection {
                         field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["boolean".to_string()],
-                            ..Default::default()
-                        }),
+                        ptr: "/test".to_string(),
                         ..Default::default()
                     }],
                     ..Default::default()
@@ -288,12 +310,15 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {"type": "integer"},
+                        }
+                    })
+                    .to_string(),
                     projections: vec![Projection {
                         field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["integer".to_string()],
-                            ..Default::default()
-                        }),
+                        ptr: "/test".to_string(),
                         ..Default::default()
                     }],
                     ..Default::default()
@@ -318,12 +343,15 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {"type": "number"},
+                        }
+                    })
+                    .to_string(),
                     projections: vec![Projection {
                         field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["number".to_string()],
-                            ..Default::default()
-                        }),
+                        ptr: "/test".to_string(),
                         ..Default::default()
                     }],
                     ..Default::default()
@@ -348,13 +376,17 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {"type": "string"},
+                        },
+                        "required": ["test"],
+                        "type": "object"
+                    })
+                    .to_string(),
                     projections: vec![Projection {
                         field: "test".to_string(),
-                        inference: Some(Inference {
-                            types: vec!["string".to_string()],
-                            exists: Exists::Must.into(),
-                            ..Default::default()
-                        }),
+                        ptr: "/test".to_string(),
                         ..Default::default()
                     }],
                     ..Default::default()
@@ -366,6 +398,46 @@ mod tests {
                 columns: vec![Column {
                     key: "test".to_string(),
                     r#type: FireboltType::Text,
+                    nullable: false,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "test": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                        },
+                        "required": ["test"],
+                        "type": "object"
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Array(Box::new(FireboltType::Text)),
                     nullable: false,
                     is_key: true,
                 }],
