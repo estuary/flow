@@ -9,7 +9,7 @@ To use this connector, you'll need:
 
 * An existing catalog spec that includes at least one collection.
 * A Postgres database to which to materialize, and user credentials.
-  Optionally, you can choose existing tables to materialize to; otherwise, the tables you specify will be created by the connector.
+  The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 
 ## Configuration
 
@@ -33,7 +33,7 @@ Follow the basic [materialization setup](../../../concepts/materialization.md#sp
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/table`** | Table | Table name to materialize to. If it doesn't exist, it will be created. | string | Required |
+| **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
 ### Sample
 
