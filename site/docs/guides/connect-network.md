@@ -69,11 +69,11 @@ To allow SSH tunneling to a database instance hosted on AWS, you'll need to crea
 
 2. [Import your SSH key into AWS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#how-to-generate-your-own-key-and-import-it-to-aws).
 
-3. [Launch a new instance in EC2](https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/LaunchingAndUsingInstances.html). During setup:
+3. [Launch a new instance in EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/LaunchingAndUsingInstances.html). During setup:
    * Configure the security group to allow SSH connection from anywhere.
    * When selecting a key pair, choose the key you just imported.
 
-4. [Connect to the instance](https://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/connecting_to_windows_instance.html),
+4. [Connect to the instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstances.html),
 setting the user name to `ec2-user`.
 
 5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
@@ -100,6 +100,10 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
    * If a PEM file exists, but starts with `-----BEGIN OPENSSH PRIVATE KEY-----`, convert it with the command:
    ```console
       ssh-keygen -p -N "" -m pem -f /path/to/key
+      ```
+   * If your Google login differs from your local username, generate a key that includes your Google email address as a comment:
+   ```console
+      ssh-keygen -m PEM -t rsa -C user@domain.com
       ```
 
 2. [Create and start a new VM in GCP](https://cloud.google.com/compute/docs/instances/create-start-instance), [choosing an image that supports OS Login](https://cloud.google.com/compute/docs/images/os-details#user-space-features).
@@ -162,7 +166,7 @@ After you've completed the prerequisites, you should have the following paramete
 
 * `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://hostname[:port]`
 * `privateKey`: the contents of the PEM file
-* `user`: the username used to connect to the SSH server
+* `user`: the username used to connect to the SSH server.
 * `forwardHost`: the capture or materialization endpoint's host
 * `forwardPort`: the capture or materialization endpoint's port
 * `localPort`: the port on the localhost used to connect to the SSH server, step 7

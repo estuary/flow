@@ -20,7 +20,7 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:dev
 * PostgreSQL
-  * Configuration
+  * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/materialize-postgres:dev
 * Rockset
   * [Configuration](./Rockset.md)
