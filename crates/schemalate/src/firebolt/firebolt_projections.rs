@@ -2,10 +2,16 @@ use std::collections::BTreeMap;
 use std::iter::FromIterator;
 
 use json::schema::types;
+use lazy_static::lazy_static;
 use protocol::flow::{inference::Exists, materialization_spec, FieldSelection};
 use protocol::materialize::{constraint, validate_request, Constraint};
+use regex::Regex;
 
 use crate::firebolt::errors::BindingConstraintError;
+
+lazy_static! {
+    static ref VALID_FIELD_REGEX: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap();
+}
 
 // Can we make this a method on FieldSelection itself?
 fn all_fields(fs: FieldSelection) -> Vec<String> {
@@ -100,6 +106,14 @@ pub fn validate_new_projection(
                         reason:
                             "The root document is usually not necessary in delta-update connectors."
                                 .to_string(),
+                    }
+                } else if !VALID_FIELD_REGEX.is_match(&projection.field) {
+                    Constraint {
+                        r#type: constraint::Type::FieldForbidden.into(),
+                        reason: format!(
+                            "Firebolt requires that field names must match the regex {}.",
+                            VALID_FIELD_REGEX.as_str()
+                        ),
                     }
                 } else {
                     let types = types::Set::from_iter(infer.types.iter());
@@ -566,6 +580,51 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Cannot materialize field with multiple or no types.".to_string(),
+            },
+        );
+
+        check_validate_new_projection(
+            Projection {
+                field: "root/name".to_string(),
+                ptr: "/root/name".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+            },
+        );
+
+        check_validate_new_projection(
+            Projection {
+                field: "2name".to_string(),
+                ptr: "name".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+            },
+        );
+
+        check_validate_new_projection(
+            Projection {
+                field: "💥".to_string(),
+                ptr: "name".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
             },
         );
     }

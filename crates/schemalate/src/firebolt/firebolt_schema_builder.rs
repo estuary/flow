@@ -169,6 +169,10 @@ fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
         Some(FireboltType::Double)
     } else if shape.type_.overlaps(types::INTEGER) {
         Some(FireboltType::Int)
+
+    // We store objects as stringified JSON objects
+    } else if shape.type_.overlaps(types::OBJECT) {
+        Some(FireboltType::Text)
     } else {
         None
     }
@@ -438,6 +442,49 @@ mod tests {
                 columns: vec![Column {
                     key: "test".to_string(),
                     r#type: FireboltType::Array(Box::new(FireboltType::Text)),
+                    nullable: false,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["obj".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    schema_json: json!({
+                        "properties": {
+                            "obj": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"]
+                            },
+                        },
+                        "type": "object",
+                        "required": ["obj"]
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "obj".to_string(),
+                        ptr: "/obj".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "obj".to_string(),
+                    r#type: FireboltType::Text,
                     nullable: false,
                     is_key: true,
                 }],
