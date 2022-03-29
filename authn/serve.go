@@ -177,7 +177,7 @@ func (m *cmdServe) extractSession(req *http.Request) (session, error) {
 	var cred, _ = cookie.Values["c"].(credential)
 	cred.prune(time.Now())
 
-	session, err := m.cfg.Tokens.buildSession(cred, "user")
+	session, err := m.cfg.Tokens.buildSession(cred, "api_user")
 	if err != nil {
 		return session, fmt.Errorf("creating token: %w", err)
 	}

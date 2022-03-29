@@ -26,7 +26,7 @@ type Config struct {
 }
 
 type cmdToken struct {
-	Role string `long:"role" default:"user" description:"Role of the token"`
+	Role string `long:"role" default:"api_user" description:"Role of the token"`
 
 	Issuer  string        `long:"issuer" default:"testing" description:"Issuer to emulate (e.g, 'google')"`
 	Subject string        `long:"subject" default:"8675309" description:"Subject of the token"`
