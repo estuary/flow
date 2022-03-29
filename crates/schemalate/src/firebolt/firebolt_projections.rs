@@ -111,7 +111,7 @@ pub fn validate_new_projection(
                     Constraint {
                         r#type: constraint::Type::FieldForbidden.into(),
                         reason: format!(
-                            "Field names must match the regex {}.",
+                            "Firebolt requires that field names must match the regex {}.",
                             VALID_FIELD_REGEX.as_str()
                         ),
                     }
@@ -594,7 +594,7 @@ mod tests {
             },
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
-                reason: "Field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+                reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
             },
         );
     }
