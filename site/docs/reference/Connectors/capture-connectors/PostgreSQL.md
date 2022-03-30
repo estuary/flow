@@ -74,7 +74,7 @@ ALTER SYSTEM SET wal_level = logical;
 
 There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the PostgreSQL source connector.
 
-### Values
+### Properties
 
 #### Endpoint
 
@@ -100,7 +100,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 ### Sample
 
-A minimal capture definition within the catalog spec will look like the following:
+A minimal capture definition will look like the following:
 
 ```yaml
 captures:

@@ -7,17 +7,16 @@ This connector materializes Flow collections into tables in a PostgreSQL databas
 
 To use this connector, you'll need:
 
-* An existing catalog spec that includes at least one collection.
 * A Postgres database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
+* At least one Flow collection
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one collection.
-You'll add a Postgres materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
-Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required Postgres configuration values per the table below.
+To use this connector, begin with data in one or more Flow collections.
+Use the below properties to configure a Postgres materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
 
-### Values
+### Properties
 
 #### Endpoint
 

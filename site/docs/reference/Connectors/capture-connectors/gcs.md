@@ -3,7 +3,7 @@ sidebar_position: 4
 ---
 # Google Cloud Storage
 
-This connector captures data from an Google Cloud Storage (GCS) bucket.
+This connector captures data from a Google Cloud Storage (GCS) bucket.
 
 [`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -32,7 +32,7 @@ and informs how the capture will behave in production.
 To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
 :::
 
-### Values
+### Properties
 
 #### Endpoint
 
@@ -53,7 +53,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 ### Sample
 
-A minimal capture definition within the catalog spec will look like the following:
+A minimal capture definition will look like the following:
 
 ```yaml
 captures:
