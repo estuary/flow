@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/gob"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gorilla/sessions"
@@ -44,6 +45,7 @@ func (m *cfgCookie) init() error {
 	m.store.Options.Path = "/"
 	m.store.Options.HttpOnly = true // HttpOnly should always be enabled
 	m.store.Options.Secure = m.RequireSSL
+	m.store.Options.SameSite = http.SameSiteNoneMode
 
 	// Register with `gob` for encode/decode support from session cookies.
 	gob.RegisterName("cred", credential{})

@@ -72,6 +72,9 @@ outer:
 	})
 	// Returns the user's authentication session as JSON.
 	p.Path("/session/tokens").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
 		if origin, err := url.Parse(req.Header.Get("Origin")); err != nil || origin.Hostname() != "localhost" {
 			w.Header().Set("Access-Control-Allow-Origin", "https://dashboard.estuary.dev")
 		} else {
@@ -79,7 +82,7 @@ outer:
 		}
 
 		if req.Method == http.MethodOptions {
-			return
+			return // Preflight request, no need to send a body.
 		}
 
 		var session, err = m.extractSession(req)
@@ -90,7 +93,7 @@ outer:
 		var enc = json.NewEncoder(w)
 		enc.SetIndent("", " ")
 		_ = enc.Encode(session)
-	}).Methods(http.MethodGet)
+	})
 	// Returns the user's authentication session as accessible HTML.
 	// TODO(johnny): Perhaps combine with /session/tokens and disambiguate through Accept?
 	p.Path("/session").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -119,8 +122,6 @@ outer:
 			log.Println("rendering index template:", err.Error())
 		}
 	})
-
-	p.Use(mux.CORSMethodMiddleware(p))
 
 	log.Printf("listening on localhost:%d\n", m.Port)
 	return http.ListenAndServe(fmt.Sprintf(":%d", m.Port), p)
