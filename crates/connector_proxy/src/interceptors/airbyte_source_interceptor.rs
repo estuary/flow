@@ -116,7 +116,7 @@ impl AirbyteSourceInterceptor {
                 if let Some(catalog) = message.catalog {
                     let mut resp = DiscoverResponse::default();
                     for stream in catalog.streams {
-                        let mode = if stream.supported_sync_modes.contains(&SyncMode::Incremental) {SyncMode::Incremental} else {SyncMode::FullRefresh};
+                        let mode = if stream.supported_sync_modes.map(|modes| modes.contains(&SyncMode::Incremental)).unwrap_or(false) {SyncMode::Incremental} else {SyncMode::FullRefresh};
                         let resource_spec = ResourceSpec {
                             stream: stream.name.clone(),
                             namespace: stream.namespace,
@@ -243,7 +243,7 @@ impl AirbyteSourceInterceptor {
                                     name:  resource.stream,
                                     namespace:          resource.namespace,
                                     json_schema:         RawValue::from_string(collection.schema_json.clone())?,
-                                    supported_sync_modes: vec![resource.sync_mode.clone()],
+                                    supported_sync_modes: Some(vec![resource.sync_mode.clone()]),
                                     default_cursor_field: None,
                                     source_defined_cursor: None,
                                     source_defined_primary_key: None,

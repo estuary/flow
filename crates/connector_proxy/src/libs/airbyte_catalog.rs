@@ -19,7 +19,7 @@ pub struct Stream {
     pub name: String,
     pub json_schema: Box<RawValue>,
     #[validate(length(min = 1))]
-    pub supported_sync_modes: Vec<SyncMode>,
+    pub supported_sync_modes: Option<Vec<SyncMode>>,
     pub source_defined_cursor: Option<bool>,
     pub default_cursor_field: Option<Vec<String>>,
     pub source_defined_primary_key: Option<Vec<Vec<String>>>,
@@ -50,7 +50,13 @@ pub struct ConfiguredStream {
 }
 impl ConfiguredStream {
     fn validate_configured_stream(&self) -> Result<(), ValidationError> {
-        if self.stream.supported_sync_modes.contains(&self.sync_mode) {
+        if self
+            .stream
+            .supported_sync_modes
+            .as_ref()
+            .map(|modes| modes.contains(&self.sync_mode))
+            .unwrap_or(false)
+        {
             Ok(())
         } else {
             Err(ValidationError::new(
@@ -123,7 +129,7 @@ pub enum Status {
 #[serde(rename_all = "snake_case")]
 pub struct ConnectionStatus {
     pub status: Status,
-    pub message: String,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -131,7 +137,7 @@ pub struct ConnectionStatus {
 pub struct Record {
     pub stream: String,
     pub data: Box<RawValue>,
-    pub emitted_at: Option<i64>,
+    pub emitted_at: i64,
     pub namespace: Option<String>,
 }
 
