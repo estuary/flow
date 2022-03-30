@@ -1,0 +1,77 @@
+name: Estuary Control-Plane CI/CD
+
+# Controls when the action will run. Triggers the workflow on push
+# or pull request events, but only for the primary branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    # Permissions required of the Github token in order for
+    # federated identity and authorization to work.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.18"
+
+      - name: Cache/Restore Go dependencies.
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Install sops
+        run: |
+          git clone https://github.com/estuary/sops.git --depth 1 ../sops-repo
+          cd ../sops-repo && go install ./cmd/sops
+
+      - name: Test authentication service
+        run: |
+          cd ./authn/ && go test .
+
+      # Deployment steps undertaken on a merge to `main`.
+      # This was generated via `setup-workload-ident.sh` in the ops repo.
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/auth@v0
+        with:
+          service_account: cd-github-animated-carnival@estuary-control.iam.gserviceaccount.com
+          workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
+        if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Update Authentication Config
+        run: |
+          sops --decrypt authn/config.sops.yaml | \
+                gcloud secrets versions add \
+                        auth_config_yaml \
+                        --project estuary-control \
+                        --data-file=-
+        if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Update Authentication Deployment
+        run: |
+          gcloud run deploy auth \
+            --project estuary-control \
+            --region us-central1 \
+            --source ./authn/
+        if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Update API Deployment
+        run: |
+          gcloud run deploy api \
+            --project estuary-control \
+            --region us-central1 \
+            --source ./api/
+        if: ${{ github.ref == 'refs/heads/main' }}

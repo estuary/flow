@@ -3,10 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jessevdk/go-flags"
@@ -45,32 +43,26 @@ type cmdToken struct {
 }
 
 type cmdConfig struct {
-	Config string `long:"config" required:"t" description:"Configuration environment variable or file path"`
+	Config string `long:"config" required:"t" description:"Path to configuration file"`
 	cfg    Config
 }
 
 func (cmd *cmdConfig) loadConfig() error {
-	var in io.Reader
-
-	// Look first for an environment variable having the given name.
-	if e, ok := os.LookupEnv(cmd.Config); ok {
-		_ = os.Unsetenv(cmd.Config)
-		in = strings.NewReader(e)
-	} else if f, err := os.Open(cmd.Config); err != nil {
+	var in, err = os.Open(cmd.Config)
+	if err != nil {
 		return fmt.Errorf("opening config: %w", err)
-	} else {
-		in = f
-		defer f.Close()
 	}
 
 	var dec = yaml.NewDecoder(in)
 	dec.KnownFields(true)
 
-	if err := dec.Decode(&cmd.cfg); err != nil {
+	if err = dec.Decode(&cmd.cfg); err != nil {
 		return fmt.Errorf("parsing config: %w", err)
-	} else if err = cmd.cfg.Cookie.init(); err != nil {
+	}
+	if err = cmd.cfg.Cookie.init(); err != nil {
 		return fmt.Errorf("initializing cookie management: %w", err)
-	} else if err = cmd.cfg.Tokens.init(); err != nil {
+	}
+	if err = cmd.cfg.Tokens.init(); err != nil {
 		return fmt.Errorf("initializing JWT signing: %w", err)
 	}
 

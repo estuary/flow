@@ -36,13 +36,13 @@ function poll_while_queued() {
     echo "Waiting for ${thing} (logs ${token})..."
 
     # Wait until $thing is no longer queued, printing new logs with each iteration.
-    while [ ! -z "$(curl "${args[@]}" "${thing}&select=id&state-%3E%3Etype=eq.queued" | jq -r '.[]')" ]
+    while [ ! -z "$(curl "${args[@]}" "${thing}&select=id&state->>type=eq.queued" | jq -r '.[]')" ]
     do
         sleep 1
         offset=$(print_logs $token $offset)
     done
 
-    local state=$(curl "${args[@]}" "${thing}&select=state-%3E%3Etype" | jq -r '.[0].type')
+    local state=$(curl "${args[@]}" "${thing}&select=state->>type" | jq -r '.[0].type')
     [[ "$state" != "success" ]] && echo "${thing} failed with state ${state}" && false
 
     echo "... ${thing} completed sucessfully"
@@ -86,7 +86,7 @@ DISCOVERY=$(curl "${args[@]}" \
 poll_while_queued "${API}/discovers?id=eq.${DISCOVERY}"
 
 # Retrieve the discovered specification, and pretty print it.
-DISCOVER_SPEC=$(curl "${args[@]}" "${API}/discovers?id=eq.${DISCOVERY}&select=state-%3E%3Espec" | jq -r '.[0].spec')
+DISCOVER_SPEC=$(curl "${args[@]}" "${API}/discovers?id=eq.${DISCOVERY}&select=state->>spec" | jq -r '.[0].spec')
 echo $DISCOVER_SPEC | jq '.'
 
 # Create a build and grab its id.
