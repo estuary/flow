@@ -376,7 +376,7 @@ impl AirbyteSourceInterceptor {
         };
 
         let airbyte_args: Vec<String> = airbyte_args.into_iter().map(Into::into).collect();
-        Ok([airbyte_args, args].concat())
+        Ok([args, airbyte_args].concat())
     }
 
     pub fn adapt_request_stream(
