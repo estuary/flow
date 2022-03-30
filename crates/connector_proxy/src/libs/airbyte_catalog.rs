@@ -183,7 +183,7 @@ pub struct Spec {
     pub documentation_url: Option<String>,
     pub changelog_url: Option<String>,
     pub connection_specification: Box<RawValue>,
-    pub supports_incremental: bool,
+    pub supports_incremental: Option<bool>,
 
     // SupportedDestinationSyncModes is ignored by Flow
     pub supported_destination_sync_modes: Option<Vec<DestinationSyncMode>>,
