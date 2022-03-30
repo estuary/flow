@@ -31,7 +31,7 @@ and informs how the capture will behave in production.
 To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
 :::
 
-### Values
+### Properties
 
 #### Endpoint
 

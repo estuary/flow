@@ -5,7 +5,6 @@ sidebar_position: 1
 
 This connector captures data from Amazon Kinesis streams.
 
-
 [`ghcr.io/estuary/source-kinesis:dev`](https://github.com/estuary/connectors/pkgs/container/source-kinesis) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
@@ -29,7 +28,7 @@ In the meantime, you can [contact Estuary Support](mailto:support@estuary.dev) i
 
 There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the Amazon Kinesis source connector.
 
-### Values
+### Properties
 
 #### Endpoint
 
@@ -50,7 +49,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 ### Sample
 
-A minimal capture definition within the catalog spec will look like the following:
+A minimal capture definition will look like the following:
 
 ```yaml
 captures:

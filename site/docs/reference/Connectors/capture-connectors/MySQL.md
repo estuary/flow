@@ -57,7 +57,7 @@ SET PERSIST binlog_expire_logs_seconds = 604800;
 ## Configuration
 There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the MySQL source connector.
 
-### Values
+### Properties
 
 #### Endpoint
 
@@ -79,7 +79,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
-A minimal capture definition within the catalog spec will look like the following:
+A minimal capture definition will look like the following:
 
 ```yaml
 captures:

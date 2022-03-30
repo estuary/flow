@@ -12,7 +12,6 @@ The tables in the bucket act as a temporary staging area for data storage and re
 
 To use this connector, you'll need:
 
-* An existing catalog spec that includes at least one collection
 * A [new Google Cloud Storage bucket](https://cloud.google.com/storage/docs/creating-buckets) in the same region as the BigQuery destination dataset.
 * A Google Cloud [service account](https://cloud.google.com/docs/authentication/getting-started) with a key file generated and the following roles:
     * [`roles/bigquery.dataEditor`](https://cloud.google.com/bigquery/docs/access-control#bigquery.dataEditor) on the destination dataset
@@ -20,17 +19,21 @@ To use this connector, you'll need:
     project with which the BigQuery destination dataset is associated
     * [`roles/storage.objectAdmin`](https://cloud.google.com/storage/docs/access-control/iam-roles#standard-roles)
     on the GCS bucket created above
+* At least one Flow collection
+
+:::tip
+If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
+:::
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one collection.
-You'll add a BigQuery materialization, which will direct one or more of your Flow collections to your desired tables within a BigQuery dataset.
-Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required BigQuery configuration values per the table below.
+To use this connector, begin with data in one or more Flow collections.
+Use the below properties to configure a BigQuery materialization, which will direct one or more of your Flow collections to your desired tables within a BigQuery dataset.
 
 This configuration assumes a working knowledge of resource organization in BigQuery.
 You can find introductory documentation in the [BigQuery docs](https://cloud.google.com/bigquery/docs/resource-hierarchy).
 
-### Values
+### Properties
 
 #### Endpoint
 

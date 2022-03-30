@@ -5,18 +5,24 @@ This Flow connector materializes [delta updates](../../../concepts/materializati
 ## Prerequisites
 
 To use this connector, you'll need:
-* An existing catalog spec that includes at least one collection with its schema specified
+
 * A Rockset account with an [API key generated](https://rockset.com/docs/rest-api/#createapikey) from the web UI
 * A Rockset workspace
     * Optional; if none exist, one will be created by the connector.
 * A Rockset collection
     * Optional; if none exist, one will be created by the connector.
+* At least one Flow collection
+
+:::tip
+If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
+:::
 
 ## Configuration
 
-To use this connector, begin with a Flow catalog that has at least one **collection**. You'll add a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections. Follow the basic [materialization setup](../../../concepts/materialization.md#specification) and add the required Rockset configuration values per the table below.
+To use this connector, begin with data in one or more Flow collections.
+Use the below properties to configure a Rockset materialization, which will direct one or more of your Flow collections to your desired Rockset collections.
 
-### Values
+### Properties
 
 #### Endpoint
 
@@ -37,7 +43,6 @@ To use this connector, begin with a Flow catalog that has at least one **collect
 ### Sample
 
 ```yaml
-# If this is the first materialization, add the section to your catalog spec
 materializations:
   ${tenant}/${mat_name}:
 	  endpoint:
