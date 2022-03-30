@@ -3,12 +3,10 @@
 --    CREATE ROLE api_anon nologin;
 --  * A role used by PostgREST after verifying a JWT with role:"api_user".
 --    CREATE ROLE api_user nologin;
---  * Role PostgREST uses to swith to another role post-authentication.
---    CREATE ROLE authenticator noinherit LOGIN PASSWORD 'SomeSecretPasswordChangeMe';
 --
 -- We also require the following grants to allow PostgREST to switch to api_anon/api_user:
---    GRANT api_anon TO authenticator;
---    GRANT api_user TO authenticator;
+--    GRANT api_anon TO the_role_that_pgrest_connects_with;
+--    GRANT api_user TO the_role_that_pgrest_connects_with;
 --
 -- Roles are shared across an entire physical database, rather than being
 -- encapsulated within a logical database, so they don't play super well
@@ -151,6 +149,8 @@ BEGIN
   WHERE issuer = t.issuer AND subject = t.subject;
 
   IF FOUND THEN
+    -- Trailing "true" scopes this config setting to the current transaction only.
+    PERFORM set_config('response.headers', FORMAT('[{"X-Account":"%s"}]', account_id), true);
     RETURN account_id;
   END IF;
 

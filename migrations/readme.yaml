@@ -1,0 +1,18 @@
+#ENC[AES256_GCM,data:gLqQQVVIJOQXUZIrMrL0OWtqXPgxhuUaSCLk2vbysPonqmuFc03vqcB9E4oLGuSnPK1OWUPPF5QKlcTD2QPDzRu1cRqSg8XaP7pIstogVVl34T4dWn+qp7gVdg==,iv:vIqPaOGJiAeRjEq2+AJjr0/nAVlKkzC5w/TQGwntzKE=,tag:NtwFEwLWuMMA7Ldq1B4xmg==,type:comment]
+#ENC[AES256_GCM,data:utndSRTDNwQLNB0oZ6FRbK/KRipu3xoLOcdVN1KfNjHNBAQXSikS,iv:R+8gBDH4xVxLFGB42cX/X2aX4L1BhHiAk30IuiWNLMQ=,tag:qxw47hCYP7lnEFRlTetj1Q==,type:comment]
+#ENC[AES256_GCM,data:BrHMVMuq6bnwTA/8fYHr3+ZZBjRNdkHz0SV1GvCzXXqbPyA97gHabWt99S5NYT5fL6BkKvZq/pUprFNOpeXsON2wIjVAjmLH5w==,iv:9eBgo6pFn5Pa/IrZfp7vS3s0kc84mwsgedf1/IgBUXE=,tag:QZ/PNw0/U+PyKuo0kOt9Wg==,type:comment]
+databaseUrl: ENC[AES256_GCM,data:vraC/1dRXUXwgdYiTMh00sZd4m2JTYoFPUGTC2lWFE/IUDiuMCNgGiRpKxHh2HWNIGy1MNvXbrsiUiaUkS4VAooXbptMU+jh8ojnGX8Jel9CYBQ8GvUK/GQLUVnllQrzOiA=,iv:E3BVmpfmcVgHVnzuGLNGM5kwL7nfX086dMdX2hzR3lw=,tag:dbqkpVgXA403gBcQq4k2Ug==,type:str]
+sops:
+    kms: []
+    gcp_kms:
+        - resource_id: projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/env-thundering-waffle
+          created_at: "2022-03-29T22:23:22Z"
+          enc: CiQArDy9agqmkohqbc2DyCS5tdaakVdF3Qjrd9UKcsDQJvKHlhkSSQC0ZpSQuuDhvBcZiOWciaPM3DEV4rUjSLwtJwSlD8PvFnEfzgHE1oLFl7oQTsTJmOcMwkOsT9ulCEUn3BIYQqSb6j154PUCkl0=
+    azure_kv: []
+    hc_vault: []
+    age: []
+    lastmodified: "2022-03-30T06:05:34Z"
+    mac: ENC[AES256_GCM,data:X6DfzU6BpIaNi+36POusW4bw8FNtOAjhU9yQ5no6tSrE4yIZVr0SdzeEDMUvKHiOLWnQecBGLlPuu6GIrJfcEpTZL8CuuP5bjhwIJRPm52nMwaVhrj25SgyTSjvflYipUE00TyLc0uaJl4uWBLJ+UM777WgWaMr83kSVs10z8aw=,iv:v2bCPuyqcBgLHcBaKfEwe5AG+JXeLlibIDkxx9fef4E=,tag:I1w2kEmFcxwFFBTqLm33qg==,type:str]
+    pgp: []
+    unencrypted_suffix: _unencrypted
+    version: 3.7.1
