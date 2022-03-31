@@ -16,7 +16,7 @@ pub struct Args {
     name: String,
 
     /// Hoist definitions of the root schema into their own types?
-    #[clap(short, long)]
+    #[clap(long)]
     hoist_definitions: bool,
 }
 
