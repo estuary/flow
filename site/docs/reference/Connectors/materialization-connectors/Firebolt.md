@@ -2,8 +2,10 @@
 
 This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
 
-To interface between Flow and Firebolt, the connector creates an _external table_:
-a virtual table in an S3 bucket used as a staging area.
+To interface between Flow and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/loading-data/loading-data.html):
+First, it stores data as JSON documents in an S3 bucket.
+It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/loading-data/working-with-external-tables.html),
+which acts as a SQL interface between the JSON documents and the destination table in Firebolt.
 
 [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -12,7 +14,7 @@ a virtual table in an S3 bucket used as a staging area.
 To use this connector, you'll need:
 
 * A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/working-with-engines.html)
-* An S3 bucket in which to stage the external table
+* An S3 bucket where JSON documents will be stored prior to loading
 * At least one Flow [collection](../../../concepts/collections.md)
 
 :::tip
@@ -71,7 +73,7 @@ materializations:
     bindings:
       - resource:
           table: table-name
-          table_type: FACT
+          table_type: fact
       source: ${tenant}/${source_collection}
 ```
 
