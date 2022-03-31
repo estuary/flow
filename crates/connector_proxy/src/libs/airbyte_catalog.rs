@@ -18,6 +18,8 @@ pub enum SyncMode {
 pub struct Stream {
     pub name: String,
     pub json_schema: Box<RawValue>,
+    // supported_sync_modes is planned to be made required soon
+    // see https://is.gd/RqAhTO
     #[validate(length(min = 1))]
     pub supported_sync_modes: Option<Vec<SyncMode>>,
     pub source_defined_cursor: Option<bool>,
