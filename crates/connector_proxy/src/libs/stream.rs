@@ -13,6 +13,8 @@ use validator::Validate;
 pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
     mut reader: R,
 ) -> impl Stream<Item = std::io::Result<Bytes>> {
+    // TODO: can we replace these macros with futures crate StreamExt or TryStreamExt methods?
+    // e.g. futures::stream::unfold() might be useful.
     try_stream! {
         loop {
             // consistent with the default capacity of ReaderStream.
