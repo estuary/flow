@@ -76,7 +76,7 @@ impl NetworkProxy {
         let (mut tx, rx) = oneshot::channel();
         tokio::spawn(Self::start_network_proxy(network_proxy_config, rx));
 
-        // TODO(jixiang): Refact the network-proxy and remove the timeout logic here after all connectors are converted to work with connector-proxy.
+        // TODO: Refact the network-proxy and remove the timeout logic here after all connectors are converted to work with connector-proxy.
 
         // Block for at most 5 seconds for network proxy to be prepared.
         if let Err(_) = timeout(std::time::Duration::from_secs(5), tx.closed()).await {
