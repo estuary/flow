@@ -16,6 +16,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Elasticsearch
   * Configuration
   * Package — ghcr.io/estuary/materialize-elasticsearch:dev
+* Firebolt
+  * [Configuration](./Firebolt.md)
+  * Package - ghcr.io/estuary/materialize-firebolt:dev
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:dev
