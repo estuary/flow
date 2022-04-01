@@ -1,21 +1,37 @@
-use bytes::Bytes;
 use protocol::flow::ContentType as ProtoContentType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 
-use super::RelativeUrl;
+use super::{Object, RelativeUrl};
 
-/// A Resource is binary content with an associated ContentType.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+/// A Resource is content with an associated ContentType.
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ResourceDef {
     /// # Content type of the Resource.
     pub content_type: ContentType,
-    /// # Byte content of the Resource.
-    #[serde(serialize_with = "as_base64", deserialize_with = "from_base64")]
+    /// # Content of the Resource.
+    pub content: ResourceContent,
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[serde(untagged)]
+#[schemars(example = "Self::example_base64")]
+#[schemars(example = "Self::example_object")]
+pub enum ResourceContent {
     #[schemars(schema_with = "base64_schema")]
-    pub content: Bytes,
+    Base64Bytes(String),
+    Object(Object),
+}
+
+impl ResourceContent {
+    fn example_base64() -> Self {
+        from_value(json!("aGVsbG8sIHdvcmxk")).unwrap()
+    }
+    fn example_object() -> Self {
+        from_value(json!({ "hello": "world"})).unwrap()
+    }
 }
 
 /// Import a referenced Resource into the catalog.
@@ -111,27 +127,6 @@ impl Into<ProtoContentType> for ContentType {
             Self::DocumentsFixture => ProtoContentType::DocumentsFixture,
         }
     }
-}
-
-fn as_base64<T, S>(bytes: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: AsRef<[u8]>,
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&base64::encode(bytes.as_ref()))
-}
-
-fn from_base64<'de, D>(deserializer: D) -> Result<bytes::Bytes, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    String::deserialize(deserializer)
-        .and_then(|string| {
-            base64::decode(&string)
-                .map_err(|err| Error::custom(format!("decoding base64 resource content: {}", err)))
-        })
-        .map(Into::into)
 }
 
 fn base64_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {

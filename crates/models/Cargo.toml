@@ -10,7 +10,6 @@ doc = { path = "../doc", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
-base64 = "*"
 bytes = "*"
 humantime-serde = "*"
 lazy_static = "*"
