@@ -1,8 +1,10 @@
 # Snowflake
 
 This connector materializes Flow collections into tables in a Snowflake database.
+It allows both standard and [delta updates](#delta-updates).
 
-TODO--  high-level details about credentials used, mechanism, etc, if there's anything the user needs to know
+The connector first uploads data changes to a [Snowflake table stage](https://docs.snowflake.com/en/user-guide/data-load-local-file-system-create-stage.html#table-stages).
+From there, it transactionally applies the changes to the Snowflake table.
 
 [`ghcr.io/estuary/materialize-snowflake:dev`](https://ghcr.io/estuary/materialize-snowflake:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -20,10 +22,6 @@ To use this connector, you'll need:
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
 
-### Setup
-
-TODO - probably. Pre-requisites seem potentially complex and we may need setup steps for this one.
-
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -39,9 +37,9 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/database`** | Database | Name of the Snowflake database to which to materialize | string | Required |
 | **`/password`** | Password | Snowflake user password | string | Required |
 | `/region` | Region | Region where the account is located | string |  |
-| `/role` | Role | ???Why/how is this used??? Role assigned to the user | string |  |
+| `/role` | Role | Role assigned to the user | string |  |
 | **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
-| **`/user`** | Use | Snowflake username | string | Required |
+| **`/user`** | User | Snowflake username | string | Required |
 | `/warehouse` | Warehouse | Name of the data warehouse that contains the database | string |  |
 
 #### Bindings
@@ -78,8 +76,6 @@ materializations:
 
 ## Delta updates
 
-TODO - verify. Stolen from BQ docs because I assume it's the same but might not be.
-
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
@@ -97,3 +93,18 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${tenant}/${source_collection}
 ```
+
+### Optimizing performance for standard updates
+
+When using standard updates for a large dataset, the [collection key](../../../concepts/collections.md#keys) you choose can have a significant impact on materialization performance and efficiency.
+
+Snowflake uses [micro partitions](https://docs.snowflake.com/en/user-guide/tables-clustering-micropartitions.html) to physically arrange data within tables.
+Each micro partition includes metadata, such as the minimum and maximum values for each column.
+If you choose a collection key that takes advantage of this metadata to help Snowflake prune irrelevant micro partitions,
+you'll see dramatically better performance.
+
+For example, if you materialize a collection with a key of `/user_id`, it will tend to perform far worse than a materialization of `/date, /user_id`.
+This is because most materializations tend to be roughly chronological over time, and that means that data is written to Snowflake in roughly `/date` order.
+
+This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
+because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
