@@ -6,16 +6,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, info};
 
-/// State is the possible states of a discover operation,
-/// serialized as the `discovers.state` column.
+/// JobStatus is the possible outcomes of a handled discover operation.
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
-pub enum State {
+pub enum JobStatus {
     Queued,
-    WrongType { connector_type: String },
+    WrongProtocol { protocol: String },
     PullFailed,
     DiscoverFailed,
-    Success { spec: serde_json::Value },
+    Success,
 }
 
 /// A DiscoverHandler is a Handler which performs discovery operations.
@@ -42,30 +41,36 @@ impl Handler for DiscoverHandler {
     fn dequeue() -> &'static str {
         // TODO(johnny): If we stored `docker inspect` output within connector_images,
         // we could pull a resolved digest directly from it?
-        r#"SELECT
-            c.image,
-            d.account_id,
+        r#"select
+            c.image_name,
             d.capture_name,
+            d.connector_tag_id,
             d.created_at,
             d.endpoint_config::text,
             d.id,
-            d.image_id,
             d.logs_token,
             d.updated_at,
-            i.state->'spec'->>'type',
-            i.tag
-        FROM discovers AS d
-        JOIN connector_images AS i ON d.image_id = i.id
-        JOIN connectors AS c ON c.id = i.connector_id
-        WHERE d.state->>'type' = 'queued' AND i.state->>'type' = 'success'
-        ORDER BY d.id ASC
-        LIMIT 1
-        FOR UPDATE OF d SKIP LOCKED;
+            d.user_id,
+            t.image_tag,
+            t.protocol
+        from discovers as d
+        join connector_tags as t on d.connector_tag_id = t.id
+        join connectors as c on c.id = t.connector_id
+        where d.job_status->>'type' = 'queued' and t.job_status->>'type' = 'success'
+        order by d.id asc
+        limit 1
+        for update of d skip locked;
         "#
     }
 
     fn update() -> &'static str {
-        "UPDATE discovers SET state = $2::text::jsonb, updated_at = clock_timestamp() WHERE id = $1;"
+        r#"update discovers set
+            job_status = $2::text::jsonb,
+            updated_at = clock_timestamp(),
+            -- Remaining fields are null on failure:
+            catalog_spec = $3::json
+        where id = $1;
+        "#
     }
 
     #[tracing::instrument(ret, skip_all, fields(discover_id = %row.get::<_, Id>(5)))]
@@ -75,49 +80,62 @@ impl Handler for DiscoverHandler {
         row: tokio_postgres::Row,
         update: &tokio_postgres::Statement,
     ) -> Result<u64, Self::Error> {
-        let (id, state) = self.process(row).await?;
+        let (id, state, catalog_spec) = self.process(row).await?;
 
         let state = serde_json::to_string(&state).unwrap();
         info!(%id, %state, "finished");
 
-        Ok(txn.execute(update, &[&id, &state]).await?)
+        Ok(txn.execute(update, &[&id, &state, &catalog_spec]).await?)
     }
 }
 
 impl DiscoverHandler {
     #[tracing::instrument(err, skip_all)]
-    async fn process(&mut self, row: tokio_postgres::Row) -> Result<(Id, State), anyhow::Error> {
+    async fn process(
+        &mut self,
+        row: tokio_postgres::Row,
+    ) -> Result<(Id, JobStatus, Option<serde_json::Value>), anyhow::Error> {
         let (
             image_name,
-            account_id,
             capture_name,
+            connector_tag_id,
             created_at,
             endpoint_config_json,
             id,
-            image_id,
             logs_token,
             updated_at,
-            connector_type,
+            user_id,
             image_tag,
+            protocol,
         ) = (
             row.get::<_, String>(0),
-            row.get::<_, Id>(1),
-            row.get::<_, String>(2),
+            row.get::<_, String>(1),
+            row.get::<_, Id>(2),
             row.get::<_, DateTime<Utc>>(3),
             row.get::<_, String>(4),
             row.get::<_, Id>(5),
-            row.get::<_, Id>(6),
-            row.get::<_, uuid::Uuid>(7),
-            row.get::<_, DateTime<Utc>>(8),
+            row.get::<_, uuid::Uuid>(6),
+            row.get::<_, DateTime<Utc>>(7),
+            row.get::<_, uuid::Uuid>(8),
             row.get::<_, String>(9),
             row.get::<_, String>(10),
         );
-        info!(%image_name, %account_id, %created_at, %image_id, %logs_token, %updated_at, %image_tag,
-             "processing discover");
+        info!(
+            %image_name,
+            %capture_name,
+            %connector_tag_id,
+            %created_at,
+            %logs_token,
+            %updated_at,
+            %user_id,
+            %image_tag,
+            %protocol,
+            "processing discover",
+        );
         let image_composed = format!("{image_name}{image_tag}");
 
-        if connector_type != "capture" {
-            return Ok((id, State::WrongType { connector_type }));
+        if protocol != "capture" {
+            return Ok((id, JobStatus::WrongProtocol { protocol }, None));
         }
 
         // Pull the image.
@@ -132,7 +150,7 @@ impl DiscoverHandler {
         .await?;
 
         if !pull.success() {
-            return Ok((id, State::PullFailed));
+            return Ok((id, JobStatus::PullFailed, None));
         }
 
         // Fetch its discover output.
@@ -154,7 +172,7 @@ impl DiscoverHandler {
         .await?;
 
         if !discover.0.success() {
-            return Ok((id, State::DiscoverFailed));
+            return Ok((id, JobStatus::DiscoverFailed, None));
         }
 
         let spec = swizzle_response_to_bundle(
@@ -166,7 +184,7 @@ impl DiscoverHandler {
         )
         .context("converting discovery response into a bundle")?;
 
-        Ok((id, State::Success { spec }))
+        Ok((id, JobStatus::Success, Some(spec)))
     }
 }
 

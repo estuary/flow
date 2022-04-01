@@ -1,18 +1,34 @@
--- We require that the following database roles are already created:
---  * An anonymous role, used by PostgREST when no credential is supplied.
---    CREATE ROLE api_anon nologin;
---  * A role used by PostgREST after verifying a JWT with role:"api_user".
---    CREATE ROLE api_user nologin;
---
--- We also require the following grants to allow PostgREST to switch to api_anon/api_user:
---    GRANT api_anon TO the_role_that_pgrest_connects_with;
---    GRANT api_user TO the_role_that_pgrest_connects_with;
---
--- Roles are shared across an entire physical database, rather than being
--- encapsulated within a logical database, so they don't play super well
--- with infrastructure for creating and reverting lots of isolated copies
--- of our schemas for testing purposes.
+-- We write SQL according to https://www.sqlstyle.guide/
+-- It's an arbitrary style guide, but it's important to have one for consistency.
+-- We also lower-case SQL keywords, as is common within Supabase documentation.
 
+-- Roles which are created by supabase.
+-- create role if not exists anon;
+-- create role if not exists authenticated;
+
+-- A new supabase installation grants all in public to anon & authenticated.
+-- We elect to NOT do this, instead explicitly granting access to tables and functions
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on routines from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+
+-- Provide non-browser API clients a way to determine their effective user_id.
+create function auth_uid()
+returns uuid as $$
+begin
+  return auth.uid();
+end;
+$$ language plpgsql stable;
+comment on function auth_uid is
+  'auth_uid returns the user ID of the authenticated user';
+
+create domain json_obj as json check (json_typeof(value) = 'object');
+comment on domain json_obj is
+  'json_obj is JSON which is restricted to the "object" type';
+
+create domain jsonb_obj as jsonb check (jsonb_typeof(value) = 'object');
+comment on domain jsonb_obj is
+  'jsonb_obj is JSONB which is restricted to the "object" type';
 
 -- flowid is a montonic, time-ordered ID with gaps that fits within 64 bits.
 -- We use macaddr8 as its underlying storage type because:
@@ -28,149 +44,25 @@
 -- Postgres (and PostgREST!) will accept any hex value of the correct
 -- implied length, with bytes optionally separated by any arrangement
 -- of ':' or '-'.
-CREATE DOMAIN flowid AS macaddr8;
-COMMENT ON DOMAIN flowid IS 'flowid is the common unique ID type of the Flow API';
+create domain flowid as macaddr8;
+comment on domain flowid is
+  'flowid is the common unique ID type of the Flow API';
 
-CREATE DOMAIN catalog_name AS TEXT
-  CONSTRAINT "Must be NFKC letters, numbers, -, _, ., separated by / and not end in /"
-  CHECK (VALUE ~ '^([[:alpha:][:digit:]\-_.]+/)+[[:alpha:][:digit:]\-_.]+$' AND VALUE IS NFKC NORMALIZED);
-COMMENT ON DOMAIN catalog_name IS 'catalog_name is a unique name within the Flow catalog namespace';
+create domain catalog_name as text
+  constraint "Must be NFKC letters, numbers, -, _, ., separated by / and not end in /"
+  check (value ~ '^([[:alpha:][:digit:]\-_.]+/)+[[:alpha:][:digit:]\-_.]+$' and value is nfkc normalized);
+comment on domain catalog_name is
+  'catalog_name is a unique name within the Flow catalog namespace';
 
-CREATE DOMAIN catalog_prefix AS TEXT
-  CONSTRAINT "Must be NFKC letters, numbers, -, _, ., separated by / and end in /"
-  CHECK (VALUE ~ '^([[:alpha:][:digit:]\-_.]+/)+$' AND VALUE IS NFKC NORMALIZED);
-COMMENT ON DOMAIN catalog_prefix IS 'catalog_prefix is a unique prefix within the Flow catalog namespace';
+create domain catalog_prefix as text
+  constraint "Must be NFKC letters, numbers, -, _, ., separated by / and end in /"
+  check (value ~ '^([[:alpha:][:digit:]\-_.]+/)+$' and value is nfkc normalized);
+comment on domain catalog_prefix is
+  'catalog_prefix is a unique prefix within the Flow catalog namespace';
 
-CREATE DOMAIN json_obj AS JSON CHECK (json_typeof(VALUE) = 'object');
-COMMENT ON DOMAIN json_obj IS 'json_obj is JSON which is restricted to the "object" type';
-
-CREATE DOMAIN jsonb_obj AS JSONB CHECK (jsonb_typeof(VALUE) = 'object');
-COMMENT ON DOMAIN jsonb_obj IS 'jsonb_obj is JSONB which is restricted to the "object" type';
-
-CREATE TYPE jwt_access_token AS (
-  "issuer" TEXT,
-  "subject" TEXT,
-  "issued_at" TIMESTAMPTZ,
-  "expires_at" TIMESTAMPTZ
-);
-COMMENT ON TYPE jwt_access_token IS 'jwt_access_token is the claims of a JWT access token';
-
-CREATE TYPE jwt_id_token AS (
-  "access" jwt_access_token,
-
-  "avatar_url" TEXT,
-  "display_name" TEXT,
-  "first_name" TEXT,
-  "locale" TEXT,
-  "organizations" TEXT[],
-  "verified_email" TEXT
-);
-COMMENT ON TYPE jwt_id_token IS 'jwt_id_token is the claims of a JWT identity token, which is a super-set of a JWT access token.';
-
-
-CREATE FUNCTION auth_access()
-RETURNS jwt_access_token AS $$
-DECLARE
-  claims JSONB := current_setting('request.jwt.claims');
-  raw_sub TEXT;
-  pipe_ind INTEGER;
-  issued_at  TIMESTAMPTZ;
-  expires_at TIMESTAMPTZ;
-BEGIN
-
-  IF jsonb_path_match(claims, '$.role == "api_anon"') THEN
-    RETURN NULL;
-  ELSIF jsonb_path_match(claims, '$.role != "api_user"') THEN
-    RAISE EXCEPTION 'expected "role" of "api_anon" or "api_user" in claims %', claims
-      USING HINT = 'Please supply a valid Authorization: Bearer token with your request';
-  END IF;
-
-  -- `sub` of the claim is a composite of the issuer and issuer's subject for the user.
-  -- For example, `google|100280645810032728608`.
-  raw_sub = jsonb_path_query(claims, 'strict $.sub')->>0;
-  pipe_ind = position('|' in raw_sub);
-  issued_at  = to_timestamp(jsonb_path_query(claims, 'strict $.iat')::INTEGER);
-  expires_at = to_timestamp(jsonb_path_query(claims, 'strict $.exp')::INTEGER);
-
-  RETURN (
-    substring(raw_sub for pipe_ind - 1),
-    substring(raw_sub from pipe_ind + 1),
-    issued_at,
-    expires_at
-  );
-END;
-$$ LANGUAGE PLPGSQL STABLE;
-COMMENT ON FUNCTION auth_access IS 'auth_access returns a parsed jwt_access_token of the current user claims, which may be either an access or ID token';
-
-
-CREATE FUNCTION auth_id()
-RETURNS jwt_id_token AS $$
-DECLARE
-  claims JSONB := current_setting('request.jwt.claims');
-  access_token jwt_access_token := auth_access();
-  ext JSONB ;
-BEGIN
-  IF access_token IS NULL THEN
-    RETURN NULL;
-  END IF;
-
-  ext = jsonb_path_query(current_setting('request.jwt.claims')::jsonb, '$.ext');
-  IF ext IS NULL THEN
-    RAISE EXCEPTION 'expected "ext" to be present in claims %', claims
-      USING HINT = 'Please ensure the Authorization: Bearer token is an ID token (and not an access token)';
-  END IF;
-
-  RETURN (
-    access_token,
-    jsonb_path_query(ext, '$.avatarURL')->>0,
-    jsonb_path_query(ext, 'strict $.displayName')->>0,
-    jsonb_path_query(ext, '$.firstName')->>0,
-    jsonb_path_query(ext, '$.locale')->>0,
-    ARRAY(SELECT jsonb_array_elements_text(jsonb_path_query(ext, '$.orgs'))),
-    jsonb_path_query(ext, 'strict $.email')->>0
-  );
-END;
-$$ LANGUAGE PLPGSQL STABLE;
-COMMENT ON FUNCTION auth_id IS 'auth_id returns a parsed jwt_id_token of the current user claims, which must be an identity token';
-
-
--- There's a circular dependency where `accounts` and `credentials` row-level
--- security policies each depend on this function being defined. This is fine,
--- because the body of this function isn't evaluated until after those tables
--- have been created.
-CREATE FUNCTION auth_account_id()
-RETURNS flowid AS $$
-DECLARE
-  t jwt_access_token := auth_access();
-  account_id flowid;
-BEGIN
-  SELECT c.account_id INTO account_id
-  FROM credentials AS c
-  WHERE issuer = t.issuer AND subject = t.subject;
-
-  IF FOUND THEN
-    -- Trailing "true" scopes this config setting to the current transaction only.
-    PERFORM set_config('response.headers', FORMAT('[{"X-Account":"%s"}]', account_id), true);
-    RETURN account_id;
-  END IF;
-
-  IF t IS NULL THEN
-    RAISE EXCEPTION 'missing credential'
-      USING DETAIL = 'This API may not be accessed without authentication',
-            HINT = 'Ensure your request includes a valid Authorization: Bearer token';
-  ELSE
-    RAISE EXCEPTION 'credential not found'
-      USING DETAIL = FORMAT('No matching credential for issuer:%s and subject:%s', t.issuer, t.subject),
-            HINT = 'Try /rpc/auth_session to create an account and credential';
-  END IF;
-
-END;
-$$ LANGUAGE PLPGSQL
-SECURITY DEFINER
-STABLE
-;
-COMMENT ON FUNCTION auth_account_id IS 'auth_account_id maps the user''s auth_access() token to a current, credentialed account';
-
+create schema internal;
+comment on schema internal is
+  'Internal schema used for types, tables, and procedures we don''t expose in our API';
 
 -- id_generator produces 64bit unique, non-sequential identifiers. They:
 --  * Have fixed storage that's 1/2 the size of a UUID.
@@ -180,12 +72,11 @@ COMMENT ON FUNCTION auth_account_id IS 'auth_account_id maps the user''s auth_ac
 --
 -- Adapted from: https://rob.conery.io/2014/05/29/a-better-id-generator-for-postgresql/
 -- Which itself was inspired by http://instagram-engineering.tumblr.com/post/10853187575/sharding-ids-at-instagram
-CREATE SEQUENCE shard_0_id_sequence;
-GRANT USAGE, SELECT ON SEQUENCE shard_0_id_sequence TO api_user;
+create sequence internal.shard_0_id_sequence;
 
-CREATE FUNCTION id_generator()
-RETURNS flowid AS $$
-DECLARE
+create function internal.id_generator()
+returns flowid as $$
+declare
     -- This procedure generates unique 64-bit integers
     -- with the following bit layout:
     --
@@ -209,18 +100,20 @@ DECLARE
     seq_no bigint;
     -- Current timestamp, as Unix millis since |estuary_epoch|.
     now_millis bigint;
-BEGIN
+begin
     -- We have 13 low bits of sequence ID, which allow us to generate
     -- up to 8,192 unique IDs within each given millisecond.
-    SELECT nextval('shard_0_id_sequence') % 8192 INTO seq_no;
+    select nextval('internal.shard_0_id_sequence') % 8192 into seq_no;
 
-    SELECT FLOOR((EXTRACT(EPOCH FROM clock_timestamp()) - estuary_epoch) * 1000) INTO now_millis;
-    RETURN LPAD(TO_HEX((now_millis << 23) | (seq_no << 10) | (shard_id)), 16, '0')::flowid;
-END;
-$$ LANGUAGE PLPGSQL;
+    select floor((extract(epoch from clock_timestamp()) - estuary_epoch) * 1000) into now_millis;
+    return lpad(to_hex((now_millis << 23) | (seq_no << 10) | (shard_id)), 16, '0')::flowid;
+end;
+$$ language plpgsql
+security definer
+;
 
 -- Set id_generator as the DEFAULT value of a flowid whenever it's used in a table.
-ALTER DOMAIN flowid SET DEFAULT id_generator();
+alter domain flowid set default internal.id_generator();
 
 
 -- TODO(johnny): I'm not sure we need this. Leaving here but commented out for the moment.
@@ -248,299 +141,233 @@ ALTER DOMAIN flowid SET DEFAULT id_generator();
 -- $$ LANGUAGE plpgsql;
 
 
--- Model table is not used directly, but is a model for other created tables.
-CREATE TABLE _model (
-  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "description" TEXT,
-  "id" flowid PRIMARY KEY NOT NULL,
-  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- _model is not used directly, but is a model for other created tables.
+create table internal._model (
+  created_at  timestamptz not null default now(),
+  detail      text,
+  id flowid   primary key not null,
+  updated_at  timestamptz not null default now()
 );
-COMMENT ON TABLE _model IS 'Model table for the creation of other tables';
-COMMENT ON COLUMN _model.created_at IS 'Time at which the record was created';
-COMMENT ON COLUMN _model.description IS 'Description of the record';
-COMMENT ON COLUMN _model.id IS 'ID of the record';
-COMMENT ON COLUMN _model.updated_at IS 'Time at which the record was last updated';
 
+comment on table internal._model is
+  'Model table for the creation of other tables';
+comment on column internal._model.created_at is
+  'Time at which the record was created';
+comment on column internal._model.detail is
+  'Description of the record';
+comment on column internal._model.id is
+  'ID of the record';
+comment on column internal._model.updated_at is
+  'Time at which the record was last updated';
 
--- Known connectors.
-CREATE TABLE connectors (
-  LIKE _model INCLUDING ALL,
-  "image" TEXT UNIQUE NOT NULL
-  -- TODO(johnny): constraint that "image" is a reasonable-looking docker image name?
+-- _model_async is a model for other created tables that imply server-side operations.
+create table internal._model_async (
+  like internal._model including all,
+
+  job_status  jsonb_obj not null default '{"type":"queued"}',
+  logs_token  uuid not null default gen_random_uuid()
 );
--- api_user may select all connectors without restrictions.
-GRANT SELECT ON TABLE connectors TO api_user;
 
--- Known connector images.
-CREATE TABLE connector_images (
-  LIKE _model INCLUDING ALL,
-  "connector_id" flowid NOT NULL REFERENCES connectors("id"),
-  "tag" TEXT NOT NULL,
-  "state" jsonb_obj NOT NULL DEFAULT '{"type":"queued"}',
-  "logs_token" UUID NOT NULL DEFAULT gen_random_uuid(),
-  --
-  CONSTRAINT "tag must start with : (as in :latest) or @sha256:<hash>"
-    CHECK ("tag" LIKE ':%' OR "tag" LIKE '@sha256:')
+comment on table internal._model_async is
+  'Model table for the creation of other tables representing a server-side operation';
+comment on column internal._model_async.job_status is
+  'Server-side job executation status of the record';
+comment on column internal._model_async.logs_token is
+  'Bearer token for accessing logs of the server-side operation';
+
+
+-- Log lines are newline-delimited outputs from server-side jobs.
+create table internal.log_lines (
+  log_line  text not null,
+  logged_at timestamptz not null default now(),
+  stream    text not null,
+  token     uuid not null
 );
--- api_user may select all connector_images without restrictions.
-GRANT SELECT ON TABLE connector_images TO api_user;
 
-CREATE INDEX idx_connector_images_connector_id ON connector_images("connector_id");
+comment on table internal.log_lines is
+  'Logs produced by server-side operations';
+comment on column internal.log_lines.log_line is
+  'Logged line';
+comment on column internal.log_lines.token is
+  'Bearer token which demarks and provides accesss to a set of logs';
+comment on column internal.log_lines.stream is
+  'Identifier of the log stream within the job';
+comment on column internal.log_lines.logged_at is
+  'Time at which the log was collected';
+-- API users may *not* directly select from logs.
+-- Instead, they must present a bearer token which is matched
+-- to select from a specific set of logs.
 
-CREATE UNIQUE INDEX idx_connector_images_id_where_queued ON connector_images USING BTREE ("id")
-WHERE "state"->>'type' = 'queued';
-
--- Accounts within the control plane.
--- This table is minimal, as most user information (their name, email, avatar),
--- is provided by associated credentials.
-CREATE TABLE accounts (
-  LIKE _model INCLUDING ALL
-);
--- api_user may see (only) their own account.
-ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY accounts_auth ON accounts USING ("id" = auth_account_id());
--- api_user may select all columns of their own account.
-GRANT SELECT ON accounts TO api_user;
-
-COMMENT ON TABLE accounts IS 'Accounts of the Estuary platform';
-
--- Credentials known to the control plane.
-CREATE TABLE credentials (
-  LIKE _model INCLUDING ALL,
-
-  "account_id" flowid NOT NULL REFERENCES accounts("id"),
-  "avatar_url" TEXT,
-  "display_name" TEXT NOT NULL,
-  "expires_at" TIMESTAMPTZ NOT NULL,
-  "first_name" TEXT,
-  "issuer" TEXT NOT NULL, -- For example, 'google' or 'github'.
-  "locale" TEXT,
-  "organizations" TEXT[],
-  "subject" TEXT NOT NULL, -- Issuer's user ID, '109158819594457949823'.
-  "verified_email" TEXT NOT NULL
-);
--- api_user may see (only) their own account.
-ALTER TABLE credentials ENABLE ROW LEVEL SECURITY;
-CREATE POLICY credentials_auth ON credentials USING ("account_id" = auth_account_id());
--- api_user may select all columns of their own credentials.
-GRANT SELECT ON credentials TO api_user;
-
-COMMENT ON TABLE credentials IS 'Credentials of Estuary platform accounts';
-COMMENT ON COLUMN credentials.account_id IS 'Account which is authenticated by this credential';
-COMMENT ON COLUMN credentials.avatar_url IS 'User avatar (image) URL';
-COMMENT ON COLUMN credentials.display_name IS 'User''s name for display';
-COMMENT ON COLUMN credentials.expires_at IS 'Expiry of this credential''s last token';
-COMMENT ON COLUMN credentials.first_name IS 'User''s first name, if known';
-COMMENT ON COLUMN credentials.issuer IS 'Third-party issuer of the credential';
-COMMENT ON COLUMN credentials.locale IS 'User''s locale, if known';
-COMMENT ON COLUMN credentials.organizations IS 'User''s organizations within the third-party credential provider';
-COMMENT ON COLUMN credentials.subject IS 'User''s unique ID within the third-party credential provider';
-COMMENT ON COLUMN credentials.verified_email IS 'User''s email, as verified by the third-party credential provider';
-
-CREATE UNIQUE INDEX idx_credentials_issuer_subject ON credentials("issuer", "subject");
-CREATE INDEX idx_credentials_account_id ON credentials("account_id");
-
-
--- auth_session is invoked to create or update an authenticated account session.
-CREATE FUNCTION auth_session()
-RETURNS JSON AS $$
-DECLARE
-  t jwt_id_token := auth_id();
-  account_id flowid;
-BEGIN
-
-  IF t IS NULL THEN
-    RAISE EXCEPTION 'credential is missing'
-      USING HINT = 'Please supply a valid Authorization: Bearer token with your request';
-  END IF;
-
-  -- Attempt to update an existing credential.
-  UPDATE credentials AS c SET
-    avatar_url = t.avatar_url,
-    display_name = t.display_name,
-    expires_at = (t.access).expires_at,
-    first_name = t.first_name,
-    locale = t.locale,
-    organizations = t.organizations,
-    updated_at = NOW(),
-    verified_email = t.verified_email
-  WHERE issuer = (t.access).issuer AND subject = (t.access).subject
-  RETURNING c.account_id INTO account_id;
-
-  -- Did we find and update a credential? If so, touch its account and return.
-  IF FOUND THEN
-    UPDATE accounts AS a SET updated_at = NOW() WHERE a.id = account_id;
-
-    RETURN json_build_object(
-      'account_id', account_id,
-      'expires_at', (t.access).expires_at,
-      'status', 'updated'
-    );
-  END IF;
-
-  -- We must create a new account and credential.
-  INSERT INTO accounts (id) VALUES (DEFAULT)
-  RETURNING id INTO account_id;
-
-  INSERT INTO credentials (
-    account_id,
-    avatar_url,
-    display_name,
-    expires_at,
-    first_name,
-    issuer,
-    locale,
-    organizations,
-    subject,
-    verified_email
-  ) VALUES (
-    account_id,
-    t.avatar_url,
-    t.display_name,
-    (t.access).expires_at,
-    t.first_name,
-    (t.access).issuer,
-    t.locale,
-    t.organizations,
-    (t.access).subject,
-    t.verified_email
-  );
-
-  RETURN json_build_object(
-    'account_id', account_id,
-    'expires_at', (t.access).expires_at,
-    'status', 'created'
-  );
-END;
-$$ LANGUAGE PLPGSQL
-SECURITY DEFINER;
-COMMENT ON FUNCTION auth_session IS 'auth_session updates or creates a credential and account for the user''s current auth_id claims.';
-
-
--- Logs are newline-delimited outputs from server-side jobs.
-CREATE TABLE logs (
-  "token" UUID NOT NULL,
-  "stream" TEXT NOT NULL,
-  "logged_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "line" TEXT NOT NULL
-);
--- api_user may *not* directly select from logs.
--- Instead, they must present a bearer token which is matched to select from a specific set of logs.
-
-COMMENT ON TABLE logs IS 'Logs produced by Flow';
-COMMENT ON COLUMN logs.token IS 'Bearer token which demarks and provides accesss to a set of logs';
-COMMENT ON COLUMN logs.stream IS 'Identifier of the log stream within the job';
-COMMENT ON COLUMN logs.logged_at IS 'Time at which the log was collected';
-COMMENT ON COLUMN logs.line IS 'Logged line';
-
-CREATE INDEX logs_token_logged_at ON logs USING BRIN(token, logged_at) WITH (autosummarize = ON);
+create index idx_logs_token_logged_at on internal.log_lines
+  using brin(token, logged_at) with (autosummarize = on);
 
 
 -- We cannot provide direct SELECT access to logs, but we *can* provide
 -- a view on logs so long as the user always provides a bearer token.
-CREATE FUNCTION view_logs(bearer_token UUID)
-RETURNS SETOF logs AS $$
-BEGIN
-  RETURN QUERY SELECT * FROM logs WHERE logs.token = bearer_token;
-END;
-$$ LANGUAGE PLPGSQL
-SECURITY DEFINER
+create function view_logs(bearer_token uuid)
+returns setof internal.log_lines as $$
+begin
+  return query select * from internal.log_lines where internal.log_lines.token = bearer_token;
+end;
+$$ language plpgsql
+security definer
 ;
-COMMENT ON FUNCTION view_logs IS 'view_logs returns logs of the provided logs token';
+comment on function view_logs is
+  'view_logs accepts a log bearer_token and returns its matching log lines';
+
+
+-- Known connectors.
+create table connectors (
+  like internal._model including all,
+
+  image_name  text unique not null,
+  --
+  constraint "image_name must be a container image without a tag"
+    check (image_name ~ '^(?:.+/)?([^:]+)$')
+);
+-- Public, no RLS.
+
+comment on table connectors is
+  'Connectors of the Estuary platform';
+comment on column connectors.image_name is
+  'Name of the connector''s container image';
+
+-- authenticated may select all connectors without restrictions.
+grant select on table connectors to authenticated;
+
+
+-- Known connector image tags. Tags are _typically_ immutable versions,
+-- but it's possible to update the image digest backing a tag,
+-- which is arguably a different version.
+create table connector_tags (
+  like internal._model_async including all,
+
+  connector_id          flowid not null references connectors(id),
+  documentation_url     text,     -- Job output.
+  endpoint_spec_schema  json_obj, -- Job output.
+  image_tag             text not null,
+  protocol              text,     -- Job output.
+  --
+  constraint "image_tag must start with : (as in :latest) or @sha256:<hash>"
+    check (image_tag like ':%' or image_tag like '@sha256:')
+);
+-- Public, no RLS.
+
+comment on table connector_tags is
+  'Available image tags (versions) of connectors';
+comment on column connector_tags.connector_id is
+  'Connector which this record is a tag of';
+comment on column connector_tags.documentation_url is
+  'Documentation URL of the tagged connector, available on job completion';
+comment on column connector_tags.endpoint_spec_schema is
+  'Endpoint specification JSON-Schema of the tagged connector, available on job completion';
+comment on column connector_tags.image_tag is
+  'Image tag, in either ":v1.2.3", ":latest", or "@sha256:<a-sha256>" form';
+comment on column connector_tags.protocol is
+  'Protocol of the connector, available on job completion';
+
+-- authenticated may select all connector_tags without restrictions.
+grant select on table connector_tags to authenticated;
+
+create index idx_connector_tags_connector_id on connector_tags(connector_id);
+create unique index idx_connector_tags_id_where_queued on connector_tags(id)
+  where job_status->>'type' = 'queued';
 
 
 -- User-initiated discover operations.
-CREATE TABLE discovers (
-  LIKE _model INCLUDING ALL,
-  "account_id" flowid NOT NULL REFERENCES accounts("id"),
-  "capture_name" catalog_name NOT NULL,
-  "endpoint_config" json_obj NOT NULL,
-  "image_id" flowid NOT NULL REFERENCES connector_images("id"),
-  "logs_token" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "state" jsonb_obj NOT NULL DEFAULT '{"type":"queued"}'
+create table discovers (
+  like internal._model_async including all,
+
+  capture_name      catalog_name not null,
+  catalog_spec      json_obj, -- Job output.
+  connector_tag_id  flowid not null references connector_tags(id),
+  endpoint_config   json_obj not null,
+  user_id           uuid references auth.users not null default auth.uid()
 );
--- api_user may see (only) their own discovers.
-ALTER TABLE discovers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY discovers_auth ON discovers USING ("account_id" = auth_account_id());
--- api_user may select all columns of their owned discovers.
-GRANT SELECT ON discovers TO api_user;
--- api_user may insert new discovers under their account ID.
-GRANT INSERT ("account_id","capture_name","endpoint_config","image_id") ON discovers TO api_user;
+alter table discovers enable row level security;
 
-COMMENT ON TABLE discovers IS 'Connector discovery operations';
-COMMENT ON COLUMN discovers.account_id IS 'Account which created this discovery operation';
-COMMENT ON COLUMN discovers.capture_name IS 'Intended name of the capture produced by this discover';
-COMMENT ON COLUMN discovers.endpoint_config IS 'Endpoint configuration of the connector. May be protected by sops';
-COMMENT ON COLUMN discovers.image_id IS 'Connector image which is used for discovery';
-COMMENT ON COLUMN discovers.logs_token IS 'Bearer token for accessing logs of this discovery operation';
-COMMENT ON COLUMN discovers.state IS 'State of this discover';
+create policy "Users can access only their initiated discovery operations"
+  on discovers using (user_id = auth.uid());
+grant select on discovers to authenticated;
+grant insert (capture_name, connector_tag_id, endpoint_config)
+  on discovers to authenticated;
 
-CREATE INDEX idx_discovers_account_id ON discovers USING BTREE ("account_id");
+comment on table discovers is
+  'User-initiated connector discovery operations';
+comment on column discovers.capture_name is
+  'Intended name of the capture produced by this discover';
+comment on column discovers.catalog_spec is
+  'Discovered catalog specification, available on job completion';
+comment on column discovers.connector_tag_id is
+  'Tagged connector which is used for discovery';
+comment on column discovers.endpoint_config is
+  'Endpoint configuration of the connector. May be protected by sops';
+comment on column discovers.user_id is
+  'User which initiated this discovery operation';
+
+create index idx_discovers_user_id on discovers(user_id);
 
 
--- User-initiated builds.
--- TODO(johnny): Rename to drafts?
-CREATE TABLE builds (
-  LIKE _model INCLUDING ALL,
-  "account_id" flowid NOT NULL REFERENCES accounts("id"),
-  "hidden" BOOL NOT NULL DEFAULT FALSE,
-  "logs_token" UUID NOT NULL DEFAULT gen_random_uuid(),
-  "spec" json_obj NOT NULL,
-  "state" jsonb_obj NOT NULL DEFAULT '{"type":"queued"}'
+-- User submitted drafts.
+create table drafts (
+  like internal._model_async including all,
+
+  catalog_spec  json_obj, -- We may NULL older draft specs to reclaim space.
+  hide          bool not null default false,
+  user_id       uuid references auth.users not null default auth.uid()
 );
--- api_user may see (only) their own builds.
-ALTER TABLE builds ENABLE ROW LEVEL SECURITY;
-CREATE POLICY builds_auth ON builds USING ("account_id" = auth_account_id());
--- api_user may select all columns of their owned builds.
-GRANT SELECT ON builds TO api_user;
--- api_user may insert new builds under their account ID.
-GRANT INSERT ("account_id","spec","hidden") ON builds TO api_user;
+alter table drafts enable row level security;
 
-COMMENT ON TABLE builds IS 'Builds of user catalogs';
-COMMENT ON COLUMN builds.account_id IS 'Account which created this build';
-COMMENT ON COLUMN builds.spec IS 'Flow catalog specification of this build';
-COMMENT ON COLUMN builds.hidden IS 'Hide this build by default';
-COMMENT ON COLUMN builds.logs_token IS 'Bearer token for accessing logs of this build';
-COMMENT ON COLUMN builds.state IS 'State of this build';
+create policy "Users can access only their created drafts"
+  on drafts using (user_id = auth.uid());
+grant insert (hide, catalog_spec) on drafts to authenticated;
+grant select on drafts to authenticated;
+grant update (hide) on drafts to authenticated;
 
-CREATE INDEX idx_builds_account_id ON builds USING BTREE ("account_id");
+comment on table drafts is
+  'Submitted drafts of Flow catalog specifications';
+comment on column drafts.catalog_spec is
+  'Submitted Flow catalog specification of this draft';
+comment on column drafts.hide is
+  'Whether this draft is treated as hidden';
+comment on column drafts.user_id is
+  'User which created this draft';
 
--- Index for efficiently identifying builds that are queued,
--- which is a small subset of the overall builds that exist.
-CREATE UNIQUE INDEX idx_builds_id_where_queued ON builds USING BTREE ("id")
-WHERE "state"->>'type' = 'queued';
+create index idx_drafts_user_id on drafts(user_id);
+create unique index idx_drafts_id_where_queued on drafts(id)
+  where job_status->>'type' = 'queued';
 
 
 -- Seed with some initial data.
-CREATE PROCEDURE seed_data()
-AS $$
-DECLARE
+create procedure seed_data()
+as $$
+declare
   connector_id flowid;
-BEGIN
+begin
 
-  INSERT INTO connectors ("image", "description") VALUES (
+  insert into connectors (image_name, detail) values (
     'ghcr.io/estuary/source-hello-world',
     'A flood of greetings'
   )
-  RETURNING id STRICT INTO connector_id;
-  INSERT INTO connector_images ("connector_id", "tag") VALUES (connector_id, ':01fb856');
+  returning id strict into connector_id;
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':01fb856');
 
-  INSERT INTO connectors ("image", "description") VALUES (
+  insert into connectors (image_name, detail) values (
     'ghcr.io/estuary/source-postgres',
     'CDC connector for PostgreSQL'
   )
-  RETURNING id STRICT INTO connector_id;
-  INSERT INTO connector_images ("connector_id", "tag") VALUES (connector_id, ':f1bd86a');
+  returning id strict into connector_id;
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':f1bd86a');
 
-  INSERT INTO connectors ("image", "description") VALUES (
+  insert into connectors (image_name, detail) values (
     'ghcr.io/estuary/materialize-postgres',
     'Materialize views into PostgreSQL'
   )
-  RETURNING id STRICT INTO connector_id;
-  INSERT INTO connector_images ("connector_id", "tag") VALUES (connector_id, ':898776b');
+  returning id strict into connector_id;
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':898776b');
 
-END;
-$$ LANGUAGE PLPGSQL;
+end;
+$$ language plpgsql;
 
-CALL seed_data();
-DROP PROCEDURE seed_data;
+call seed_data();
+drop procedure seed_data;

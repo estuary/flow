@@ -5,8 +5,16 @@ set -o pipefail
 set -o nounset
 # set -o xtrace
 
-API=https://api.estuary.dev/v1
-args=(-s -H "Authorization: Bearer ${TOKEN}")
+# This script requires that you have an access token from Supabase.
+# It's a little awkward to get at the moment, though we can expose it in our dashboard UI.
+
+# Estuary supabase endpoint.
+API=https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1
+# Estuary public API key (this is okay to share).
+APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco
+
+# REST calls require both the public apikey, and a signed user token.
+args=(-s -H "apikey: ${APIKEY}" -H "Authorization: Bearer ${TOKEN}")
 
 # Helper which prints new logs of a $token since $offset,
 # and returns the next offset to use.
@@ -18,7 +26,7 @@ function print_logs() {
     # Capture the number of lines which were printed into |delta|.
     local delta=$(
     curl "${args[@]}" "${API}/rpc/view_logs?bearer_token=${token}&offset=${offset}" \
-        | jq  -r '.[] | .logged_at[5:19] + "|" + .stream + "> " + .line' \
+        | jq  -r '.[] | .logged_at[5:19] + "|" + .stream + "> " + .log_line' \
         | tee /dev/stderr | wc --lines
     )
 
@@ -26,7 +34,7 @@ function print_logs() {
     echo $(($offset + $delta))
 }
 
-# Helper which polls a record until its state is no longer queued, and then bails if not "success".
+# Helper which polls a record until its job_status is no longer queued, and then bails if not "success".
 # In the meantime it prints new logs available under the record's logs_token.
 function poll_while_queued() {
     local thing=$1
@@ -36,14 +44,14 @@ function poll_while_queued() {
     echo "Waiting for ${thing} (logs ${token})..."
 
     # Wait until $thing is no longer queued, printing new logs with each iteration.
-    while [ ! -z "$(curl "${args[@]}" "${thing}&select=id&state->>type=eq.queued" | jq -r '.[]')" ]
+    while [ ! -z "$(curl "${args[@]}" "${thing}&select=id&job_status->>type=eq.queued" | jq -r '.[]')" ]
     do
         sleep 1
         offset=$(print_logs $token $offset)
     done
 
-    local state=$(curl "${args[@]}" "${thing}&select=state->>type" | jq -r '.[0].type')
-    [[ "$state" != "success" ]] && echo "${thing} failed with state ${state}" && false
+    local status=$(curl "${args[@]}" "${thing}&select=job_status->>type" | jq -r '.[0].type')
+    [[ "$status" != "success" ]] && echo "${thing} failed with status ${status}" && false
 
     echo "... ${thing} completed sucessfully"
 }
@@ -61,12 +69,9 @@ CONNECTOR_CONFIG=$(jq -c '.' <<END
 END
 )
 
-# Print out our identity, as understood by the API server.
-echo "Your resolved identity:"
-curl -s "${args[@]}" ${API}/rpc/auth_id | jq
-
 # Ensure the user has a session, and fetch their current account ID.
-ACCOUNT=$(curl "${args[@]}" -X POST ${API}/rpc/auth_session | jq '.account_id')
+ACCOUNT=$(curl "${args[@]}" ${API}/rpc/auth_uid)
+echo "Your account: ${ACCOUNT}"
 if [ $ACCOUNT == "null" ];
 then
     echo "Your TOKEN appears invalid. Refresh it?"
@@ -74,40 +79,41 @@ then
 fi
 
 # Fetch the most-recent connector image for soure-hello-world.
-CONNECTOR_IMAGE=$(curl "${args[@]}" "${API}/connectors?select=connector_images(id)&connector_images.order=updated_at.asc&image=eq.${CONNECTOR}" | jq '.[0].connector_images[0].id')
+CONNECTOR_TAG=$(curl "${args[@]}" "${API}/connectors?select=connector_tags(id)&connector_tags.order=updated_at.asc&image_name=eq.${CONNECTOR}" | jq '.[0].connector_tags[0].id')
+echo "Tagged connector image: ${CONNECTOR_TAG}"
 
 # Create a discovery and grab its id.
 DISCOVERY=$(curl "${args[@]}" \
     "${API}/discovers?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"account_id\":${ACCOUNT},\"capture_name\":\"${CAPTURE_NAME}\",\"endpoint_config\":${CONNECTOR_CONFIG},\"image_id\":${CONNECTOR_IMAGE}}" \
+    -d "{\"capture_name\":\"${CAPTURE_NAME}\",\"endpoint_config\":${CONNECTOR_CONFIG},\"connector_tag_id\":${CONNECTOR_TAG}}" \
     | jq -r '.[0].id')
 poll_while_queued "${API}/discovers?id=eq.${DISCOVERY}"
 
 # Retrieve the discovered specification, and pretty print it.
-DISCOVER_SPEC=$(curl "${args[@]}" "${API}/discovers?id=eq.${DISCOVERY}&select=state->>spec" | jq -r '.[0].spec')
+DISCOVER_SPEC=$(curl "${args[@]}" "${API}/discovers?id=eq.${DISCOVERY}&select=catalog_spec" | jq -r '.[0].catalog_spec')
 echo $DISCOVER_SPEC | jq '.'
 
-# Create a build and grab its id.
-BUILD=$(curl "${args[@]}" \
-    "${API}/builds?select=id" \
+# Create a draft and grab its id.
+DRAFT=$(curl "${args[@]}" \
+    "${API}/drafts?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"account_id\":${ACCOUNT},\"spec\":${DISCOVER_SPEC}}" \
+    -d "{\"catalog_spec\":${DISCOVER_SPEC}}" \
     | jq -r '.[0].id')
-poll_while_queued "${API}/builds?id=eq.${BUILD}"
+poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
 
-# View our completed build rolled up with our account
-curl "${args[@]}" "${API}/builds?id=eq.${BUILD}&select=created_at,updated_at,state,accounts(id,credentials(verified_email,display_name))" | jq '.'
+# View our completed draft.
+curl "${args[@]}" "${API}/drafts?id=eq.${DRAFT}&select=created_at,updated_at,job_status" | jq '.'
 
-# Create another build from a canned catalog specification.
+# Create another draft from a canned catalog specification.
 # This one has a failing test, which is reported and causes us to bail out :(
-BUILD=$(curl "${args[@]}" \
-    "${API}/builds?select=id" \
+DRAFT=$(curl "${args[@]}" \
+    "${API}/drafts?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"account_id\":${ACCOUNT},\"spec\":$(jq -c '.' $(dirname "$0")/test_catalog.json)}" \
+    -d "{\"catalog_spec\":$(jq -c '.' $(dirname "$0")/test_catalog.json)}" \
     | jq -r '.[0].id')
-poll_while_queued "${API}/builds?id=eq.${BUILD}"
+poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
 

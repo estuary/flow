@@ -52,7 +52,7 @@ pub async fn serve_sink(
         .execute("SET synchronous_commit = 'off';", &[]) // Don't wait for fsync.
         .await?;
     let stmt = pg_conn
-        .prepare("INSERT INTO logs (token, stream, line) VALUES ($1, $2, $3);")
+        .prepare("INSERT INTO internal.log_lines (token, stream, log_line) VALUES ($1, $2, $3);")
         .await?;
 
     let stmt = &stmt;

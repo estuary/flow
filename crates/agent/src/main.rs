@@ -46,22 +46,21 @@ async fn main() -> Result<(), anyhow::Error> {
     {
         // Build a BuildHandler.
         let pg_conn = agent::build_pg_client(&args.database).await?;
-        let build_handler = agent::BuildHandler::new(
+        let draft_handler = agent::DraftHandler::new(
             &args.connector_network,
             &args.flowctl,
             &logs_tx,
             &args.builds_root,
         );
-        let build_handler =
-            agent::todo_serve(build_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
+        let draft_handler =
+            agent::todo_serve(draft_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
                 .map_err(|e| anyhow::anyhow!(e));
 
-        // Build a SpecHandler.
+        // Build a TagHandler.
         let pg_conn = agent::build_pg_client(&args.database).await?;
-        let spec_handler =
-            agent::SpecHandler::new(&args.connector_network, &args.flowctl, &logs_tx);
-        let spec_handler =
-            agent::todo_serve(spec_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
+        let tag_handler = agent::TagHandler::new(&args.connector_network, &args.flowctl, &logs_tx);
+        let tag_handler =
+            agent::todo_serve(tag_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
                 .map_err(|e| anyhow::anyhow!(e));
 
         // Build a DiscoverHandler.
@@ -75,7 +74,7 @@ async fn main() -> Result<(), anyhow::Error> {
         )
         .map_err(|e| anyhow::anyhow!(e));
 
-        let _ = futures::try_join!(build_handler, spec_handler, discover_handler)?;
+        let _ = futures::try_join!(discover_handler, draft_handler, tag_handler)?;
     }
 
     std::mem::drop(logs_tx);

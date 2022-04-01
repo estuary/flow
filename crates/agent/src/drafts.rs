@@ -19,7 +19,7 @@ pub enum Error {
     JobError(#[from] jobs::Error),
 }
 
-/// State is the possible states of a build, serialized as the `builds.state` column.
+/// JobStatus is the possible outcomes of a handled draft submission.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum State {
@@ -30,22 +30,22 @@ pub enum State {
     Success,
 }
 
-/// A BuilderHandler is a Handler which runs builds.
-pub struct BuildHandler {
+/// A DraftHandler is a Handler which builds drafts.
+pub struct DraftHandler {
     connector_network: String,
     flowctl: String,
     logs_tx: logs::Tx,
     root: url::Url,
 }
 
-impl BuildHandler {
+impl DraftHandler {
     pub fn new(
         connector_network: &str,
         flowctl: &str,
         logs_tx: &logs::Tx,
         root: &url::Url,
     ) -> Self {
-        BuildHandler {
+        DraftHandler {
             connector_network: connector_network.to_string(),
             flowctl: flowctl.to_string(),
             logs_tx: logs_tx.clone(),
@@ -55,26 +55,30 @@ impl BuildHandler {
 }
 
 #[async_trait::async_trait]
-impl Handler for BuildHandler {
+impl Handler for DraftHandler {
     type Error = Error;
 
     fn dequeue() -> &'static str {
-        r#"SELECT
-            account_id,
+        r#"select
+            catalog_spec,
             created_at,
             id,
             logs_token,
-            spec,
-            updated_at
-        FROM builds WHERE state->>'type' = 'queued'
-        ORDER BY id ASC
-        LIMIT 1
-        FOR UPDATE OF builds SKIP LOCKED;
+            updated_at,
+            user_id
+        from drafts where job_status->>'type' = 'queued'
+        order by id asc
+        limit 1
+        for update of drafts skip locked;
         "#
     }
 
     fn update() -> &'static str {
-        "UPDATE builds SET state = $2::text::jsonb, updated_at = clock_timestamp() WHERE id = $1;"
+        r#"update drafts set
+            job_status = $2::text::jsonb,
+            updated_at = clock_timestamp()
+        where id = $1;
+        "#
     }
 
     #[tracing::instrument(ret, skip_all, fields(build = %row.get::<_, Id>(2)))]
@@ -93,26 +97,33 @@ impl Handler for BuildHandler {
     }
 }
 
-impl BuildHandler {
+impl DraftHandler {
     #[tracing::instrument(ret, skip_all)]
     async fn process(&mut self, row: tokio_postgres::Row) -> Result<(Id, State), Error> {
-        let (account_id, created_at, id, logs_token, mut spec, updated_at) = (
-            row.get::<_, Id>(0),
+        let (mut catalog_spec, created_at, id, logs_token, updated_at, user_id) = (
+            row.get::<_, serde_json::Value>(0),
             row.get::<_, DateTime<Utc>>(1),
             row.get::<_, Id>(2),
             row.get::<_, uuid::Uuid>(3),
-            row.get::<_, serde_json::Value>(4),
-            row.get::<_, DateTime<Utc>>(5),
+            row.get::<_, DateTime<Utc>>(4),
+            row.get::<_, uuid::Uuid>(5),
         );
-
         let tmpdir = tempfile::TempDir::new().map_err(|e| Error::CreateDir(e))?;
         let tmpdir = tmpdir.path();
-        info!(%account_id, tmpdir=?tmpdir, %created_at, %updated_at, "processing build");
 
-        inject_storage_mapping(&mut spec);
-        encode_resources(&mut spec);
+        info!(
+            %created_at,
+            %logs_token,
+            %updated_at,
+            %user_id,
+            tmpdir=?tmpdir,
+            "processing draft",
+        );
+
+        inject_storage_mapping(&mut catalog_spec);
+        encode_resources(&mut catalog_spec);
         debug!(
-            catalog = %serde_json::to_string_pretty(&spec).unwrap(),
+            catalog = %serde_json::to_string_pretty(&catalog_spec).unwrap(),
             "tweaked catalog spec"
         );
 
@@ -125,7 +136,13 @@ impl BuildHandler {
 
         // Write our catalog source file within the build directory.
         std::fs::File::create(&builds_dir.join(&format!("{}.flow.yaml", id)))
-            .and_then(|mut f| f.write_all(serde_json::to_string_pretty(&spec).unwrap().as_bytes()))
+            .and_then(|mut f| {
+                f.write_all(
+                    serde_json::to_string_pretty(&catalog_spec)
+                        .unwrap()
+                        .as_bytes(),
+                )
+            })
             .map_err(|e| Error::CreateSource(e))?;
 
         let db_name = format!("{}", id);

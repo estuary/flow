@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 
-mod builds;
-mod connector_images;
+mod drafts;
+mod connector_tags;
 mod discovers;
 mod id;
 mod jobs;
 pub mod logs;
 
-pub use builds::BuildHandler;
-pub use connector_images::SpecHandler;
+pub use drafts::DraftHandler;
+pub use connector_tags::TagHandler;
 pub use discovers::DiscoverHandler;
 pub use id::Id;
 
