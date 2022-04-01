@@ -29,8 +29,5 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * [Configuration](./Rockset.md)
   * Package — ghcr.io/estuary/materialize-rockset:dev
 * Snowflake
-  * Configuration
+  * [Configuration](./Snowflake.md)
   * Package — ghcr.io/estuary/materialize-snowflake:dev
-* Webhook
-  * Configuration
-  * Package — ghcr.io/estuary/materialize-webhook:dev
