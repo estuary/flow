@@ -1,4 +1,5 @@
 use super::Scope;
+use anyhow::Context;
 use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
@@ -198,14 +199,23 @@ impl<F: Fetcher> Loader<F> {
             .fetches
             .insert_row(scope.resource_depth() as u32, resource);
 
-        // If an inline definition of a resource is already available, then use it.
-        // Otherwise delegate to the Fetcher.
-        // TODO(johnny): Sanity check expected vs actual content-types.
         let inlined = self.inlined.borrow_mut().remove(&resource); // Don't hold guard.
-        let content = if let Some(resource) = inlined {
-            Ok(resource.content.clone())
-        } else {
-            self.fetcher.fetch(&resource, content_type.into()).await
+
+        let content : Result<bytes::Bytes, anyhow::Error> = match inlined {
+            // Resource has an inline definition of the expected content-type.
+            Some(models::ResourceDef{content, content_type: expected_type}) if expected_type == content_type => {
+                match content {
+                    models::ResourceContent::Base64Bytes(input) => base64::decode(input).context("base64-decode of inline resource failed").map(Into::into),
+                    models::ResourceContent::Object(obj) => Ok(serde_json::to_string(&obj)
+                        .expect("serializing object cannot fail").into()),
+                }
+            }
+            // Resource has an inline definition of the _wrong_ type.
+            Some(models::ResourceDef{content_type: expected_type, ..}) => {
+                Err(anyhow::anyhow!("inline resource has content-type {expected_type:?}, not the requested {content_type:?}"))
+            }
+            // No inline definition. Delegate to the Fetcher.
+            None => self.fetcher.fetch(&resource, content_type.into()).await,
         };
 
         match content {

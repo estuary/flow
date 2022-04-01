@@ -59,13 +59,26 @@ mod test {
             "import": [
                 "https://absolute/path/to/c.yaml"
             ],
+            "collections": {
+                "foo": {
+                    "schema": "subpath/json-schema.yaml",
+                    "key": ["/ptr"]
+                },
+                "bar": {
+                    "schema": "subpath/wrong-content-type.yaml",
+                    "key": ["/ptr"]
+                },
+                "baz": {
+                    "schema": "subpath/invalid-base64",
+                    "key": ["/ptr"]
+                }
+            },
             "storageMappings": {
                 "B/": {
                     "stores": [{ "provider": "S3", "bucket": "s3-bucket" }]
                 }
             }
         });
-        let b = base64::encode(serde_json::to_vec(&b).unwrap());
 
         let fixture = json!({
             "test://example/catalog.yaml": {
@@ -73,7 +86,19 @@ mod test {
                     "test://example/B.yaml": {
                         "content": b,
                         "contentType": "CATALOG",
-                    }
+                    },
+                    "test://example/subpath/json-schema.yaml": {
+                        "content": {"const": 42},
+                        "contentType": "JSON_SCHEMA",
+                    },
+                    "test://example/subpath/wrong-content-type.yaml": {
+                        "content": {},
+                        "contentType": "CATALOG",
+                    },
+                    "test://example/subpath/invalid-base64": {
+                        "content": "this should be base64",
+                        "contentType": "JSON_SCHEMA",
+                    },
                 },
                 "import": [
                     "B.yaml"

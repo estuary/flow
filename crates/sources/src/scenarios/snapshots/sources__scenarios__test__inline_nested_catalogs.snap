@@ -1,15 +1,52 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 90
+assertion_line: 115
 expression: tables
-
 ---
 Tables {
     capture_bindings: [],
     captures: [],
-    collections: [],
+    collections: [
+        Collection {
+            scope: test://example/B.yaml#/collections/bar,
+            collection: bar,
+            schema: test://example/subpath/wrong-content-type.yaml,
+            key: ["/ptr"],
+            journals: {"fragments":{}},
+        },
+        Collection {
+            scope: test://example/B.yaml#/collections/baz,
+            collection: baz,
+            schema: test://example/subpath/invalid-base64,
+            key: ["/ptr"],
+            journals: {"fragments":{}},
+        },
+        Collection {
+            scope: test://example/B.yaml#/collections/foo,
+            collection: foo,
+            schema: test://example/subpath/json-schema.yaml,
+            key: ["/ptr"],
+            journals: {"fragments":{}},
+        },
+    ],
     derivations: [],
-    errors: [],
+    errors: [
+        Error {
+            scope: test://example/B.yaml#/collections/bar/schema,
+            error: failed to fetch resource test://example/subpath/wrong-content-type.yaml
+            
+            Caused by:
+                inline resource has content-type Catalog, not the requested JsonSchema,
+        },
+        Error {
+            scope: test://example/B.yaml#/collections/baz/schema,
+            error: failed to fetch resource test://example/subpath/invalid-base64
+            
+            Caused by:
+                0: base64-decode of inline resource failed
+                1: Encoded text cannot have a 6-bit remainder.,
+        },
+    ],
     fetches: [
         Fetch {
             depth: 1,
@@ -32,6 +69,18 @@ Tables {
             resource: test://example/B.ts,
         },
         Fetch {
+            depth: 3,
+            resource: test://example/subpath/invalid-base64,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/subpath/json-schema.yaml,
+        },
+        Fetch {
+            depth: 3,
+            resource: test://example/subpath/wrong-content-type.yaml,
+        },
+        Fetch {
             depth: 4,
             resource: https://absolute/path/to/c.ts,
         },
@@ -51,6 +100,21 @@ Tables {
             scope: test://example/B.yaml,
             from_resource: test://example/B.yaml,
             to_resource: test://example/B.ts,
+        },
+        Import {
+            scope: test://example/B.yaml#/collections/baz/schema,
+            from_resource: test://example/B.yaml,
+            to_resource: test://example/subpath/invalid-base64,
+        },
+        Import {
+            scope: test://example/B.yaml#/collections/foo/schema,
+            from_resource: test://example/B.yaml,
+            to_resource: test://example/subpath/json-schema.yaml,
+        },
+        Import {
+            scope: test://example/B.yaml#/collections/bar/schema,
+            from_resource: test://example/B.yaml,
+            to_resource: test://example/subpath/wrong-content-type.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/import/0,
@@ -84,8 +148,18 @@ Tables {
             content_type: "CATALOG",
             content: ".. binary ..",
         },
+        Resource {
+            resource: test://example/subpath/json-schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+        },
     ],
-    schema_docs: [],
+    schema_docs: [
+        SchemaDoc {
+            schema: test://example/subpath/json-schema.yaml,
+            dom: {"const":42},
+        },
+    ],
     storage_mappings: [
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/A~1,

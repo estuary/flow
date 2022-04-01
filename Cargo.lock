@@ -2151,7 +2151,6 @@ name = "models"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "base64",
  "bytes",
  "caseless",
  "doc 0.0.0",
