@@ -994,8 +994,26 @@
       "type": "string",
       "pattern": "^[^ ]+$"
     },
+    "ResourceContent": {
+      "examples": [
+        "aGVsbG8sIHdvcmxk",
+        {
+          "hello": "world"
+        }
+      ],
+      "anyOf": [
+        {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        {
+          "type": "object",
+          "additionalProperties": true
+        }
+      ]
+    },
     "ResourceDef": {
-      "description": "A Resource is binary content with an associated ContentType.",
+      "description": "A Resource is content with an associated ContentType.",
       "type": "object",
       "required": [
         "content",
@@ -1003,9 +1021,8 @@
       ],
       "properties": {
         "content": {
-          "title": "Byte content of the Resource.",
-          "type": "string",
-          "contentEncoding": "base64"
+          "title": "Content of the Resource.",
+          "$ref": "#/definitions/ResourceContent"
         },
         "contentType": {
           "title": "Content type of the Resource.",

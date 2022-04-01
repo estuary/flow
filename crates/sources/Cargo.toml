@@ -11,6 +11,7 @@ models = { path = "../models", version = "0.0.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 anyhow = "*"
+base64 = "*"
 bytes = "*"
 futures = "*"
 humantime-serde = "*"
@@ -18,8 +19,8 @@ lazy_static = "*"
 regex = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
-serde_json = { version =  "*", features = ["raw_value"] }
 serde-transcode = "*"
+serde_json = { version =  "*", features = ["raw_value"] }
 serde_yaml = "*"
 thiserror = "*"
 tracing = "*"
