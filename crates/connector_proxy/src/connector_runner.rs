@@ -128,12 +128,12 @@ async fn streaming_all(
     let mut response_stream_writer = tokio::io::stdout();
     let mut error_writer = tokio::io::stderr();
 
-    let (a, b, c) = tokio::join!(
+    let (a, b, c) = tokio::try_join!(
         copy(&mut request_stream_reader, &mut request_stream_writer),
         copy(&mut response_stream_reader, &mut response_stream_writer),
         copy(&mut error_reader, &mut error_writer),
-    );
+    )?;
 
-    tracing::info!("Done streaming, transferred bytes: {} {} {}", a?, b?, c?);
+    tracing::info!("Done streaming, transferred bytes: {} {} {}", a, b, c);
     Ok(())
 }
