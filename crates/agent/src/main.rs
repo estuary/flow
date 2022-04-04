@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use futures::{FutureExt, TryFutureExt};
 use tracing::info;
@@ -8,20 +9,27 @@ use tracing::info;
 struct Args {
     /// URL of the postgres database.
     #[clap(
-        short,
-        long,
+        long = "database",
         env = "DATABASE_URL",
-        default_value = "postgres://flow:flow@127.0.0.1:5432/control_development"
+        //default_value = "postgres://flow:flow@127.0.0.1:5432/control_development",
+        default_value = "postgresql://postgres:32543ae92651cd3bef991f2491aef0796d3bd026ea5@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres"
     )]
-    database: url::Url,
+    database_url: url::Url,
+    /// Path to CA certificate of the database.
+    #[clap(long = "database-ca", env = "DATABASE_CA")]
+    database_ca: Option<String>,
     /// URL of the builds root.
-    #[clap(short, long, env = "BUILDS_URL", default_value = "file:///var/tmp/")]
+    #[clap(
+        long = "builds-root",
+        env = "BUILDS_ROOT",
+        default_value = "file:///var/tmp/"
+    )]
     builds_root: url::Url,
     /// Docker network for connector invocations.
-    #[clap(short, long, default_value = "host")]
+    #[clap(long = "connector-network", default_value = "host")]
     connector_network: String,
     /// Path to the `flowctl` binary.
-    #[clap(short, long, default_value = "flowctl")]
+    #[clap(long, default_value = "flowctl")]
     flowctl: String,
 }
 
@@ -36,49 +44,56 @@ async fn main() -> Result<(), anyhow::Error> {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 
-    // Start a logs sink into which agent loops may stream logs.
-    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
-    let logs_sink = tokio::spawn(agent::logs::serve_sink(
-        agent::build_pg_client(&args.database).await?,
-        logs_rx,
-    ));
+    let mut pg_options = args
+        .database_url
+        .as_str()
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .context("parsing database URL")?
+        .application_name("agent");
 
-    {
-        // Build a BuildHandler.
-        let pg_conn = agent::build_pg_client(&args.database).await?;
-        let draft_handler = agent::DraftHandler::new(
-            &args.connector_network,
-            &args.flowctl,
-            &logs_tx,
-            &args.builds_root,
-        );
-        let draft_handler =
-            agent::todo_serve(draft_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
-                .map_err(|e| anyhow::anyhow!(e));
-
-        // Build a TagHandler.
-        let pg_conn = agent::build_pg_client(&args.database).await?;
-        let tag_handler = agent::TagHandler::new(&args.connector_network, &args.flowctl, &logs_tx);
-        let tag_handler =
-            agent::todo_serve(tag_handler, pg_conn, tokio::signal::ctrl_c().map(|_| ()))
-                .map_err(|e| anyhow::anyhow!(e));
-
-        // Build a DiscoverHandler.
-        let pg_conn = agent::build_pg_client(&args.database).await?;
-        let discover_handler =
-            agent::DiscoverHandler::new(&args.connector_network, &args.flowctl, &logs_tx);
-        let discover_handler = agent::todo_serve(
-            discover_handler,
-            pg_conn,
-            tokio::signal::ctrl_c().map(|_| ()),
-        )
-        .map_err(|e| anyhow::anyhow!(e));
-
-        let _ = futures::try_join!(discover_handler, draft_handler, tag_handler)?;
+    // If a database CA was provided, require that we use TLS with full cert verification.
+    if let Some(ca) = &args.database_ca {
+        pg_options = pg_options
+            .ssl_mode(sqlx::postgres::PgSslMode::VerifyFull)
+            .ssl_root_cert(ca);
+    } else {
+        // Otherwise, prefer TLS but don't require it.
+        pg_options = pg_options.ssl_mode(sqlx::postgres::PgSslMode::Prefer);
     }
 
+    let pg_pool = sqlx::postgres::PgPool::connect_with(pg_options)
+        .await
+        .context("connecting to database")?;
+
+    // Start a logs sink into which agent loops may stream logs.
+    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
+    let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
+
+    let serve_fut = agent::serve(
+        vec![
+            Box::new(agent::DraftHandler::new(
+                &args.connector_network,
+                &args.flowctl,
+                &logs_tx,
+                &args.builds_root,
+            )),
+            Box::new(agent::TagHandler::new(
+                &args.connector_network,
+                &args.flowctl,
+                &logs_tx,
+            )),
+            Box::new(agent::DiscoverHandler::new(
+                &args.connector_network,
+                &args.flowctl,
+                &logs_tx,
+            )),
+        ],
+        pg_pool.clone(),
+        tokio::signal::ctrl_c().map(|_| ()),
+    );
+
     std::mem::drop(logs_tx);
-    logs_sink.await??;
+    let ((), ()) = tokio::try_join!(serve_fut, logs_sink.map_err(Into::into))?;
 
     Ok(())
 }

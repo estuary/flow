@@ -1,5 +1,4 @@
-use bytes::BufMut;
-use tokio_postgres::types as pgtypes;
+use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 
 /// Id is the Rust equivalent of the Postgres `flowid` type domain.
 /// It's a fixed 8-byte payload which is represented in hexadecimal notation.
@@ -18,39 +17,27 @@ impl std::fmt::Debug for Id {
     }
 }
 
-/// Within Postgres, the `flowid` domain type uses macaddr8 storage.
-/// Implement direct conversion from the macaddr8 wire type to an Id.
-impl<'a> pgtypes::FromSql<'a> for Id {
-    fn from_sql(
-        _: &pgtypes::Type,
-        raw: &'a [u8],
-    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        if raw.len() != 8 {
-            return Err("invalid message length: macaddr8 length mismatch".into());
-        }
-
-        let mut inner = [0; 8];
-        inner.copy_from_slice(raw);
-        Ok(Id(inner))
+impl Type<postgres::Postgres> for Id {
+    fn type_info() -> postgres::PgTypeInfo {
+        postgres::PgTypeInfo::with_name("flowid")
     }
-
-    pgtypes::accepts!(MACADDR8);
+    fn compatible(ty: &postgres::PgTypeInfo) -> bool {
+        *ty == Self::type_info() || ty.name() == "MACADDR8"
+    }
 }
 
-/// Implement direct conversion from an Id to the the macaddr8 wire type.
-impl pgtypes::ToSql for Id {
-    fn to_sql(
-        &self,
-        _: &pgtypes::Type,
-        w: &mut bytes::BytesMut,
-    ) -> Result<pgtypes::IsNull, Box<dyn std::error::Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
-        w.put_slice(&self.0);
-        Ok(pgtypes::IsNull::No)
+impl Encode<'_, postgres::Postgres> for Id {
+    fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend_from_slice(&self.0);
+        sqlx::encode::IsNull::No
     }
+}
 
-    pgtypes::accepts!(MACADDR8);
-    pgtypes::to_sql_checked!();
+// TODO(johnny): This works fine for postgres binary format, but breaks for text format.
+// Fix with a proper decoder once blocking issue is resolved:
+//  https://github.com/launchbadge/sqlx/issues/1758
+impl Decode<'_, postgres::Postgres> for Id {
+    fn decode(value: postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        <i64 as Decode<'_, postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
+    }
 }

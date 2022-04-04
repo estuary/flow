@@ -29,7 +29,7 @@ serde = { version = "1.0.133", features = ["derive"] }
 serde_json = { version = "1.0.74", features = ["raw_value"] }
 serde_with = { version = "1.11.0", features = ["base64", "chrono"] }
 sha2 = "0.10.2"
-sqlx = { version = "0.5.11", features = [ "chrono", "postgres", "runtime-tokio-rustls" ] }
+sqlx = { version = "*", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
 strum = { version = "0.24.0", features = ["derive"] }
 tempfile = "3.3.0"
 thiserror = "1.0.30"

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 /// JobStatus is the possible outcomes of a handled connector tag.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
@@ -32,95 +32,104 @@ impl TagHandler {
     }
 }
 
+// Row is the dequeued task shape of a tag connector operation.
+#[derive(Debug)]
+struct Row {
+    created_at: DateTime<Utc>,
+    id: Id,
+    image_name: String,
+    image_tag: String,
+    logs_token: uuid::Uuid,
+    updated_at: DateTime<Utc>,
+}
+
 #[async_trait::async_trait]
 impl Handler for TagHandler {
-    type Error = anyhow::Error;
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+        let mut txn = pg_pool.begin().await?;
 
-    fn dequeue() -> &'static str {
-        r#"select
-            c.image_name,
-            t.created_at,
-            t.id,
-            t.image_tag,
-            t.logs_token,
-            t.updated_at
-        from connector_tags as t
-        join connectors as c on c.id = t.connector_id
-        where t.job_status->>'type' = 'queued'
-        order by t.id asc
-        limit 1
-        for update of t skip locked;
-        "#
-    }
+        let row: Row = match sqlx::query_as!(
+            Row,
+            r#"select
+                c.image_name,
+                t.created_at,
+                t.id as "id: Id",
+                t.image_tag,
+                t.logs_token,
+                t.updated_at
+            from connector_tags as t
+            join connectors as c on c.id = t.connector_id
+            where t.job_status->>'type' = 'queued'
+            order by t.id asc
+            limit 1
+            for update of t skip locked;
+            "#
+        )
+        .fetch_optional(&mut txn)
+        .await?
+        {
+            None => return Ok(std::time::Duration::from_secs(5)),
+            Some(row) => row,
+        };
 
-    fn update() -> &'static str {
-        r#"update connector_tags set
-            job_status = $2::text::jsonb,
-            updated_at = clock_timestamp(),
-            -- Remaining fields are null on failure:
-            documentation_url = $3,
-            endpoint_spec_schema = $4::json,
-            protocol = $5
-        where id = $1;
-        "#
-    }
-
-    #[tracing::instrument(ret, skip_all, fields(connector_tag = %row.get::<_, Id>(2)))]
-    async fn on_dequeue(
-        &mut self,
-        txn: &mut tokio_postgres::Transaction,
-        row: tokio_postgres::Row,
-        update: &tokio_postgres::Statement,
-    ) -> Result<u64, Self::Error> {
         let (id, status, doc_url, spec, protocol) = self.process(row).await?;
+        info!(%id, ?status, "finished");
 
-        let status = serde_json::to_string(&status).unwrap();
-        info!(%id, %status, "finished");
+        let r = sqlx::query_unchecked!(
+            r#"update connector_tags set
+                    job_status = $2,
+                    updated_at = clock_timestamp(),
+                    -- Remaining fields are null on failure:
+                    documentation_url = $3,
+                    endpoint_spec_schema = $4,
+                    protocol = $5
+                where id = $1;
+                "#,
+            id,
+            sqlx::types::Json(status),
+            doc_url,
+            spec,
+            protocol,
+        )
+        .execute(&mut txn)
+        .await?;
 
-        Ok(txn
-            .execute(update, &[&id, &status, &doc_url, &spec, &protocol])
-            .await?)
+        if r.rows_affected() != 1 {
+            anyhow::bail!("rows_affected is {}, not one", r.rows_affected())
+        }
+        txn.commit().await?;
+
+        Ok(std::time::Duration::ZERO)
     }
 }
 
 impl TagHandler {
-    #[tracing::instrument(err, skip_all)]
+    #[tracing::instrument(err, skip_all, fields(id=?row.id))]
     async fn process(
         &mut self,
-        row: tokio_postgres::Row,
-    ) -> Result<
-        (
-            Id,
-            JobStatus,
-            Option<String>,
-            Option<serde_json::Value>,
-            Option<String>,
-        ),
-        anyhow::Error,
-    > {
-        let (image_name, created_at, id, image_tag, logs_token, updated_at) = (
-            row.get::<_, String>(0),
-            row.get::<_, DateTime<Utc>>(1),
-            row.get::<_, Id>(2),
-            row.get::<_, String>(3),
-            row.get::<_, uuid::Uuid>(4),
-            row.get::<_, DateTime<Utc>>(5),
-        );
+        row: Row,
+    ) -> anyhow::Result<(
+        Id,
+        JobStatus,
+        Option<String>,
+        Option<serde_json::Value>,
+        Option<String>,
+    )> {
         info!(
-            %image_name,
-            %created_at,
-            %image_tag,
-            %logs_token,
-            %updated_at,
-            "processing connector image tag"
+            %row.image_name,
+            %row.created_at,
+            %row.image_tag,
+            %row.logs_token,
+            %row.updated_at,
+            "processing connector image tag",
         );
-        let image_composed = format!("{}{}", image_name, image_tag);
+        let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
         // Pull the image.
         let pull = jobs::run(
             "pull",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             tokio::process::Command::new("docker")
                 .arg("pull")
                 .arg(&image_composed),
@@ -128,14 +137,14 @@ impl TagHandler {
         .await?;
 
         if !pull.success() {
-            return Ok((id, JobStatus::PullFailed, None, None, None));
+            return Ok((row.id, JobStatus::PullFailed, None, None, None));
         }
 
         // Fetch its connector specification.
         let spec = jobs::run_with_output(
             "spec",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             tokio::process::Command::new(&self.flowctl)
                 .arg("api")
                 .arg("spec")
@@ -147,7 +156,7 @@ impl TagHandler {
         .await?;
 
         if !spec.0.success() {
-            return Ok((id, JobStatus::SpecFailed, None, None, None));
+            return Ok((row.id, JobStatus::SpecFailed, None, None, None));
         }
 
         /// Spec is the output shape of the `flowctl api spec` command.
@@ -167,7 +176,7 @@ impl TagHandler {
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
         return Ok((
-            id,
+            row.id,
             JobStatus::Success,
             Some(documentation_url),
             Some(endpoint_spec_schema),

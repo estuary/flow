@@ -3,7 +3,7 @@ use super::{jobs, logs, Handler, Id};
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -14,7 +14,7 @@ pub enum Error {
     #[error("failed to resolve build URL relative to builds root")]
     URLError(#[from] url::ParseError),
     #[error("database error")]
-    Postgres(#[from] tokio_postgres::Error),
+    Sqlx(#[from] sqlx::Error),
     #[error(transparent)]
     JobError(#[from] jobs::Error),
 }
@@ -22,7 +22,7 @@ pub enum Error {
 /// JobStatus is the possible outcomes of a handled draft submission.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
-pub enum State {
+pub enum JobStatus {
     Queued,
     BuildFailed,
     TestFailed,
@@ -54,78 +54,85 @@ impl DraftHandler {
     }
 }
 
+// Row is the dequeued task shape of a draft build & test operation.
+#[derive(Debug)]
+struct Row {
+    catalog_spec: serde_json::Value,
+    created_at: DateTime<Utc>,
+    id: Id,
+    logs_token: uuid::Uuid,
+    updated_at: DateTime<Utc>,
+    user_id: uuid::Uuid,
+}
+
 #[async_trait::async_trait]
 impl Handler for DraftHandler {
-    type Error = Error;
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+        let mut txn = pg_pool.begin().await?;
 
-    fn dequeue() -> &'static str {
-        r#"select
-            catalog_spec,
-            created_at,
+        let row: Row = match sqlx::query_as!(
+            Row,
+            r#"select
+                catalog_spec,
+                created_at,
+                id as "id: Id",
+                logs_token,
+                updated_at,
+                user_id
+            from drafts where job_status->>'type' = 'queued'
+            order by id asc
+            limit 1
+            for update of drafts skip locked;
+            "#
+        )
+        .fetch_optional(&mut txn)
+        .await?
+        {
+            None => return Ok(std::time::Duration::from_secs(5)),
+            Some(row) => row,
+        };
+
+        let (id, status) = self.process(row).await?;
+        info!(%id, ?status, "finished");
+
+        let r = sqlx::query_unchecked!(
+            r#"update drafts set
+                    job_status = $2,
+                    updated_at = clock_timestamp()
+                where id = $1;
+                "#,
             id,
-            logs_token,
-            updated_at,
-            user_id
-        from drafts where job_status->>'type' = 'queued'
-        order by id asc
-        limit 1
-        for update of drafts skip locked;
-        "#
-    }
+            sqlx::types::Json(status),
+        )
+        .execute(&mut txn)
+        .await?;
 
-    fn update() -> &'static str {
-        r#"update drafts set
-            job_status = $2::text::jsonb,
-            updated_at = clock_timestamp()
-        where id = $1;
-        "#
-    }
+        if r.rows_affected() != 1 {
+            anyhow::bail!("rows_affected is {}, not one", r.rows_affected())
+        }
+        txn.commit().await?;
 
-    #[tracing::instrument(ret, skip_all, fields(build = %row.get::<_, Id>(2)))]
-    async fn on_dequeue(
-        &mut self,
-        txn: &mut tokio_postgres::Transaction,
-        row: tokio_postgres::Row,
-        update: &tokio_postgres::Statement,
-    ) -> Result<u64, Error> {
-        let (id, state) = self.process(row).await?;
-
-        let state = serde_json::to_string(&state).unwrap();
-        info!(%id, %state, "finished");
-
-        Ok(txn.execute(update, &[&id, &state]).await?)
+        Ok(std::time::Duration::ZERO)
     }
 }
 
 impl DraftHandler {
-    #[tracing::instrument(ret, skip_all)]
-    async fn process(&mut self, row: tokio_postgres::Row) -> Result<(Id, State), Error> {
-        let (mut catalog_spec, created_at, id, logs_token, updated_at, user_id) = (
-            row.get::<_, serde_json::Value>(0),
-            row.get::<_, DateTime<Utc>>(1),
-            row.get::<_, Id>(2),
-            row.get::<_, uuid::Uuid>(3),
-            row.get::<_, DateTime<Utc>>(4),
-            row.get::<_, uuid::Uuid>(5),
-        );
+    #[tracing::instrument(err, skip_all, fields(id=?row.id))]
+    async fn process(&mut self, mut row: Row) -> anyhow::Result<(Id, JobStatus)> {
         let tmpdir = tempfile::TempDir::new().map_err(|e| Error::CreateDir(e))?;
         let tmpdir = tmpdir.path();
 
         info!(
-            %created_at,
-            %logs_token,
-            %updated_at,
-            %user_id,
+            %row.created_at,
+            %row.logs_token,
+            %row.updated_at,
+            %row.user_id,
             tmpdir=?tmpdir,
             "processing draft",
         );
 
-        inject_storage_mapping(&mut catalog_spec);
-        encode_resources(&mut catalog_spec);
-        debug!(
-            catalog = %serde_json::to_string_pretty(&catalog_spec).unwrap(),
-            "tweaked catalog spec"
-        );
+        inject_storage_mapping(&mut row.catalog_spec);
+        encode_resources(&mut row.catalog_spec);
 
         // We perform the build under a ./builds/ subdirectory, which is a
         // specific sub-path expected by temp-data-plane underneath its
@@ -135,23 +142,23 @@ impl DraftHandler {
         std::fs::create_dir(&builds_dir).map_err(|e| Error::CreateDir(e))?;
 
         // Write our catalog source file within the build directory.
-        std::fs::File::create(&builds_dir.join(&format!("{}.flow.yaml", id)))
+        std::fs::File::create(&builds_dir.join(&format!("{}.flow.yaml", row.id)))
             .and_then(|mut f| {
                 f.write_all(
-                    serde_json::to_string_pretty(&catalog_spec)
+                    serde_json::to_string_pretty(&row.catalog_spec)
                         .unwrap()
                         .as_bytes(),
                 )
             })
             .map_err(|e| Error::CreateSource(e))?;
 
-        let db_name = format!("{}", id);
+        let db_name = format!("{}", row.id);
         let db_path = builds_dir.join(&db_name);
 
         let build_job = jobs::run(
             "build",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             tokio::process::Command::new(&self.flowctl)
                 .arg("api")
                 .arg("build")
@@ -164,7 +171,7 @@ impl DraftHandler {
                 .arg("--network")
                 .arg(&self.connector_network)
                 .arg("--source")
-                .arg(format!("file:///{}.flow.yaml", id))
+                .arg(format!("file:///{}.flow.yaml", row.id))
                 .arg("--source-type")
                 .arg("catalog")
                 .arg("--ts-package")
@@ -175,7 +182,7 @@ impl DraftHandler {
         .await?;
 
         if !build_job.success() {
-            return Ok((id, State::BuildFailed));
+            return Ok((row.id, JobStatus::BuildFailed));
         }
 
         // Start a data-plane. It will use ${tmp_dir}/builds as its builds-root,
@@ -185,7 +192,7 @@ impl DraftHandler {
         let data_plane_job = jobs::run(
             "temp-data-plane",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             data_plane_job
                 .arg("temp-data-plane")
                 .arg("--network")
@@ -203,7 +210,7 @@ impl DraftHandler {
         let test_job = jobs::run(
             "test",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             test_job
                 .arg("api")
                 .arg("test")
@@ -235,16 +242,16 @@ impl DraftHandler {
         }?;
 
         if !test_job.success() {
-            return Ok((id, State::TestFailed));
+            return Ok((row.id, JobStatus::TestFailed));
         }
 
         // Persist the build.
-        let dest_url = self.root.join(&id.to_string())?;
+        let dest_url = self.root.join(&row.id.to_string())?;
 
         let persist_job = jobs::run(
             "persist",
             &self.logs_tx,
-            logs_token,
+            row.logs_token,
             tokio::process::Command::new("gsutil")
                 .arg("cp")
                 .arg(&db_path)
@@ -253,10 +260,10 @@ impl DraftHandler {
         .await?;
 
         if !persist_job.success() {
-            return Ok((id, State::PersistFailed));
+            return Ok((row.id, JobStatus::PersistFailed));
         }
 
-        Ok((id, State::Success))
+        Ok((row.id, JobStatus::Success))
     }
 }
 

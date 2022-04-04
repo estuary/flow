@@ -312,7 +312,7 @@ create index idx_discovers_user_id on discovers(user_id);
 create table drafts (
   like internal._model_async including all,
 
-  catalog_spec  json_obj, -- We may NULL older draft specs to reclaim space.
+  catalog_spec  json_obj not null,
   hide          bool not null default false,
   user_id       uuid references auth.users(id) not null default auth.uid()
 );
