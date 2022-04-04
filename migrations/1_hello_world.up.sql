@@ -282,7 +282,7 @@ create table discovers (
   catalog_spec      json_obj, -- Job output.
   connector_tag_id  flowid not null references connector_tags(id),
   endpoint_config   json_obj not null,
-  user_id           uuid references auth.users not null default auth.uid()
+  user_id           uuid references auth.users(id) not null default auth.uid()
 );
 alter table discovers enable row level security;
 
@@ -314,7 +314,7 @@ create table drafts (
 
   catalog_spec  json_obj, -- We may NULL older draft specs to reclaim space.
   hide          bool not null default false,
-  user_id       uuid references auth.users not null default auth.uid()
+  user_id       uuid references auth.users(id) not null default auth.uid()
 );
 alter table drafts enable row level security;
 
