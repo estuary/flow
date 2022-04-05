@@ -9,6 +9,11 @@ use sqlx::Row;
 // We lock it down to a prescribed local database which is put under test.
 const FIXED_DATABASE_URL: &str = "postgresql://flow:flow@localhost:5432/control_development";
 
+// TODO(johnny): This is merely a proof-of-concept, demonstrating that we can
+// up- and down-migrate the database at will to make assertions about
+// the behaviors of those migrations.
+// A lot of boiler plate could probably be removed here by standardizing
+// on some particular query shapes (to_row_json()?).
 #[tokio::test]
 async fn test_foobar() {
     let migrator = sqlx::migrate!("../../migrations");
@@ -24,6 +29,17 @@ async fn test_foobar() {
     migrate_to(&mut conn, 0, &migrator)
         .await
         .expect("migrate to v0 failed");
+
+    migrate_to(&mut conn, 1, &migrator)
+        .await
+        .expect("migrate to v1 failed");
+
+    sqlx::query("insert into connectors (image_name) select * from unnest($1);")
+        .bind(vec!["foo/bar", "baz", "bing/forty/two"])
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
     migrate_to(&mut conn, 2, &migrator)
         .await
         .expect("migrate to v2 failed");
@@ -39,9 +55,9 @@ async fn test_foobar() {
     assert_eq!(
         out,
         vec![
-            "copy/ghcr.io/estuary/source-hello-world".to_string(),
-            "copy/ghcr.io/estuary/source-postgres".to_string(),
-            "copy/ghcr.io/estuary/materialize-postgres".to_string(),
+            "copy/foo/bar".to_string(),
+            "copy/baz".to_string(),
+            "copy/bing/forty/two".to_string(),
         ]
     );
 }

@@ -1,6 +1,6 @@
 
--- This isn' part of an actual V2 migration and will be removed.
--- It's here to demonstrate a migration test. 
+-- This isn't part of an actual V2 schema and will be removed.
+-- It's here to demonstrate a migration test.
 create table connectors_copy (
     image_name text unique not null
 );

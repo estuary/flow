@@ -30,23 +30,25 @@ create domain jsonb_obj as jsonb check (jsonb_typeof(value) = 'object');
 comment on domain jsonb_obj is
   'jsonb_obj is JSONB which is restricted to the "object" type';
 
--- flowid is a montonic, time-ordered ID with gaps that fits within 64 bits.
--- We use macaddr8 as its underlying storage type because:
---  * It's stored as exactly 8 bytes, with the same efficiency as BIGINT.
---  * It has a flexible, convienient to_json() behavior that (crucially)
---    is loss-less by default when parsed in JavaScript.
---    Postgres's to_json() serializes BIGINT as a bare integer,
---    which is subject to silent rounding by many parsers when values
---    exceed 53 bits (as is common with flowid).
---
--- The canonical encoding is lower-case hexidecimal with each byte
--- separated by ':', which is what's returned by Postgres & PostgREST.
--- Postgres (and PostgREST!) will accept any hex value of the correct
--- implied length, with bytes optionally separated by any arrangement
--- of ':' or '-'.
 create domain flowid as macaddr8;
-comment on domain flowid is
-  'flowid is the common unique ID type of the Flow API';
+comment on domain flowid is '
+flowid is a montonic, time-ordered ID with gaps that fits within 64 bits.
+We use macaddr8 as its underlying storage type because:
+
+ 1) It''s stored as exactly 8 bytes, with the same efficiency as BIGINT.
+ 2) It has a flexible, convienient to_json() behavior that (crucially)
+    is loss-less by default when parsed in JavaScript.
+
+Postgres''s to_json() serializes BIGINT as a bare integer,
+which is subject to silent rounding by many parsers when values
+exceed 53 bits (as is common with flowid).
+
+The canonical flowid encoding is lower-case hexidecimal with each byte
+separated by ":", which is what''s returned by Postgres & PostgREST.
+Postgres (and PostgREST!) will accept any hex value of the correct
+implied length, with bytes optionally separated by any arrangement
+of ":" or "-".
+';
 
 create domain catalog_name as text
   constraint "Must be NFKC letters, numbers, -, _, ., separated by / and not end in /"
@@ -64,14 +66,6 @@ create schema internal;
 comment on schema internal is
   'Internal schema used for types, tables, and procedures we don''t expose in our API';
 
--- id_generator produces 64bit unique, non-sequential identifiers. They:
---  * Have fixed storage that's 1/2 the size of a UUID.
---  * Have a monotonic generation order.
---  * Embed a wall-clock timestamp than can be extracted if needed.
---  * Avoid the leaky-ness of SERIAL id's.
---
--- Adapted from: https://rob.conery.io/2014/05/29/a-better-id-generator-for-postgresql/
--- Which itself was inspired by http://instagram-engineering.tumblr.com/post/10853187575/sharding-ids-at-instagram
 create sequence internal.shard_0_id_sequence;
 
 create function internal.id_generator()
@@ -111,6 +105,16 @@ end;
 $$ language plpgsql
 security definer
 ;
+comment on function internal.id_generator is '
+id_generator produces 64bit unique, non-sequential identifiers. They:
+  * Have fixed storage that''s 1/2 the size of a UUID.
+  * Have a monotonic generation order.
+  * Embed a wall-clock timestamp than can be extracted if needed.
+  * Avoid the leaky-ness of SERIAL id''s.
+
+Adapted from: https://rob.conery.io/2014/05/29/a-better-id-generator-for-postgresql/
+Which itself was inspired by http://instagram-engineering.tumblr.com/post/10853187575/sharding-ids-at-instagram
+';
 
 -- Set id_generator as the DEFAULT value of a flowid whenever it's used in a table.
 alter domain flowid set default internal.id_generator();
@@ -194,9 +198,6 @@ comment on column internal.log_lines.stream is
   'Identifier of the log stream within the job';
 comment on column internal.log_lines.logged_at is
   'Time at which the log was collected';
--- API users may *not* directly select from logs.
--- Instead, they must present a bearer token which is matched
--- to select from a specific set of logs.
 
 create index idx_logs_token_logged_at on internal.log_lines
   using brin(token, logged_at) with (autosummarize = on);
@@ -227,18 +228,18 @@ create table connectors (
 );
 -- Public, no RLS.
 
-comment on table connectors is
-  'Connectors of the Estuary platform';
+comment on table connectors is '
+Connectors are Docker / OCI images which implement a standard protocol,
+and allow Flow to interface with an external system for the capture
+or materialization of data.
+';
 comment on column connectors.image_name is
-  'Name of the connector''s container image';
+  'Name of the connector''s container (Docker) image';
 
 -- authenticated may select all connectors without restrictions.
 grant select on table connectors to authenticated;
 
 
--- Known connector image tags. Tags are _typically_ immutable versions,
--- but it's possible to update the image digest backing a tag,
--- which is arguably a different version.
 create table connector_tags (
   like internal._model_async including all,
 
@@ -253,8 +254,12 @@ create table connector_tags (
 );
 -- Public, no RLS.
 
-comment on table connector_tags is
-  'Available image tags (versions) of connectors';
+comment on table connector_tags is '
+Available image tags (versions) of connectors.
+Tags are _typically_ immutable versions,
+but it''s possible to update the image digest backing a tag,
+which is arguably a different version.
+';
 comment on column connector_tags.connector_id is
   'Connector which this record is a tag of';
 comment on column connector_tags.documentation_url is
@@ -336,38 +341,3 @@ comment on column drafts.user_id is
 create index idx_drafts_user_id on drafts(user_id);
 create unique index idx_drafts_id_where_queued on drafts(id)
   where job_status->>'type' = 'queued';
-
-
--- Seed with some initial data.
-create procedure seed_data()
-as $$
-declare
-  connector_id flowid;
-begin
-
-  insert into connectors (image_name, detail) values (
-    'ghcr.io/estuary/source-hello-world',
-    'A flood of greetings'
-  )
-  returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':01fb856');
-
-  insert into connectors (image_name, detail) values (
-    'ghcr.io/estuary/source-postgres',
-    'CDC connector for PostgreSQL'
-  )
-  returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':f1bd86a');
-
-  insert into connectors (image_name, detail) values (
-    'ghcr.io/estuary/materialize-postgres',
-    'Materialize views into PostgreSQL'
-  )
-  returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':898776b');
-
-end;
-$$ language plpgsql;
-
-call seed_data();
-drop procedure seed_data;
