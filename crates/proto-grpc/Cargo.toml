@@ -1,0 +1,34 @@
+[package]
+name = "proto-grpc"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2021"
+
+[dependencies]
+proto-gazette = { path = "../proto-gazette" }
+proto-flow = { path = "../proto-flow", optional = true }
+
+tonic = "*"
+
+[build-dependencies]
+proto-build = { path = "../proto-build" }
+
+tonic-build = "*"
+
+[features]
+default = []
+
+broker_client = []
+broker_server = []
+
+capture_client = ["proto-flow"]
+capture_server = ["proto-flow"]
+
+consumer_client = []
+consumer_server = []
+
+flow_client = ["proto-flow"]
+flow_server = ["proto-flow"]
+
+materialize_client = ["proto-flow"]
+materialize_server = ["proto-flow"]

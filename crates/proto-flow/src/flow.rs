@@ -67,7 +67,7 @@ pub struct Shuffle {
     pub source_collection: ::prost::alloc::string::String,
     /// Selector of partitions of the collection which this transform reads.
     #[prost(message, optional, tag="3")]
-    pub source_partitions: ::core::option::Option<super::protocol::LabelSelector>,
+    pub source_partitions: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
     /// JSON pointer locating the UUID of each source document.
     #[prost(string, tag="4")]
     pub source_uuid_ptr: ::prost::alloc::string::String,
@@ -286,7 +286,7 @@ pub struct CollectionSpec {
     pub ack_json_template: ::prost::alloc::string::String,
     /// Template for partitions of this collection.
     #[prost(message, optional, tag="9")]
-    pub partition_template: ::core::option::Option<super::protocol::JournalSpec>,
+    pub partition_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// TransformSpec describes a specific transform of a derivation.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -331,10 +331,10 @@ pub struct DerivationSpec {
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
     /// Template for shards of this derivation.
     #[prost(message, optional, tag="5")]
-    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
     /// Template for recovery logs of shards of this derivation.
     #[prost(message, optional, tag="6")]
-    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
+    pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// FieldSelection is a selection of a collection's projection fields.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -378,10 +378,10 @@ pub struct CaptureSpec {
     pub interval_seconds: u32,
     /// Template for shards of this capture.
     #[prost(message, optional, tag="6")]
-    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
     /// Template for recovery logs of shards of this capture.
     #[prost(message, optional, tag="7")]
-    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
+    pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -422,10 +422,10 @@ pub struct MaterializationSpec {
     pub bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
     /// Template for shards of this materialization.
     #[prost(message, optional, tag="5")]
-    pub shard_template: ::core::option::Option<super::consumer::ShardSpec>,
+    pub shard_template: ::core::option::Option<::proto_gazette::consumer::ShardSpec>,
     /// Template for recovery logs of shards of this materialization.
     #[prost(message, optional, tag="6")]
-    pub recovery_log_template: ::core::option::Option<super::protocol::JournalSpec>,
+    pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
@@ -489,12 +489,11 @@ pub mod test_spec {
         pub docs_json_lines: ::prost::alloc::string::String,
         /// When verifying, selector over logical partitions of the collection.
         #[prost(message, optional, tag="7")]
-        pub partitions: ::core::option::Option<super::super::protocol::LabelSelector>,
+        pub partitions: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
     }
     /// Nested message and enum types in `Step`.
     pub mod step {
         /// Type of this step.
-        #[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
         #[repr(i32)]
         pub enum Type {
@@ -545,7 +544,7 @@ pub struct ShuffleRequest {
     pub shuffle: ::core::option::Option<JournalShuffle>,
     /// Resolution header of the |shuffle.coordinator| shard.
     #[prost(message, optional, tag="2")]
-    pub resolution: ::core::option::Option<super::protocol::Header>,
+    pub resolution: ::core::option::Option<::proto_gazette::broker::Header>,
     /// Ranges of responsibility which are unique to this reader,
     /// against which document shuffle outcomes are matched to determine
     /// read eligibility.
@@ -562,11 +561,11 @@ pub struct ShuffleRequest {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleResponse {
     /// Status of the Shuffle RPC.
-    #[prost(enumeration="super::consumer::Status", tag="1")]
+    #[prost(enumeration="::proto_gazette::consumer::Status", tag="1")]
     pub status: i32,
     /// Header of the response.
     #[prost(message, optional, tag="2")]
-    pub header: ::core::option::Option<super::protocol::Header>,
+    pub header: ::core::option::Option<::proto_gazette::broker::Header>,
     /// Terminal error encountered while serving this ShuffleRequest. A terminal
     /// error is only sent if a future ShuffleRequest of this same configuration
     /// and offset will fail in the exact same way, and operator intervention is
@@ -815,10 +814,9 @@ pub mod derive_api {
     pub struct Prepare {
         /// Checkpoint to commit.
         #[prost(message, optional, tag="1")]
-        pub checkpoint: ::core::option::Option<super::super::consumer::Checkpoint>,
+        pub checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     }
     /// Stats holds statistics relating to a single derive transaction.
-    #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Stats {
         /// Array indexed by transform_index with stats per transform.
@@ -835,7 +833,6 @@ pub mod derive_api {
     /// Nested message and enum types in `Stats`.
     pub mod stats {
         /// Stats about the invocation of update or publish lambdas.
-        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct InvokeStats {
             /// The total number of documents and bytes that were output from the
@@ -846,7 +843,6 @@ pub mod derive_api {
             #[prost(double, tag="2")]
             pub total_seconds: f64,
         }
-        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct TransformStats {
             /// The total inputs that were fed into this transform.
@@ -859,7 +855,6 @@ pub mod derive_api {
             #[prost(message, optional, tag="3")]
             pub publish: ::core::option::Option<InvokeStats>,
         }
-        #[cfg_attr(feature = "test-support", derive(serde::Serialize))]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct RegisterStats {
             /// The number of new register values that were created and added to the
@@ -869,8 +864,8 @@ pub mod derive_api {
             /// reductions. So this lone field represents the cerservative subset of
             /// register stats that I feel confident we can and should expose as part
             /// of the user-facing stats.
-            #[prost(uint64, tag="1")]
-            pub created: u64,
+            #[prost(uint32, tag="1")]
+            pub created: u32,
         }
     }
     /// Codes passed over the CGO bridge.
@@ -1009,13 +1004,12 @@ pub struct AdvanceTimeResponse {
 }
 /// DocsAndBytes represents a count of JSON documents, and their cumulative total
 /// size in bytes. This is used by the various Stats messages.
-#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DocsAndBytes {
-    #[prost(uint64, tag="1")]
-    pub docs: u64,
-    #[prost(uint64, tag="2")]
-    pub bytes: u64,
+    #[prost(uint32, tag="1")]
+    pub docs: u32,
+    #[prost(uint32, tag="2")]
+    pub bytes: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
@@ -1037,10 +1031,9 @@ pub struct IngestResponse {
     pub journal_write_heads: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
     /// Etcd header which describes current journal partitions.
     #[prost(message, optional, tag="2")]
-    pub journal_etcd: ::core::option::Option<super::protocol::header::Etcd>,
+    pub journal_etcd: ::core::option::Option<::proto_gazette::broker::header::Etcd>,
 }
 /// EndpointType enumerates the endpoint types understood by Flow.
-#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum EndpointType {
@@ -1066,7 +1059,6 @@ pub enum LogLevelFilter {
     Trace = 5,
 }
 /// ContentType enumerates the content types understood by Flow.
-#[derive(serde::Deserialize, serde::Serialize)] #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ContentType {
@@ -1076,572 +1068,4 @@ pub enum ContentType {
     NpmPackage = 3,
     Config = 4,
     DocumentsFixture = 5,
-}
-/// Generated client implementations.
-#[cfg(feature = "flow_client")]
-pub mod shuffler_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    #[derive(Debug, Clone)]
-    pub struct ShufflerClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl ShufflerClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> ShufflerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> ShufflerClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
-        {
-            ShufflerClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with `gzip`.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
-            self
-        }
-        /// Enable decompressing responses with `gzip`.
-        #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
-            self
-        }
-        pub async fn shuffle(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ShuffleRequest>,
-        ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::ShuffleResponse>>,
-                tonic::Status,
-            > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Shuffler/Shuffle");
-            self.inner.server_streaming(request.into_request(), path, codec).await
-        }
-    }
-}
-/// Generated client implementations.
-#[cfg(feature = "flow_client")]
-pub mod testing_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    #[derive(Debug, Clone)]
-    pub struct TestingClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl TestingClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> TestingClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> TestingClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
-        {
-            TestingClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with `gzip`.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
-            self
-        }
-        /// Enable decompressing responses with `gzip`.
-        #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
-            self
-        }
-        pub async fn reset_state(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ResetStateRequest>,
-        ) -> Result<tonic::Response<super::ResetStateResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Testing/ResetState");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-        pub async fn advance_time(
-            &mut self,
-            request: impl tonic::IntoRequest<super::AdvanceTimeRequest>,
-        ) -> Result<tonic::Response<super::AdvanceTimeResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Testing/AdvanceTime");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-        pub async fn ingest(
-            &mut self,
-            request: impl tonic::IntoRequest<super::IngestRequest>,
-        ) -> Result<tonic::Response<super::IngestResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/flow.Testing/Ingest");
-            self.inner.unary(request.into_request(), path, codec).await
-        }
-    }
-}
-/// Generated server implementations.
-#[cfg(feature = "flow_server")]
-pub mod shuffler_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with ShufflerServer.
-    #[async_trait]
-    pub trait Shuffler: Send + Sync + 'static {
-        ///Server streaming response type for the Shuffle method.
-        type ShuffleStream: futures_core::Stream<
-                Item = Result<super::ShuffleResponse, tonic::Status>,
-            >
-            + Send
-            + 'static;
-        async fn shuffle(
-            &self,
-            request: tonic::Request<super::ShuffleRequest>,
-        ) -> Result<tonic::Response<Self::ShuffleStream>, tonic::Status>;
-    }
-    #[derive(Debug)]
-    pub struct ShufflerServer<T: Shuffler> {
-        inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
-    }
-    struct _Inner<T>(Arc<T>);
-    impl<T: Shuffler> ShufflerServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            let inner = _Inner(inner);
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for ShufflerServer<T>
-    where
-        T: Shuffler,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/flow.Shuffler/Shuffle" => {
-                    #[allow(non_camel_case_types)]
-                    struct ShuffleSvc<T: Shuffler>(pub Arc<T>);
-                    impl<
-                        T: Shuffler,
-                    > tonic::server::ServerStreamingService<super::ShuffleRequest>
-                    for ShuffleSvc<T> {
-                        type Response = super::ShuffleResponse;
-                        type ResponseStream = T::ShuffleStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ShuffleRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).shuffle(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ShuffleSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            );
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => {
-                    Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
-                                .body(empty_body())
-                                .unwrap(),
-                        )
-                    })
-                }
-            }
-        }
-    }
-    impl<T: Shuffler> Clone for ShufflerServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-            }
-        }
-    }
-    impl<T: Shuffler> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: Shuffler> tonic::transport::NamedService for ShufflerServer<T> {
-        const NAME: &'static str = "flow.Shuffler";
-    }
-}
-/// Generated server implementations.
-#[cfg(feature = "flow_server")]
-pub mod testing_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with TestingServer.
-    #[async_trait]
-    pub trait Testing: Send + Sync + 'static {
-        async fn reset_state(
-            &self,
-            request: tonic::Request<super::ResetStateRequest>,
-        ) -> Result<tonic::Response<super::ResetStateResponse>, tonic::Status>;
-        async fn advance_time(
-            &self,
-            request: tonic::Request<super::AdvanceTimeRequest>,
-        ) -> Result<tonic::Response<super::AdvanceTimeResponse>, tonic::Status>;
-        async fn ingest(
-            &self,
-            request: tonic::Request<super::IngestRequest>,
-        ) -> Result<tonic::Response<super::IngestResponse>, tonic::Status>;
-    }
-    #[derive(Debug)]
-    pub struct TestingServer<T: Testing> {
-        inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
-    }
-    struct _Inner<T>(Arc<T>);
-    impl<T: Testing> TestingServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            let inner = _Inner(inner);
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for TestingServer<T>
-    where
-        T: Testing,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            let inner = self.inner.clone();
-            match req.uri().path() {
-                "/flow.Testing/ResetState" => {
-                    #[allow(non_camel_case_types)]
-                    struct ResetStateSvc<T: Testing>(pub Arc<T>);
-                    impl<
-                        T: Testing,
-                    > tonic::server::UnaryService<super::ResetStateRequest>
-                    for ResetStateSvc<T> {
-                        type Response = super::ResetStateResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ResetStateRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).reset_state(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ResetStateSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/flow.Testing/AdvanceTime" => {
-                    #[allow(non_camel_case_types)]
-                    struct AdvanceTimeSvc<T: Testing>(pub Arc<T>);
-                    impl<
-                        T: Testing,
-                    > tonic::server::UnaryService<super::AdvanceTimeRequest>
-                    for AdvanceTimeSvc<T> {
-                        type Response = super::AdvanceTimeResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::AdvanceTimeRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move {
-                                (*inner).advance_time(request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = AdvanceTimeSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/flow.Testing/Ingest" => {
-                    #[allow(non_camel_case_types)]
-                    struct IngestSvc<T: Testing>(pub Arc<T>);
-                    impl<T: Testing> tonic::server::UnaryService<super::IngestRequest>
-                    for IngestSvc<T> {
-                        type Response = super::IngestResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::IngestRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).ingest(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = IngestSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => {
-                    Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
-                                .body(empty_body())
-                                .unwrap(),
-                        )
-                    })
-                }
-            }
-        }
-    }
-    impl<T: Testing> Clone for TestingServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-            }
-        }
-    }
-    impl<T: Testing> Clone for _Inner<T> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
-        }
-    }
-    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:?}", self.0)
-        }
-    }
-    impl<T: Testing> tonic::transport::NamedService for TestingServer<T> {
-        const NAME: &'static str = "flow.Testing";
-    }
 }

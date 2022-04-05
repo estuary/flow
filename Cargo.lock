@@ -2204,6 +2204,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbjson"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86c0a61b93c50f35af5d8a4f134790f47cbebf8803a7219dd1e7238cd1af022"
+dependencies = [
+ "base64",
+ "serde",
+]
+
+[[package]]
+name = "pbjson-build"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "956a449e8a85fc040e9f8cd8fd4dd2e68059d179092401f0d8570ba059f76dae"
+dependencies = [
+ "heck 0.4.0",
+ "itertools",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
+name = "pbjson-types"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c20bd6ec3b4ba0073e7e5a1a770abd95723b431bf0e1941d2dd8aace9ffb97f"
+dependencies = [
+ "bytes",
+ "chrono",
+ "pbjson",
+ "pbjson-build",
+ "prost",
+ "prost-build",
+ "serde",
+]
+
+[[package]]
 name = "pbkdf2"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2497,21 +2534,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "proto-build"
+version = "0.0.0"
+
+[[package]]
+name = "proto-flow"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
+ "prost",
+ "prost-build",
+ "proto-build",
+ "proto-gazette",
+ "serde",
+]
+
+[[package]]
+name = "proto-gazette"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
+ "prost",
+ "prost-build",
+ "proto-build",
+ "serde",
+]
+
+[[package]]
+name = "proto-grpc"
+version = "0.0.0"
+dependencies = [
+ "proto-build",
+ "proto-flow",
+ "proto-gazette",
+ "tonic",
+ "tonic-build",
+]
+
+[[package]]
 name = "protocol"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
- "humantime-serde",
  "insta",
  "prost",
- "prost-build",
- "prost-types",
+ "proto-flow",
+ "proto-gazette",
  "serde",
  "serde_json",
- "tonic",
- "tonic-build",
- "tonic-types",
  "tracing",
 ]
 
@@ -3623,17 +3700,6 @@ dependencies = [
  "prost-build",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "tonic-types"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d603c3ff7d3a20ee56feab04095a018eb1801cb7e7d6b39165b6087a492fb4c"
-dependencies = [
- "prost",
- "prost-build",
- "prost-types",
 ]
 
 [[package]]
