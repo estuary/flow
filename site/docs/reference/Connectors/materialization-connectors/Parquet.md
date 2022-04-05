@@ -1,6 +1,10 @@
+---
+sidebar_position: 1
+---
+
 # Apache Parquet in S3
 
-This connector materializes Flow [delta updates](#delta-updates) of collections into an S3 bucket in the Apache Parquet format.
+This connector materializes [delta updates](#delta-updates) of Flow collections into an S3 bucket in the Apache Parquet format.
 
 The delta updates are batched within Flow, converted to Parquet files, and the pushed to the S3 bucket at a time interval that you set.
 
@@ -21,7 +25,7 @@ If you haven't yet captured your data from its external source, start at the beg
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a  materialization, which will direct one or more of your Flow collections to Parquet files in S3.
+Use the below properties to configure a  materialization, which will direct the contents of these Flow collections to Parquet files in S3.
 
 ### Properties
 
@@ -29,10 +33,10 @@ Use the below properties to configure a  materialization, which will direct one 
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/awsAccessKeyId`** | AWS Access Key ID | AWS credential used to connect to S3 | string | Required |
-| **`/awsSecretAccessKey`** | AWS Secret Access Key | AWS credential used to connect to S3 | string | Required |
-| **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
+| **`/awsAccessKeyId`** | AWS Access Key ID | AWS credential used to connect to S3. | string | Required |
+| **`/awsSecretAccessKey`** | AWS Secret Access Key | AWS credential used to connect to S3. | string | Required |
+| **`/bucket`** | Bucket | Name of the S3 bucket. | string | Required |
+| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string. |  |
 | `/region` |  AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string |  |
 | **`/uploadIntervalInSeconds`** | Upload Interval in Seconds | Time interval, in seconds, at which to upload data from Flow to S3. | integer | Required |
 
@@ -41,7 +45,7 @@ Use the below properties to configure a  materialization, which will direct one 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/compressionType` | Compression type | The method used to compress data in Parquet. | string |  |
-| **`/pathPrefix`** | Path prefix | The desired Parquet file path within the bucket as determined by an S3 [prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) | string | Required |
+| **`/pathPrefix`** | Path prefix | The desired Parquet file path within the bucket as determined by an S3 [prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html). | string | Required |
 
 The following compression types are supported:
 
@@ -53,7 +57,7 @@ The following compression types are supported:
 ### Sample
 ```yaml
 materializations:
-  ${tenant}/${mat_name}:
+  tenant/mat_name:
 	  endpoint:
         connector:
           config:
@@ -68,7 +72,7 @@ materializations:
     bindings:
       - resource:
           pathPrefix: /my-prefix
-      source: ${tenant}/${source_collection}
+      source: tenant/source_collection
 ```
 
 ## Delta updates

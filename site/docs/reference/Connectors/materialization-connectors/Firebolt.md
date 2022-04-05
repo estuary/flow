@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # Firebolt
 
 This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
