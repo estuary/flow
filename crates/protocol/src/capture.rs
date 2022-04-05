@@ -286,4 +286,958 @@ pub mod push_response {
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
     }
 }
-# [doc = r" Generated client implementations."] # [cfg (feature = "capture_client")] pub mod driver_client { # ! [allow (unused_variables , dead_code , missing_docs , clippy :: let_unit_value ,)] use tonic :: codegen :: * ; # [doc = " Driver is the service implemented by a capture connector."] # [derive (Debug , Clone)] pub struct DriverClient < T > { inner : tonic :: client :: Grpc < T > , } impl DriverClient < tonic :: transport :: Channel > { # [doc = r" Attempt to create a new client by connecting to a given endpoint."] pub async fn connect < D > (dst : D) -> Result < Self , tonic :: transport :: Error > where D : std :: convert :: TryInto < tonic :: transport :: Endpoint > , D :: Error : Into < StdError > , { let conn = tonic :: transport :: Endpoint :: new (dst) ? . connect () . await ? ; Ok (Self :: new (conn)) } } impl < T > DriverClient < T > where T : tonic :: client :: GrpcService < tonic :: body :: BoxBody > , T :: ResponseBody : Body + Send + 'static , T :: Error : Into < StdError > , < T :: ResponseBody as Body > :: Error : Into < StdError > + Send , { pub fn new (inner : T) -> Self { let inner = tonic :: client :: Grpc :: new (inner) ; Self { inner } } pub fn with_interceptor < F > (inner : T , interceptor : F) -> DriverClient < InterceptedService < T , F >> where F : tonic :: service :: Interceptor , T : tonic :: codegen :: Service < http :: Request < tonic :: body :: BoxBody > , Response = http :: Response << T as tonic :: client :: GrpcService < tonic :: body :: BoxBody >> :: ResponseBody > > , < T as tonic :: codegen :: Service < http :: Request < tonic :: body :: BoxBody >> > :: Error : Into < StdError > + Send + Sync , { DriverClient :: new (InterceptedService :: new (inner , interceptor)) } # [doc = r" Compress requests with `gzip`."] # [doc = r""] # [doc = r" This requires the server to support it otherwise it might respond with an"] # [doc = r" error."] pub fn send_gzip (mut self) -> Self { self . inner = self . inner . send_gzip () ; self } # [doc = r" Enable decompressing responses with `gzip`."] pub fn accept_gzip (mut self) -> Self { self . inner = self . inner . accept_gzip () ; self } # [doc = " Spec returns the specification definition of this driver."] # [doc = " Notably this includes its endpoint and resource configuration JSON schema."] pub async fn spec (& mut self , request : impl tonic :: IntoRequest < super :: SpecRequest > ,) -> Result < tonic :: Response < super :: SpecResponse > , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/Spec") ; self . inner . unary (request . into_request () , path , codec) . await } # [doc = " Discover returns the set of resources available from this Driver."] pub async fn discover (& mut self , request : impl tonic :: IntoRequest < super :: DiscoverRequest > ,) -> Result < tonic :: Response < super :: DiscoverResponse > , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/Discover") ; self . inner . unary (request . into_request () , path , codec) . await } # [doc = " Validate that store resources and proposed collection bindings are"] # [doc = " compatible."] pub async fn validate (& mut self , request : impl tonic :: IntoRequest < super :: ValidateRequest > ,) -> Result < tonic :: Response < super :: ValidateResponse > , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/Validate") ; self . inner . unary (request . into_request () , path , codec) . await } # [doc = " ApplyUpsert applies a new or updated capture to the store."] pub async fn apply_upsert (& mut self , request : impl tonic :: IntoRequest < super :: ApplyRequest > ,) -> Result < tonic :: Response < super :: ApplyResponse > , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/ApplyUpsert") ; self . inner . unary (request . into_request () , path , codec) . await } # [doc = " ApplyDelete deletes an existing capture from the store."] pub async fn apply_delete (& mut self , request : impl tonic :: IntoRequest < super :: ApplyRequest > ,) -> Result < tonic :: Response < super :: ApplyResponse > , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/ApplyDelete") ; self . inner . unary (request . into_request () , path , codec) . await } # [doc = " Pull is a very long lived RPC through which the Flow runtime and a"] # [doc = " Driver cooperatively execute an unbounded number of transactions."] # [doc = ""] # [doc = " The Pull workflow pulls streams of documents into capturing Flow"] # [doc = " collections. Streams are incremental and resume-able, with resumption"] # [doc = " semantics defined by the driver. The Flow Runtime uses a transactional"] # [doc = " recovery log to support this workflow, and the driver may persist arbitrary"] # [doc = " driver checkpoints into that log as part of the RPC lifecycle,"] # [doc = " to power its chosen resumption semantics."] # [doc = ""] # [doc = " Pull tasks are split-able, and many concurrent invocations of the RPC"] # [doc = " may collectively capture from a source, where each task split has an"] # [doc = " identified range of keys it's responsible for. The meaning of a \"key\","] # [doc = " and it's application within the remote store being captured from, is up"] # [doc = " to the driver. The driver might map partitions or shards into the keyspace,"] # [doc = " and from there to a covering task split. Or, it might map distinct files,"] # [doc = " or some other unit of scaling."] # [doc = ""] # [doc = " RPC Lifecycle"] # [doc = " ============="] # [doc = ""] # [doc = " :PullRequest.Open:"] # [doc = "    - The Flow runtime opens the pull stream."] # [doc = " :PullResponse.Opened:"] # [doc = "    - The driver responds with Opened."] # [doc = ""] # [doc = " PullRequest.Open and PullRequest.Opened are sent only once, at the"] # [doc = " commencement of the stream. Thereafter the protocol loops:"] # [doc = ""] # [doc = " :PullResponse.Documents:"] # [doc = "    - The driver tells the runtime of some documents, which are pending a"] # [doc = "      future Checkpoint."] # [doc = "    - If the driver sends multiple Documents messages without an"] # [doc = "      interleaving Checkpoint, the Flow runtime MUST commit"] # [doc = "      documents of all such messages in a single transaction."] # [doc = " :PullResponse.Checkpoint:"] # [doc = "    - The driver tells the runtime of a checkpoint: a watermark in the"] # [doc = "      captured documents stream which is eligble to be used as a"] # [doc = "      transaction commit boundary."] # [doc = "    - Whether the checkpoint becomes a commit boundary is at the"] # [doc = "      discretion of the Flow runtime. It may combine multiple checkpoints"] # [doc = "      into a single transaction."] # [doc = " :PullRequest.Acknowledge:"] # [doc = "    - The Flow runtime tells the driver that its Checkpoint has committed."] # [doc = "    - The runtime sends one ordered Acknowledge for each Checkpoint."] # [doc = ""] pub async fn pull (& mut self , request : impl tonic :: IntoStreamingRequest < Message = super :: PullRequest >) -> Result < tonic :: Response < tonic :: codec :: Streaming < super :: PullResponse >> , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Driver/Pull") ; self . inner . streaming (request . into_streaming_request () , path , codec) . await } } } # [doc = r" Generated client implementations."] # [cfg (feature = "capture_client")] pub mod runtime_client { # ! [allow (unused_variables , dead_code , missing_docs , clippy :: let_unit_value ,)] use tonic :: codegen :: * ; # [doc = " Runtime is the Flow runtime service which implements push-based captures."] # [derive (Debug , Clone)] pub struct RuntimeClient < T > { inner : tonic :: client :: Grpc < T > , } impl RuntimeClient < tonic :: transport :: Channel > { # [doc = r" Attempt to create a new client by connecting to a given endpoint."] pub async fn connect < D > (dst : D) -> Result < Self , tonic :: transport :: Error > where D : std :: convert :: TryInto < tonic :: transport :: Endpoint > , D :: Error : Into < StdError > , { let conn = tonic :: transport :: Endpoint :: new (dst) ? . connect () . await ? ; Ok (Self :: new (conn)) } } impl < T > RuntimeClient < T > where T : tonic :: client :: GrpcService < tonic :: body :: BoxBody > , T :: ResponseBody : Body + Send + 'static , T :: Error : Into < StdError > , < T :: ResponseBody as Body > :: Error : Into < StdError > + Send , { pub fn new (inner : T) -> Self { let inner = tonic :: client :: Grpc :: new (inner) ; Self { inner } } pub fn with_interceptor < F > (inner : T , interceptor : F) -> RuntimeClient < InterceptedService < T , F >> where F : tonic :: service :: Interceptor , T : tonic :: codegen :: Service < http :: Request < tonic :: body :: BoxBody > , Response = http :: Response << T as tonic :: client :: GrpcService < tonic :: body :: BoxBody >> :: ResponseBody > > , < T as tonic :: codegen :: Service < http :: Request < tonic :: body :: BoxBody >> > :: Error : Into < StdError > + Send + Sync , { RuntimeClient :: new (InterceptedService :: new (inner , interceptor)) } # [doc = r" Compress requests with `gzip`."] # [doc = r""] # [doc = r" This requires the server to support it otherwise it might respond with an"] # [doc = r" error."] pub fn send_gzip (mut self) -> Self { self . inner = self . inner . send_gzip () ; self } # [doc = r" Enable decompressing responses with `gzip`."] pub fn accept_gzip (mut self) -> Self { self . inner = self . inner . accept_gzip () ; self } # [doc = " Push may be a short or very long lived RPC through which the Flow runtime"] # [doc = " and a driver cooperatively execute an unbounded number of transactions."] # [doc = ""] # [doc = " The Push workflow pushes streams of documents into capturing Flow"] # [doc = " collections. The driver is responsible for initiation and resumption of"] # [doc = " push streams. The Flow runtime uses a transactional recovery log to support"] # [doc = " this workflow, and the driver may persist arbitrary driver checkpoints into"] # [doc = " that log as part of the RPC lifecycle, to power its chosen resumption"] # [doc = " semantics."] # [doc = ""] # [doc = " A push RPC is evaluated against a specific task shard split, which is"] # [doc = " encoded in the PushRequest.Open.Header. A driver may perform its own load"] # [doc = " balancing by obtain a shard listing and embedding a selected shard into"] # [doc = " that header. Or, it may leave it empty and an arbitary shard will be"] # [doc = " randomly chosen for it."] # [doc = ""] # [doc = " RPC Lifecycle"] # [doc = " ============="] # [doc = ""] # [doc = " :PushRequest.Open:"] # [doc = "    - The driver opens the push stream, naming its capture and"] # [doc = "      optional routing header."] # [doc = " :PushResponse.Opened:"] # [doc = "    - The Flow runtime responds with Opened, which tells the driver"] # [doc = "      of the specific CaptureSpec and [key_begin, key_end] range of"] # [doc = "      this RPC, as well as the last driver checkpoint."] # [doc = "    - The semantics and treatment of the key range is up to the driver."] # [doc = ""] # [doc = " PushRequest.Open and PushRequest.Opened are sent only once, at the"] # [doc = " commencement of the stream. Thereafter the protocol loops:"] # [doc = ""] # [doc = " :PushRequest.Documents:"] # [doc = "    - The driver tells the runtime of some documents, which are pending a"] # [doc = "      future Checkpoint."] # [doc = "    - If the driver sends multiple Documents messages without an"] # [doc = "      interleaving Checkpoint, the Flow runtime MUST commit"] # [doc = "      documents of all such messages in a single transaction."] # [doc = " :PushRequest.Checkpoint:"] # [doc = "    - The driver tells the runtime of a checkpoint: a watermark in the"] # [doc = "      captured documents stream which is eligble to be used as a"] # [doc = "      transaction commit boundary."] # [doc = "    - Whether the checkpoint becomes a commit boundary is at the"] # [doc = "      discretion of the Flow runtime. It may combine multiple checkpoints"] # [doc = "      into a single transaction."] # [doc = " :PushResponse.Acknowledge:"] # [doc = "    - The Flow runtime tells the driver that its Checkpoint has committed."] # [doc = "    - The runtime sends one ordered Acknowledge for each Checkpoint."] # [doc = ""] pub async fn push (& mut self , request : impl tonic :: IntoStreamingRequest < Message = super :: PushRequest >) -> Result < tonic :: Response < tonic :: codec :: Streaming < super :: PushResponse >> , tonic :: Status > { self . inner . ready () . await . map_err (| e | { tonic :: Status :: new (tonic :: Code :: Unknown , format ! ("Service was not ready: {}" , e . into ())) }) ? ; let codec = tonic :: codec :: ProstCodec :: default () ; let path = http :: uri :: PathAndQuery :: from_static ("/capture.Runtime/Push") ; self . inner . streaming (request . into_streaming_request () , path , codec) . await } } }# [doc = r" Generated server implementations."] # [cfg (feature = "capture_server")] pub mod driver_server { # ! [allow (unused_variables , dead_code , missing_docs , clippy :: let_unit_value ,)] use tonic :: codegen :: * ; # [doc = "Generated trait containing gRPC methods that should be implemented for use with DriverServer."] # [async_trait] pub trait Driver : Send + Sync + 'static { # [doc = " Spec returns the specification definition of this driver."] # [doc = " Notably this includes its endpoint and resource configuration JSON schema."] async fn spec (& self , request : tonic :: Request < super :: SpecRequest >) -> Result < tonic :: Response < super :: SpecResponse > , tonic :: Status > ; # [doc = " Discover returns the set of resources available from this Driver."] async fn discover (& self , request : tonic :: Request < super :: DiscoverRequest >) -> Result < tonic :: Response < super :: DiscoverResponse > , tonic :: Status > ; # [doc = " Validate that store resources and proposed collection bindings are"] # [doc = " compatible."] async fn validate (& self , request : tonic :: Request < super :: ValidateRequest >) -> Result < tonic :: Response < super :: ValidateResponse > , tonic :: Status > ; # [doc = " ApplyUpsert applies a new or updated capture to the store."] async fn apply_upsert (& self , request : tonic :: Request < super :: ApplyRequest >) -> Result < tonic :: Response < super :: ApplyResponse > , tonic :: Status > ; # [doc = " ApplyDelete deletes an existing capture from the store."] async fn apply_delete (& self , request : tonic :: Request < super :: ApplyRequest >) -> Result < tonic :: Response < super :: ApplyResponse > , tonic :: Status > ; # [doc = "Server streaming response type for the Pull method."] type PullStream : futures_core :: Stream < Item = Result < super :: PullResponse , tonic :: Status >> + Send + 'static ; # [doc = " Pull is a very long lived RPC through which the Flow runtime and a"] # [doc = " Driver cooperatively execute an unbounded number of transactions."] # [doc = ""] # [doc = " The Pull workflow pulls streams of documents into capturing Flow"] # [doc = " collections. Streams are incremental and resume-able, with resumption"] # [doc = " semantics defined by the driver. The Flow Runtime uses a transactional"] # [doc = " recovery log to support this workflow, and the driver may persist arbitrary"] # [doc = " driver checkpoints into that log as part of the RPC lifecycle,"] # [doc = " to power its chosen resumption semantics."] # [doc = ""] # [doc = " Pull tasks are split-able, and many concurrent invocations of the RPC"] # [doc = " may collectively capture from a source, where each task split has an"] # [doc = " identified range of keys it's responsible for. The meaning of a \"key\","] # [doc = " and it's application within the remote store being captured from, is up"] # [doc = " to the driver. The driver might map partitions or shards into the keyspace,"] # [doc = " and from there to a covering task split. Or, it might map distinct files,"] # [doc = " or some other unit of scaling."] # [doc = ""] # [doc = " RPC Lifecycle"] # [doc = " ============="] # [doc = ""] # [doc = " :PullRequest.Open:"] # [doc = "    - The Flow runtime opens the pull stream."] # [doc = " :PullResponse.Opened:"] # [doc = "    - The driver responds with Opened."] # [doc = ""] # [doc = " PullRequest.Open and PullRequest.Opened are sent only once, at the"] # [doc = " commencement of the stream. Thereafter the protocol loops:"] # [doc = ""] # [doc = " :PullResponse.Documents:"] # [doc = "    - The driver tells the runtime of some documents, which are pending a"] # [doc = "      future Checkpoint."] # [doc = "    - If the driver sends multiple Documents messages without an"] # [doc = "      interleaving Checkpoint, the Flow runtime MUST commit"] # [doc = "      documents of all such messages in a single transaction."] # [doc = " :PullResponse.Checkpoint:"] # [doc = "    - The driver tells the runtime of a checkpoint: a watermark in the"] # [doc = "      captured documents stream which is eligble to be used as a"] # [doc = "      transaction commit boundary."] # [doc = "    - Whether the checkpoint becomes a commit boundary is at the"] # [doc = "      discretion of the Flow runtime. It may combine multiple checkpoints"] # [doc = "      into a single transaction."] # [doc = " :PullRequest.Acknowledge:"] # [doc = "    - The Flow runtime tells the driver that its Checkpoint has committed."] # [doc = "    - The runtime sends one ordered Acknowledge for each Checkpoint."] # [doc = ""] async fn pull (& self , request : tonic :: Request < tonic :: Streaming < super :: PullRequest >>) -> Result < tonic :: Response < Self :: PullStream > , tonic :: Status > ; } # [doc = " Driver is the service implemented by a capture connector."] # [derive (Debug)] pub struct DriverServer < T : Driver > { inner : _Inner < T > , accept_compression_encodings : () , send_compression_encodings : () , } struct _Inner < T > (Arc < T >) ; impl < T : Driver > DriverServer < T > { pub fn new (inner : T) -> Self { let inner = Arc :: new (inner) ; let inner = _Inner (inner) ; Self { inner , accept_compression_encodings : Default :: default () , send_compression_encodings : Default :: default () , } } pub fn with_interceptor < F > (inner : T , interceptor : F) -> InterceptedService < Self , F > where F : tonic :: service :: Interceptor , { InterceptedService :: new (Self :: new (inner) , interceptor) } } impl < T , B > tonic :: codegen :: Service < http :: Request < B >> for DriverServer < T > where T : Driver , B : Body + Send + 'static , B :: Error : Into < StdError > + Send + 'static , { type Response = http :: Response < tonic :: body :: BoxBody > ; type Error = Never ; type Future = BoxFuture < Self :: Response , Self :: Error > ; fn poll_ready (& mut self , _cx : & mut Context < '_ >) -> Poll < Result < () , Self :: Error >> { Poll :: Ready (Ok (())) } fn call (& mut self , req : http :: Request < B >) -> Self :: Future { let inner = self . inner . clone () ; match req . uri () . path () { "/capture.Driver/Spec" => { # [allow (non_camel_case_types)] struct SpecSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: UnaryService < super :: SpecRequest > for SpecSvc < T > { type Response = super :: SpecResponse ; type Future = BoxFuture < tonic :: Response < Self :: Response > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < super :: SpecRequest >) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . spec (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = SpecSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . unary (method , req) . await ; Ok (res) } ; Box :: pin (fut) } "/capture.Driver/Discover" => { # [allow (non_camel_case_types)] struct DiscoverSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: UnaryService < super :: DiscoverRequest > for DiscoverSvc < T > { type Response = super :: DiscoverResponse ; type Future = BoxFuture < tonic :: Response < Self :: Response > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < super :: DiscoverRequest >) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . discover (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = DiscoverSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . unary (method , req) . await ; Ok (res) } ; Box :: pin (fut) } "/capture.Driver/Validate" => { # [allow (non_camel_case_types)] struct ValidateSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: UnaryService < super :: ValidateRequest > for ValidateSvc < T > { type Response = super :: ValidateResponse ; type Future = BoxFuture < tonic :: Response < Self :: Response > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < super :: ValidateRequest >) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . validate (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = ValidateSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . unary (method , req) . await ; Ok (res) } ; Box :: pin (fut) } "/capture.Driver/ApplyUpsert" => { # [allow (non_camel_case_types)] struct ApplyUpsertSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: UnaryService < super :: ApplyRequest > for ApplyUpsertSvc < T > { type Response = super :: ApplyResponse ; type Future = BoxFuture < tonic :: Response < Self :: Response > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < super :: ApplyRequest >) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . apply_upsert (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = ApplyUpsertSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . unary (method , req) . await ; Ok (res) } ; Box :: pin (fut) } "/capture.Driver/ApplyDelete" => { # [allow (non_camel_case_types)] struct ApplyDeleteSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: UnaryService < super :: ApplyRequest > for ApplyDeleteSvc < T > { type Response = super :: ApplyResponse ; type Future = BoxFuture < tonic :: Response < Self :: Response > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < super :: ApplyRequest >) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . apply_delete (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = ApplyDeleteSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . unary (method , req) . await ; Ok (res) } ; Box :: pin (fut) } "/capture.Driver/Pull" => { # [allow (non_camel_case_types)] struct PullSvc < T : Driver > (pub Arc < T >) ; impl < T : Driver > tonic :: server :: StreamingService < super :: PullRequest > for PullSvc < T > { type Response = super :: PullResponse ; type ResponseStream = T :: PullStream ; type Future = BoxFuture < tonic :: Response < Self :: ResponseStream > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < tonic :: Streaming < super :: PullRequest >>) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . pull (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = PullSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . streaming (method , req) . await ; Ok (res) } ; Box :: pin (fut) } _ => Box :: pin (async move { Ok (http :: Response :: builder () . status (200) . header ("grpc-status" , "12") . header ("content-type" , "application/grpc") . body (empty_body ()) . unwrap ()) }) , } } } impl < T : Driver > Clone for DriverServer < T > { fn clone (& self) -> Self { let inner = self . inner . clone () ; Self { inner , accept_compression_encodings : self . accept_compression_encodings , send_compression_encodings : self . send_compression_encodings , } } } impl < T : Driver > Clone for _Inner < T > { fn clone (& self) -> Self { Self (self . 0 . clone ()) } } impl < T : std :: fmt :: Debug > std :: fmt :: Debug for _Inner < T > { fn fmt (& self , f : & mut std :: fmt :: Formatter < '_ >) -> std :: fmt :: Result { write ! (f , "{:?}" , self . 0) } } impl < T : Driver > tonic :: transport :: NamedService for DriverServer < T > { const NAME : & 'static str = "capture.Driver" ; } } # [doc = r" Generated server implementations."] # [cfg (feature = "capture_server")] pub mod runtime_server { # ! [allow (unused_variables , dead_code , missing_docs , clippy :: let_unit_value ,)] use tonic :: codegen :: * ; # [doc = "Generated trait containing gRPC methods that should be implemented for use with RuntimeServer."] # [async_trait] pub trait Runtime : Send + Sync + 'static { # [doc = "Server streaming response type for the Push method."] type PushStream : futures_core :: Stream < Item = Result < super :: PushResponse , tonic :: Status >> + Send + 'static ; # [doc = " Push may be a short or very long lived RPC through which the Flow runtime"] # [doc = " and a driver cooperatively execute an unbounded number of transactions."] # [doc = ""] # [doc = " The Push workflow pushes streams of documents into capturing Flow"] # [doc = " collections. The driver is responsible for initiation and resumption of"] # [doc = " push streams. The Flow runtime uses a transactional recovery log to support"] # [doc = " this workflow, and the driver may persist arbitrary driver checkpoints into"] # [doc = " that log as part of the RPC lifecycle, to power its chosen resumption"] # [doc = " semantics."] # [doc = ""] # [doc = " A push RPC is evaluated against a specific task shard split, which is"] # [doc = " encoded in the PushRequest.Open.Header. A driver may perform its own load"] # [doc = " balancing by obtain a shard listing and embedding a selected shard into"] # [doc = " that header. Or, it may leave it empty and an arbitary shard will be"] # [doc = " randomly chosen for it."] # [doc = ""] # [doc = " RPC Lifecycle"] # [doc = " ============="] # [doc = ""] # [doc = " :PushRequest.Open:"] # [doc = "    - The driver opens the push stream, naming its capture and"] # [doc = "      optional routing header."] # [doc = " :PushResponse.Opened:"] # [doc = "    - The Flow runtime responds with Opened, which tells the driver"] # [doc = "      of the specific CaptureSpec and [key_begin, key_end] range of"] # [doc = "      this RPC, as well as the last driver checkpoint."] # [doc = "    - The semantics and treatment of the key range is up to the driver."] # [doc = ""] # [doc = " PushRequest.Open and PushRequest.Opened are sent only once, at the"] # [doc = " commencement of the stream. Thereafter the protocol loops:"] # [doc = ""] # [doc = " :PushRequest.Documents:"] # [doc = "    - The driver tells the runtime of some documents, which are pending a"] # [doc = "      future Checkpoint."] # [doc = "    - If the driver sends multiple Documents messages without an"] # [doc = "      interleaving Checkpoint, the Flow runtime MUST commit"] # [doc = "      documents of all such messages in a single transaction."] # [doc = " :PushRequest.Checkpoint:"] # [doc = "    - The driver tells the runtime of a checkpoint: a watermark in the"] # [doc = "      captured documents stream which is eligble to be used as a"] # [doc = "      transaction commit boundary."] # [doc = "    - Whether the checkpoint becomes a commit boundary is at the"] # [doc = "      discretion of the Flow runtime. It may combine multiple checkpoints"] # [doc = "      into a single transaction."] # [doc = " :PushResponse.Acknowledge:"] # [doc = "    - The Flow runtime tells the driver that its Checkpoint has committed."] # [doc = "    - The runtime sends one ordered Acknowledge for each Checkpoint."] # [doc = ""] async fn push (& self , request : tonic :: Request < tonic :: Streaming < super :: PushRequest >>) -> Result < tonic :: Response < Self :: PushStream > , tonic :: Status > ; } # [doc = " Runtime is the Flow runtime service which implements push-based captures."] # [derive (Debug)] pub struct RuntimeServer < T : Runtime > { inner : _Inner < T > , accept_compression_encodings : () , send_compression_encodings : () , } struct _Inner < T > (Arc < T >) ; impl < T : Runtime > RuntimeServer < T > { pub fn new (inner : T) -> Self { let inner = Arc :: new (inner) ; let inner = _Inner (inner) ; Self { inner , accept_compression_encodings : Default :: default () , send_compression_encodings : Default :: default () , } } pub fn with_interceptor < F > (inner : T , interceptor : F) -> InterceptedService < Self , F > where F : tonic :: service :: Interceptor , { InterceptedService :: new (Self :: new (inner) , interceptor) } } impl < T , B > tonic :: codegen :: Service < http :: Request < B >> for RuntimeServer < T > where T : Runtime , B : Body + Send + 'static , B :: Error : Into < StdError > + Send + 'static , { type Response = http :: Response < tonic :: body :: BoxBody > ; type Error = Never ; type Future = BoxFuture < Self :: Response , Self :: Error > ; fn poll_ready (& mut self , _cx : & mut Context < '_ >) -> Poll < Result < () , Self :: Error >> { Poll :: Ready (Ok (())) } fn call (& mut self , req : http :: Request < B >) -> Self :: Future { let inner = self . inner . clone () ; match req . uri () . path () { "/capture.Runtime/Push" => { # [allow (non_camel_case_types)] struct PushSvc < T : Runtime > (pub Arc < T >) ; impl < T : Runtime > tonic :: server :: StreamingService < super :: PushRequest > for PushSvc < T > { type Response = super :: PushResponse ; type ResponseStream = T :: PushStream ; type Future = BoxFuture < tonic :: Response < Self :: ResponseStream > , tonic :: Status > ; fn call (& mut self , request : tonic :: Request < tonic :: Streaming < super :: PushRequest >>) -> Self :: Future { let inner = self . 0 . clone () ; let fut = async move { (* inner) . push (request) . await } ; Box :: pin (fut) } } let accept_compression_encodings = self . accept_compression_encodings ; let send_compression_encodings = self . send_compression_encodings ; let inner = self . inner . clone () ; let fut = async move { let inner = inner . 0 ; let method = PushSvc (inner) ; let codec = tonic :: codec :: ProstCodec :: default () ; let mut grpc = tonic :: server :: Grpc :: new (codec) . apply_compression_config (accept_compression_encodings , send_compression_encodings) ; let res = grpc . streaming (method , req) . await ; Ok (res) } ; Box :: pin (fut) } _ => Box :: pin (async move { Ok (http :: Response :: builder () . status (200) . header ("grpc-status" , "12") . header ("content-type" , "application/grpc") . body (empty_body ()) . unwrap ()) }) , } } } impl < T : Runtime > Clone for RuntimeServer < T > { fn clone (& self) -> Self { let inner = self . inner . clone () ; Self { inner , accept_compression_encodings : self . accept_compression_encodings , send_compression_encodings : self . send_compression_encodings , } } } impl < T : Runtime > Clone for _Inner < T > { fn clone (& self) -> Self { Self (self . 0 . clone ()) } } impl < T : std :: fmt :: Debug > std :: fmt :: Debug for _Inner < T > { fn fmt (& self , f : & mut std :: fmt :: Formatter < '_ >) -> std :: fmt :: Result { write ! (f , "{:?}" , self . 0) } } impl < T : Runtime > tonic :: transport :: NamedService for RuntimeServer < T > { const NAME : & 'static str = "capture.Runtime" ; } }
+/// Generated client implementations.
+#[cfg(feature = "capture_client")]
+pub mod driver_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    /// Driver is the service implemented by a capture connector.
+    #[derive(Debug, Clone)]
+    pub struct DriverClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl DriverClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> DriverClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> DriverClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
+        {
+            DriverClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with `gzip`.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_gzip(mut self) -> Self {
+            self.inner = self.inner.send_gzip();
+            self
+        }
+        /// Enable decompressing responses with `gzip`.
+        #[must_use]
+        pub fn accept_gzip(mut self) -> Self {
+            self.inner = self.inner.accept_gzip();
+            self
+        }
+        /// Spec returns the specification definition of this driver.
+        /// Notably this includes its endpoint and resource configuration JSON schema.
+        pub async fn spec(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SpecRequest>,
+        ) -> Result<tonic::Response<super::SpecResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/capture.Driver/Spec");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        /// Discover returns the set of resources available from this Driver.
+        pub async fn discover(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DiscoverRequest>,
+        ) -> Result<tonic::Response<super::DiscoverResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/capture.Driver/Discover");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        /// Validate that store resources and proposed collection bindings are
+        /// compatible.
+        pub async fn validate(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ValidateRequest>,
+        ) -> Result<tonic::Response<super::ValidateResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/capture.Driver/Validate");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        /// ApplyUpsert applies a new or updated capture to the store.
+        pub async fn apply_upsert(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ApplyRequest>,
+        ) -> Result<tonic::Response<super::ApplyResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/capture.Driver/ApplyUpsert",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        /// ApplyDelete deletes an existing capture from the store.
+        pub async fn apply_delete(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ApplyRequest>,
+        ) -> Result<tonic::Response<super::ApplyResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/capture.Driver/ApplyDelete",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        /// Pull is a very long lived RPC through which the Flow runtime and a
+        /// Driver cooperatively execute an unbounded number of transactions.
+        ///
+        /// The Pull workflow pulls streams of documents into capturing Flow
+        /// collections. Streams are incremental and resume-able, with resumption
+        /// semantics defined by the driver. The Flow Runtime uses a transactional
+        /// recovery log to support this workflow, and the driver may persist arbitrary
+        /// driver checkpoints into that log as part of the RPC lifecycle,
+        /// to power its chosen resumption semantics.
+        ///
+        /// Pull tasks are split-able, and many concurrent invocations of the RPC
+        /// may collectively capture from a source, where each task split has an
+        /// identified range of keys it's responsible for. The meaning of a "key",
+        /// and it's application within the remote store being captured from, is up
+        /// to the driver. The driver might map partitions or shards into the keyspace,
+        /// and from there to a covering task split. Or, it might map distinct files,
+        /// or some other unit of scaling.
+        ///
+        /// RPC Lifecycle
+        /// =============
+        ///
+        /// :PullRequest.Open:
+        ///    - The Flow runtime opens the pull stream.
+        /// :PullResponse.Opened:
+        ///    - The driver responds with Opened.
+        ///
+        /// PullRequest.Open and PullRequest.Opened are sent only once, at the
+        /// commencement of the stream. Thereafter the protocol loops:
+        ///
+        /// :PullResponse.Documents:
+        ///    - The driver tells the runtime of some documents, which are pending a
+        ///      future Checkpoint.
+        ///    - If the driver sends multiple Documents messages without an
+        ///      interleaving Checkpoint, the Flow runtime MUST commit
+        ///      documents of all such messages in a single transaction.
+        /// :PullResponse.Checkpoint:
+        ///    - The driver tells the runtime of a checkpoint: a watermark in the
+        ///      captured documents stream which is eligble to be used as a
+        ///      transaction commit boundary.
+        ///    - Whether the checkpoint becomes a commit boundary is at the
+        ///      discretion of the Flow runtime. It may combine multiple checkpoints
+        ///      into a single transaction.
+        /// :PullRequest.Acknowledge:
+        ///    - The Flow runtime tells the driver that its Checkpoint has committed.
+        ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+        ///
+        pub async fn pull(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::PullRequest>,
+        ) -> Result<
+                tonic::Response<tonic::codec::Streaming<super::PullResponse>>,
+                tonic::Status,
+            > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/capture.Driver/Pull");
+            self.inner.streaming(request.into_streaming_request(), path, codec).await
+        }
+    }
+}
+/// Generated client implementations.
+#[cfg(feature = "capture_client")]
+pub mod runtime_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    /// Runtime is the Flow runtime service which implements push-based captures.
+    #[derive(Debug, Clone)]
+    pub struct RuntimeClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl RuntimeClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> RuntimeClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> RuntimeClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
+        {
+            RuntimeClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with `gzip`.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_gzip(mut self) -> Self {
+            self.inner = self.inner.send_gzip();
+            self
+        }
+        /// Enable decompressing responses with `gzip`.
+        #[must_use]
+        pub fn accept_gzip(mut self) -> Self {
+            self.inner = self.inner.accept_gzip();
+            self
+        }
+        /// Push may be a short or very long lived RPC through which the Flow runtime
+        /// and a driver cooperatively execute an unbounded number of transactions.
+        ///
+        /// The Push workflow pushes streams of documents into capturing Flow
+        /// collections. The driver is responsible for initiation and resumption of
+        /// push streams. The Flow runtime uses a transactional recovery log to support
+        /// this workflow, and the driver may persist arbitrary driver checkpoints into
+        /// that log as part of the RPC lifecycle, to power its chosen resumption
+        /// semantics.
+        ///
+        /// A push RPC is evaluated against a specific task shard split, which is
+        /// encoded in the PushRequest.Open.Header. A driver may perform its own load
+        /// balancing by obtain a shard listing and embedding a selected shard into
+        /// that header. Or, it may leave it empty and an arbitary shard will be
+        /// randomly chosen for it.
+        ///
+        /// RPC Lifecycle
+        /// =============
+        ///
+        /// :PushRequest.Open:
+        ///    - The driver opens the push stream, naming its capture and
+        ///      optional routing header.
+        /// :PushResponse.Opened:
+        ///    - The Flow runtime responds with Opened, which tells the driver
+        ///      of the specific CaptureSpec and [key_begin, key_end] range of
+        ///      this RPC, as well as the last driver checkpoint.
+        ///    - The semantics and treatment of the key range is up to the driver.
+        ///
+        /// PushRequest.Open and PushRequest.Opened are sent only once, at the
+        /// commencement of the stream. Thereafter the protocol loops:
+        ///
+        /// :PushRequest.Documents:
+        ///    - The driver tells the runtime of some documents, which are pending a
+        ///      future Checkpoint.
+        ///    - If the driver sends multiple Documents messages without an
+        ///      interleaving Checkpoint, the Flow runtime MUST commit
+        ///      documents of all such messages in a single transaction.
+        /// :PushRequest.Checkpoint:
+        ///    - The driver tells the runtime of a checkpoint: a watermark in the
+        ///      captured documents stream which is eligble to be used as a
+        ///      transaction commit boundary.
+        ///    - Whether the checkpoint becomes a commit boundary is at the
+        ///      discretion of the Flow runtime. It may combine multiple checkpoints
+        ///      into a single transaction.
+        /// :PushResponse.Acknowledge:
+        ///    - The Flow runtime tells the driver that its Checkpoint has committed.
+        ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+        ///
+        pub async fn push(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::PushRequest>,
+        ) -> Result<
+                tonic::Response<tonic::codec::Streaming<super::PushResponse>>,
+                tonic::Status,
+            > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/capture.Runtime/Push");
+            self.inner.streaming(request.into_streaming_request(), path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+#[cfg(feature = "capture_server")]
+pub mod driver_server {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    ///Generated trait containing gRPC methods that should be implemented for use with DriverServer.
+    #[async_trait]
+    pub trait Driver: Send + Sync + 'static {
+        /// Spec returns the specification definition of this driver.
+        /// Notably this includes its endpoint and resource configuration JSON schema.
+        async fn spec(
+            &self,
+            request: tonic::Request<super::SpecRequest>,
+        ) -> Result<tonic::Response<super::SpecResponse>, tonic::Status>;
+        /// Discover returns the set of resources available from this Driver.
+        async fn discover(
+            &self,
+            request: tonic::Request<super::DiscoverRequest>,
+        ) -> Result<tonic::Response<super::DiscoverResponse>, tonic::Status>;
+        /// Validate that store resources and proposed collection bindings are
+        /// compatible.
+        async fn validate(
+            &self,
+            request: tonic::Request<super::ValidateRequest>,
+        ) -> Result<tonic::Response<super::ValidateResponse>, tonic::Status>;
+        /// ApplyUpsert applies a new or updated capture to the store.
+        async fn apply_upsert(
+            &self,
+            request: tonic::Request<super::ApplyRequest>,
+        ) -> Result<tonic::Response<super::ApplyResponse>, tonic::Status>;
+        /// ApplyDelete deletes an existing capture from the store.
+        async fn apply_delete(
+            &self,
+            request: tonic::Request<super::ApplyRequest>,
+        ) -> Result<tonic::Response<super::ApplyResponse>, tonic::Status>;
+        ///Server streaming response type for the Pull method.
+        type PullStream: futures_core::Stream<
+                Item = Result<super::PullResponse, tonic::Status>,
+            >
+            + Send
+            + 'static;
+        /// Pull is a very long lived RPC through which the Flow runtime and a
+        /// Driver cooperatively execute an unbounded number of transactions.
+        ///
+        /// The Pull workflow pulls streams of documents into capturing Flow
+        /// collections. Streams are incremental and resume-able, with resumption
+        /// semantics defined by the driver. The Flow Runtime uses a transactional
+        /// recovery log to support this workflow, and the driver may persist arbitrary
+        /// driver checkpoints into that log as part of the RPC lifecycle,
+        /// to power its chosen resumption semantics.
+        ///
+        /// Pull tasks are split-able, and many concurrent invocations of the RPC
+        /// may collectively capture from a source, where each task split has an
+        /// identified range of keys it's responsible for. The meaning of a "key",
+        /// and it's application within the remote store being captured from, is up
+        /// to the driver. The driver might map partitions or shards into the keyspace,
+        /// and from there to a covering task split. Or, it might map distinct files,
+        /// or some other unit of scaling.
+        ///
+        /// RPC Lifecycle
+        /// =============
+        ///
+        /// :PullRequest.Open:
+        ///    - The Flow runtime opens the pull stream.
+        /// :PullResponse.Opened:
+        ///    - The driver responds with Opened.
+        ///
+        /// PullRequest.Open and PullRequest.Opened are sent only once, at the
+        /// commencement of the stream. Thereafter the protocol loops:
+        ///
+        /// :PullResponse.Documents:
+        ///    - The driver tells the runtime of some documents, which are pending a
+        ///      future Checkpoint.
+        ///    - If the driver sends multiple Documents messages without an
+        ///      interleaving Checkpoint, the Flow runtime MUST commit
+        ///      documents of all such messages in a single transaction.
+        /// :PullResponse.Checkpoint:
+        ///    - The driver tells the runtime of a checkpoint: a watermark in the
+        ///      captured documents stream which is eligble to be used as a
+        ///      transaction commit boundary.
+        ///    - Whether the checkpoint becomes a commit boundary is at the
+        ///      discretion of the Flow runtime. It may combine multiple checkpoints
+        ///      into a single transaction.
+        /// :PullRequest.Acknowledge:
+        ///    - The Flow runtime tells the driver that its Checkpoint has committed.
+        ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+        ///
+        async fn pull(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::PullRequest>>,
+        ) -> Result<tonic::Response<Self::PullStream>, tonic::Status>;
+    }
+    /// Driver is the service implemented by a capture connector.
+    #[derive(Debug)]
+    pub struct DriverServer<T: Driver> {
+        inner: _Inner<T>,
+        accept_compression_encodings: (),
+        send_compression_encodings: (),
+    }
+    struct _Inner<T>(Arc<T>);
+    impl<T: Driver> DriverServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            let inner = _Inner(inner);
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for DriverServer<T>
+    where
+        T: Driver,
+        B: Body + Send + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/capture.Driver/Spec" => {
+                    #[allow(non_camel_case_types)]
+                    struct SpecSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::UnaryService<super::SpecRequest>
+                    for SpecSvc<T> {
+                        type Response = super::SpecResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SpecRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).spec(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = SpecSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/capture.Driver/Discover" => {
+                    #[allow(non_camel_case_types)]
+                    struct DiscoverSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::UnaryService<super::DiscoverRequest>
+                    for DiscoverSvc<T> {
+                        type Response = super::DiscoverResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DiscoverRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).discover(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DiscoverSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/capture.Driver/Validate" => {
+                    #[allow(non_camel_case_types)]
+                    struct ValidateSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::UnaryService<super::ValidateRequest>
+                    for ValidateSvc<T> {
+                        type Response = super::ValidateResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ValidateRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).validate(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ValidateSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/capture.Driver/ApplyUpsert" => {
+                    #[allow(non_camel_case_types)]
+                    struct ApplyUpsertSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::UnaryService<super::ApplyRequest>
+                    for ApplyUpsertSvc<T> {
+                        type Response = super::ApplyResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ApplyRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).apply_upsert(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ApplyUpsertSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/capture.Driver/ApplyDelete" => {
+                    #[allow(non_camel_case_types)]
+                    struct ApplyDeleteSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::UnaryService<super::ApplyRequest>
+                    for ApplyDeleteSvc<T> {
+                        type Response = super::ApplyResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ApplyRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).apply_delete(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ApplyDeleteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/capture.Driver/Pull" => {
+                    #[allow(non_camel_case_types)]
+                    struct PullSvc<T: Driver>(pub Arc<T>);
+                    impl<T: Driver> tonic::server::StreamingService<super::PullRequest>
+                    for PullSvc<T> {
+                        type Response = super::PullResponse;
+                        type ResponseStream = T::PullStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<tonic::Streaming<super::PullRequest>>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).pull(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = PullSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
+            }
+        }
+    }
+    impl<T: Driver> Clone for DriverServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+            }
+        }
+    }
+    impl<T: Driver> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: Driver> tonic::transport::NamedService for DriverServer<T> {
+        const NAME: &'static str = "capture.Driver";
+    }
+}
+/// Generated server implementations.
+#[cfg(feature = "capture_server")]
+pub mod runtime_server {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    ///Generated trait containing gRPC methods that should be implemented for use with RuntimeServer.
+    #[async_trait]
+    pub trait Runtime: Send + Sync + 'static {
+        ///Server streaming response type for the Push method.
+        type PushStream: futures_core::Stream<
+                Item = Result<super::PushResponse, tonic::Status>,
+            >
+            + Send
+            + 'static;
+        /// Push may be a short or very long lived RPC through which the Flow runtime
+        /// and a driver cooperatively execute an unbounded number of transactions.
+        ///
+        /// The Push workflow pushes streams of documents into capturing Flow
+        /// collections. The driver is responsible for initiation and resumption of
+        /// push streams. The Flow runtime uses a transactional recovery log to support
+        /// this workflow, and the driver may persist arbitrary driver checkpoints into
+        /// that log as part of the RPC lifecycle, to power its chosen resumption
+        /// semantics.
+        ///
+        /// A push RPC is evaluated against a specific task shard split, which is
+        /// encoded in the PushRequest.Open.Header. A driver may perform its own load
+        /// balancing by obtain a shard listing and embedding a selected shard into
+        /// that header. Or, it may leave it empty and an arbitary shard will be
+        /// randomly chosen for it.
+        ///
+        /// RPC Lifecycle
+        /// =============
+        ///
+        /// :PushRequest.Open:
+        ///    - The driver opens the push stream, naming its capture and
+        ///      optional routing header.
+        /// :PushResponse.Opened:
+        ///    - The Flow runtime responds with Opened, which tells the driver
+        ///      of the specific CaptureSpec and [key_begin, key_end] range of
+        ///      this RPC, as well as the last driver checkpoint.
+        ///    - The semantics and treatment of the key range is up to the driver.
+        ///
+        /// PushRequest.Open and PushRequest.Opened are sent only once, at the
+        /// commencement of the stream. Thereafter the protocol loops:
+        ///
+        /// :PushRequest.Documents:
+        ///    - The driver tells the runtime of some documents, which are pending a
+        ///      future Checkpoint.
+        ///    - If the driver sends multiple Documents messages without an
+        ///      interleaving Checkpoint, the Flow runtime MUST commit
+        ///      documents of all such messages in a single transaction.
+        /// :PushRequest.Checkpoint:
+        ///    - The driver tells the runtime of a checkpoint: a watermark in the
+        ///      captured documents stream which is eligble to be used as a
+        ///      transaction commit boundary.
+        ///    - Whether the checkpoint becomes a commit boundary is at the
+        ///      discretion of the Flow runtime. It may combine multiple checkpoints
+        ///      into a single transaction.
+        /// :PushResponse.Acknowledge:
+        ///    - The Flow runtime tells the driver that its Checkpoint has committed.
+        ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
+        ///
+        async fn push(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::PushRequest>>,
+        ) -> Result<tonic::Response<Self::PushStream>, tonic::Status>;
+    }
+    /// Runtime is the Flow runtime service which implements push-based captures.
+    #[derive(Debug)]
+    pub struct RuntimeServer<T: Runtime> {
+        inner: _Inner<T>,
+        accept_compression_encodings: (),
+        send_compression_encodings: (),
+    }
+    struct _Inner<T>(Arc<T>);
+    impl<T: Runtime> RuntimeServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            let inner = _Inner(inner);
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for RuntimeServer<T>
+    where
+        T: Runtime,
+        B: Body + Send + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/capture.Runtime/Push" => {
+                    #[allow(non_camel_case_types)]
+                    struct PushSvc<T: Runtime>(pub Arc<T>);
+                    impl<T: Runtime> tonic::server::StreamingService<super::PushRequest>
+                    for PushSvc<T> {
+                        type Response = super::PushResponse;
+                        type ResponseStream = T::PushStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<tonic::Streaming<super::PushRequest>>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).push(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = PushSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
+            }
+        }
+    }
+    impl<T: Runtime> Clone for RuntimeServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+            }
+        }
+    }
+    impl<T: Runtime> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: Runtime> tonic::transport::NamedService for RuntimeServer<T> {
+        const NAME: &'static str = "capture.Runtime";
+    }
+}
