@@ -15,16 +15,12 @@ validation = { path = "../validation" }
 
 anyhow = "*"
 bytes = "*"
-clap = {version = "3.0", features = ["derive"]}
+clap = {version = "*", features = ["derive"]}
 futures = "*"
-percent-encoding = "*"
-tokio = { version = "*", features = ["full"] }
-tracing = "*"
-# Using rustls instead of openssl makes the build process simpler since it doesn't require a C
-# compiler.
-reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
-url = "*"
+reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
 serde_json = "*"
+tracing = "*"
+url = "*"
 
 [dev-dependencies]
 assert_cmd = "*"
