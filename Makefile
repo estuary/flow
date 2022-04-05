@@ -205,6 +205,10 @@ ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PK
 # We use LLVM for faster linking. See .cargo/config.
 .PHONY: extra-ci-setup
 extra-ci-runner-setup:
+	sudo apt install -y \
+		libprotobuf-dev \
+		musl-tools \
+		protobuf-compiler
 	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
 .PHONY: print-versions
