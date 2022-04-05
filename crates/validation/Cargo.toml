@@ -14,10 +14,9 @@ anyhow = "*"
 bytes = "*"
 futures = "*"
 itertools = "*"
-json-patch = "*"
 lazy_static = "*"
 regex = "*"
-serde_json = { version =  "*", features = ["raw_value"] }
+serde_json = "*"
 strsim = "*"
 superslice = "*"
 thiserror = "*"
@@ -28,6 +27,7 @@ url = "*"
 sources = { path = "../sources", version = "0.0.0" }
 
 insta = "*"
+json-patch = "*"
 rusqlite = { version = "*", features = ["bundled-full"] }
 serde = "*"
 serde_yaml = "*"

@@ -139,11 +139,9 @@ fn get_indexed_schemas_and_key(
         connector_network: String::new(),
     };
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_io()
-        .build()?;
+    let fut = build::configured_build(build_config, Fetcher, NoOpDrivers);
+    let output = futures::executor::block_on(fut)?;
 
-    let output = runtime.block_on(build::configured_build(build_config, Fetcher, NoOpDrivers))?;
     if !output.errors.is_empty() {
         for err in output.errors.iter() {
             tracing::error!(scope = %err.scope, error = ?err.error, "catalog build error");
@@ -290,7 +288,8 @@ async fn fetch_async(resource: Url) -> Result<bytes::Bytes, anyhow::Error> {
             let path = resource
                 .to_file_path()
                 .map_err(|err| anyhow::anyhow!("failed to convert file uri to path: {:?}", err))?;
-            let bytes = tokio::fs::read(path).await?;
+
+            let bytes = std::fs::read(path)?;
             Ok(bytes.into())
         }
         _ => Err(anyhow::anyhow!(
