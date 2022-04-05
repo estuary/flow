@@ -17,16 +17,13 @@ bytes = "*"
 futures = "*"
 itertools = "*"
 librocksdb-sys = { version = "*", default-features = false, features = ["snappy", "rtti"] }
-pin-utils = "*"
 prost = "*"
 rocksdb = { version = "*", default-features = false, features = ["snappy", "rtti"] }
 serde = { version = "*", features = ["derive"] }
-serde_json = { version =  "*"}
-stats_alloc = "*"
+serde_json = "*"
 thiserror = "*"
 tracing = "*"
-tracing-futures = "*"
-url = {version = "*", features = ["serde"]}
+url = "*"
 uuid = "*"
 
 [dev-dependencies]

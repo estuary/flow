@@ -14,7 +14,6 @@ anyhow = "*"
 base64 = "*"
 bytes = "*"
 futures = "*"
-humantime-serde = "*"
 lazy_static = "*"
 regex = "*"
 schemars = "*"
@@ -29,4 +28,3 @@ yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
 
 [dev-dependencies]
 insta = "*"
-base64 = "*"

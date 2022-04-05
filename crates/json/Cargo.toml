@@ -5,14 +5,13 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-bitvec = "0.19"
+bitvec = "*"
 fancy-regex = "*"
 fxhash = "*"
 itertools = "*"
 percent-encoding = "*"
 serde = "*"
 serde_json = "*"
-serde_yaml = "*"
 thiserror = "*"
 tracing = "*"
 url = {version = "*", features = ["serde"]}
