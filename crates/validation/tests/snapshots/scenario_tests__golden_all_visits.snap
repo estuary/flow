@@ -2,7 +2,6 @@
 source: crates/validation/tests/scenario_tests.rs
 assertion_line: 21
 expression: tables
-
 ---
 All {
     built_captures: [
@@ -4160,7 +4159,7 @@ All {
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             capture: testing/db-cdc,
-            endpoint_type: "AirbyteSource",
+            endpoint_type: "AIRBYTE_SOURCE",
             endpoint_spec: {"image":"database","config":{"host":"a.host.name","user":"a-user"}},
             interval_seconds: 300,
             shards: {"hotStandbys":1},
@@ -4168,7 +4167,7 @@ All {
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
-            endpoint_type: "AirbyteSource",
+            endpoint_type: "AIRBYTE_SOURCE",
             endpoint_spec: {"image":"s3","config":{"bucket":"a-bucket","prefix":"and-prefix"}},
             interval_seconds: 600,
             shards: {},
@@ -5110,14 +5109,14 @@ All {
         Materialization {
             scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
-            endpoint_type: "FlowSink",
+            endpoint_type: "FLOW_SINK",
             endpoint_spec: {"image":"database/image","config":{"foo":"bar"}},
             shards: {"maxTxnDuration":"2m 3s","logLevel":"warn"},
         },
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
-            endpoint_type: "FlowSink",
+            endpoint_type: "FLOW_SINK",
             endpoint_spec: {"image":"webhook/connector","config":{"address":"http://example/webhook"}},
             shards: {},
         },
@@ -5571,7 +5570,7 @@ All {
             documents: test://example/int-string-tests?ptr=/tests/testing~1test/0,
             partitions: NULL,
             step_index: 0,
-            step_type: "Ingest",
+            step_type: "INGEST",
         },
         TestStep {
             scope: test://example/int-string-tests#/tests/testing~1test/1,
@@ -5581,7 +5580,7 @@ All {
             documents: test://example/int-string-tests?ptr=/tests/testing~1test/1,
             partitions: {"include":{"bit":[true]},"exclude":{}},
             step_index: 1,
-            step_type: "Verify",
+            step_type: "VERIFY",
         },
     ],
     transforms: [

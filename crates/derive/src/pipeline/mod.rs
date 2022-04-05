@@ -310,7 +310,7 @@ impl Pipeline {
         self.stats
             .transform_stats_mut(transform_index as usize)
             .input
-            .increment(body.len() as u64);
+            .increment(body.len() as u32);
 
         let uuid = uuid.unwrap_or_default();
         let flags = uuid.producer_and_flags & message_flags::MASK;

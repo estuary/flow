@@ -137,16 +137,16 @@ func expectDeriveFixture(t *testing.T, finish func(CombineCallback) (*pf.DeriveA
 	// more to ensure that we're actually reading the stats from the output, rather than asserting
 	// the correctness of the numbers themselves. Correctness of the numbers is instead tested on
 	// the rust side.
-	require.Greater(t, stats.Transforms[0].Input.Docs, uint64(0))
-	require.Greater(t, stats.Transforms[0].Input.Bytes, uint64(0))
-	require.Greater(t, stats.Transforms[0].Publish.Output.Docs, uint64(0))
-	require.Greater(t, stats.Transforms[0].Publish.Output.Bytes, uint64(0))
+	require.Greater(t, stats.Transforms[0].Input.Docs, uint32(0))
+	require.Greater(t, stats.Transforms[0].Input.Bytes, uint32(0))
+	require.Greater(t, stats.Transforms[0].Publish.Output.Docs, uint32(0))
+	require.Greater(t, stats.Transforms[0].Publish.Output.Bytes, uint32(0))
 
 	// Extra sanity check for the output, since these should be the same for all iterations.
-	require.Equal(t, uint64(2), stats.Output.Docs)
-	require.Equal(t, uint64(167), stats.Output.Bytes)
-	require.Equal(t, uint64(0), stats.Registers.Created)
-	require.Equal(t, uint64(0), stats.Transforms[0].Update.Output.Docs)
+	require.Equal(t, uint32(2), stats.Output.Docs)
+	require.Equal(t, uint32(167), stats.Output.Bytes)
+	require.Equal(t, uint32(0), stats.Registers.Created)
+	require.Equal(t, uint32(0), stats.Transforms[0].Update.Output.Docs)
 }
 
 func TestDeriveWithIncResetPublish(t *testing.T) {

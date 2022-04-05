@@ -50,7 +50,7 @@ fn test_pipeline_stats() {
     let (docs, stats) = fixture.poll_to_completion();
     // Redact the time output on the snapshot so that it's deterministic.
     insta::assert_yaml_snapshot!(stats, {
-        ".**.total_seconds" => "time-redacted",
+        ".**.totalSeconds" => "time-redacted",
     });
     assert_eq!(2, docs.len());
 }

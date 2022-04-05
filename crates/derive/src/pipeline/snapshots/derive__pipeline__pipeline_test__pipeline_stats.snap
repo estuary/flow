@@ -1,7 +1,7 @@
 ---
 source: crates/derive/src/pipeline/pipeline_test.rs
+assertion_line: 52
 expression: stats
-
 ---
 transforms:
   - input:
@@ -11,25 +11,22 @@ transforms:
       output:
         docs: 4
         bytes: 94
-      total_seconds: time-redacted
+      totalSeconds: time-redacted
     publish:
       output:
         docs: 4
         bytes: 94
-      total_seconds: time-redacted
+      totalSeconds: time-redacted
   - input:
       docs: 2
       bytes: 50
     update:
-      output:
-        docs: 0
-        bytes: 0
-      total_seconds: time-redacted
+      output: {}
     publish:
       output:
         docs: 2
         bytes: 52
-      total_seconds: time-redacted
+      totalSeconds: time-redacted
   - input:
       docs: 3
       bytes: 74
@@ -37,12 +34,9 @@ transforms:
       output:
         docs: 3
         bytes: 75
-      total_seconds: time-redacted
+      totalSeconds: time-redacted
     publish:
-      output:
-        docs: 0
-        bytes: 0
-      total_seconds: time-redacted
+      output: {}
 registers:
   created: 3
 output:

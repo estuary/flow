@@ -791,7 +791,7 @@ message DeriveAPI {
       // reductions. So this lone field represents the cerservative subset of
       // register stats that I feel confident we can and should expose as part
       // of the user-facing stats.
-      uint64 created = 1;
+      uint32 created = 1;
     }
 
     // Array indexed by transform_index with stats per transform.
@@ -887,8 +887,8 @@ message AdvanceTimeResponse {}
 // DocsAndBytes represents a count of JSON documents, and their cumulative total
 // size in bytes. This is used by the various Stats messages.
 message DocsAndBytes {
-  uint64 docs = 1;
-  uint64 bytes = 2;
+  uint32 docs = 1;
+  uint32 bytes = 2;
 }
 message IngestRequest {
   // Name of the collection into which to ingest.
