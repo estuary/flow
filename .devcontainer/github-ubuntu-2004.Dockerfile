@@ -1,6 +1,6 @@
 # This Dockerfile is a facsimile of the "ubuntu-2004" GitHub action runner,
 # trimmed down to those software packages which we actually use.
-# https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-README.md
+# https://github.com/actions/virtual-environments/blob/main/images/linux/Ubuntu2004-Readme.md
 #
 # Don't install anything in this Dockerfile which isn't also present in that environment!
 # Instead, further packages must be installed through explicit build steps.
@@ -30,7 +30,6 @@ RUN apt update -y \
       less \
       libclang-12-dev \
       libncurses5-dev \
-      libprotobuf-dev \
       libreadline-dev \
       libssl-dev \
       lld-12 \
@@ -42,7 +41,6 @@ RUN apt update -y \
       openssh-client  \
       pkg-config \
       postgresql-client \
-      protobuf-compiler \
       psmisc \
       sqlite3 \
       strace \

@@ -11,32 +11,21 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_CACHE_VERSION: 0.8.2
-  CARGO_SQLX_VERSION: 0.5.10
 
 jobs:
   flowctl:
     runs-on: ubuntu-20.04
-    env:
-      SQLX_OFFLINE: true
 
     steps:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
           submodules: true
-      - name: Install protobuf compiler (it's not already included in CI runner)
-        run: sudo apt install -y libprotobuf-dev protobuf-compiler
 
-        # This weird installation method is taken from this comment:
-        # https://github.com/actions-rs/toolchain/issues/126#issuecomment-782989659
-        # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
-      - name: Install rust toolchain
-        run: rustup show
-
-      # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.17.3"
+          go-version: "1.18"
+
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
@@ -46,11 +35,6 @@ jobs:
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
-
-      - name: Login to GitHub container registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - name: Cache/Restore Rust dependencies.
         uses: actions/cache@v2
@@ -80,6 +64,12 @@ jobs:
       - run: make go-test-ci
       - run: make rust-binaries
 
+      - name: Ensure that generated files are unchanged.
+        run: |
+          git clean --force -d
+          git diff
+          [[ -z "$(git status --porcelain)" ]] || exit 1
+
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
@@ -106,24 +96,8 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-        # This weird installation method is taken from this comment:
-        # https://github.com/actions-rs/toolchain/issues/126#issuecomment-782989659
-        # Also: https://github.com/rust-lang/rustup/issues/2070#issuecomment-545096849
-      - name: Install rust toolchain
-        run: rustup show
-
-        # Provides musl-gcc and musl-g++ wrappers and related components, which are required for
-        # Rust musl builds that have native C dependencies.
-      - name: Install MUSL
-        run: sudo apt-get install -y musl-tools
-
       - run: make extra-ci-runner-setup
       - run: make print-versions
-
-      - name: Login to GitHub container registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - name: Cache/Restore Rust dependencies.
         uses: actions/cache@v2
@@ -160,43 +134,15 @@ jobs:
       # Cleanup in preparation for populating the build cache.
       - run: cargo cache --autoclean
 
-  stage2:
+  assembly:
     runs-on: ubuntu-20.04
     needs: [flowctl, musl]
-    env:
-      DATABASE_URL: postgres://flow:flow@localhost:5432/control_template
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          # POSTGRES_HOST: When running jobs on a runner machine (as opposed to
-          # within Docker), the postgres instance is exposed on localhost.
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: flow
-          POSTGRES_PASSWORD: flow
-          POSTGRES_DB: control_template
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
           submodules: true
-
-      - name: Install protobuf compiler (it's not already included in CI runner)
-        run: sudo apt install -y libprotobuf-dev protobuf-compiler
-
-      - name: Install rust toolchain
-        run: rustup show
-      - run: make extra-ci-runner-setup
-      - run: make print-versions
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -209,9 +155,6 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
-
-      # We still need to be able to build Rust proto files, even in this stage.
-      - run: go mod download
 
       - name: Download Stage1 Binaries
         uses: actions/download-artifact@v2
@@ -230,39 +173,6 @@ jobs:
 
       - name: Add PKGDIR/bin to PATH
         run: echo "$GITHUB_WORKSPACE/.build/package/bin" >> $GITHUB_PATH
-
-      - name: Cache/Restore Rust dependencies.
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry/cache
-            ~/.cargo/registry/index
-            ~/.cargo/git/db
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-glibc-cargo-
-
-      # Use to the cached version of sqlx if it exists. Saves minutes installing it.
-      - run: |
-          if [[ $(cargo sqlx --version) != "cargo-sqlx $CARGO_SQLX_VERSION" ]]; then
-            cargo install sqlx-cli --version="$CARGO_SQLX_VERSION"
-          fi
-        shell: bash
-
-      # Run these checks and tests from the crates/control directory to work
-      # around poor sqlx support for workspaces and to prevent recompiling many
-      # crates over again due to conflicting feature resolution.
-      - name: Setup Control Database
-        run: cargo sqlx database setup
-        working-directory: ./crates/control
-      - name: Verify SQLx Query Cache
-        run: cargo sqlx prepare --check -- --lib --release --all-features
-        working-directory: ./crates/control
-      - name: Control Tests
-        run: cargo test --lib --test it --release --all-features
-        working-directory: ./crates/control
 
       # Use make's `-o` flag to mark the binary artifacts they depend on as
       # "very old", which prevents Make from attempting to rebuild them from
@@ -306,16 +216,10 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
 
-      - name: Tidy up, and ensure that generated files are unchanged.
-        run: |
-          # catalog-test dirties the branch by creating examples/examples.db.
-          git clean --force -d
-          git diff
-          [[ -z "$(git status --porcelain)" ]] || exit 1
-        shell: bash
-
       # Package and push images.
       - run: make docker-image
+
+      # TODO(johnny) re-enable
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
@@ -332,13 +236,3 @@ jobs:
           tag_name: dev
           generate_release_notes: false
           files: .build/package/flow-x86-linux.tar.gz
-
-      # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
-      - run: |
-          if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
-            cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
-          fi
-        shell: bash
-
-      # Cleanup in preparation for populating the build cache.
-      - run: cargo cache --autoclean
