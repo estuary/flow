@@ -1,5 +1,5 @@
 use tokio::io::AsyncBufReadExt;
-use tracing::trace;
+use tracing::{debug, trace};
 
 // Line is a recorded log line.
 #[derive(Debug)]
@@ -57,17 +57,38 @@ pub async fn serve_sink(
     let mut streams = Vec::new();
     let mut lines = Vec::new();
 
-    // Block to read lines.
-    while let Some(Line {
-        token,
-        stream,
-        line,
-    }) = rx.recv().await
-    {
-        trace!(%token, %stream, %line, "rx (initial)");
-        tokens.push(token);
-        streams.push(stream);
-        lines.push(line);
+    let mut held_conn = None;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+    let mut used_this_interval = false;
+
+    // The default is to burst multiple ticks if they get delayed.
+    // Don't do that.
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        // Blocking read of either the next line or the next interval tick.
+        tokio::select! {
+            recv = rx.recv() => match recv {
+                Some(Line{token, stream, line}) =>  {
+                    trace!(%token, %stream, %line, "rx (initial)");
+                    tokens.push(token);
+                    streams.push(stream);
+                    lines.push(line);
+                }
+                None => {
+                    debug!("rx (eof)");
+                    return Ok(())
+                }
+            },
+            _ = interval.tick() => {
+                if held_conn.is_some() && !used_this_interval {
+                    held_conn = None;
+                    debug!("released pg_conn");
+                }
+                used_this_interval = false;
+                continue;
+            },
+        };
 
         // Read additional ready lines without blocking.
         while let Ok(Line {
@@ -82,8 +103,14 @@ pub async fn serve_sink(
             lines.push(line);
         }
 
+        if let None = held_conn {
+            held_conn = Some(pg_pool.acquire().await?);
+            debug!("acquired new pg_conn");
+        }
+        used_this_interval = true;
+
         // Dispatch the vector of lines to the table.
-        let r: sqlx::postgres::PgQueryResult = sqlx::query(
+        let r = sqlx::query(
             r#"
             INSERT INTO internal.log_lines (token, stream, log_line)
             SELECT * FROM UNNEST($1, $2, $3)
@@ -92,15 +119,13 @@ pub async fn serve_sink(
         .bind(&tokens)
         .bind(&streams)
         .bind(&lines)
-        .execute(&pg_pool)
+        .execute(held_conn.as_deref_mut().unwrap())
         .await?;
 
-        trace!(rows = ?r.rows_affected(), "inserted logs");
+        debug!(rows = ?r.rows_affected(), "inserted logs");
 
         tokens.clear();
         streams.clear();
         lines.clear();
     }
-
-    Ok(())
 }
