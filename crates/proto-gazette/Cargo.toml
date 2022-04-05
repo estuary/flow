@@ -1,0 +1,18 @@
+[package]
+name = "proto-gazette"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2021"
+
+[dependencies]
+bytes = "*"
+pbjson = "*"
+pbjson-types = "*"
+prost = "*"
+serde = "*"
+
+[build-dependencies]
+proto-build = { path = "../proto-build" }
+
+pbjson-build = "*"
+prost-build = "*"
