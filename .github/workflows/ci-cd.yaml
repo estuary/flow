@@ -38,10 +38,6 @@ jobs:
           git clone https://github.com/estuary/sops.git --depth 1 ../sops-repo
           cd ../sops-repo && go install ./cmd/sops
 
-      - name: Test authentication service
-        run: |
-          cd ./authn/ && go test .
-
       # Deployment steps undertaken on a merge to `main`.
       # This was generated via `setup-workload-ident.sh` in the ops repo.
       - name: Set up Google Cloud SDK
@@ -51,27 +47,19 @@ jobs:
           workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
         if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Update Authentication Config
-        run: |
-          sops --decrypt authn/config.sops.yaml | \
-                gcloud secrets versions add \
-                        auth_config_yaml \
-                        --project estuary-control \
-                        --data-file=-
-        if: ${{ github.ref == 'refs/heads/main' }}
+      #- name: Disabled example of updated a gcloud secret
+      #  run: |
+      #    sops --decrypt authn/config.sops.yaml | \
+      #          gcloud secrets versions add \
+      #                  auth_config_yaml \
+      #                  --project estuary-control \
+      #                  --data-file=-
+      #  if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Update Authentication Deployment
-        run: |
-          gcloud run deploy auth \
-            --project estuary-control \
-            --region us-central1 \
-            --source ./authn/
-        if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Update API Deployment
-        run: |
-          gcloud run deploy api \
-            --project estuary-control \
-            --region us-central1 \
-            --source ./api/
-        if: ${{ github.ref == 'refs/heads/main' }}
+      #- name: Disabled example of running a gcloud run deploy:
+      #  run: |
+      #    gcloud run deploy auth \
+      #      --project estuary-control \
+      #      --region us-central1 \
+      #      --source ./authn/
+      #  if: ${{ github.ref == 'refs/heads/main' }}
