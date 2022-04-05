@@ -136,7 +136,6 @@ fn main() {
     tonic_build::configure()
         .build_client(true)
         .build_server(true)
-        .format(false) // TODO: remove this to format code
         // Every client/server module is gated behind a feature flag so that the tonic runtime
         // dependencies can be optional. The corresponding features are explicitly defined in
         // Cargo.toml to make them more obvious.
