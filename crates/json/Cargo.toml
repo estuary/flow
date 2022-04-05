@@ -5,7 +5,8 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-bitvec = "*"
+# TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
+bitvec = "0.19"
 fancy-regex = "*"
 fxhash = "*"
 itertools = "*"
