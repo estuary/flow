@@ -15,7 +15,7 @@ chrono = { version = "0.4" }
 clap = { version = "*", features = ["derive", "env"] }
 futures = "*"
 serde = { version = "*", features = ["derive"] }
-serde_json = { version = "*", features = ["raw_value"] }
+serde_json = { version = "*" }
 sqlx = { version = "*", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
 tempfile = "*"
 thiserror = "*"
