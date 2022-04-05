@@ -125,11 +125,11 @@ impl Invocation {
                                 .context("failed to parse lambda invocation response")?;
                             let stats = InvokeStats {
                                 output: DocCounter::new(
-                                    parsed.iter().map(Vec::len).sum::<usize>() as u64,
+                                    parsed.iter().map(Vec::len).sum::<usize>() as u32,
                                     // TODO: _technically_ we _could_ subtract some bytes here to
                                     // account for the square brackets used in array encoding. I'm
                                     // not sure whether we should or not.
-                                    data.len() as u64,
+                                    data.len() as u32,
                                 ),
                                 total_duration,
                             };

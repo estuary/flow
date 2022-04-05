@@ -803,12 +803,14 @@ driver:
       bindings:
         - constraints:
             flow_document: { type: 1, reason: "location required" }
-            int: { type: 98, reason: "other whoops" }
+            int: { reason: "other whoops" }
           resourcePath: [tar!get, one]
+          typeOverride: 98
         - constraints:
             flow_document: { type: 1, reason: "location required" }
-            str: { type: 99, reason: "whoops" }
+            str: { reason: "whoops" }
           resourcePath: [tar!get, two]
+          typeOverride: 99
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1139,6 +1141,12 @@ struct MockDriverBinding {
     resource_path: Vec<String>,
     #[serde(default)]
     constraints: HashMap<String, materialize::Constraint>,
+    // type_override overrides the parsed constraints[].type for
+    // each constraint. It supports test cases which want to deliberately
+    // use type values which are invalid, and can't be parsed as YAML
+    // (because of serde deserialization checks by the pbjson crate).
+    #[serde(default)]
+    type_override: i32,
 }
 
 impl validation::Drivers for MockDriverCalls {
@@ -1181,10 +1189,22 @@ impl validation::Drivers for MockDriverCalls {
             let bindings = call
                 .bindings
                 .iter()
-                .map(|b| materialize::validate_response::Binding {
-                    constraints: b.constraints.clone(),
-                    delta_updates: call.delta_updates,
-                    resource_path: b.resource_path.clone(),
+                .map(|b| {
+                    let mut out = materialize::validate_response::Binding {
+                        constraints: b.constraints.clone(),
+                        delta_updates: call.delta_updates,
+                        resource_path: b.resource_path.clone(),
+                    };
+
+                    // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,
+                    // to work around serde deser not allowing parsing of invalid enum values.
+                    for c in out.constraints.iter_mut() {
+                        if c.1.r#type == 0 && b.type_override != 0 {
+                            c.1.r#type = b.type_override;
+                        }
+                    }
+
+                    out
                 })
                 .collect();
 
