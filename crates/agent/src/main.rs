@@ -11,8 +11,7 @@ struct Args {
     #[clap(
         long = "database",
         env = "DATABASE_URL",
-        //default_value = "postgres://flow:flow@127.0.0.1:5432/control_development",
-        default_value = "postgresql://postgres:32543ae92651cd3bef991f2491aef0796d3bd026ea5@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres"
+        default_value = "postgres://flow:flow@127.0.0.1:5432/control_development"
     )]
     database_url: url::Url,
     /// Path to CA certificate of the database.
