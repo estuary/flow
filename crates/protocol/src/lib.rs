@@ -1,11 +1,11 @@
-pub mod capture;
 pub mod cgo;
-pub mod consumer;
-pub mod flow;
 pub mod labels;
-pub mod materialize;
-pub mod protocol;
-pub mod recoverylog;
+
+pub use proto_flow::capture;
+pub use proto_flow::flow;
+pub use proto_flow::materialize;
+pub use proto_gazette::broker as protocol;
+pub use proto_gazette::consumer;
 
 /// Message UUID flags defined by Gazette, and used by Flow.
 /// C.f. Gazette's `message` package, where these are originally defined.
@@ -22,22 +22,4 @@ pub mod message_flags {
     /// On reading a ACK, the reader may process previous CONTINUE_TXN messages
     /// which are now considered to have committed.
     pub const ACK_TXN: u64 = 0x2;
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_serde_round_trip_of_constraint() {
-        let expected = materialize::Constraint {
-            r#type: materialize::constraint::Type::FieldRequired as i32,
-            reason: "field required".to_string(),
-        };
-
-        let serialized = serde_json::to_string_pretty(&expected).unwrap();
-        insta::assert_snapshot!(serialized);
-        let actual = serde_json::from_str::<materialize::Constraint>(&serialized).unwrap();
-        assert_eq!(expected, actual);
-    }
 }
