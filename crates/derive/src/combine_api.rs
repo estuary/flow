@@ -128,7 +128,7 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::ReduceLeft, Some(mut state)) => {
-                state.stats.left.increment(data.len() as u64);
+                state.stats.left.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.reduce_left(doc, &mut state.validator)?;
@@ -137,7 +137,7 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::CombineRight, Some(mut state)) => {
-                state.stats.right.increment(data.len() as u64);
+                state.stats.right.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.combine_right(doc, &mut state.validator)?;
@@ -191,7 +191,7 @@ pub fn drain_combiner(
         let w: &mut Vec<u8> = &mut *arena;
         serde_json::to_writer(w, &doc).expect("encoding cannot fail");
         // Only here do we know the actual length of the document in its serialized form.
-        stats.increment((arena.len() - begin) as u64);
+        stats.increment((arena.len() - begin) as u32);
         if fully_reduced {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {

@@ -106,8 +106,8 @@ type DocsAndBytes struct {
 // with adds the given proto DocsAndBytes to this one and returns the result.
 func (s *DocsAndBytes) with(proto *pf.DocsAndBytes) DocsAndBytes {
 	return DocsAndBytes{
-		Docs:  s.Docs + proto.Docs,
-		Bytes: s.Bytes + proto.Bytes,
+		Docs:  s.Docs + uint64(proto.Docs),
+		Bytes: s.Bytes + uint64(proto.Bytes),
 	}
 }
 
@@ -116,8 +116,8 @@ func docsAndBytesFromProto(proto *pf.DocsAndBytes) DocsAndBytes {
 		return DocsAndBytes{}
 	}
 	return DocsAndBytes{
-		Docs:  proto.Docs,
-		Bytes: proto.Bytes,
+		Docs:  uint64(proto.Docs),
+		Bytes: uint64(proto.Bytes),
 	}
 }
 

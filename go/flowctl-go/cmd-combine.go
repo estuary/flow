@@ -142,8 +142,8 @@ func (cmd cmdCombine) Execute(_ []string) error {
 			if err != nil {
 				return fmt.Errorf("draining combiner: %w", err)
 			}
-			outputDocs += stats.Out.Docs
-			outputBytes += stats.Out.Bytes
+			outputDocs += uint64(stats.Out.Docs)
+			outputBytes += uint64(stats.Out.Bytes)
 			drained = true
 		}
 	}
@@ -152,8 +152,8 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		if err != nil {
 			return fmt.Errorf("draining combiner: %w", err)
 		}
-		outputDocs += stats.Out.Docs
-		outputBytes += stats.Out.Bytes
+		outputDocs += uint64(stats.Out.Docs)
+		outputBytes += uint64(stats.Out.Bytes)
 	}
 
 	log.WithFields(log.Fields{
