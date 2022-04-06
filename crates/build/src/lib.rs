@@ -1,5 +1,4 @@
 use anyhow::Context;
-use models::tables;
 use protocol::flow;
 use std::path::Path;
 use url::Url;

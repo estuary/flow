@@ -1,6 +1,5 @@
 use super::Error;
 use itertools::Itertools;
-use models::tables;
 
 pub fn walk_all_npm_dependencies(
     npm_dependencies: &[tables::NPMDependency],

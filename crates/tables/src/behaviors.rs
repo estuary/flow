@@ -1,32 +1,12 @@
-use doc::Schema as CompiledSchema;
 use superslice::Ext;
 use url::Url;
 
-impl super::Collection {
-    /// UUID pointer of this collection.
-    pub fn uuid_ptr(&self) -> String {
-        return "/_meta/uuid".to_string();
-    }
-}
-
-impl super::Transform {
-    /// Group name of this transform, used to group shards & shuffled reads
-    /// which collectively process the transformation.
-    pub fn group_name(&self) -> String {
-        format!(
-            "derive/{}/{}",
-            self.derivation.as_str(),
-            self.transform.as_str()
-        )
-    }
-}
-
 impl super::SchemaDoc {
-    pub fn compile(&self) -> Result<CompiledSchema, json::schema::build::Error> {
+    pub fn compile(&self) -> Result<doc::Schema, json::schema::build::Error> {
         json::schema::build::build_schema(self.schema.clone(), &self.dom)
     }
 
-    pub fn compile_all(slice: &[Self]) -> Result<Vec<CompiledSchema>, json::schema::build::Error> {
+    pub fn compile_all(slice: &[Self]) -> Result<Vec<doc::Schema>, json::schema::build::Error> {
         slice
             .iter()
             .map(|d| d.compile())

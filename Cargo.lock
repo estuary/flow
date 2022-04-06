@@ -72,6 +72,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4361135be9122e0870de935d7c439aef945b9f9ddd4199a553b5270b49c82a27"
 
 [[package]]
+name = "assemble"
+version = "0.0.0"
+dependencies = [
+ "doc",
+ "insta",
+ "json",
+ "labels",
+ "models",
+ "percent-encoding",
+ "proto-flow",
+ "proto-gazette",
+ "serde_json",
+ "tables",
+ "url",
+]
+
+[[package]]
 name = "assert_cmd"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -382,6 +399,7 @@ name = "build"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "assemble",
  "bytes",
  "cgo",
  "doc",
@@ -400,6 +418,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sources",
+ "tables",
  "thiserror",
  "tracing",
  "url",
@@ -891,6 +910,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "tables",
  "tempfile",
  "thiserror",
  "tracing",
@@ -1089,6 +1109,7 @@ name = "flowctl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assemble",
  "assert_cmd",
  "build",
  "bytes",
@@ -1103,6 +1124,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sources",
+ "tables",
  "tempfile",
  "tracing",
  "url",
@@ -3235,6 +3257,7 @@ name = "sources"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "assemble",
  "base64",
  "bytes",
  "doc",
@@ -3250,6 +3273,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "tables",
  "thiserror",
  "tracing",
  "url",
@@ -3368,6 +3392,27 @@ dependencies = [
  "quote",
  "syn",
  "unicode-xid",
+]
+
+[[package]]
+name = "tables"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "doc",
+ "json",
+ "labels",
+ "models",
+ "pathfinding",
+ "prost",
+ "proto-flow",
+ "proto-gazette",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "superslice",
+ "url",
 ]
 
 [[package]]
@@ -3994,6 +4039,7 @@ name = "validation"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "assemble",
  "bytes",
  "doc",
  "futures",
@@ -4013,6 +4059,7 @@ dependencies = [
  "sources",
  "strsim 0.10.0",
  "superslice",
+ "tables",
  "thiserror",
  "tracing",
  "url",

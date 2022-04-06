@@ -1,6 +1,5 @@
 use super::camel_case;
 use itertools::Itertools;
-use models::{self, tables};
 use std::fmt::Write;
 use std::path;
 use url::Url;

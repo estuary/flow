@@ -1,6 +1,6 @@
 use super::Error;
 use itertools::{EitherOrBoth, Itertools};
-use models::{collate::collate, tables};
+use models::collate::collate;
 use regex::Regex;
 use url::Url;
 

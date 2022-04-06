@@ -1,7 +1,6 @@
 use super::{indexed, schema, storage_mapping, Error};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
-use models::{self, build, tables};
 use proto_flow::flow;
 use std::iter::FromIterator;
 use superslice::Ext;
@@ -103,7 +102,7 @@ fn walk_collection(
         errors,
     );
 
-    build::collection_spec(
+    assemble::collection_spec(
         build_config,
         collection,
         projections,
@@ -189,7 +188,7 @@ fn walk_projection_with_inference(
         user_provided: false,
         is_primary_key: collection.key.iter().any(|k| k == location),
         is_partition_key: false,
-        inference: Some(build::inference(shape, exists)),
+        inference: Some(assemble::inference(shape, exists)),
     };
 
     if let Some(projection) = projection {

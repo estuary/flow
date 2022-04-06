@@ -1,5 +1,4 @@
 use json::schema::types;
-use models::tables;
 use url::Url;
 
 #[must_use]

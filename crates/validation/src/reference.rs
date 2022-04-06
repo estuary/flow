@@ -1,5 +1,4 @@
 use super::Error;
-use models::tables;
 use url::Url;
 
 pub fn walk_reference<'a, T, F>(

@@ -1,6 +1,5 @@
 use super::{collection, errors::Error, indexed, reference, schema};
 use itertools::Itertools;
-use models::tables;
 use proto_flow::flow;
 use superslice::Ext;
 
@@ -149,5 +148,5 @@ pub fn walk_test_step(
         collection::walk_selector(scope, &collection.spec, &selector, errors);
     }
 
-    Some(models::build::test_step_spec(test_step, &documents))
+    Some(assemble::test_step_spec(test_step, &documents))
 }
