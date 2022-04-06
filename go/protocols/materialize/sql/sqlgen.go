@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 )
@@ -352,6 +353,14 @@ func PostgresSQLGenerator() Generator {
 			BINARY:  RawConstColumnType("BYTEA"),
 			STRING: StringTypeMapping{
 				Default: RawConstColumnType("TEXT"),
+				ByFormat: map[string]TypeMapper{
+					"date-time": ConstColumnType{
+						SQLType: "TIMESTAMPTZ",
+						ValueConverter: func(in interface{}) (interface{}, error) {
+							return time.Parse(time.RFC3339Nano, in.(string))
+						},
+					},
+				},
 			},
 		},
 	}
