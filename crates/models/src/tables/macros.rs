@@ -1,18 +1,38 @@
 use rusqlite;
 
-/// SQLType is a type which persists to and from sqlite.
-pub trait SQLType: Sized {
-    fn sql_type() -> &'static str;
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>>;
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self>;
-    fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
-        SqlDebugView::Primitive(self.to_sql().unwrap())
+/// Column is a column of a table.
+pub trait Column: std::fmt::Debug {
+    // column_fmt is a debugging view over a column type.
+    // It conforms closely to how types are natively represented in sqlite
+    // for historical reasons, though they're no longer tightly coupled.
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as std::fmt::Debug>::fmt(self, f)
     }
 }
 
-/// TableRow is a type which is a row within a Table.
-pub trait TableRow: Sized {
+/// Row is a row of a Table.
+pub trait Row: Sized {
     type Table: Table;
+}
+
+/// Table is a collection of Rows.
+pub trait Table: Sized {
+    type Row: Row;
+}
+
+/// SqlColumn is a Column which can persist to and from sqlite.
+pub trait SqlColumn: Sized + Column {
+    /// SQL type of this TableColumn.
+    fn sql_type() -> &'static str;
+    /// Convert this TableColumn to SQL.
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>>;
+    /// Convert this TableColumn from SQL.
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self>;
+}
+
+/// SqlRow is a Row which can persist to and from sqlite.
+pub trait SqlRow: Row {
+    type SqlTable: SqlTable;
 
     /// Persist this row, using a Statement previously prepared from Table::insert_sql().
     fn persist<'stmt>(&self, stmt: &mut rusqlite::Statement<'stmt>) -> rusqlite::Result<()>;
@@ -20,9 +40,9 @@ pub trait TableRow: Sized {
     fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self>;
 }
 
-/// Table is the non-object-safe portion of the type of a Table.
-pub trait Table: Sized + TableObj {
-    type Row: TableRow;
+/// SqlTable is a Table which can persist to and from sqlite.
+pub trait SqlTable: Table + SqlTableObj {
+    type SqlRow: SqlRow;
 
     /// SQL for inserting table rows.
     fn insert_sql() -> String;
@@ -31,8 +51,8 @@ pub trait Table: Sized + TableObj {
     fn select_sql() -> String;
 }
 
-/// TableObj is the object-safe portion of the type of a Table.
-pub trait TableObj {
+/// SqlTableObj is the object-safe portion of a SqlTable.
+pub trait SqlTableObj {
     /// SQL name for this Table.
     fn sql_name(&self) -> &'static str;
     /// SQL for creating this Table schema.
@@ -67,8 +87,17 @@ impl<'a, T: Clone> OwnOrClone<T> for &'a T {
     }
 }
 
-/// Wrapper impl which makes any T: SQLType have a NULL-able Option<T> SQLType.
-impl<T: SQLType> SQLType for Option<T> {
+/// Wrapper impl which makes any T: Column have a Option<T> Column.
+impl<T: Column> Column for Option<T> {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Some(some) => some.column_fmt(f),
+            None => f.write_str("NULL"),
+        }
+    }
+}
+/// Wrapper impl which makes any T: SqlColumn have a Option<T> SqlColumn.
+impl<T: SqlColumn> SqlColumn for Option<T> {
     fn sql_type() -> &'static str {
         T::sql_type()
     }
@@ -87,17 +116,14 @@ impl<T: SQLType> SQLType for Option<T> {
             T::column_result(value).map(Option::Some)
         }
     }
-    fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
-        match self {
-            Some(inner) => inner.debug_view(),
-            None => SqlDebugView::Primitive(self.to_sql().unwrap()),
-        }
-    }
 }
 
 /// Persist a dynamic set of tables to the database, creating their table schema
 /// if they don't yet exist, and writing all row records.
-pub fn persist_tables(db: &rusqlite::Connection, tables: &[&dyn TableObj]) -> rusqlite::Result<()> {
+pub fn persist_tables(
+    db: &rusqlite::Connection,
+    tables: &[&dyn SqlTableObj],
+) -> rusqlite::Result<()> {
     db.execute_batch("BEGIN IMMEDIATE;")?;
     for table in tables {
         db.execute_batch(&table.create_table_sql())?;
@@ -110,7 +136,7 @@ pub fn persist_tables(db: &rusqlite::Connection, tables: &[&dyn TableObj]) -> ru
 /// Load all rows of a dynamic set of tables from the database.
 pub fn load_tables(
     db: &rusqlite::Connection,
-    tables: &mut [&mut dyn TableObj],
+    tables: &mut [&mut dyn SqlTableObj],
 ) -> rusqlite::Result<()> {
     db.execute_batch("BEGIN;")?;
     for table in tables {
@@ -120,12 +146,12 @@ pub fn load_tables(
     Ok(())
 }
 
-/// primitive_sql_types establishes SQLType implementations for
+/// primitive_sql_types establishes TableColumn implementations for
 /// types already having rusqlite FromSql / ToSql implementations.
 macro_rules! primitive_sql_types {
     ($($rust_type:ty => $sql_type:literal,)*) => {
         $(
-        impl SQLType for $rust_type {
+        impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 $sql_type
             }
@@ -142,12 +168,17 @@ macro_rules! primitive_sql_types {
     };
 }
 
-/// string_wrapper_types establishes SQLType implementations for
+/// string_wrapper_types establishes TableColumn implementations for
 /// newtype String wrappers.
 macro_rules! string_wrapper_types {
     ($($rust_type:ty,)*) => {
         $(
-        impl SQLType for $rust_type {
+        impl Column for $rust_type {
+            fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_ref())
+            }
+        }
+        impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "TEXT"
             }
@@ -164,12 +195,18 @@ macro_rules! string_wrapper_types {
     };
 }
 
-/// json_sql_types establishes SQLType implementations for
+/// json_sql_types establishes TableColumn implementations for
 /// Serialize & Deserialize types which encode as JSON.
 macro_rules! json_sql_types {
     ($($rust_type:ty,)*) => {
         $(
-        impl SQLType for $rust_type {
+        impl Column for $rust_type {
+            fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let s = serde_json::to_string(&self).unwrap();
+                f.write_str(&s)
+            }
+        }
+        impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "TEXT"
             }
@@ -189,32 +226,28 @@ macro_rules! json_sql_types {
     };
 }
 
-/// proto_sql_types establishes SQLType implementations for
+/// proto_sql_types establishes TableColumn implementations for
 /// ToProto / FromProto types which encode as protobuf.
 macro_rules! proto_sql_types {
     ($($rust_type:ty,)*) => {
         $(
-        impl SQLType for $rust_type {
+        impl Column for $rust_type {
+
+        }
+        impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "BLOB"
             }
-
             fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 let mut b = Vec::with_capacity(self.encoded_len());
                 self.encode(&mut b).unwrap();
                 Ok(b.into())
             }
-
             fn column_result(
                 value: rusqlite::types::ValueRef<'_>,
             ) -> rusqlite::types::FromSqlResult<Self> {
-
                 Ok(Self::decode(value.as_blob()?)
                    .map_err(|err| rusqlite::types::FromSqlError::Other(err.into()))?)
-            }
-
-            fn debug_view<'a>(&'a self) -> SqlDebugView<'a> {
-                SqlDebugView::Debug(self)
             }
         }
         )*
@@ -291,6 +324,42 @@ macro_rules! tables {
 
         impl Table for $table {
             type Row = $row;
+        }
+        impl Row for $row {
+            type Table = $table;
+        }
+
+        impl std::ops::Deref for $table {
+            type Target = Vec<$row>;
+            fn deref(&self) -> &Vec<$row> { &self.0 }
+        }
+
+        impl std::iter::FromIterator<$row> for $table {
+            fn from_iter<I: IntoIterator<Item=$row>>(iter: I) -> Self {
+                let mut c = $table::new();
+                c.extend(iter.into_iter());
+                c
+            }
+        }
+
+        impl std::fmt::Debug for $table {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.as_slice().fmt(f)
+            }
+        }
+
+        impl std::fmt::Debug for $row {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut f = f.debug_struct(stringify!($row));
+                $(
+                let f = f.field(stringify!($field), &crate::tables::macros::ColumnDebugWrapper(&self.$field));
+                )*
+                f.finish()
+            }
+        }
+
+        impl SqlTable for $table {
+            type SqlRow = $row;
 
             fn insert_sql() -> String {
                 [
@@ -316,7 +385,7 @@ macro_rules! tables {
             }
         }
 
-        impl TableObj for $table {
+        impl SqlTableObj for $table {
             fn sql_name(&self) -> &'static str { $sql_name }
 
             fn create_table_sql(&self) -> String {
@@ -328,7 +397,7 @@ macro_rules! tables {
                         [
                             stringify!($field),
                             " ",
-                            <$rust_type as SQLType>::sql_type(),
+                            <$rust_type as SqlColumn>::sql_type(),
                         ].concat(),
                     )* ].join(", ").as_str(),
                     " ); "
@@ -359,25 +428,12 @@ macro_rules! tables {
             }
         }
 
-        impl std::ops::Deref for $table {
-            type Target = Vec<$row>;
-            fn deref(&self) -> &Vec<$row> { &self.0 }
-        }
-
-        impl std::iter::FromIterator<$row> for $table {
-            fn from_iter<I: IntoIterator<Item=$row>>(iter: I) -> Self {
-                let mut c = $table::new();
-                c.extend(iter.into_iter());
-                c
-            }
-        }
-
-        impl TableRow for $row {
-            type Table = $table;
+        impl SqlRow for $row {
+            type SqlTable = $table;
 
             fn persist(&self, stmt: &mut rusqlite::Statement<'_>) -> rusqlite::Result<()> {
                 stmt.execute(rusqlite::params![ $(
-                    <$rust_type as SQLType>::to_sql(&self.$field)?,
+                    <$rust_type as SqlColumn>::to_sql(&self.$field)?,
                 )* ])?;
                 Ok(())
             }
@@ -385,7 +441,7 @@ macro_rules! tables {
             fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self> {
                 let mut _idx = 0;
                 $(
-                let $field = <$rust_type as SQLType>::column_result(row.get_ref_unwrap(_idx))?;
+                let $field = <$rust_type as SqlColumn>::column_result(row.get_ref_unwrap(_idx))?;
                 _idx += 1;
                 )*
 
@@ -393,52 +449,14 @@ macro_rules! tables {
             }
         }
 
-        impl std::fmt::Debug for $table {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                self.as_slice().fmt(f)
-            }
-        }
-
-        impl std::fmt::Debug for $row {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let mut f = f.debug_struct(stringify!($row));
-                $(
-                let v = self.$field.debug_view();
-                let f = f.field(stringify!($field), &v);
-                )*
-                f.finish()
-            }
-        }
-
         )*
     }
 }
 
-pub enum SqlDebugView<'a> {
-    Primitive(rusqlite::types::ToSqlOutput<'a>),
-    Debug(&'a dyn std::fmt::Debug),
-}
+pub struct ColumnDebugWrapper<'a>(pub &'a dyn Column);
 
-impl<'a> std::fmt::Debug for SqlDebugView<'a> {
+impl<'a> std::fmt::Debug for ColumnDebugWrapper<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use rusqlite::types::{ToSqlOutput, Value, ValueRef};
-        match self {
-            SqlDebugView::Primitive(to_sql) => match to_sql {
-                ToSqlOutput::Borrowed(ValueRef::Null) => f.write_str("NULL"),
-                ToSqlOutput::Borrowed(ValueRef::Integer(i)) => i.fmt(f),
-                ToSqlOutput::Borrowed(ValueRef::Real(d)) => d.fmt(f),
-                ToSqlOutput::Borrowed(ValueRef::Text(s)) => {
-                    f.write_str(std::str::from_utf8(s).unwrap())
-                }
-                ToSqlOutput::Borrowed(ValueRef::Blob(_)) => ".. binary ..".fmt(f),
-                ToSqlOutput::Owned(Value::Null) => f.write_str("NULL"),
-                ToSqlOutput::Owned(Value::Integer(i)) => i.fmt(f),
-                ToSqlOutput::Owned(Value::Real(d)) => d.fmt(f),
-                ToSqlOutput::Owned(Value::Text(s)) => f.write_str(s),
-                ToSqlOutput::Owned(Value::Blob(_)) => f.write_str("... binary ..."),
-                _ => "unsupported type!".fmt(f),
-            },
-            SqlDebugView::Debug(dbg) => dbg.fmt(f),
-        }
+        self.0.column_fmt(f)
     }
 }

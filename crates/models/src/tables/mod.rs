@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 mod macros;
 use macros::*;
 
-pub use macros::{load_tables, persist_tables, Table, TableObj, TableRow};
+pub use macros::{load_tables, persist_tables, SqlTableObj, Table};
 
 tables!(
     table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
@@ -319,7 +319,7 @@ pub struct All {
 
 impl All {
     // Access all tables as an array of dynamic TableObj instances.
-    pub fn as_tables(&self) -> Vec<&dyn TableObj> {
+    pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
         // This de-structure ensures we can't fail to update as tables change.
         let Self {
             built_captures,
@@ -376,8 +376,8 @@ impl All {
         ]
     }
 
-    // Access all tables as an array of mutable dynamic TableObj instances.
-    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn TableObj> {
+    // Access all tables as an array of mutable dynamic SqlTableObj instances.
+    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn SqlTableObj> {
         let Self {
             built_captures,
             built_collections,
@@ -434,7 +434,7 @@ impl All {
     }
 }
 
-// macros::SQLType implementations for table columns.
+// macros::TableColumn implementations for table columns.
 
 primitive_sql_types!(
     String => "TEXT",
@@ -442,6 +442,29 @@ primitive_sql_types!(
     bool => "BOOLEAN",
     u32 => "INTEGER",
 );
+
+// primitive_sql_types generates SqlColumn but not Column implementations.
+impl Column for String {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+impl Column for url::Url {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+impl Column for bool {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Match SQLite encoding of booleans.
+        if *self {
+            f.write_str("1")
+        } else {
+            f.write_str("0")
+        }
+    }
+}
+impl Column for u32 {}
 
 string_wrapper_types!(
     models::Capture,
@@ -487,8 +510,13 @@ proto_sql_types!(
 // Modules that extend tables with additional implementations.
 mod behaviors;
 
-// Additional bespoke SQLType implementations for types that require extra help.
-impl SQLType for anyhow::Error {
+// Additional bespoke column implementations for types that require extra help.
+impl Column for anyhow::Error {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl SqlColumn for anyhow::Error {
     fn sql_type() -> &'static str {
         "TEXT"
     }
@@ -500,7 +528,13 @@ impl SQLType for anyhow::Error {
     }
 }
 
-impl SQLType for bytes::Bytes {
+impl Column for bytes::Bytes {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const ELIDE: &str = ".. binary ..";
+        <str as std::fmt::Debug>::fmt(ELIDE, f)
+    }
+}
+impl SqlColumn for bytes::Bytes {
     fn sql_type() -> &'static str {
         "BLOB"
     }
@@ -515,7 +549,7 @@ impl SQLType for bytes::Bytes {
 
 #[cfg(test)]
 mod test {
-    use super::{macros::*, TableObj};
+    use super::macros::*;
 
     tables!(
         table Foos (row Foo, order_by [], sql "foos") {
