@@ -1,0 +1,23 @@
+[package]
+name = "assemble"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2021"
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables" }
+
+percent-encoding = "*"
+serde_json = "*"
+url = "*"
+
+[dev-dependencies]
+insta = "*"
+#itertools = "*"
+#serde_yaml = "*"

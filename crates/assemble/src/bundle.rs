@@ -1,4 +1,3 @@
-use super::tables;
 use serde_json::{json, Value};
 use url::Url;
 

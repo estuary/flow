@@ -1,5 +1,3 @@
-use rusqlite;
-
 /// Column is a column of a table.
 pub trait Column: std::fmt::Debug {
     // column_fmt is a debugging view over a column type.
@@ -20,6 +18,7 @@ pub trait Table: Sized {
     type Row: Row;
 }
 
+#[cfg(feature = "persist")]
 /// SqlColumn is a Column which can persist to and from sqlite.
 pub trait SqlColumn: Sized + Column {
     /// SQL type of this TableColumn.
@@ -30,6 +29,7 @@ pub trait SqlColumn: Sized + Column {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self>;
 }
 
+#[cfg(feature = "persist")]
 /// SqlRow is a Row which can persist to and from sqlite.
 pub trait SqlRow: Row {
     type SqlTable: SqlTable;
@@ -40,6 +40,7 @@ pub trait SqlRow: Row {
     fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self>;
 }
 
+#[cfg(feature = "persist")]
 /// SqlTable is a Table which can persist to and from sqlite.
 pub trait SqlTable: Table + SqlTableObj {
     type SqlRow: SqlRow;
@@ -51,6 +52,7 @@ pub trait SqlTable: Table + SqlTableObj {
     fn select_sql() -> String;
 }
 
+#[cfg(feature = "persist")]
 /// SqlTableObj is the object-safe portion of a SqlTable.
 pub trait SqlTableObj {
     /// SQL name for this Table.
@@ -96,6 +98,8 @@ impl<T: Column> Column for Option<T> {
         }
     }
 }
+
+#[cfg(feature = "persist")]
 /// Wrapper impl which makes any T: SqlColumn have a Option<T> SqlColumn.
 impl<T: SqlColumn> SqlColumn for Option<T> {
     fn sql_type() -> &'static str {
@@ -118,6 +122,7 @@ impl<T: SqlColumn> SqlColumn for Option<T> {
     }
 }
 
+#[cfg(feature = "persist")]
 /// Persist a dynamic set of tables to the database, creating their table schema
 /// if they don't yet exist, and writing all row records.
 pub fn persist_tables(
@@ -133,6 +138,7 @@ pub fn persist_tables(
     Ok(())
 }
 
+#[cfg(feature = "persist")]
 /// Load all rows of a dynamic set of tables from the database.
 pub fn load_tables(
     db: &rusqlite::Connection,
@@ -151,6 +157,8 @@ pub fn load_tables(
 macro_rules! primitive_sql_types {
     ($($rust_type:ty => $sql_type:literal,)*) => {
         $(
+
+        #[cfg(feature = "persist")]
         impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 $sql_type
@@ -164,6 +172,7 @@ macro_rules! primitive_sql_types {
                 <Self as rusqlite::types::FromSql>::column_result(value)
             }
         }
+
         )*
     };
 }
@@ -178,6 +187,8 @@ macro_rules! string_wrapper_types {
                 f.write_str(self.as_ref())
             }
         }
+
+        #[cfg(feature = "persist")]
         impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "TEXT"
@@ -206,6 +217,8 @@ macro_rules! json_sql_types {
                 f.write_str(&s)
             }
         }
+
+        #[cfg(feature = "persist")]
         impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "TEXT"
@@ -231,9 +244,9 @@ macro_rules! json_sql_types {
 macro_rules! proto_sql_types {
     ($($rust_type:ty,)*) => {
         $(
-        impl Column for $rust_type {
+        impl Column for $rust_type {}
 
-        }
+        #[cfg(feature = "persist")]
         impl SqlColumn for $rust_type {
             fn sql_type() -> &'static str {
                 "BLOB"
@@ -254,6 +267,7 @@ macro_rules! proto_sql_types {
     };
 }
 
+#[cfg(feature = "persist")]
 // Helper for swapping a token tree with another expression.
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
@@ -352,12 +366,13 @@ macro_rules! tables {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let mut f = f.debug_struct(stringify!($row));
                 $(
-                let f = f.field(stringify!($field), &crate::tables::macros::ColumnDebugWrapper(&self.$field));
+                let f = f.field(stringify!($field), &crate::macros::ColumnDebugWrapper(&self.$field));
                 )*
                 f.finish()
             }
         }
 
+        #[cfg(feature = "persist")]
         impl SqlTable for $table {
             type SqlRow = $row;
 
@@ -385,6 +400,7 @@ macro_rules! tables {
             }
         }
 
+        #[cfg(feature = "persist")]
         impl SqlTableObj for $table {
             fn sql_name(&self) -> &'static str { $sql_name }
 
@@ -428,6 +444,7 @@ macro_rules! tables {
             }
         }
 
+        #[cfg(feature = "persist")]
         impl SqlRow for $row {
             type SqlTable = $table;
 

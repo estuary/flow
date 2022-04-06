@@ -1,6 +1,5 @@
 use crate::go_flowctl::GO_FLOWCTL;
 use flow_cli_common::ExecExternal;
-use models::build::encode_resource_path;
 
 #[derive(clap::Args, Debug)]
 #[clap(trailing_var_arg = true)]
@@ -27,7 +26,7 @@ impl Args {
 
         // Select the proper partition for a specific task, if given
         if let Some(task_name) = task.task.as_deref() {
-            let encoded_name = encode_resource_path(&[task_name]);
+            let encoded_name = assemble::encode_resource_path(&[task_name]);
             write!(
                 &mut selector,
                 ",{}{}={}",

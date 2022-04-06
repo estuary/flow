@@ -1,12 +1,15 @@
-use crate as models;
-use prost::Message;
 use std::collections::BTreeMap;
 
 #[macro_use]
 mod macros;
 use macros::*;
 
-pub use macros::{load_tables, persist_tables, SqlTableObj, Table};
+pub use macros::Table;
+
+#[cfg(feature = "persist")]
+pub use macros::{load_tables, persist_tables, SqlTableObj};
+#[cfg(feature = "persist")]
+use prost::Message;
 
 tables!(
     table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
@@ -317,6 +320,7 @@ pub struct All {
     pub transforms: Transforms,
 }
 
+#[cfg(feature = "persist")]
 impl All {
     // Access all tables as an array of dynamic TableObj instances.
     pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
@@ -493,7 +497,6 @@ json_sql_types!(
     proto_flow::flow::test_spec::step::Type,
     serde_json::Value,
     Box<serde_json::value::RawValue>,
-    uuid::Uuid,
 );
 
 proto_sql_types!(
@@ -516,6 +519,8 @@ impl Column for anyhow::Error {
         write!(f, "{:?}", self)
     }
 }
+
+#[cfg(feature = "persist")]
 impl SqlColumn for anyhow::Error {
     fn sql_type() -> &'static str {
         "TEXT"
@@ -534,6 +539,8 @@ impl Column for bytes::Bytes {
         <str as std::fmt::Debug>::fmt(ELIDE, f)
     }
 }
+
+#[cfg(feature = "persist")]
 impl SqlColumn for bytes::Bytes {
     fn sql_type() -> &'static str {
         "BLOB"

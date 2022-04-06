@@ -1,6 +1,5 @@
 use anyhow::Context;
 use doc;
-use models::tables;
 use schemalate::typescript::Mapper;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

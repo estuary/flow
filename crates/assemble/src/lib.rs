@@ -1,4 +1,3 @@
-use crate::tables;
 use doc::inference::{Exists, Shape};
 use json::schema::types;
 use proto_flow::flow;
@@ -57,13 +56,13 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 // or updating data partitions of the collection.
 pub fn partition_template(
     build_config: &flow::build_api::Config,
-    collection: &crate::Collection,
-    journals: &crate::JournalTemplate,
-    stores: &[crate::Store],
+    collection: &models::Collection,
+    journals: &models::JournalTemplate,
+    stores: &[models::Store],
 ) -> broker::JournalSpec {
-    let crate::JournalTemplate {
+    let models::JournalTemplate {
         fragments:
-            crate::FragmentTemplate {
+            models::FragmentTemplate {
                 compression_codec,
                 flush_interval,
                 length,
@@ -71,7 +70,7 @@ pub fn partition_template(
             },
     } = journals.clone();
 
-    use crate::CompressionCodec;
+    use models::CompressionCodec;
 
     // Until there's a good reason otherwise, we hard-code that partition journals are replicated 3x.
     let replication = 3;
@@ -150,9 +149,9 @@ pub fn recovery_log_template(
     build_config: &flow::build_api::Config,
     task_name: &str,
     task_type: &str,
-    stores: &[crate::Store],
+    stores: &[models::Store],
 ) -> broker::JournalSpec {
-    use crate::CompressionCodec;
+    use models::CompressionCodec;
 
     // Until there's a good reason otherwise, we hard-code that recovery logs are replicated 3x.
     let replication = 3;
@@ -252,10 +251,10 @@ pub fn shard_template(
     build_config: &flow::build_api::Config,
     task_name: &str,
     task_type: &str,
-    shard: &crate::ShardTemplate,
+    shard: &models::ShardTemplate,
     disable_wait_for_ack: bool,
 ) -> consumer::ShardSpec {
-    let crate::ShardTemplate {
+    let models::ShardTemplate {
         disable,
         hot_standbys,
         max_txn_duration,
@@ -331,7 +330,7 @@ pub fn collection_spec(
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     schema_bundle: &Value,
-    stores: &[crate::Store],
+    stores: &[models::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
         collection: name,
@@ -352,6 +351,9 @@ pub fn collection_spec(
         })
         .collect();
 
+    // For the forseeable future, we don't allow customizing this.
+    let uuid_ptr = "/_meta/uuid".to_string();
+
     flow::CollectionSpec {
         collection: name.to_string(),
         schema_uri: schema.to_string(),
@@ -359,7 +361,7 @@ pub fn collection_spec(
         key_ptrs: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
-        uuid_ptr: collection.uuid_ptr(),
+        uuid_ptr,
         ack_json_template: serde_json::json!({
                 "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
                 "ack": true,
@@ -370,8 +372,8 @@ pub fn collection_spec(
 }
 
 pub fn journal_selector(
-    collection: &crate::Collection,
-    selector: &Option<crate::PartitionSelector>,
+    collection: &models::Collection,
+    selector: &Option<models::PartitionSelector>,
 ) -> broker::LabelSelector {
     let mut include = vec![broker::Label {
         name: labels::COLLECTION.to_string(),
@@ -432,20 +434,30 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
 }
 
 fn lambda_spec(
-    lambda: &crate::Lambda,
+    lambda: &models::Lambda,
     transform: &tables::Transform,
     suffix: &str,
 ) -> flow::LambdaSpec {
     match lambda {
-        crate::Lambda::Typescript => flow::LambdaSpec {
-            typescript: format!("/{}/{}", transform.group_name(), suffix),
+        models::Lambda::Typescript => flow::LambdaSpec {
+            typescript: format!("/{}/{}", transform_group_name(transform), suffix),
             ..Default::default()
         },
-        crate::Lambda::Remote(addr) => flow::LambdaSpec {
+        models::Lambda::Remote(addr) => flow::LambdaSpec {
             remote: addr.clone(),
             ..Default::default()
         },
     }
+}
+
+// Group name of this transform, used to group shards & shuffled reads
+// which collectively process the transformation.
+pub fn transform_group_name(table: &tables::Transform) -> String {
+    format!(
+        "derive/{}/{}",
+        table.derivation.as_str(),
+        table.transform.as_str()
+    )
 }
 
 pub fn transform_spec(
@@ -475,7 +487,7 @@ pub fn transform_spec(
     };
 
     let shuffle = flow::Shuffle {
-        group_name: transform.group_name(),
+        group_name: transform_group_name(transform),
         source_collection: source.collection.clone(),
         source_partitions: Some(journal_selector(source_collection, source_partitions)),
         source_uuid_ptr: source.uuid_ptr.clone(),
@@ -514,7 +526,7 @@ pub fn derivation_spec(
     derivation: &tables::Derivation,
     collection: &tables::BuiltCollection,
     mut transforms: Vec<flow::TransformSpec>,
-    recovery_stores: &[crate::Store],
+    recovery_stores: &[models::Store],
     register_schema_bundle: &serde_json::Value,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
@@ -723,8 +735,8 @@ mod test {
         );
         exclude.insert(String::from("foo"), vec!["no&no@no$yes();".into()]);
 
-        let selector = crate::PartitionSelector { include, exclude };
-        let collection = crate::Collection::new("the/collection");
+        let selector = models::PartitionSelector { include, exclude };
+        let collection = models::Collection::new("the/collection");
         let labels = journal_selector(&collection, &Some(selector));
         insta::assert_debug_snapshot!(labels);
     }

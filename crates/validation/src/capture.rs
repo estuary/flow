@@ -1,7 +1,6 @@
 use super::{indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
-use models::{build, tables};
 use proto_flow::{capture, flow};
 
 pub async fn walk_all_captures<D: Drivers>(
@@ -177,13 +176,13 @@ pub async fn walk_all_captures<D: Drivers>(
             endpoint_spec_json,
             bindings,
             interval_seconds: *interval_seconds,
-            recovery_log_template: Some(build::recovery_log_template(
+            recovery_log_template: Some(assemble::recovery_log_template(
                 build_config,
                 &name,
                 labels::TASK_TYPE_CAPTURE,
                 recovery_stores,
             )),
-            shard_template: Some(build::shard_template(
+            shard_template: Some(assemble::shard_template(
                 build_config,
                 &name,
                 labels::TASK_TYPE_CAPTURE,

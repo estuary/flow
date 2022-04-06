@@ -1,7 +1,6 @@
 use super::camel_case;
 use super::interface::{Interface, Method, Module};
 use itertools::Itertools;
-use models::tables;
 use schemalate::typescript::{ast::Context, Mapper};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -247,7 +246,7 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
             writeln!(
                 w,
                 "    '/{group_name}/{type:?}': __{class}.{method}.bind(\n        __{class},\n    ) as Lambda,",
-                group_name = method.transform.group_name(),
+                group_name = assemble::transform_group_name(&method.transform),
                 type = method.type_,
                 class = class,
                 method = method.type_.method_name(&method.transform.transform),

@@ -1,0 +1,28 @@
+[package]
+name = "tables"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+
+anyhow = "*"
+bytes = "*"
+pathfinding = "*"
+prost = "*"
+rusqlite = { version = "*", features = ["bundled-full"], optional = true}
+serde = "*"
+serde_json = "*"
+superslice = "*"
+url = "*"
+
+[features]
+default = []
+
+persist = ["rusqlite"]

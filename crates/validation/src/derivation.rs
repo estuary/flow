@@ -1,7 +1,6 @@
 use super::{collection, indexed, reference, schema, storage_mapping, Error};
 use itertools::Itertools;
 use json::schema::types;
-use models::{build, tables};
 use proto_flow::flow;
 use superslice::Ext;
 
@@ -146,7 +145,7 @@ fn walk_derivation(
         errors,
     );
 
-    build::derivation_spec(
+    assemble::derivation_spec(
         build_config,
         derivation,
         built_collection,
@@ -277,7 +276,7 @@ pub fn walk_transform(
         schema::gather_key_types(shuffle_key, source_shape)
     });
 
-    built_transforms.push(build::transform_spec(
+    built_transforms.push(assemble::transform_spec(
         transform,
         &source.spec,
         &source_shape.bundle,

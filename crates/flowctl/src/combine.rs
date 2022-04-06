@@ -1,9 +1,9 @@
 use derive::combiner::Combiner;
 use doc::{ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
 use futures::future::LocalBoxFuture;
-use models::tables::SchemaDoc;
 use protocol::flow::build_api;
 use std::io;
+use tables::SchemaDoc;
 use url::Url;
 
 #[derive(Debug, clap::Args)]

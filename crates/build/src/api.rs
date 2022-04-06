@@ -1,6 +1,5 @@
 use futures::future::LocalBoxFuture;
 use futures::{channel::oneshot, FutureExt};
-use models::{self, tables};
 use prost::Message;
 use protocol::{
     capture, flow,
