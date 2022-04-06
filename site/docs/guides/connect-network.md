@@ -169,14 +169,14 @@ After you've completed the prerequisites, you should have the following paramete
 * `user`: the username used to connect to the SSH server.
 * `forwardHost`: the capture or materialization endpoint's host
 * `forwardPort`: the capture or materialization endpoint's port
-* `localPort`: the port on the localhost used to connect to the SSH server, step 7
+* `localPort`: the port on the localhost used to connect to the SSH server
 
 1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
   in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
 
-  Proxies like SSH are always run on an open port on your localhost, so you'll need to re-configure other fields in your
-  capture or materialization definition.
+2. Proxies like SSH are always run on an open port on your localhost,
+so you'll need to re-configure other fields in your capture or materialization definition.
 
-2. Set the host to `localhost`.
+   1. Set the connector's host property to `localhost`.
 
-3. If the connector has a `port` property, set it to the same value as `localPort` in the SSH configuration.
+   2. If the connector has a `port` property, set it to the same value as `localPort` in the SSH configuration.
