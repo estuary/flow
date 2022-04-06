@@ -38,9 +38,9 @@ where
     let root_url = source_to_url(config.source.as_str())?;
 
     let root_spec = match flow::ContentType::from_i32(config.source_type) {
-        Some(flow::ContentType::CatalogSpec) => flow::ContentType::CatalogSpec,
+        Some(flow::ContentType::Catalog) => flow::ContentType::Catalog,
         Some(flow::ContentType::JsonSchema) => flow::ContentType::JsonSchema,
-        _ => anyhow::bail!("unexpected content type (must be CatalogSpec or JsonSchema)"),
+        _ => anyhow::bail!("unexpected content type (must be Catalog or JsonSchema)"),
     };
 
     // Ensure the build directory exists and is canonical.
@@ -90,7 +90,7 @@ where
     F: sources::Fetcher,
     D: validation::Drivers,
 {
-    let loader = sources::Loader::new(sources::Tables::default(), fetcher);
+    let loader = sources::Loader::new(tables::Sources::default(), fetcher);
     loader
         .load_resource(sources::Scope::new(&root), &root, root_type.into())
         .await;
@@ -98,7 +98,7 @@ where
     let mut tables = loader.into_tables();
     assemble::generate_ops_collections(&mut tables);
 
-    let sources::Tables {
+    let tables::Sources {
         capture_bindings,
         captures,
         collections,
@@ -118,7 +118,7 @@ where
         transforms,
     } = tables;
 
-    let validation::Tables {
+    let tables::Validations {
         built_captures,
         built_collections,
         built_derivations,
@@ -219,7 +219,7 @@ fn pack_npm(package_dir: &std::path::Path) -> Result<tables::Resources, anyhow::
     let mut resources = tables::Resources::new();
     resources.insert_row(
         Url::from_file_path(&pack).unwrap(),
-        models::ContentType::NpmPackage,
+        flow::ContentType::NpmPackage,
         bytes::Bytes::from(std::fs::read(&pack)?),
     );
     std::fs::remove_file(&pack)?;

@@ -23,7 +23,7 @@ tables!(
         // Url of this resource.
         resource: url::Url,
         // Content-type of this resource.
-        content_type: models::ContentType,
+        content_type: proto_flow::flow::ContentType,
         // Byte content of this resource.
         content: bytes::Bytes,
     }
@@ -292,6 +292,44 @@ tables!(
     }
 );
 
+/// Sources are tables which are populated by catalog loads of the `sources` crate.
+#[derive(Default, Debug)]
+pub struct Sources {
+    pub capture_bindings: CaptureBindings,
+    pub captures: Captures,
+    pub collections: Collections,
+    pub derivations: Derivations,
+    pub errors: Errors,
+    pub fetches: Fetches,
+    pub imports: Imports,
+    pub materialization_bindings: MaterializationBindings,
+    pub materializations: Materializations,
+    pub named_schemas: NamedSchemas,
+    pub npm_dependencies: NPMDependencies,
+    pub projections: Projections,
+    pub resources: Resources,
+    pub schema_docs: SchemaDocs,
+    pub storage_mappings: StorageMappings,
+    pub test_steps: TestSteps,
+    pub transforms: Transforms,
+}
+
+/// Validations are tables populated by catalog validations of the `validation` crate.
+#[derive(Default, Debug)]
+pub struct Validations {
+    pub built_captures: BuiltCaptures,
+    pub built_collections: BuiltCollections,
+    pub built_derivations: BuiltDerivations,
+    pub built_materializations: BuiltMaterializations,
+    pub built_tests: BuiltTests,
+    pub errors: Errors,
+    pub implicit_projections: Projections,
+    pub inferences: Inferences,
+}
+
+/// All combines Sources and Validations:
+///  * errors of the respective tables are combined.
+///  * Validations::implicit_projections is folded into Sources::projections.
 #[derive(Default, Debug)]
 pub struct All {
     pub built_captures: BuiltCaptures,
@@ -483,20 +521,20 @@ string_wrapper_types!(
 
 json_sql_types!(
     BTreeMap<models::Field, models::Object>,
+    Box<serde_json::value::RawValue>,
     Vec<String>,
     Vec<models::Field>,
     Vec<models::Store>,
     Vec<serde_json::Value>,
     models::CompositeKey,
-    models::ContentType,
     models::JournalTemplate,
     models::Lambda,
     models::PartitionSelector,
     models::ShardTemplate,
+    proto_flow::flow::ContentType,
     proto_flow::flow::EndpointType,
     proto_flow::flow::test_spec::step::Type,
     serde_json::Value,
-    Box<serde_json::value::RawValue>,
 );
 
 proto_sql_types!(

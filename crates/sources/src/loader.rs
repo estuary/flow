@@ -3,7 +3,7 @@ use anyhow::Context;
 use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
-use protocol::flow::test_spec::step::Type as TestStepType;
+use proto_flow::flow;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::cell::RefCell;
@@ -39,27 +39,6 @@ pub enum LoadError {
     ResourceWithFragment,
 }
 
-#[derive(Default, Debug)]
-pub struct Tables {
-    pub capture_bindings: tables::CaptureBindings,
-    pub captures: tables::Captures,
-    pub collections: tables::Collections,
-    pub derivations: tables::Derivations,
-    pub errors: tables::Errors,
-    pub fetches: tables::Fetches,
-    pub imports: tables::Imports,
-    pub materialization_bindings: tables::MaterializationBindings,
-    pub materializations: tables::Materializations,
-    pub named_schemas: tables::NamedSchemas,
-    pub npm_dependencies: tables::NPMDependencies,
-    pub projections: tables::Projections,
-    pub resources: tables::Resources,
-    pub schema_docs: tables::SchemaDocs,
-    pub storage_mappings: tables::StorageMappings,
-    pub test_steps: tables::TestSteps,
-    pub transforms: tables::Transforms,
-}
-
 // FetchResult is the result type of a fetch operation,
 // and returns the resolved content of the resource.
 pub type FetchResult = Result<bytes::Bytes, anyhow::Error>;
@@ -73,7 +52,7 @@ pub trait Fetcher {
         // Resource to fetch.
         resource: &'a Url,
         // Expected content type of the resource.
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) -> FetchFuture<'a>;
 }
 
@@ -84,14 +63,14 @@ pub struct Loader<F: Fetcher> {
     // Inlined resource definitions which have been observed, but not loaded.
     inlined: RefCell<BTreeMap<Url, models::ResourceDef>>,
     // Tables loaded by the build process.
-    tables: RefCell<Tables>,
+    tables: RefCell<tables::Sources>,
     // Fetcher for retrieving discovered, unvisited resources.
     fetcher: F,
 }
 
 impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
-    pub fn new(tables: Tables, fetcher: F) -> Loader<F> {
+    pub fn new(tables: tables::Sources, fetcher: F) -> Loader<F> {
         Loader {
             inlined: RefCell::new(BTreeMap::new()),
             tables: RefCell::new(tables),
@@ -99,10 +78,10 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    pub fn into_tables(self) -> Tables {
+    pub fn into_tables(self) -> tables::Sources {
         let mut tables = self.tables.into_inner();
 
-        let Tables {
+        let tables::Sources {
             captures,
             materializations,
             resources,
@@ -157,7 +136,7 @@ impl<F: Fetcher> Loader<F> {
 
         let taken = std::mem::take(captures);
         captures.extend(taken.into_iter().map(|mut m| {
-            if m.endpoint_type == protocol::flow::EndpointType::AirbyteSource {
+            if m.endpoint_type == flow::EndpointType::AirbyteSource {
                 to_inline(&mut m.endpoint_spec);
             }
             m
@@ -165,7 +144,7 @@ impl<F: Fetcher> Loader<F> {
 
         let taken = std::mem::take(materializations);
         materializations.extend(taken.into_iter().map(|mut m| {
-            if m.endpoint_type == protocol::flow::EndpointType::FlowSink {
+            if m.endpoint_type == flow::EndpointType::FlowSink {
                 to_inline(&mut m.endpoint_spec);
             }
             m
@@ -179,7 +158,7 @@ impl<F: Fetcher> Loader<F> {
         &'a self,
         scope: Scope<'a>,
         resource: &'a Url,
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) {
         if resource.fragment().is_some() {
             self.tables.borrow_mut().errors.insert_row(
@@ -202,7 +181,7 @@ impl<F: Fetcher> Loader<F> {
 
         let content : Result<bytes::Bytes, anyhow::Error> = match inlined {
             // Resource has an inline definition of the expected content-type.
-            Some(models::ResourceDef{content, content_type: expected_type}) if expected_type == content_type => {
+            Some(models::ResourceDef{content, content_type: expected_type}) if assemble::content_type(expected_type) == content_type => {
                 match content {
                     models::ResourceContent::Base64Bytes(input) => base64::decode(input).context("base64-decode of inline resource failed").map(Into::into),
                     models::ResourceContent::Object(obj) => Ok(serde_json::to_string(&obj)
@@ -222,7 +201,7 @@ impl<F: Fetcher> Loader<F> {
                 self.load_resource_content(scope, resource, content, content_type)
                     .await
             }
-            Err(err) if matches!(content_type, models::ContentType::TypescriptModule) => {
+            Err(err) if matches!(content_type, flow::ContentType::TypescriptModule) => {
                 // Not every catalog spec need have an accompanying TypescriptModule.
                 // We optimistically load them, but do not consider it an error if
                 // it doesn't exist. We'll do more handling of this condition within
@@ -250,7 +229,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'a>,
         resource: &'a Url,
         content: bytes::Bytes,
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
         async move {
             self.tables
@@ -260,13 +239,13 @@ impl<F: Fetcher> Loader<F> {
             let scope = scope.push_resource(&resource);
 
             match content_type {
-                models::ContentType::Catalog => self.load_catalog(scope, content.as_ref()).await,
-                models::ContentType::JsonSchema => {
+                flow::ContentType::Catalog => self.load_catalog(scope, content.as_ref()).await,
+                flow::ContentType::JsonSchema => {
                     self.load_schema_document(scope, content.as_ref()).await
                 }
 
                 // Require that the config parses as a YAML or JSON object.
-                models::ContentType::Config => self
+                flow::ContentType::Config => self
                     .fallible(
                         scope,
                         serde_yaml::from_slice(&content).map_err(|e| LoadError::ConfigParseErr(e)),
@@ -274,7 +253,7 @@ impl<F: Fetcher> Loader<F> {
                     .map(|_dom: models::Object| ()),
 
                 // Require that the document fixtures parse as a JSON array of objects.
-                models::ContentType::DocumentsFixture => self
+                flow::ContentType::DocumentsFixture => self
                     .fallible(
                         scope,
                         serde_json::from_slice::<Vec<models::Object>>(&content)
@@ -368,7 +347,7 @@ impl<F: Fetcher> Loader<F> {
                             // Concurrently fetch |uri| while continuing to walk the schema.
                             let ((), ()) = futures::join!(
                                 recurse,
-                                self.load_import(scope, &uri, models::ContentType::JsonSchema)
+                                self.load_import(scope, &uri, flow::ContentType::JsonSchema)
                             );
                         } else {
                             let () = recurse.await;
@@ -398,14 +377,14 @@ impl<F: Fetcher> Loader<F> {
             let fragment = import.fragment().map(str::to_string);
             import.set_fragment(None);
 
-            self.load_import(scope, &import, models::ContentType::JsonSchema)
+            self.load_import(scope, &import, flow::ContentType::JsonSchema)
                 .await;
 
             import.set_fragment(fragment.as_deref());
             Some(import)
         } else {
             Some(
-                self.load_synthetic_resource(scope, &schema, models::ContentType::JsonSchema)
+                self.load_synthetic_resource(scope, &schema, flow::ContentType::JsonSchema)
                     .await,
             )
         }
@@ -419,7 +398,7 @@ impl<F: Fetcher> Loader<F> {
     ) -> Option<Url> {
         if let models::TestDocuments::Url(import) = documents {
             let import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
-            self.load_import(scope, &import, models::ContentType::DocumentsFixture)
+            self.load_import(scope, &import, flow::ContentType::DocumentsFixture)
                 .await;
             Some(import)
         } else {
@@ -427,7 +406,7 @@ impl<F: Fetcher> Loader<F> {
                 self.load_synthetic_resource(
                     scope,
                     &documents,
-                    models::ContentType::DocumentsFixture,
+                    flow::ContentType::DocumentsFixture,
                 )
                 .await,
             )
@@ -438,7 +417,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         resource: Ser,
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) -> Url {
         // Create a synthetic resource URL by extending the parent scope with a `ptr` query parameter,
         // encoding the json pointer path of the schema.
@@ -468,7 +447,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         import: &'s Url,
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) {
         // Recursively process the import if it's not already visited.
         if !self
@@ -554,7 +533,8 @@ impl<F: Fetcher> Loader<F> {
                 if let Some(url) =
                     self.fallible(scope, scope.resource().join(import.relative_url()))
                 {
-                    self.load_import(scope, &url, import.content_type()).await;
+                    self.load_import(scope, &url, assemble::content_type(import.content_type()))
+                        .await;
                 }
             }
         });
@@ -568,7 +548,7 @@ impl<F: Fetcher> Loader<F> {
             path.set_extension("ts");
 
             module.set_path(path.to_str().expect("should still be valid utf8"));
-            self.load_import(scope, &module, models::ContentType::TypescriptModule)
+            self.load_import(scope, &module, flow::ContentType::TypescriptModule)
                 .await;
         };
 
@@ -595,7 +575,7 @@ impl<F: Fetcher> Loader<F> {
                 interval,
                 shards,
             } = capture;
-            let endpoint_type = endpoint.endpoint_type();
+            let endpoint_type = assemble::capture_endpoint_type(&endpoint);
 
             if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint).await {
                 self.tables.borrow_mut().captures.insert_row(
@@ -636,7 +616,7 @@ impl<F: Fetcher> Loader<F> {
                         bindings,
                         shards,
                     } = materialization;
-                    let endpoint_type = endpoint.endpoint_type();
+                    let endpoint_type = assemble::materialization_endpoint_type(&endpoint);
 
                     if let Some(endpoint_spec) =
                         self.load_materialization_endpoint(scope, endpoint).await
@@ -709,7 +689,7 @@ impl<F: Fetcher> Loader<F> {
                                 documents,
                                 None,
                                 description,
-                                TestStepType::Ingest,
+                                flow::test_spec::step::Type::Ingest,
                             ),
 
                             models::TestStep::Verify(models::TestStepVerify {
@@ -722,7 +702,7 @@ impl<F: Fetcher> Loader<F> {
                                 documents,
                                 partitions,
                                 description,
-                                TestStepType::Verify,
+                                flow::test_spec::step::Type::Verify,
                             ),
                         };
 
@@ -943,7 +923,7 @@ impl<F: Fetcher> Loader<F> {
         }) = endpoint
         {
             let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, models::ContentType::Config)
+            self.load_import(scope, &absolute, flow::ContentType::Config)
                 .await;
 
             endpoint = Connector(models::ConnectorConfig {
@@ -976,7 +956,7 @@ impl<F: Fetcher> Loader<F> {
         }) = endpoint
         {
             let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, models::ContentType::Config)
+            self.load_import(scope, &absolute, flow::ContentType::Config)
                 .await;
 
             endpoint = Connector(models::ConnectorConfig {

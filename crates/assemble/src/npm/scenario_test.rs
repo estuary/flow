@@ -8,7 +8,7 @@ lazy_static! {
 
 #[test]
 fn test_scenario() {
-    let sources::Tables {
+    let tables::Sources {
         collections,
         derivations,
         errors,

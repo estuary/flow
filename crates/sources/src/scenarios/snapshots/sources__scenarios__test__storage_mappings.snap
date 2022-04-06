@@ -2,9 +2,8 @@
 source: crates/sources/src/scenarios/mod.rs
 assertion_line: 27
 expression: tables
-
 ---
-Tables {
+Sources {
     capture_bindings: [],
     captures: [],
     collections: [],

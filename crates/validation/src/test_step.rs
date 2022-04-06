@@ -84,7 +84,7 @@ pub fn walk_test_step(
     let documents = &resources[resources.equal_range_by_key(&documents, |r| &r.resource)];
     let documents: Vec<serde_json::Value> = match documents.first() {
         Some(tables::Resource {
-            content_type: models::ContentType::DocumentsFixture,
+            content_type: flow::ContentType::DocumentsFixture,
             content,
             ..
         }) => serde_json::from_slice(&content).expect(

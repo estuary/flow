@@ -144,7 +144,10 @@ pub fn generate_npm_package<'a>(
         content,
     } in resources.iter()
     {
-        if !matches!(content_type, models::ContentType::TypescriptModule) {
+        if !matches!(
+            content_type,
+            proto_flow::flow::ContentType::TypescriptModule
+        ) {
             continue;
         }
         let module = Module::new(&resource, package_dir);

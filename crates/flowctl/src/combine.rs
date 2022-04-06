@@ -1,7 +1,7 @@
 use derive::combiner::Combiner;
 use doc::{ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
 use futures::future::LocalBoxFuture;
-use protocol::flow::build_api;
+use protocol::flow::{self, build_api};
 use std::io;
 use tables::SchemaDoc;
 use url::Url;
@@ -117,14 +117,11 @@ fn get_indexed_schemas_and_key(
     } = build_source;
 
     let (src, src_type) = if schema.is_none() {
-        (
-            source.clone().unwrap(),
-            protocol::flow::ContentType::CatalogSpec as i32,
-        )
+        (source.clone().unwrap(), flow::ContentType::Catalog as i32)
     } else {
         (
             schema.clone().unwrap(),
-            protocol::flow::ContentType::JsonSchema as i32,
+            flow::ContentType::JsonSchema as i32,
         )
     };
 
@@ -268,7 +265,7 @@ impl sources::Fetcher for Fetcher {
         // Resource to fetch.
         resource: &'a url::Url,
         // Expected content type of the resource.
-        _content_type: models::ContentType,
+        _content_type: flow::ContentType,
     ) -> sources::FetchFuture<'a> {
         tracing::debug!(url = %resource, "fetching resource");
         let url = resource.clone();
