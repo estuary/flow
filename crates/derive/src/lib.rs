@@ -8,7 +8,7 @@ mod pipeline;
 mod registers;
 
 pub use extract_api::extract_uuid_parts;
-use protocol::flow::DocsAndBytes;
+use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 
 /// A type that can accumulate statistics that can be periodically drained.

@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use protocol::protocol::CompressionCodec as ProtoCodec;
+use proto_gazette::broker::CompressionCodec as ProtoCodec;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

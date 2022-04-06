@@ -2,7 +2,7 @@ use super::{indexed, schema, storage_mapping, Error};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use models::{self, build, tables};
-use protocol::flow;
+use proto_flow::flow;
 use std::iter::FromIterator;
 use superslice::Ext;
 use url::Url;
@@ -232,7 +232,7 @@ fn walk_projection_with_inference(
 
 pub fn walk_selector(
     scope: &Url,
-    collection: &protocol::flow::CollectionSpec,
+    collection: &flow::CollectionSpec,
     selector: &models::PartitionSelector,
     errors: &mut tables::Errors,
 ) {

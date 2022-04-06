@@ -1,4 +1,4 @@
-use protocol::flow::ContentType as ProtoContentType;
+use proto_flow::flow::ContentType as ProtoContentType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};

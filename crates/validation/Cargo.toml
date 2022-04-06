@@ -5,10 +5,11 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-json = { path = "../json", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
+json = { path = "../json", version = "0.0.0" }
+labels = { path = "../labels" }
 models = { path = "../models", version = "0.0.0" }
+proto-flow = { path = "../proto-flow", version = "0.0.0" }
 
 anyhow = "*"
 bytes = "*"

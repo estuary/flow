@@ -1,7 +1,6 @@
 use crate::go_flowctl::GO_FLOWCTL;
 use flow_cli_common::ExecExternal;
 use models::build::encode_resource_path;
-use protocol::labels;
 
 #[derive(clap::Args, Debug)]
 #[clap(trailing_var_arg = true)]
