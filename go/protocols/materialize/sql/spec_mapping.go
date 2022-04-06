@@ -12,10 +12,11 @@ import (
 // ensure that each projection has exactly one type besides "null".
 func TableForMaterialization(name string, comment string, identifierRenderer *Renderer, spec *pf.MaterializationSpec_Binding) *Table {
 	return &Table{
-		Name:       name,
-		Identifier: identifierRenderer.Render(name),
-		Comment:    comment,
-		Columns:    columnsForMaterialization(spec, identifierRenderer),
+		Name:        name,
+		Identifier:  identifierRenderer.Render(name),
+		Comment:     comment,
+		Columns:     columnsForMaterialization(spec, identifierRenderer),
+		IfNotExists: true,
 	}
 }
 
