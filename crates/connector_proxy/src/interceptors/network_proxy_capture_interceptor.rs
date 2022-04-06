@@ -3,6 +3,7 @@ use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_bytes;
+use futures::stream;
 use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
@@ -17,39 +18,56 @@ pub struct NetworkProxyCaptureInterceptor {}
 
 impl NetworkProxyCaptureInterceptor {
     fn adapt_discover_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(stream::once(async {
             let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<DiscoverRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
+            let mut request = decode_message::<DiscoverRequest, _>(&mut reader)
+                .await
+                .or_bail()
+                .expect("expected request is not received.");
             request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
-            ).await.or_bail().to_string();
-            yield encode_message(&request);
-        })
+            )
+            .await
+            .or_bail()
+            .to_string();
+            encode_message(&request)
+        }))
     }
 
     fn adapt_validate_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(stream::once(async {
             let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<ValidateRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
+            let mut request = decode_message::<ValidateRequest, _>(&mut reader)
+                .await
+                .or_bail()
+                .expect("expected request is not received.");
             request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
-            ).await.or_bail().to_string();
-            yield encode_message(&request);
-        })
+            )
+            .await
+            .or_bail()
+            .to_string();
+            encode_message(&request)
+        }))
     }
 
     fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream! {
+        Box::pin(stream::once(async {
             let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<ApplyRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
+            let mut request = decode_message::<ApplyRequest, _>(&mut reader)
+                .await
+                .or_bail()
+                .expect("expected request is not received.");
             if let Some(ref mut c) = request.capture {
-                c.endpoint_spec_json =
-                    NetworkProxy::consume_network_proxy_config(
-                        RawValue::from_string(c.endpoint_spec_json.clone())?,
-                ).await.or_bail().to_string();
+                c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                    RawValue::from_string(c.endpoint_spec_json.clone())?,
+                )
+                .await
+                .or_bail()
+                .to_string();
             }
-            yield encode_message(&request);
-        })
+            encode_message(&request)
+        }))
     }
 
     fn adapt_pull_request_stream(in_stream: InterceptorStream) -> InterceptorStream {

@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
 
+use futures::stream;
 use futures_util::StreamExt;
 use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
@@ -53,12 +54,14 @@ impl AirbyteSourceInterceptor {
     }
 
     fn adapt_spec_request_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(try_stream! {
+        Box::pin(stream::once(async {
             let mut reader = StreamReader::new(in_stream);
-            decode_message::<SpecRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing spec request."))?;
+            decode_message::<SpecRequest, _>(&mut reader)
+                .await?
+                .ok_or(create_custom_error("missing spec request."))?;
 
-            yield Bytes::from(READY);
-        })
+            Ok(Bytes::from(READY))
+        }))
     }
 
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
@@ -91,14 +94,16 @@ impl AirbyteSourceInterceptor {
         config_file_path: String,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(try_stream! {
+        Box::pin(stream::once(async {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<DiscoverRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing discover request."))?;
+            let request = decode_message::<DiscoverRequest, _>(&mut reader)
+                .await?
+                .ok_or(create_custom_error("missing discover request."))?;
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            yield Bytes::from(READY);
-        })
+            Ok(Bytes::from(READY))
+        }))
     }
 
     fn adapt_discover_response_stream(
@@ -153,15 +158,17 @@ impl AirbyteSourceInterceptor {
         validate_request: Arc<Mutex<Option<ValidateRequest>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(try_stream! {
+        Box::pin(stream::once(async move {
             let mut reader = StreamReader::new(in_stream);
-            let request = decode_message::<ValidateRequest, _>(&mut reader).await?.ok_or(create_custom_error("missing validate request"))?;
+            let request = decode_message::<ValidateRequest, _>(&mut reader)
+                .await?
+                .ok_or(create_custom_error("missing validate request"))?;
             *validate_request.lock().await = Some(request.clone());
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
 
-            yield Bytes::from(READY);
-        })
+            Ok(Bytes::from(READY))
+        }))
     }
 
     fn adapt_validate_response_stream(

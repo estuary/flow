@@ -666,6 +666,7 @@ dependencies = [
  "clap 3.1.6",
  "doc 0.0.0",
  "flow_cli_common",
+ "futures",
  "futures-core",
  "futures-util",
  "json-pointer",
