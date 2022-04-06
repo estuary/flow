@@ -5,6 +5,7 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+cgo = { path = "../cgo", version = "0.0.0" }
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
 models = { path = "../models", version = "0.0.0" }

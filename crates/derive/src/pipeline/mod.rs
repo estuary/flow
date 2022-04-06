@@ -11,11 +11,8 @@ use block::{Block, BlockInvoke};
 use futures::{stream::FuturesOrdered, StreamExt};
 use invocation::{Invocation, InvokeOutput, InvokeStats};
 use itertools::Itertools;
-use protocol::{
-    cgo, consumer,
-    flow::{self, derive_api},
-    message_flags,
-};
+use proto_flow::flow::{self, derive_api};
+use proto_gazette::{consumer, message_flags};
 use serde_json::Value;
 use std::task::{Context, Poll};
 
@@ -278,7 +275,7 @@ impl Pipeline {
     // Delegate to prepare the checkpoint for commit.
     pub fn prepare(
         &mut self,
-        checkpoint: protocol::consumer::Checkpoint,
+        checkpoint: proto_gazette::consumer::Checkpoint,
     ) -> Result<(), registers::Error> {
         assert_eq!(self.next.num_bytes, 0);
         assert!(self.trampoline.is_empty());

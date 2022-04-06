@@ -2,7 +2,7 @@ use super::{collection, indexed, reference, schema, storage_mapping, Error};
 use itertools::Itertools;
 use json::schema::types;
 use models::{build, tables};
-use protocol::flow;
+use proto_flow::flow;
 use superslice::Ext;
 
 pub fn walk_all_derivations(

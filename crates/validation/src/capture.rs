@@ -2,7 +2,7 @@ use super::{indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use models::{build, tables};
-use protocol::{capture, flow, labels};
+use proto_flow::{capture, flow};
 
 pub async fn walk_all_captures<D: Drivers>(
     build_config: &flow::build_api::Config,

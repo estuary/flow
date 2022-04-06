@@ -1,6 +1,6 @@
 use crate::{pipeline::Pipeline, registers::Registers};
 use prost::Message;
-use protocol::flow::{
+use proto_flow::flow::{
     derive_api::{self, Code, Config, DocHeader},
     CollectionSpec, DerivationSpec, LambdaSpec, TransformSpec,
 };

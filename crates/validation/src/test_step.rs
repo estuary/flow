@@ -1,7 +1,7 @@
 use super::{collection, errors::Error, indexed, reference, schema};
 use itertools::Itertools;
 use models::tables;
-use protocol::flow::{self, test_spec::step::Type as TestStepType};
+use proto_flow::flow;
 use superslice::Ext;
 
 pub fn walk_all_test_steps(
@@ -96,8 +96,8 @@ pub fn walk_test_step(
 
     // Map to slices of documents which are ingested or verified by this step.
     let (ingest, verify) = match step_type {
-        TestStepType::Ingest => (documents.as_slice(), &[] as &[_]),
-        TestStepType::Verify => (&[] as &[_], documents.as_slice()),
+        flow::test_spec::step::Type::Ingest => (documents.as_slice(), &[] as &[_]),
+        flow::test_spec::step::Type::Verify => (&[] as &[_], documents.as_slice()),
     };
 
     // Dereference test collection, returning early if not found.

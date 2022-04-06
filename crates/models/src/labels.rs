@@ -1,4 +1,4 @@
-use protocol::protocol as broker;
+use proto_gazette::broker;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
