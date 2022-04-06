@@ -2,7 +2,7 @@ use super::{collection, indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use models::{self, build, tables};
-use protocol::{flow, labels, materialize};
+use proto_flow::{flow, materialize};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
 

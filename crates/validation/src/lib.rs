@@ -1,7 +1,6 @@
 use futures::future::LocalBoxFuture;
 use itertools::{EitherOrBoth, Itertools};
 use models::tables;
-use protocol;
 
 mod capture;
 mod collection;
@@ -21,13 +20,13 @@ use errors::Error;
 pub trait Drivers {
     fn validate_materialization<'a>(
         &'a self,
-        request: protocol::materialize::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<protocol::materialize::ValidateResponse, anyhow::Error>>;
+        request: proto_flow::materialize::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<proto_flow::materialize::ValidateResponse, anyhow::Error>>;
 
     fn validate_capture<'a>(
         &'a self,
-        request: protocol::capture::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<protocol::capture::ValidateResponse, anyhow::Error>>;
+        request: proto_flow::capture::ValidateRequest,
+    ) -> LocalBoxFuture<'a, Result<proto_flow::capture::ValidateResponse, anyhow::Error>>;
 }
 
 /// Tables produced by validate.
@@ -44,7 +43,7 @@ pub struct Tables {
 }
 
 pub async fn validate<D: Drivers>(
-    build_config: &protocol::flow::build_api::Config,
+    build_config: &proto_flow::flow::build_api::Config,
     drivers: &D,
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],

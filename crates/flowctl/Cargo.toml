@@ -8,6 +8,7 @@ build = { path = "../build" }
 derive = { path = "../derive" }
 doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }
+labels = { path = "../labels" }
 models = { path = "../models" }
 protocol = { path = "../protocol" }
 sources = { path = "../sources" }

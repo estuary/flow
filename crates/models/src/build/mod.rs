@@ -1,7 +1,8 @@
 use crate::tables;
 use doc::inference::{Exists, Shape};
 use json::schema::types;
-use protocol::{consumer, flow, labels, protocol as broker};
+use proto_flow::flow;
+use proto_gazette::{broker, consumer};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;

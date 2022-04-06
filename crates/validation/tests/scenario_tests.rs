@@ -1,7 +1,7 @@
 use futures::{future::LocalBoxFuture, FutureExt};
 use lazy_static::lazy_static;
 use models::tables;
-use protocol::{capture, flow, materialize};
+use proto_flow::{capture, flow, materialize};
 use serde_json::Value;
 use std::collections::HashMap;
 

@@ -3,7 +3,7 @@ use futures::{channel::oneshot, FutureExt};
 use models::{self, tables};
 use prost::Message;
 use protocol::{
-    capture, cgo, flow,
+    capture, flow,
     flow::build_api::{self, Code},
     materialize,
 };

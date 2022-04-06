@@ -254,6 +254,7 @@ dependencies = [
  "build",
  "bytes",
  "cbindgen",
+ "cgo",
  "chrono",
  "derive",
  "prost",
@@ -382,6 +383,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "cgo",
  "doc",
  "futures",
  "insta",
@@ -516,6 +518,21 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "cgo"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "insta",
+ "prost",
+ "proto-flow",
+ "proto-gazette",
+ "serde",
+ "serde_json",
+ "tracing",
+]
 
 [[package]]
 name = "chardetng"
@@ -860,6 +877,7 @@ dependencies = [
  "allocator",
  "anyhow",
  "bytes",
+ "cgo",
  "doc",
  "futures",
  "insta",
@@ -868,7 +886,8 @@ dependencies = [
  "librocksdb-sys",
  "models",
  "prost",
- "protocol",
+ "proto-flow",
+ "proto-gazette",
  "rocksdb",
  "serde",
  "serde_json",
@@ -1078,6 +1097,7 @@ dependencies = [
  "doc",
  "flow_cli_common",
  "futures",
+ "labels",
  "models",
  "protocol",
  "reqwest",
@@ -1643,6 +1663,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "labels"
+version = "0.0.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1870,11 +1894,13 @@ dependencies = [
  "insta",
  "itertools",
  "json",
+ "labels",
  "lazy_static",
  "pathfinding",
  "percent-encoding",
  "prost",
- "protocol",
+ "proto-flow",
+ "proto-gazette",
  "regex",
  "rusqlite",
  "schemars",
@@ -2581,15 +2607,8 @@ dependencies = [
 name = "protocol"
 version = "0.0.0"
 dependencies = [
- "anyhow",
- "bytes",
- "insta",
- "prost",
  "proto-flow",
  "proto-gazette",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -3982,9 +4001,10 @@ dependencies = [
  "itertools",
  "json",
  "json-patch",
+ "labels",
  "lazy_static",
  "models",
- "protocol",
+ "proto-flow",
  "regex",
  "rusqlite",
  "serde",

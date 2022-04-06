@@ -134,7 +134,7 @@ tables!(
         // Name of this capture.
         capture: models::Capture,
         // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: protocol::flow::EndpointType,
+        endpoint_type: proto_flow::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
         endpoint_spec: Box<serde_json::value::RawValue>,
         // Interval between invocations of the capture.
@@ -160,7 +160,7 @@ tables!(
         // Name of this materialization.
         materialization: models::Materialization,
         // Enumerated type of the endpoint, used to select an appropriate driver.
-        endpoint_type: protocol::flow::EndpointType,
+        endpoint_type: proto_flow::flow::EndpointType,
         // JSON object which configures the endpoint with respect to its driver.
         endpoint_spec: Box<serde_json::value::RawValue>,
         // Template for shard specifications of this materialization.
@@ -203,7 +203,7 @@ tables!(
         // Enumerated index of this test step.
         step_index: u32,
         // Step type (e.x., ingest or verify).
-        step_type: protocol::flow::test_spec::step::Type,
+        step_type: proto_flow::flow::test_spec::step::Type,
     }
 
     table SchemaDocs (row SchemaDoc, order_by [schema], sql "schema_docs") {
@@ -228,7 +228,7 @@ tables!(
         // relative to the schema's root.
         location: models::JsonPointer,
         // Inference at this schema location.
-        spec: protocol::flow::Inference,
+        spec: proto_flow::flow::Inference,
     }
 
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
@@ -236,7 +236,7 @@ tables!(
         // Name of this capture.
         capture: String,
         // Built specification for this capture.
-        spec: protocol::flow::CaptureSpec,
+        spec: proto_flow::flow::CaptureSpec,
     }
 
     table BuiltCollections (row BuiltCollection, order_by [collection], sql "built_collections") {
@@ -251,7 +251,7 @@ tables!(
         // Name of this collection.
         collection: models::Collection,
         // Built specification for this collection.
-        spec: protocol::flow::CollectionSpec,
+        spec: proto_flow::flow::CollectionSpec,
         // If Some, this BuiltCollection was resolved from the given foreign build.
         foreign_build_id: Option<String>,
     }
@@ -261,7 +261,7 @@ tables!(
         // Name of this materialization.
         materialization: String,
         // Built specification for this materialization.
-        spec: protocol::flow::MaterializationSpec,
+        spec: proto_flow::flow::MaterializationSpec,
     }
 
     table BuiltDerivations (row BuiltDerivation, order_by [derivation], sql "built_derivations") {
@@ -269,14 +269,14 @@ tables!(
         // Name of this derivation.
         derivation: models::Collection,
         // Built specification for this derivation.
-        spec: protocol::flow::DerivationSpec,
+        spec: proto_flow::flow::DerivationSpec,
     }
 
     table BuiltTests (row BuiltTest, order_by [test], sql "built_tests") {
         // Name of the test case.
         test: models::Test,
         // Built specification for this test case.
-        spec: protocol::flow::TestSpec,
+        spec: proto_flow::flow::TestSpec,
     }
 
     table Errors (row Error, order_by [], sql "errors") {
@@ -285,7 +285,7 @@ tables!(
     }
 
     table Meta (row Build, order_by [], sql "meta") {
-        build_config: protocol::flow::build_api::Config,
+        build_config: proto_flow::flow::build_api::Config,
     }
 );
 
@@ -466,22 +466,22 @@ json_sql_types!(
     models::Lambda,
     models::PartitionSelector,
     models::ShardTemplate,
-    protocol::flow::EndpointType,
-    protocol::flow::test_spec::step::Type,
+    proto_flow::flow::EndpointType,
+    proto_flow::flow::test_spec::step::Type,
     serde_json::Value,
     Box<serde_json::value::RawValue>,
     uuid::Uuid,
 );
 
 proto_sql_types!(
-    protocol::flow::CaptureSpec,
-    protocol::flow::CollectionSpec,
-    protocol::flow::DerivationSpec,
-    protocol::flow::Inference,
-    protocol::flow::MaterializationSpec,
-    protocol::flow::TestSpec,
-    protocol::flow::TransformSpec,
-    protocol::flow::build_api::Config,
+    proto_flow::flow::CaptureSpec,
+    proto_flow::flow::CollectionSpec,
+    proto_flow::flow::DerivationSpec,
+    proto_flow::flow::Inference,
+    proto_flow::flow::MaterializationSpec,
+    proto_flow::flow::TestSpec,
+    proto_flow::flow::TransformSpec,
+    proto_flow::flow::build_api::Config,
 );
 
 // Modules that extend tables with additional implementations.

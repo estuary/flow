@@ -8,19 +8,21 @@ edition = "2018"
 crate_type = ["staticlib"]
 
 [dependencies]
+allocator = { path = "../allocator", version = "0.0.0" }
 build = { path = "../build", version = "0.0.0" }
+cgo = { path = "../cgo" }
+derive = { path = "../derive", version = "0.0.0" }
+protocol = { path = "../protocol", version = "0.0.0" }
+
+anyhow = "*"
 bytes = "*"
 chrono = "*"
-derive = { path = "../derive", version = "0.0.0" }
-allocator = { path = "../allocator", version = "0.0.0" }
 prost = "*"
-protocol = { path = "../protocol", version = "0.0.0" }
 serde = "*"
 serde_json = {version = "*", features = ["raw_value"]}
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["chrono"]}
-anyhow = "*"
 
 [build-dependencies]
 cbindgen = "*"

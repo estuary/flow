@@ -2,9 +2,8 @@ use super::combiner::{self, Combiner};
 use crate::{DocCounter, JsonError, StatsAccumulator};
 use doc::{Pointer, Validator};
 use prost::Message;
-use protocol::{
-    cgo,
-    flow::combine_api::{self, Code},
+use proto_flow::flow::{
+    combine_api::{self, Code},
 };
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
@@ -49,9 +48,9 @@ struct CombineStats {
 }
 
 impl StatsAccumulator for CombineStats {
-    type Stats = protocol::flow::combine_api::Stats;
+    type Stats = combine_api::Stats;
     fn drain(&mut self) -> Self::Stats {
-        protocol::flow::combine_api::Stats {
+        combine_api::Stats {
             left: Some(self.left.drain()),
             right: Some(self.right.drain()),
             out: Some(self.out.drain()),
@@ -232,13 +231,11 @@ pub fn drain_combiner(
 #[cfg(test)]
 pub mod test {
     use super::{super::test::build_min_max_sum_schema, Code, Error, API};
+    use cgo::Service;
     use prost::Message;
-    use protocol::{
-        cgo::Service,
-        flow::{
-            combine_api::{self, Stats},
-            DocsAndBytes,
-        },
+    use proto_flow::flow::{
+        combine_api::{self, Stats},
+        DocsAndBytes,
     };
     use serde_json::json;
 

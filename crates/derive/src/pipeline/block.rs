@@ -1,7 +1,6 @@
 use super::invocation::{Invocation, InvokeOutput};
 
 use futures::{future::LocalBoxFuture, FutureExt};
-use protocol::cgo;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

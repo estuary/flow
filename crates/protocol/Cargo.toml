@@ -2,19 +2,9 @@
 name = "protocol"
 version = "0.0.0"
 authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 
 proto-gazette = { path = "../proto-gazette" }
 proto-flow = { path = "../proto-flow" }
-
-anyhow = "*"
-bytes = "*"
-prost = "*"
-serde = "*"
-tracing = "*"
-
-[dev-dependencies]
-insta = "*"
-serde_json = "*"

@@ -4,10 +4,7 @@ use bytes::BufMut;
 use futures::channel::oneshot;
 use futures::{future::LocalBoxFuture, FutureExt};
 use prost::Message;
-use protocol::{
-    cgo,
-    flow::{self, derive_api},
-};
+use proto_flow::flow::{self, derive_api};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
@@ -155,12 +152,12 @@ pub struct InvokeStats {
 }
 
 impl StatsAccumulator for InvokeStats {
-    type Stats = protocol::flow::derive_api::stats::InvokeStats;
+    type Stats = flow::derive_api::stats::InvokeStats;
 
     fn drain(&mut self) -> Self::Stats {
         let total_seconds = self.total_duration.as_secs_f64();
         self.total_duration = Duration::default();
-        protocol::flow::derive_api::stats::InvokeStats {
+        flow::derive_api::stats::InvokeStats {
             output: Some(self.output.drain()),
             total_seconds,
         }
@@ -184,8 +181,8 @@ pub struct InvokeOutput {
 mod test {
     use super::*;
     use crate::DocCounter;
+    use flow::DocsAndBytes;
     use prost::Message;
-    use protocol::flow::DocsAndBytes;
     use serde_json::json;
 
     #[test]

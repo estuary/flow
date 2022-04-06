@@ -1,4 +1,4 @@
-use protocol::flow::EndpointType;
+use proto_flow::flow::EndpointType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

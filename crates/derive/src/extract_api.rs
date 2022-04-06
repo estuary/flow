@@ -1,9 +1,9 @@
 use crate::JsonError;
 use doc::{Pointer, Validator};
 use prost::Message;
-use protocol::{
-    cgo, flow,
-    flow::extract_api::{self, Code},
+use proto_flow::flow::{
+    self,
+    extract_api::{self, Code},
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -134,7 +134,7 @@ impl cgo::Service for API {
                 let doc = match &mut state.schema_validator {
                     Some((schema, validator))
                         // Transaction acknowledgements aren't expected to validate.
-                        if protocol::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
+                        if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
                     {
                         doc::Validation::validate(validator, schema, doc)?
                             .ok()
@@ -169,11 +169,9 @@ impl cgo::Service for API {
 #[cfg(test)]
 mod test {
     use super::{extract_uuid_parts, Code, API};
+    use cgo::Service;
     use doc::Pointer;
-    use protocol::{
-        cgo::{self, Service},
-        flow,
-    };
+    use proto_flow::flow;
     use serde_json::{json, Value};
 
     #[test]
