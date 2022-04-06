@@ -1,17 +1,23 @@
-use anyhow::Context;
-use doc;
-use schemalate::typescript::Mapper;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path;
-use std::process::Command;
-use url::Url;
+use typescript::Mapper;
 
 mod generators;
 mod interface;
 
 use interface::{Interface, Module};
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("failed to build JSON schema")]
+    SchemaBuild(#[from] json::schema::BuildError),
+    #[error(transparent)]
+    JsonError(#[from] serde_json::Error),
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+}
 
 pub enum WriteIntent {
     Always(String),
@@ -38,7 +44,7 @@ impl fmt::Debug for WriteIntent {
     }
 }
 
-pub fn generate_package<'a>(
+pub fn generate_npm_package<'a>(
     package_dir: &path::Path,
     collections: &'a [tables::Collection],
     derivations: &'a [tables::Derivation],
@@ -47,7 +53,7 @@ pub fn generate_package<'a>(
     resources: &'a [tables::Resource],
     schema_docs: &'a [tables::SchemaDoc],
     transforms: &'a [tables::Transform],
-) -> Result<BTreeMap<String, WriteIntent>, anyhow::Error> {
+) -> Result<BTreeMap<String, WriteIntent>, Error> {
     // Compile and index all schemas. We assume that referential integrity
     // is checked elsewhere, and make only a best-effort attempt to index
     // and resolve all schemas.
@@ -175,10 +181,10 @@ pub fn generate_package<'a>(
     Ok(files)
 }
 
-pub fn write_package<'a>(
+pub fn write_npm_package<'a>(
     package_dir: &path::Path,
     files: BTreeMap<String, WriteIntent>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), std::io::Error> {
     for (path, intent) in files {
         let path = package_dir.join(path);
 
@@ -205,61 +211,6 @@ pub fn write_package<'a>(
     Ok(())
 }
 
-pub fn compile_package(package_dir: &path::Path) -> Result<(), anyhow::Error> {
-    if !package_dir.join("node_modules").exists() {
-        npm_cmd(package_dir, &["install", "--no-audit", "--no-fund"])?;
-    }
-    npm_cmd(package_dir, &["run", "compile"])?;
-    npm_cmd(package_dir, &["run", "lint"])?;
-    Ok(())
-}
-
-pub fn pack_package(package_dir: &path::Path) -> Result<tables::Resources, anyhow::Error> {
-    npm_cmd(package_dir, &["pack"])?;
-
-    let pack = package_dir.join("catalog-js-transformer-0.0.0.tgz");
-    let pack = std::fs::canonicalize(&pack)?;
-
-    tracing::info!("built NodeJS pack {:?}", pack);
-
-    let mut resources = tables::Resources::new();
-    resources.insert_row(
-        Url::from_file_path(&pack).unwrap(),
-        models::ContentType::NpmPackage,
-        bytes::Bytes::from(std::fs::read(&pack)?),
-    );
-    std::fs::remove_file(&pack)?;
-
-    Ok(resources)
-}
-
-fn npm_cmd(package_dir: &path::Path, args: &[&str]) -> Result<(), anyhow::Error> {
-    let mut cmd = Command::new("npm");
-
-    for &arg in args.iter() {
-        cmd.arg(arg);
-    }
-    cmd.current_dir(package_dir);
-
-    tracing::info!(?package_dir, ?args, "invoking `npm`");
-
-    let status = cmd
-        .spawn()
-        .and_then(|mut c| c.wait())
-        .context("failed to spawn `npm` command")?;
-
-    if !status.success() {
-        anyhow::bail!(
-            "npm command {:?}, in directory {:?}, failed with status {:?}",
-            args,
-            package_dir,
-            status
-        );
-    }
-
-    Ok(())
-}
-
 // Models the bits of the "package.json" file we care about patching,
 // and passes through everything else.
 #[derive(Serialize, Deserialize)]
@@ -275,7 +226,7 @@ struct PackageJson {
 fn patch_package_dot_json(
     content: &[u8],
     npm_dependencies: &[tables::NPMDependency],
-) -> Result<String, anyhow::Error> {
+) -> Result<String, serde_json::Error> {
     // Parse current package.json.
     let mut dom: PackageJson = serde_json::from_slice(content)?;
 

@@ -11,13 +11,22 @@ labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+sources = { path = "../sources" }
 tables = { path = "../tables" }
+typescript = { path = "../typescript" }
 
+bytes = "*"
+itertools = "*"
 percent-encoding = "*"
+regex = "*"
+serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+thiserror = "*"
+tracing = "*"
 url = "*"
 
 [dev-dependencies]
+
 insta = "*"
-#itertools = "*"
-#serde_yaml = "*"
+lazy_static = "*"
+serde_yaml = "*"

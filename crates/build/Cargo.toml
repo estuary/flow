@@ -11,7 +11,6 @@ doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
 protocol = { path = "../protocol" }
-schemalate = { path = "../schemalate" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
@@ -19,9 +18,7 @@ validation = { path = "../validation" }
 anyhow = "*"
 bytes = "*"
 futures = "*"
-itertools = "*"
 prost = "*"
-regex = "*"
 rusqlite = { version = "*", features = ["bundled-full"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*" }
@@ -30,6 +27,7 @@ tracing = "*"
 url = "*"
 
 [dev-dependencies]
+
 insta = "*"
 lazy_static = "*"
 serde_yaml = "*"
