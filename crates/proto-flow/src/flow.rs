@@ -1062,7 +1062,7 @@ pub enum LogLevelFilter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ContentType {
-    CatalogSpec = 0,
+    Catalog = 0,
     JsonSchema = 1,
     TypescriptModule = 2,
     NpmPackage = 3,

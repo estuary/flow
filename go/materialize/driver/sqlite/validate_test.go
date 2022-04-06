@@ -24,7 +24,7 @@ func TestValidations(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///validate.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 

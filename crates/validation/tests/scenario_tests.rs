@@ -1270,7 +1270,7 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         .unwrap_or_default();
     let mock_calls: MockDriverCalls = serde_json::from_value(mock_calls).unwrap();
 
-    let sources::Tables {
+    let tables::Sources {
         capture_bindings,
         captures,
         collections,
@@ -1290,7 +1290,7 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         transforms,
     } = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
 
-    let validation::Tables {
+    let tables::Validations {
         built_captures,
         built_collections,
         built_derivations,

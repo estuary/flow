@@ -1,12 +1,11 @@
+use super::references::*;
+
 use lazy_static::lazy_static;
-use proto_gazette::broker::CompressionCodec as ProtoCodec;
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use validator::Validate;
-
-use super::references::*;
 
 /// BucketType is a provider of object storage buckets,
 /// which are used to durably storage journal fragments.
@@ -122,19 +121,6 @@ impl CompressionCodec {
         CompressionCodec::GzipOffloadDecompression
     }
 }
-
-impl Into<ProtoCodec> for CompressionCodec {
-    fn into(self) -> ProtoCodec {
-        match self {
-            Self::None => ProtoCodec::None,
-            Self::Gzip => ProtoCodec::Gzip,
-            Self::Zstandard => ProtoCodec::Zstandard,
-            Self::Snappy => ProtoCodec::Snappy,
-            Self::GzipOffloadDecompression => ProtoCodec::GzipOffloadDecompression,
-        }
-    }
-}
-// From<ProtoCodec> is not provided as CompressionCoded doesn't imlement all variants.
 
 /// A FragmentTemplate configures how journal fragment files are
 /// produced as part of a collection.

@@ -1,10 +1,9 @@
-use proto_flow::flow::EndpointType;
+use super::{Collection, ConnectorConfig, Object, ShardTemplate};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
-
-use super::{Collection, ConnectorConfig, Object, ShardTemplate};
 
 /// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
 /// from which data should be continuously captured, with a Flow collection into that captured
@@ -78,15 +77,6 @@ pub enum CaptureEndpoint {
     Connector(ConnectorConfig),
     /// # A push ingestion.
     Ingest(IngestConfig),
-}
-
-impl CaptureEndpoint {
-    pub fn endpoint_type(&self) -> EndpointType {
-        match self {
-            Self::Connector(_) => EndpointType::AirbyteSource,
-            Self::Ingest(_) => EndpointType::Ingest,
-        }
-    }
 }
 
 /// Ingest source specification.

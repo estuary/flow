@@ -2,6 +2,7 @@
 //! this data to Flow collections, so that users can create derivations and materializations of
 //! that data. This module generates the Flow specs and schemas for these collections.
 use models;
+use proto_flow::flow;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use url::Url;
@@ -22,7 +23,7 @@ macro_rules! gen_schema {
 
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
-pub fn generate_ops_collections(tables: &mut sources::Tables) {
+pub fn generate_ops_collections(tables: &mut tables::Sources) {
     let tenants = all_tenant_names(tables);
     let shard_schema = gen_schema!("ops-shard-schema.json");
     let stats_schema = gen_schema!("ops-stats-schema.json");
@@ -31,7 +32,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
             schema.url.clone(),
-            models::ContentType::JsonSchema,
+            flow::ContentType::JsonSchema,
             bytes::Bytes::from_static(schema.content),
         );
         let dom = serde_json::from_slice::<Value>(schema.content)
@@ -48,7 +49,7 @@ pub fn generate_ops_collections(tables: &mut sources::Tables) {
     let importers = tables
         .resources
         .iter()
-        .filter(|r| r.content_type == models::ContentType::Catalog)
+        .filter(|r| r.content_type == flow::ContentType::Catalog)
         .map(|r| r.resource.clone())
         .collect::<Vec<_>>();
     for importer in importers {
@@ -71,7 +72,7 @@ fn ops_collection_resource_url() -> Url {
     builtin_url("ops/generated/collections")
 }
 
-fn add_ops_collection(name: String, schema_url: Url, tables: &mut sources::Tables) {
+fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Sources) {
     let scope = ops_collection_resource_url();
 
     let name = models::Collection::new(name);
@@ -105,7 +106,7 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut sources::Table
     }
 }
 
-fn all_tenant_names(tables: &sources::Tables) -> BTreeSet<String> {
+fn all_tenant_names(tables: &tables::Sources) -> BTreeSet<String> {
     let mut tenants = BTreeSet::new();
     let captures = tables.captures.iter().map(|c| c.capture.as_str());
     let derivations = tables.derivations.iter().map(|d| d.derivation.as_str());
@@ -140,7 +141,7 @@ mod test {
 
     #[test]
     fn ops_collections_are_generated() {
-        let mut tables = sources::Tables::default();
+        let mut tables = tables::Sources::default();
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
             models::Capture::new("acmeCo/foo"),

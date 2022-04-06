@@ -1915,8 +1915,6 @@ dependencies = [
 name = "models"
 version = "0.0.0"
 dependencies = [
- "anyhow",
- "bytes",
  "caseless",
  "doc",
  "humantime-serde",
@@ -1926,12 +1924,7 @@ dependencies = [
  "labels",
  "lazy_static",
  "pathfinding",
- "percent-encoding",
- "prost",
- "proto-flow",
- "proto-gazette",
  "regex",
- "rusqlite",
  "schemars",
  "serde",
  "serde_json",
@@ -1939,7 +1932,6 @@ dependencies = [
  "superslice",
  "unicode-normalization",
  "url",
- "uuid",
  "validator",
 ]
 
@@ -3274,7 +3266,7 @@ dependencies = [
  "json",
  "lazy_static",
  "models",
- "protocol",
+ "proto-flow",
  "regex",
  "schemars",
  "serde",

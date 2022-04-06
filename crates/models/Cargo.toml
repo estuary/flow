@@ -5,29 +5,25 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+# NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
+# Users shouldn't _have_ to bring in all of our protobuf types as well.
+# Instead, consider the `assemble` crate for models <=> protobuf conversions.
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
 labels = { path = "../labels", version = "0.0.0" }
-proto-flow = { path = "../proto-flow" }
-proto-gazette = { path = "../proto-gazette" }
 
-anyhow = "*"
-bytes = "*"
+
 caseless = "*"
 humantime-serde = "*"
 lazy_static = "*"
 pathfinding = "*"
-percent-encoding = "*"
-prost = "*"
 regex = "*"
-rusqlite = { version = "*", features = ["bundled-full"] }
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version =  "*", features = ["raw_value"] }
 superslice = "*"
 unicode-normalization = "*"
 url = "*"
-uuid = { version = "*", features = ["serde"] }
 validator = { version = "*", features = ["derive"] }
 
 [dev-dependencies]

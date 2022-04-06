@@ -69,21 +69,18 @@ pub fn partition_template(
     let models::JournalTemplate {
         fragments:
             models::FragmentTemplate {
-                compression_codec,
+                compression_codec: codec,
                 flush_interval,
                 length,
                 retention,
             },
     } = journals.clone();
 
-    use models::CompressionCodec;
-
     // Until there's a good reason otherwise, we hard-code that partition journals are replicated 3x.
     let replication = 3;
 
     // Use a supplied compression codec. Or, if none, then default to gzip.
-    let compression_codec: broker::CompressionCodec =
-        compression_codec.unwrap_or(CompressionCodec::Gzip).into();
+    let compression_codec = compression_codec(codec.unwrap_or(models::CompressionCodec::Gzip));
 
     // If an explicit flush interval isn't provided, then don't set one.
     let flush_interval = flush_interval.map(Into::into);
@@ -157,8 +154,6 @@ pub fn recovery_log_template(
     task_type: &str,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
-    use models::CompressionCodec;
-
     // Until there's a good reason otherwise, we hard-code that recovery logs are replicated 3x.
     let replication = 3;
 
@@ -167,7 +162,7 @@ pub fn recovery_log_template(
     // uncompressed. Snappy has good support for passing-through content
     // that's already compressed.
     // TODO(johnny): Switch gazette to https://github.com/klauspost/compress/tree/master/s2
-    let compression_codec: broker::CompressionCodec = CompressionCodec::Snappy.into();
+    let compression_codec = compression_codec(models::CompressionCodec::Snappy);
 
     // Never set a flush interval for recovery logs.
     let flush_interval = None;
@@ -678,6 +673,81 @@ pub fn test_step_spec(
             .join("\n"),
         partitions: Some(journal_selector(collection, partitions)),
         description: description.clone(),
+    }
+}
+
+pub fn content_type(t: models::ContentType) -> flow::ContentType {
+    match t {
+        models::ContentType::Catalog => flow::ContentType::Catalog,
+        models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
+        models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
+        models::ContentType::NpmPackage => flow::ContentType::NpmPackage,
+        models::ContentType::Config => flow::ContentType::Config,
+        models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
+    }
+}
+
+pub fn capture_endpoint_type(t: &models::CaptureEndpoint) -> flow::EndpointType {
+    match t {
+        models::CaptureEndpoint::Connector(_) => flow::EndpointType::AirbyteSource,
+        models::CaptureEndpoint::Ingest(_) => flow::EndpointType::Ingest,
+    }
+}
+
+pub fn materialization_endpoint_type(t: &models::MaterializationEndpoint) -> flow::EndpointType {
+    match t {
+        models::MaterializationEndpoint::Connector(_) => flow::EndpointType::FlowSink,
+        models::MaterializationEndpoint::Sqlite(_) => flow::EndpointType::Sqlite,
+    }
+}
+
+pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {
+    match t {
+        models::CompressionCodec::None => broker::CompressionCodec::None,
+        models::CompressionCodec::Gzip => broker::CompressionCodec::Gzip,
+        models::CompressionCodec::Zstandard => broker::CompressionCodec::Zstandard,
+        models::CompressionCodec::Snappy => broker::CompressionCodec::Snappy,
+        models::CompressionCodec::GzipOffloadDecompression => {
+            broker::CompressionCodec::GzipOffloadDecompression
+        }
+    }
+}
+
+pub fn label(t: models::Label) -> broker::Label {
+    let models::Label { name, value } = t;
+    broker::Label { name, value }
+}
+
+pub fn label_set(t: models::LabelSet) -> broker::LabelSet {
+    let models::LabelSet { mut labels } = t;
+
+    // broker::LabelSet requires that labels be ordered on (name, value).
+    // Establish this invariant.
+    labels.sort_by(|lhs, rhs| (&lhs.name, &lhs.value).cmp(&(&rhs.name, &rhs.value)));
+
+    broker::LabelSet {
+        labels: labels.into_iter().map(label).collect(),
+    }
+}
+
+pub fn label_selector(t: models::LabelSelector) -> broker::LabelSelector {
+    let models::LabelSelector { include, exclude } = t;
+
+    let include = if include.labels.is_empty() {
+        None
+    } else {
+        Some(include)
+    };
+
+    let exclude = if exclude.labels.is_empty() {
+        None
+    } else {
+        Some(exclude)
+    };
+
+    broker::LabelSelector {
+        include: include.map(label_set),
+        exclude: exclude.map(label_set),
     }
 }
 

@@ -4,7 +4,7 @@ use doc::inference;
 fn test_bundle_generation() {
     // Load a fixture into imports, collections, and schema docs.
     let fixture = serde_yaml::from_slice(include_bytes!("bundles.yaml")).unwrap();
-    let sources::Tables {
+    let tables::Sources {
         imports,
         schema_docs,
         collections,

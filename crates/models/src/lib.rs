@@ -17,6 +17,7 @@ mod shards;
 mod shuffles;
 mod tests;
 
+pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};

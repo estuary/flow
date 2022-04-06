@@ -5,10 +5,11 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+assemble = { path = "../assemble" }
 doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
-protocol = { path = "../protocol" }
+proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables" }
 
 anyhow = "*"
@@ -28,6 +29,5 @@ url = "*"
 yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
 
 [dev-dependencies]
-assemble = { path = "../assemble" }
 
 insta = "*"

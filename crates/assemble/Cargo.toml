@@ -11,7 +11,6 @@ labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-sources = { path = "../sources" }
 tables = { path = "../tables" }
 typescript = { path = "../typescript" }
 
@@ -26,6 +25,7 @@ tracing = "*"
 url = "*"
 
 [dev-dependencies]
+sources = { path = "../sources" }
 
 insta = "*"
 lazy_static = "*"
