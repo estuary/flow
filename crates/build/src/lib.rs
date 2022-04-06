@@ -6,9 +6,6 @@ use url::Url;
 mod api;
 pub use api::API;
 
-mod nodejs;
-mod ops;
-
 /// Resolves a source argument to a canonical URL. If `source` is already a url, then it's simply
 /// parsed and returned. If source is a filesystem path, then it is canonicalized and returned as a
 /// `file:///` URL. Will return an error if the filesystem path does not exist.
@@ -68,22 +65,21 @@ where
     }
 
     if config.typescript_generate || config.typescript_compile || config.typescript_package {
-        generate_typescript_package(&all_tables, &directory)
+        generate_npm_package(&all_tables, &directory)
             .context("failed to generate TypeScript package")?;
     }
     if config.typescript_compile || config.typescript_package {
-        nodejs::compile_package(&directory).context("failed to compile TypeScript package")?;
+        compile_npm(&directory).context("failed to compile TypeScript package")?;
     }
     if config.typescript_package {
-        let npm_resources =
-            nodejs::pack_package(&directory).context("failed to pack TypeScript package")?;
+        let npm_resources = pack_npm(&directory).context("failed to pack TypeScript package")?;
         tables::persist_tables(&db, &[&npm_resources]).context("failed to persist NPM package")?;
     }
 
     Ok(all_tables)
 }
 
-pub async fn load_and_validate<F, D>(
+async fn load_and_validate<F, D>(
     root: Url,
     root_type: flow::ContentType,
     fetcher: F,
@@ -100,7 +96,7 @@ where
         .await;
 
     let mut tables = loader.into_tables();
-    ops::generate_ops_collections(&mut tables);
+    assemble::generate_ops_collections(&mut tables);
 
     let sources::Tables {
         capture_bindings,
@@ -185,11 +181,11 @@ where
     }
 }
 
-pub fn generate_typescript_package(tables: &tables::All, dir: &Path) -> Result<(), anyhow::Error> {
+fn generate_npm_package(tables: &tables::All, dir: &Path) -> Result<(), anyhow::Error> {
     assert!(dir.is_absolute() && dir.is_dir());
 
     // Generate and write the NPM package.
-    let write_intents = nodejs::generate_package(
+    let write_intents = assemble::generate_npm_package(
         &dir,
         &tables.collections,
         &tables.derivations,
@@ -199,6 +195,61 @@ pub fn generate_typescript_package(tables: &tables::All, dir: &Path) -> Result<(
         &tables.schema_docs,
         &tables.transforms,
     )?;
-    nodejs::write_package(&dir, write_intents)?;
+    assemble::write_npm_package(&dir, write_intents)?;
+    Ok(())
+}
+
+fn compile_npm(package_dir: &std::path::Path) -> Result<(), anyhow::Error> {
+    if !package_dir.join("node_modules").exists() {
+        npm_cmd(package_dir, &["install", "--no-audit", "--no-fund"])?;
+    }
+    npm_cmd(package_dir, &["run", "compile"])?;
+    npm_cmd(package_dir, &["run", "lint"])?;
+    Ok(())
+}
+
+fn pack_npm(package_dir: &std::path::Path) -> Result<tables::Resources, anyhow::Error> {
+    npm_cmd(package_dir, &["pack"])?;
+
+    let pack = package_dir.join("catalog-js-transformer-0.0.0.tgz");
+    let pack = std::fs::canonicalize(&pack)?;
+
+    tracing::info!("built NodeJS pack {:?}", pack);
+
+    let mut resources = tables::Resources::new();
+    resources.insert_row(
+        Url::from_file_path(&pack).unwrap(),
+        models::ContentType::NpmPackage,
+        bytes::Bytes::from(std::fs::read(&pack)?),
+    );
+    std::fs::remove_file(&pack)?;
+
+    Ok(resources)
+}
+
+fn npm_cmd(package_dir: &std::path::Path, args: &[&str]) -> Result<(), anyhow::Error> {
+    let mut cmd = std::process::Command::new("npm");
+
+    for &arg in args.iter() {
+        cmd.arg(arg);
+    }
+    cmd.current_dir(package_dir);
+
+    tracing::info!(?package_dir, ?args, "invoking `npm`");
+
+    let status = cmd
+        .spawn()
+        .and_then(|mut c| c.wait())
+        .context("failed to spawn `npm` command")?;
+
+    if !status.success() {
+        anyhow::bail!(
+            "npm command {:?}, in directory {:?}, failed with status {:?}",
+            args,
+            package_dir,
+            status
+        );
+    }
+
     Ok(())
 }

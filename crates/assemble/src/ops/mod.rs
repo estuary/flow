@@ -144,7 +144,7 @@ mod test {
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
             models::Capture::new("acmeCo/foo"),
-            protocol::flow::EndpointType::AirbyteSource,
+            proto_flow::flow::EndpointType::AirbyteSource,
             serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
             7u32,
             models::ShardTemplate::default(),
@@ -152,7 +152,7 @@ mod test {
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/shamazon~1bar"),
             models::Capture::new("shamazon/bar"),
-            protocol::flow::EndpointType::AirbyteSource,
+            proto_flow::flow::EndpointType::AirbyteSource,
             serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
             8u32,
             models::ShardTemplate::default(),
@@ -178,7 +178,7 @@ mod test {
         tables.materializations.insert_row(
             builtin_url("test-mat.flow.yaml#/collections/justme"),
             models::Materialization::new("justme"),
-            protocol::flow::EndpointType::Sqlite,
+            proto_flow::flow::EndpointType::Sqlite,
             serde_json::value::RawValue::from_string("null".to_owned()).unwrap(),
             models::ShardTemplate::default(),
         );

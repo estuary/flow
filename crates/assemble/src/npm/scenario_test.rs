@@ -1,8 +1,6 @@
 use lazy_static::lazy_static;
 use std::path;
 
-use super::generate_package;
-
 lazy_static! {
     static ref MODEL: serde_json::Value =
         serde_yaml::from_slice(include_bytes!("model.yaml")).unwrap();
@@ -27,7 +25,7 @@ fn test_scenario() {
         panic!("unexpected errors");
     }
 
-    let intents = generate_package(
+    let intents = super::generate_npm_package(
         &path::Path::new("/package"),
         &collections,
         &derivations,

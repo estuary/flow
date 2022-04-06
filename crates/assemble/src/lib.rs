@@ -9,6 +9,12 @@ use std::time::Duration;
 mod bundle;
 pub use bundle::bundled_schema;
 
+mod npm;
+pub use npm::{generate_npm_package, write_npm_package};
+
+mod ops;
+pub use ops::generate_ops_collections;
+
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
