@@ -28,19 +28,6 @@ pub trait Drivers {
     ) -> LocalBoxFuture<'a, Result<proto_flow::capture::ValidateResponse, anyhow::Error>>;
 }
 
-/// Tables produced by validate.
-#[derive(Default, Debug)]
-pub struct Tables {
-    pub built_captures: tables::BuiltCaptures,
-    pub built_collections: tables::BuiltCollections,
-    pub built_derivations: tables::BuiltDerivations,
-    pub built_materializations: tables::BuiltMaterializations,
-    pub built_tests: tables::BuiltTests,
-    pub errors: tables::Errors,
-    pub implicit_projections: tables::Projections,
-    pub inferences: tables::Inferences,
-}
-
 pub async fn validate<D: Drivers>(
     build_config: &proto_flow::flow::build_api::Config,
     drivers: &D,
@@ -61,7 +48,7 @@ pub async fn validate<D: Drivers>(
     storage_mappings: &[tables::StorageMapping],
     test_steps: &[tables::TestStep],
     transforms: &[tables::Transform],
-) -> Tables {
+) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
     // Fetches order on the fetch depth, so take the first (lowest-depth)
@@ -77,7 +64,7 @@ pub async fn validate<D: Drivers>(
         Err(err) => {
             Error::from(err).push(root_scope, &mut errors);
 
-            return Tables {
+            return tables::Validations {
                 errors,
                 ..Default::default()
             };
@@ -216,7 +203,7 @@ pub async fn validate<D: Drivers>(
         futures::future::join(built_captures, built_materializations).await;
     errors.extend(tmp_errors.into_iter());
 
-    Tables {
+    tables::Validations {
         built_captures,
         built_collections,
         built_derivations,

@@ -806,7 +806,7 @@ message DeriveAPI {
 
 // ContentType enumerates the content types understood by Flow.
 enum ContentType {
-  CATALOG_SPEC = 0;
+  CATALOG = 0;
   JSON_SCHEMA = 1;
   TYPESCRIPT_MODULE = 2;
   NPM_PACKAGE = 3;

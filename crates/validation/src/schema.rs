@@ -5,6 +5,7 @@ use doc::{
 };
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
+use proto_flow::flow;
 use superslice::Ext;
 use url::Url;
 
@@ -136,7 +137,7 @@ impl<'a> Ref<'a> {
         let root = &resources[resources.equal_range_by_key(&root_scope, |r| &r.resource)];
         match root.first() {
             Some(tables::Resource {
-                content_type: models::ContentType::JsonSchema,
+                content_type: flow::ContentType::JsonSchema,
                 resource,
                 ..
             }) => {

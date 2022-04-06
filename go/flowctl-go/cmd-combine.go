@@ -51,7 +51,7 @@ func (cmd cmdCombine) Execute(_ []string) error {
 		BuildId:          newBuildID(),
 		Directory:        cmd.Directory,
 		Source:           cmd.Source,
-		SourceType:       pf.ContentType_CATALOG_SPEC,
+		SourceType:       pf.ContentType_CATALOG,
 		ConnectorNetwork: cmd.Network,
 	}
 	// Cleanup output database.

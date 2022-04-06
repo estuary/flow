@@ -1,9 +1,8 @@
-use proto_flow::flow::ContentType as ProtoContentType;
+use super::{Object, RelativeUrl};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
-
-use super::{Object, RelativeUrl};
 
 /// A Resource is content with an associated ContentType.
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
@@ -101,31 +100,6 @@ pub enum ContentType {
 impl ContentType {
     pub fn example() -> Self {
         Self::Catalog
-    }
-}
-
-impl From<ProtoContentType> for ContentType {
-    fn from(t: ProtoContentType) -> Self {
-        match t {
-            ProtoContentType::CatalogSpec => Self::Catalog,
-            ProtoContentType::JsonSchema => Self::JsonSchema,
-            ProtoContentType::TypescriptModule => Self::TypescriptModule,
-            ProtoContentType::NpmPackage => Self::NpmPackage,
-            ProtoContentType::Config => Self::Config,
-            ProtoContentType::DocumentsFixture => Self::DocumentsFixture,
-        }
-    }
-}
-impl Into<ProtoContentType> for ContentType {
-    fn into(self) -> ProtoContentType {
-        match self {
-            Self::Catalog => ProtoContentType::CatalogSpec,
-            Self::JsonSchema => ProtoContentType::JsonSchema,
-            Self::TypescriptModule => ProtoContentType::TypescriptModule,
-            Self::NpmPackage => ProtoContentType::NpmPackage,
-            Self::Config => ProtoContentType::Config,
-            Self::DocumentsFixture => ProtoContentType::DocumentsFixture,
-        }
     }
 }
 

@@ -26,7 +26,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-strings.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
@@ -157,7 +157,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///inc-reset-publish.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
