@@ -3,7 +3,6 @@ use anyhow::Context;
 use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
-use models::{self, tables};
 use protocol::flow::test_spec::step::Type as TestStepType;
 use regex::Regex;
 use serde_json::value::RawValue;

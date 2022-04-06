@@ -1,8 +1,7 @@
 ---
-source: crates/models/src/build/mod.rs
-assertion_line: 693
+source: crates/assemble/src/lib.rs
+assertion_line: 706
 expression: "&[out1, out2]"
-
 ---
 [
     Inference {

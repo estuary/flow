@@ -12,6 +12,7 @@ json = { path = "../json", version = "0.0.0" }
 models = { path = "../models", version = "0.0.0" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables", version = "0.0.0" }
 tuple = { path = "../tuple", version = "0.0.0" }
 
 anyhow = "*"

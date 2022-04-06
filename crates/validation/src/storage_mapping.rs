@@ -1,7 +1,6 @@
 use crate::errors::Error;
 
 use super::{indexed, reference};
-use models::{self, tables};
 use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
@@ -112,12 +111,12 @@ static EMPTY_STORES: Vec<models::Store> = Vec::new();
 
 #[cfg(test)]
 mod test {
-    use super::{lookup_mapping, tables::StorageMappings};
+    use super::lookup_mapping;
     use models::Prefix;
 
     #[test]
     fn test_matched_mapping() {
-        let mut mappings = StorageMappings::new();
+        let mut mappings = tables::StorageMappings::new();
         let scope = url::Url::parse("http://scope").unwrap();
 
         mappings.insert_row(&scope, Prefix::new("foo/"), Vec::new(), None);

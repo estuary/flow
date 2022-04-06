@@ -1,7 +1,7 @@
 ---
-source: crates/models/src/build/mod.rs
+source: crates/assemble/src/lib.rs
+assertion_line: 741
 expression: labels
-
 ---
 LabelSelector {
     include: Some(

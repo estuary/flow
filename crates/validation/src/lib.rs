@@ -1,6 +1,5 @@
 use futures::future::LocalBoxFuture;
 use itertools::{EitherOrBoth, Itertools};
-use models::tables;
 
 mod capture;
 mod collection;

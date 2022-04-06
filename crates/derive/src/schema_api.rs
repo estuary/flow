@@ -1,5 +1,4 @@
 use crate::JsonError;
-use models::tables;
 use prost::Message;
 use proto_flow::flow::{self, schema_api::Code};
 use url::Url;

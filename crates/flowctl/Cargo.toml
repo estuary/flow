@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+assemble = { path = "../assemble" }
 build = { path = "../build" }
 derive = { path = "../derive" }
 doc = { path = "../doc" }
@@ -12,6 +13,7 @@ labels = { path = "../labels" }
 models = { path = "../models" }
 protocol = { path = "../protocol" }
 sources = { path = "../sources" }
+tables = { path = "../tables" }
 validation = { path = "../validation" }
 
 anyhow = "*"

@@ -5,14 +5,16 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-cgo = { path = "../cgo", version = "0.0.0" }
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
-models = { path = "../models", version = "0.0.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
-schemalate = { path = "../schemalate", version = "0.0.0" }
-sources = { path = "../sources", version = "0.0.0" }
-validation = { path = "../validation", version = "0.0.0" }
+assemble = { path = "../assemble" }
+cgo = { path = "../cgo" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+models = { path = "../models" }
+protocol = { path = "../protocol" }
+schemalate = { path = "../schemalate" }
+sources = { path = "../sources" }
+tables = { path = "../tables", features = ["persist"] }
+validation = { path = "../validation" }
 
 anyhow = "*"
 bytes = "*"
