@@ -1,7 +1,7 @@
 ---
-source: crates/build/src/ops/mod.rs
+source: crates/assemble/src/ops/mod.rs
+assertion_line: 189
 expression: "&tables.collections"
-
 ---
 [
     Collection {

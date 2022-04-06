@@ -1,11 +1,11 @@
 use super::camel_case;
 use super::interface::{Interface, Method, Module};
 use itertools::Itertools;
-use schemalate::typescript::{ast::Context, Mapper};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path;
+use typescript::{ast::Context, Mapper};
 
 pub fn anchors_ts(
     package_dir: &path::Path,
@@ -246,7 +246,7 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
             writeln!(
                 w,
                 "    '/{group_name}/{type:?}': __{class}.{method}.bind(\n        __{class},\n    ) as Lambda,",
-                group_name = assemble::transform_group_name(&method.transform),
+                group_name = crate::transform_group_name(&method.transform),
                 type = method.type_,
                 class = class,
                 method = method.type_.method_name(&method.transform.transform),

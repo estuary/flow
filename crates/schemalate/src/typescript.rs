@@ -1,12 +1,7 @@
-pub mod ast;
-pub mod mapping;
-
-pub use mapping::Mapper;
-
-use ast::Context;
 use doc::{Schema, SchemaIndexBuilder};
 use json::schema::{build::build_schema, Application, Keyword};
 use std::io::Write as IoWrite;
+use typescript::{ast::Context, Mapper};
 use url::Url;
 
 #[derive(clap::Args, Debug)]

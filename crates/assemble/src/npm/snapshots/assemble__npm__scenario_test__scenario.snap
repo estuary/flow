@@ -1,8 +1,7 @@
 ---
-source: crates/build/src/nodejs/scenario_test.rs
+source: crates/assemble/src/npm/scenario_test.rs
 assertion_line: 42
 expression: intents
-
 ---
 {
     ".eslintrc.js": IfNotExists:

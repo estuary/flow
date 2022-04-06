@@ -75,16 +75,26 @@ checksum = "4361135be9122e0870de935d7c439aef945b9f9ddd4199a553b5270b49c82a27"
 name = "assemble"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "doc",
  "insta",
+ "itertools",
  "json",
  "labels",
+ "lazy_static",
  "models",
  "percent-encoding",
  "proto-flow",
  "proto-gazette",
+ "regex",
+ "serde",
  "serde_json",
+ "serde_yaml",
+ "sources",
  "tables",
+ "thiserror",
+ "tracing",
+ "typescript",
  "url",
 ]
 
@@ -405,15 +415,12 @@ dependencies = [
  "doc",
  "futures",
  "insta",
- "itertools",
  "json",
  "lazy_static",
  "models",
  "prost",
  "protocol",
- "regex",
  "rusqlite",
- "schemalate",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2996,6 +3003,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+ "typescript",
  "url",
 ]
 
@@ -3965,6 +3973,18 @@ name = "typenum"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
+
+[[package]]
+name = "typescript"
+version = "0.0.0"
+dependencies = [
+ "doc",
+ "json",
+ "lazy_static",
+ "regex",
+ "serde_json",
+ "url",
+]
 
 [[package]]
 name = "ucd-trie"
