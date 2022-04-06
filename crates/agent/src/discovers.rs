@@ -238,6 +238,7 @@ fn swizzle_response_to_bundle(
         /// JSON schema of documents produced by this binding.
         document_schema: serde_json::Value,
         /// Composite key of documents (if known), as JSON-Pointers.
+        #[serde(default)]
         key_ptrs: Vec<String>,
     }
     let response: Response = serde_json::from_value(response)?;
