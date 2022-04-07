@@ -22,8 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
 
-use futures::{stream, TryStreamExt};
-use futures_util::StreamExt;
+use futures::{stream, StreamExt, TryStreamExt};
 use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
 use std::fs::File;

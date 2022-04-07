@@ -3,13 +3,12 @@ use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_bytes;
-use futures::{future, stream, TryStreamExt};
+use futures::{future, stream, StreamExt, TryStreamExt};
 use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
 
 use async_stream::stream;
-use futures_util::StreamExt;
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 

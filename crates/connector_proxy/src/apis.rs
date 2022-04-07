@@ -1,7 +1,6 @@
 use bytes::Bytes;
 use clap::ArgEnum;
 use futures::TryStream;
-use futures_core::stream::Stream;
 use std::pin::Pin;
 
 // The protocol used by FlowRuntime to speak with connector-proxy.

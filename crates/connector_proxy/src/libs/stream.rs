@@ -2,17 +2,14 @@ use crate::apis::InterceptorStream;
 use crate::libs::airbyte_catalog::Message;
 
 use crate::errors::raise_custom_error;
-use async_stream::try_stream;
 use bytes::{Buf, Bytes, BytesMut};
-use futures::{stream, Stream};
-use futures_core::TryStream;
-use futures_util::{StreamExt, TryStreamExt};
+use futures::{stream, StreamExt, TryStream, TryStreamExt};
 use serde_json::{Deserializer, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use validator::Validate;
 
 pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
-    mut reader: R,
+    reader: R,
 ) -> impl TryStream<Item = std::io::Result<Bytes>> {
     stream::try_unfold(reader, |mut r| async {
         // consistent with the default capacity of ReaderStream.
@@ -27,18 +24,22 @@ pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
 }
 
 pub fn stream_all_airbyte_messages(
-    mut in_stream: InterceptorStream,
+    in_stream: InterceptorStream,
 ) -> impl TryStream<Item = std::io::Result<Message>> {
     stream::once(async {
+        let mut buf = BytesMut::new();
         let items = in_stream
-            .map(|bytes| {
-                let chunk = bytes?.clone.chunk();
+            .map(move |bytes| {
+                // Can someone explain to me why do we need this buf, instead of just using `chunk = b.chunk()`?
+                let b = bytes?;
+                buf.extend_from_slice(b.chunk());
+                let chunk = buf.chunk();
                 let deserializer = Deserializer::from_slice(chunk);
 
                 // Deserialize to Value first, instead of Message, to avoid missing 'is_eof' signals in error.
                 let value_stream = deserializer.into_iter::<Value>();
                 //let values = value_stream.try_fold(Vec::new(), |vec, value| match value {
-                let values = value_stream
+                let values: Vec<Result<Message, std::io::Error>> = value_stream
                     .map(|value| match value {
                         Ok(v) => {
                             let message: Message = serde_json::from_value(v).unwrap();
@@ -49,7 +50,6 @@ pub fn stream_all_airbyte_messages(
                                 ))?;
                             }
                             tracing::debug!("read message:: {:?}", &message);
-                            //vec.push(message);
                             Ok(Some(message))
                         }
                         Err(e) => {
@@ -57,14 +57,19 @@ pub fn stream_all_airbyte_messages(
                                 return Ok(None);
                             }
 
-                            raise_custom_error(&format!("error in decoding message: {:?}", e))
+                            raise_custom_error(&format!(
+                                "error in decoding message: {:?}, {:?}",
+                                e,
+                                std::str::from_utf8(chunk)
+                            ))
                         }
                     })
                     .filter_map(|value| match value {
                         Ok(Some(v)) => Some(Ok(v)),
                         Ok(None) => None,
                         Err(e) => Some(Err(e)),
-                    });
+                    })
+                    .collect();
 
                 // Stream<Result<Message>>
                 Ok::<_, std::io::Error>(stream::iter(values))
