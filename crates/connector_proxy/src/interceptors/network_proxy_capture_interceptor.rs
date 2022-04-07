@@ -3,13 +3,12 @@ use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::stream_all_bytes;
-use futures::stream;
+use futures::{future, stream, TryStreamExt};
 use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
 
 use async_stream::stream;
-use futures_util::pin_mut;
 use futures_util::StreamExt;
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
@@ -71,24 +70,32 @@ impl NetworkProxyCaptureInterceptor {
     }
 
     fn adapt_pull_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream! {
-            let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<PullRequest, _>(&mut reader).await.or_bail().expect("expected request is not received.");
-            if let Some(ref mut o) = request.open {
-                if let Some(ref mut c) = o.capture {
-                    c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
-                        RawValue::from_string(c.endpoint_spec_json.clone())?,
-                    ).await.or_bail().to_string();
+        Box::pin(
+            stream::once(async {
+                let mut reader = StreamReader::new(in_stream);
+                let mut request = decode_message::<PullRequest, _>(&mut reader)
+                    .await
+                    .or_bail()
+                    .expect("expected request is not received.");
+                if let Some(ref mut o) = request.open {
+                    if let Some(ref mut c) = o.capture {
+                        c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                            RawValue::from_string(c.endpoint_spec_json.clone())?,
+                        )
+                        .await
+                        .or_bail()
+                        .to_string();
+                    }
                 }
-            }
-            yield encode_message(&request);
-            // deliver the rest messages in the stream.
-            let s = stream_all_bytes(reader);
-            pin_mut!(s);
-            while let Some(value) = s.next().await {
-                yield value;
-            }
-        })
+
+                let first = stream::once(future::ready(encode_message(&request)));
+                let rest = stream_all_bytes(reader);
+
+                // We need to set explicit error type, see https://github.com/rust-lang/rust/issues/63502
+                Ok::<_, std::io::Error>(first.chain(rest))
+            })
+            .try_flatten(),
+        )
     }
 }
 

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
 
-use futures::stream;
+use futures::{stream, TryStreamExt};
 use futures_util::StreamExt;
 use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
@@ -65,28 +65,25 @@ impl AirbyteSourceInterceptor {
     }
 
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(try_stream! {
-            let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
-            loop {
-                let message = match airbyte_message_stream.next().await {
-                    None => break,
-                    Some(message) => message?
-                };
+        Box::pin(
+            Box::pin(stream_all_airbyte_messages(in_stream)).try_filter_map(|message| async {
                 if let Some(spec) = message.spec {
                     let mut resp = SpecResponse::default();
                     resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
-                    resp.resource_spec_schema_json = serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
+                    resp.resource_spec_schema_json =
+                        serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
                     if let Some(url) = spec.documentation_url {
                         resp.documentation_url = url;
                     }
-                    yield encode_message(&resp)?;
+                    Ok(Some(encode_message(&resp)?))
                 } else if let Some(mlog) = message.log {
                     mlog.log();
+                    Ok(None)
                 } else {
-                    raise_custom_error("unexpected spec response.")?;
+                    raise_custom_error("unexpected spec response.")
                 }
-            }
-        })
+            }),
+        )
     }
 
     fn adapt_discover_request(
@@ -110,31 +107,36 @@ impl AirbyteSourceInterceptor {
         &mut self,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(try_stream! {
-            let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
-            loop {
-                let message = match airbyte_message_stream.next().await {
-                    None => break,
-                    Some(message) => message?
-                };
-
+        Box::pin(
+            Box::pin(stream_all_airbyte_messages(in_stream)).try_filter_map(|message| async {
                 if let Some(catalog) = message.catalog {
                     let mut resp = DiscoverResponse::default();
                     for stream in catalog.streams {
-                        let mode = if stream.supported_sync_modes.map(|modes| modes.contains(&SyncMode::Incremental)).unwrap_or(false) {SyncMode::Incremental} else {SyncMode::FullRefresh};
+                        let mode = if stream
+                            .supported_sync_modes
+                            .map(|modes| modes.contains(&SyncMode::Incremental))
+                            .unwrap_or(false)
+                        {
+                            SyncMode::Incremental
+                        } else {
+                            SyncMode::FullRefresh
+                        };
                         let resource_spec = ResourceSpec {
                             stream: stream.name.clone(),
                             namespace: stream.namespace,
-                            sync_mode: mode
+                            sync_mode: mode,
                         };
 
                         let key_ptrs = match stream.source_defined_primary_key {
                             None => Vec::new(),
                             // TODO: use doc::Pointer, and if necessary implement creation of new json pointers
                             // in that module. What about the existing tokenize_jsonpointer function?
-                            Some(keys) => keys.iter().map(|k| JsonPointer::new(k).to_string()).collect()
+                            Some(keys) => keys
+                                .iter()
+                                .map(|k| JsonPointer::new(k).to_string())
+                                .collect(),
                         };
-                        resp.bindings.push(discover_response::Binding{
+                        resp.bindings.push(discover_response::Binding {
                             recommended_name: stream.name.clone(),
                             resource_spec_json: serde_json::to_string(&resource_spec)?,
                             key_ptrs: key_ptrs,
@@ -142,14 +144,15 @@ impl AirbyteSourceInterceptor {
                         })
                     }
 
-                    yield encode_message(&resp)?;
+                    Ok(Some(encode_message(&resp)?))
                 } else if let Some(mlog) = message.log {
                     mlog.log();
+                    Ok(None)
                 } else {
-                    raise_custom_error("unexpected discover response.")?;
+                    raise_custom_error("unexpected discover response.")
                 }
-           }
-        })
+            }),
+        )
     }
 
     fn adapt_validate_request_stream(

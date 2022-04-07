@@ -21,9 +21,7 @@ pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
         match r.read_buf(&mut buf).await {
             Ok(0) => Ok(None),
             Ok(_) => Ok(Some((Bytes::from(buf), r))),
-            Err(e) => {
-                Err(raise_custom_error(&format!("error during streaming {:?}.", e)).unwrap_err())
-            }
+            Err(e) => raise_custom_error(&format!("error during streaming {:?}.", e)),
         }
     })
 }
@@ -31,56 +29,53 @@ pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
 pub fn stream_all_airbyte_messages(
     mut in_stream: InterceptorStream,
 ) -> impl TryStream<Item = std::io::Result<Message>> {
-    try_stream! {
-        let mut buf = BytesMut::new();
+    stream::once(async {
+        let items = in_stream
+            .map(|bytes| {
+                let chunk = bytes?.clone.chunk();
+                let deserializer = Deserializer::from_slice(chunk);
 
-        while let Some(bytes) = in_stream.next().await {
-            match bytes {
-                Ok(b) => {
-                    buf.extend_from_slice(b.chunk());
-                }
-                Err(e) => {
-                    raise_custom_error(&format!("error in reading next in_stream: {:?}", e))?;
-                }
-            }
-
-            let chunk = buf.chunk();
-            let deserializer = Deserializer::from_slice(&chunk);
-
-            // Deserialize to Value first, instead of Message, to avoid missing 'is_eof' signals in error.
-            let mut value_stream = deserializer.into_iter::<Value>();
-            while let Some(value) = value_stream.next() {
-                match value {
-                    Ok(v) => {
-                        let message: Message = serde_json::from_value(v).unwrap();
-                        if let Err(e) = message.validate() {
-                            raise_custom_error(&format!(
-                            "error in validating message: {:?}, {:?}",
-                             e, std::str::from_utf8(&chunk[value_stream.byte_offset()..])))?;
+                // Deserialize to Value first, instead of Message, to avoid missing 'is_eof' signals in error.
+                let value_stream = deserializer.into_iter::<Value>();
+                //let values = value_stream.try_fold(Vec::new(), |vec, value| match value {
+                let values = value_stream
+                    .map(|value| match value {
+                        Ok(v) => {
+                            let message: Message = serde_json::from_value(v).unwrap();
+                            if let Err(e) = message.validate() {
+                                raise_custom_error(&format!(
+                                    "error in validating message: {:?}",
+                                    e
+                                ))?;
+                            }
+                            tracing::debug!("read message:: {:?}", &message);
+                            //vec.push(message);
+                            Ok(Some(message))
                         }
-                        tracing::debug!("read message:: {:?}", &message);
-                        yield message;
-                    }
-                    Err(e) => {
-                        if e.is_eof() {
-                            break;
+                        Err(e) => {
+                            if e.is_eof() {
+                                return Ok(None);
+                            }
+
+                            raise_custom_error(&format!("error in decoding message: {:?}", e))
                         }
+                    })
+                    .filter_map(|value| match value {
+                        Ok(Some(v)) => Some(Ok(v)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    });
 
-                        raise_custom_error(&format!(
-                            "error in decoding message: {:?}, {:?}",
-                             e, std::str::from_utf8(&chunk[value_stream.byte_offset()..])))?;
-                    }
-                }
-            }
-
-            let byte_offset = value_stream.byte_offset();
-            drop(buf.split_to(byte_offset));
-        }
-
-        if buf.len() > 0 {
-            raise_custom_error("unconsumed content in stream found.")?;
-        }
+                // Stream<Result<Message>>
+                Ok::<_, std::io::Error>(stream::iter(values))
+            })
+            // Stream<Result<Stream<Result<Message>>>
+            .try_flatten();
 
         tracing::info!("done reading all in_stream.");
-    }
+
+        // We need to set explicit error type, see https://github.com/rust-lang/rust/issues/63502
+        Ok::<_, std::io::Error>(items)
+    })
+    .try_flatten()
 }
