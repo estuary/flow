@@ -66,7 +66,7 @@ materializations:
 	  endpoint:
   	    connector:
     	    config:
-              project_ID: our-bigquery-project
+              project_id: our-bigquery-project
               dataset: materialized-data
               region: US
               bucket: our-gcs-bucket
