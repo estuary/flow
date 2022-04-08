@@ -37,12 +37,12 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
-| `/awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-access-key-id"` |
-| `/awsSecretAccessKey` | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-secret-access-key"` |
-| **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
-| `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
+| `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/awsAccessKeyId` | AWS access key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-access-key-id"` |
+| `/awsSecretAccessKey` | AWS secret access key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-secret-access-key"` |
+| **`/bucket`** | Bucket | Name of the S3 bucket. | string | Required |
+| `/endpoint` | AWS endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS. | string |  |
+| `/matchKeys` | Match keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
 | `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
 | **`/region`** | AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string | Required, `"us-east-1"` |
 
@@ -50,12 +50,10 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title| Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Prefix | Path to dataset in the bucket, formatted as `bucket-name/prefix-name` | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental` | string | Required |
+| **`/stream`** | Prefix | Path to dataset in the bucket, formatted as `bucket-name/prefix-name`. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
-
-A minimal capture definition within the catalog spec will look like the following:
 
 ```yaml
 captures:

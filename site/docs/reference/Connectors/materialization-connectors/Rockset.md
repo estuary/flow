@@ -28,9 +28,9 @@ Use the below properties to configure a Rockset materialization, which will dire
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/api_key`** | API Key | Rockset API key generated from the web UI. | String | Required |
-| `/http_logging`| HTTP Logging | Enable verbose logging of the HTTP calls to the Rockset API | bool | false |
-| `/max_concurrent_requests` | Maximum Concurrent Requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
+| **`/api_key`** | API key | Rockset API key generated from the web UI. | String | Required |
+| `/http_logging`| HTTP logging | Enable verbose logging of the HTTP calls to the Rockset API. | bool | false |
+| `/max_concurrent_requests` | Maximum concurrent requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
 
 
 #### Bindings

@@ -19,7 +19,7 @@ If possible, it's recommended to keep the default setting of 2592000 seconds (30
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
-* A capture user with appropriate permissions:
+* A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
@@ -63,19 +63,19 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** |  | Database host:port to connect to. | string | Required, `"127.0.0.1:3306"` |
-| **`/dbname`** |  | Name of the database to connect to. | string | Required |
-| **`/password`** |  | Password for the specified database user. | string | Required |
-| **`/server_id`** |  | Server ID for replication. | integer | Required |
-| **`/user`** |  | Database user to connect as. | string | Required, `"flow_capture"` |
-| `/watermarks_table` |  | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"flow.watermarks"` |
+| **`/address`** | Address | Database address in the format `host:port`. | string | Required, `"127.0.0.1:3306"` |
+| **`/dbname`** | Database name | Name of the database to capture from. | string | Required |
+| **`/password`** | Password | Password for the specified database user. | string | Required |
+| **`/server_id`** | Server ID | Unique value used for replication. Cannot be 0. | integer | Required |
+| **`/user`** | User | Database user to connect as. | string | Required, `"flow_capture"` |
+| `/watermarks_table` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"flow.watermarks"` |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | `/namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
-| **`/stream`** | Stream | Table name. | string | Required |
+| **`/stream`** | Stream | Name of the table to be created in the database. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample

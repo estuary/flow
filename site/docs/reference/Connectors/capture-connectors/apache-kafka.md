@@ -59,7 +59,7 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/stream`** | Stream | Topic name | string | Required |
+| **`/stream`** | Stream | Kafka topic name. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental` | string | Required |
 
 ### Sample

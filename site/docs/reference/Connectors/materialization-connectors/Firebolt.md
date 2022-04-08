@@ -16,6 +16,8 @@ To use this connector, you'll need:
 * A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/working-with-engines.html)
 * An S3 bucket where JSON documents will be stored prior to loading
 * At least one Flow [collection](../../../concepts/collections.md)
+* You may need the AWS **access key** and **secret access key** for the user.
+See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials
 
 :::tip
  If you haven't yet captured your data from its external source,
@@ -34,14 +36,14 @@ Use the below properties to configure a Firebolt materialization, which will dir
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/aws_key_id` | AWS Key ID | AWS Key ID for accessing the S3 bucket. | string |  |
-| `/aws_region` | AWS Region | AWS Region the bucket is in. | string |  |
-| `/aws_secret_key` | AWS Secret Key | AWS Secret Key for accessing the S3 bucket. | string |  |
+| `/aws_key_id` | AWS key ID | AWS access key ID for accessing the S3 bucket. | string |  |
+| `/aws_region` | AWS region | AWS region the bucket is in. | string |  |
+| `/aws_secret_key` | AWS secret access key | AWS secret key for accessing the S3 bucket. | string |  |
 | **`/database`** | Database | Name of the Firebolt database. | string | Required |
 | **`/engine_url`** | Engine URL | Engine URL of the Firebolt database, in the format: `<engine-name>.<organization>.<region>.app.firebolt.io`. | string | Required |
 | **`/password`** | Password | Firebolt password. | string | Required |
-| **`/s3_bucket`** | S3 Bucket | Name of S3 bucket where the intermediate files for external table will be stored. | string | Required |
-| `/s3_prefix` | S3 Prefix | A prefix for files stored in the bucket. | string |  |
+| **`/s3_bucket`** | S3 bucket | Name of S3 bucket where the intermediate files for external table will be stored. | string | Required |
+| `/s3_prefix` | S3 prefix | A prefix for files stored in the bucket. | string |  |
 | **`/username`** | Username | Firebolt username. | string | Required |
 
 
@@ -50,7 +52,7 @@ Use the below properties to configure a Firebolt materialization, which will dir
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/table`** | Table | Name of the Firebolt table to store materialized results in. The external table will be named after this table with an `_external` suffix. | string | Required |
-| **`/table_type`** | Table Type | Type of the Firebolt table to store materialized results in. See the [Firebolt docs](https://docs.firebolt.io/working-with-tables.html) for more details. | string | Required |
+| **`/table_type`** | Table type | Type of the Firebolt table to store materialized results in. See the [Firebolt docs](https://docs.firebolt.io/working-with-tables.html) for more details. | string | Required |
 
 ### Sample
 

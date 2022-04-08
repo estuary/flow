@@ -34,17 +34,17 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/awsAccessKeyId`** | AWS Access Key ID | Part of the AWS credentials that will be used to connect to Kinesis | string | Required, `"example-aws-access-key-id"` |
-| **`/awsSecretAccessKey`** | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to Kinesis | string | Required, `"example-aws-secret-access-key"` |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a kinesis-compatible API that isn&#x27;t provided by AWS | string |  |
-| **`/region`** | AWS Region | The name of the AWS region where the Kinesis stream is located | string | Required, `"us-east-1"` |
+| **`/awsAccessKeyId`** | AWS access key ID | Part of the AWS credentials that will be used to connect to Kinesis. | string | Required, `"example-aws-access-key-id"` |
+| **`/awsSecretAccessKey`** | AWS secret access key | Part of the AWS credentials that will be used to connect to Kinesis. | string | Required, `"example-aws-secret-access-key"` |
+| `/endpoint` | AWS endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a kinesis-compatible API that isn&#x27;t provided by AWS. | string |  |
+| **`/region`** | AWS region | The name of the AWS region where the Kinesis stream is located. | string | Required, `"us-east-1"` |
 
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/stream`** | Stream | Stream name | string | Required |
+| **`/stream`** | Stream | Stream name. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental` | string | Required |
 
 ### Sample
