@@ -28,9 +28,11 @@ If you haven't yet captured your data from its external source, start at the beg
 To use this connector, begin with data in one or more Flow collections.
 Use the below properties to configure an Elasticsearch materialization, which will direct the contents of these Flow collections into Elasticsearch indices.
 
-You must indicate the desired Elasticsearch field type for each field in your Flow collection.
-You configure this in the `field_overrides` array for each binding.
-To do so, provide a JSON pointer to the field in the collection schema, choose the output field type, and specify additional properties, if necessary.
+By default, the connector attempts to map each field in the Flow collection to the most appropriate Elasticsearch [field type](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html).
+However, because each JSON field type can map to multiple Elasticsearch field types,
+you may want to override the defaults.
+You can configure this by adding `field_overrides` to the collection's [binding](#bindings) in the materialization specification.
+To do so, provide a JSON pointer to the field in the collection schema, choose the output field type, and specify additional properties, if necessary. 
 
 ### Properties
 
