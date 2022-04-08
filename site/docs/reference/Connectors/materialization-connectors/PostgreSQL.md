@@ -23,10 +23,10 @@ Use the below properties to configure a Postgres materialization, which will dir
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/database` | Database | Name of the logical database to materialize to. | string |  |
-| **`/host`** | Host | Host name of the database to connect to. | string | Required |
-| **`/password`** | Password | User password configured within the database. | string | Required |
+| **`/host`** | Host | Host name of the database. | string | Required |
+| **`/password`** | Password | Password for the specified database user. | string | Required |
 | `/port` | Port | Port on which to connect to the database. | integer |  |
-| **`/user`** | User | Database user to use. | string | Required |
+| **`/user`** | User | Database user to connect as. | string | Required |
 
 #### Bindings
 

@@ -38,11 +38,11 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
 | **`/bucket`** | Bucket | Name of the Google Cloud Storage bucket | string | Required |
-| `/googleCredentials` | Google Service Account | Service account JSON file. Required unless the bucket is public.| object |  |
+| `/googleCredentials` | Google service account | Service account JSON file. Required unless the bucket is public.| object |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
-| `/prefix` | Prefix | Prefix within the bucket to capture from | string |  |
+| `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
 
 #### Bindings
 

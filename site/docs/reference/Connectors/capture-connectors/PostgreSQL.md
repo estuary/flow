@@ -80,14 +80,14 @@ There are various ways to configure connectors. See [connectors](../../../concep
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/database`** |  | Logical database name to capture from. | string | Required, `"postgres"` |
-| **`/host`** |  | Host name of the database to connect to. | string | Required |
-| **`/password`** |  | User password configured within the database. | string | Required |
-| **`/port`** |  |  | integer | Required, `5432` |
-| `/publicationName` |  | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
-| `/slotName` |  | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
-| **`/user`** |  | Database user to use. | string | Required, `"postgres"` |
-| `/watermarksTable` |  | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
+| **`/database`** | Database | Name of the database to capture from. | string | Required, `"postgres"` |
+| **`/host`** | Host | Host name of the database. | string | Required |
+| **`/password`** | Password | Password for the specified database user. | string | Required |
+| **`/port`** | Port | Port of the database. | integer | Required, `5432` |
+| `/publicationName` | Publication name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
+| `/slotName` | Slot name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
+| **`/user`** | User | Database user to connect as. | string | Required, `"postgres"` |
+| `/watermarksTable` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
 
 
 #### Bindings
