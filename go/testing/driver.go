@@ -89,6 +89,20 @@ func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough
 		return nil, nil, fmt.Errorf("failed to list shards: %w", err)
 	}
 
+	// Sanity checks to ensure tasks are running.
+	// If they're not, we'll otherwise give confusing test failures.
+	for _, shard := range shards.Shards {
+		if p := shard.Route.Primary; p == -1 {
+			return nil, nil, fmt.Errorf("shard %s doesn't have a primary assignment", shard.Spec.Id)
+		} else if shard.Status[p].Code != pc.ReplicaStatus_PRIMARY {
+			return nil, nil, fmt.Errorf("shard %s primary %s is %s, not primary",
+				shard.Spec.Id, shard.Route.Members[p].Suffix, shard.Status[p].Code)
+		}
+	}
+	if len(shards.Shards) == 0 {
+		return nil, nil, fmt.Errorf("task %s has no shards", stat.TaskName)
+	}
+
 	extension, err := stat.ReadThrough.Etcd.Marshal()
 	if err != nil {
 		return nil, nil, err
