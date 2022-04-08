@@ -94,14 +94,16 @@ impl NetworkProxyMaterializeInterceptor {
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowMaterializeOperation::Spec => Box::pin(stream! {
-                let mut reader = StreamReader::new(in_stream);
-                let mut response = decode_message::<SpecResponse, _>(&mut reader).await.or_bail().expect("expected response is not received.");
+            FlowMaterializeOperation::Spec => Box::pin(stream::once(async {
+                let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
+
                 response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
-                ).or_bail().to_string();
-                yield encode_message(&response);
-            }),
+                )
+                .or_bail()
+                .to_string();
+                encode_message(&response)
+            })),
             _ => in_stream,
         })
     }
