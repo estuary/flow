@@ -271,6 +271,7 @@ docker-image:
 		--file .devcontainer/release.Dockerfile \
 		--tag ghcr.io/estuary/flow:${FLOW_VERSION} \
 		--tag ghcr.io/estuary/flow:dev \
+		--tag mdibaiee/flow:dev \
 		${PKGDIR}/
 
 .PHONY: docker-push
@@ -282,3 +283,9 @@ docker-push:
 .PHONY: docker-push-dev
 docker-push-dev:
 	docker push ghcr.io/estuary/flow:dev
+
+.PHONY: docker-push-dev
+docker-push-mahdi: rust-binaries musl-binaries docker-image
+	docker push mdibaiee/flow:dev
+	docker tag mdibaiee/flow:dev mdibaiee/flow:deepsync-stream
+	docker push mdibaiee/flow:deepsync-stream
