@@ -32,7 +32,6 @@ async fn run() -> Result<(), Error> {
     // If either of the assumptions is invalid for any new proxy type, the READY-logic need to be moved to a separate task, which
     //    sends out the "READY" signal after making sure the network proxy is started and working properly.
     println!("READY");
-    io::stdout().flush()?;
 
     proxy.start_serve().await?;
 
