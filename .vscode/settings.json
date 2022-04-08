@@ -21,6 +21,7 @@
     "files.trimTrailingWhitespace": true,
     "editor.formatOnSave": true,
     "cSpell.words": [
+        "airbyte",
         "Firebolt",
         "schemalate"
     ],

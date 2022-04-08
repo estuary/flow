@@ -283,3 +283,5 @@ docker-push-dev:
 .PHONY: docker-push-dev
 docker-push-mahdi: rust-binaries musl-binaries docker-image
 	docker push mdibaiee/flow:dev
+	docker tag mdibaiee/flow:dev mdibaiee/flow:deepsync-stream
+	docker push mdibaiee/flow:deepsync-stream

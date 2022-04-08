@@ -2,7 +2,7 @@ use crate::apis::{FlowMaterializeOperation, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_proxy::NetworkProxy;
 use crate::libs::protobuf::{decode_message, encode_message};
-use crate::libs::stream::stream_all_bytes;
+use crate::libs::stream::{get_decoded_message, stream_all_bytes};
 
 use futures::{future, stream, StreamExt, TryStreamExt};
 use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, ValidateRequest};
@@ -16,11 +16,8 @@ pub struct NetworkProxyMaterializeInterceptor {}
 impl NetworkProxyMaterializeInterceptor {
     fn adapt_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream::once(async {
-            let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<ValidateRequest, _>(&mut reader)
-                .await
-                .or_bail()
-                .expect("expected request is not received.");
+            let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
+
             request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
             )
@@ -33,11 +30,8 @@ impl NetworkProxyMaterializeInterceptor {
 
     fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream::once(async {
-            let mut reader = StreamReader::new(in_stream);
-            let mut request = decode_message::<ApplyRequest, _>(&mut reader)
-                .await
-                .or_bail()
-                .expect("expected request is not received.");
+            let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
+
             if let Some(ref mut m) = request.materialization {
                 m.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
                     RawValue::from_string(m.endpoint_spec_json.clone())?,
@@ -46,6 +40,7 @@ impl NetworkProxyMaterializeInterceptor {
                 .or_bail()
                 .to_string();
             }
+
             encode_message(&request)
         }))
     }
