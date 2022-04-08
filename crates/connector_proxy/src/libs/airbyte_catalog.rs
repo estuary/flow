@@ -75,7 +75,7 @@ pub struct Catalog {
     pub streams: Vec<Stream>,
 }
 
-#[derive(Debug, Deserialize, Clone, Validate)]
+#[derive(Debug, Deserialize, Clone, Validate, PartialEq)]
 #[validate(schema(function = "Self::validate_range"))]
 pub struct Range {
     pub begin: u32,
@@ -127,7 +127,7 @@ pub enum Status {
     Failed,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct ConnectionStatus {
     pub status: Status,
@@ -143,7 +143,7 @@ pub struct Record {
     pub namespace: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LogLevel {
     Trace,
@@ -154,7 +154,7 @@ pub enum LogLevel {
     Fatal,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Log {
     pub level: LogLevel,
@@ -210,7 +210,7 @@ pub struct Spec {
     pub advanced_auth: Option<Box<RawValue>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MessageType {
     Record,

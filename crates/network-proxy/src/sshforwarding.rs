@@ -76,6 +76,8 @@ impl SshForwarding {
     }
 
     pub async fn authenticate(&mut self) -> Result<(), Error> {
+        // TODO: this breaks on the new OpenSSH keys, see:
+        // https://stackoverflow.com/questions/54994641/openssh-private-key-to-rsa-private-key
         let key_pair = Arc::new(key::KeyPair::RSA {
             key: openssl::rsa::Rsa::private_key_from_pem(&self.config.private_key.as_bytes())?,
             hash: key::SignatureHash::SHA2_256,
