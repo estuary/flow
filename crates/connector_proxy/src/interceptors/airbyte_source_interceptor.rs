@@ -8,7 +8,7 @@ use crate::libs::airbyte_catalog::{
 use crate::libs::command::READY;
 use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::encode_message;
-use crate::libs::stream::{get_airbyte_message, get_decoded_message, stream_all_airbyte_messages};
+use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses};
 
 use async_stream::try_stream;
 use bytes::Bytes;
@@ -22,7 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt};
 use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
 use std::fs::File;
@@ -60,7 +60,7 @@ impl AirbyteSourceInterceptor {
 
     fn adapt_spec_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream::once(async {
-            let message = get_airbyte_message(in_stream, |m| m.spec.is_some()).await?;
+            let message = get_airbyte_response(in_stream, |m| m.spec.is_some()).await?;
             let spec = message
                 .spec
                 .ok_or(create_custom_error("unexpected spec response"))?;
@@ -95,7 +95,7 @@ impl AirbyteSourceInterceptor {
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
         Box::pin(stream::once(async {
-            let message = get_airbyte_message(in_stream, |m| m.catalog.is_some()).await?;
+            let message = get_airbyte_response(in_stream, |m| m.catalog.is_some()).await?;
             let catalog = message
                 .catalog
                 .ok_or(create_custom_error("unexpected discover response."))?;
@@ -160,7 +160,8 @@ impl AirbyteSourceInterceptor {
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
         Box::pin(stream::once(async move {
-            let message = get_airbyte_message(in_stream, |m| m.connection_status.is_some()).await?;
+            let message =
+                get_airbyte_response(in_stream, |m| m.connection_status.is_some()).await?;
 
             let connection_status = message
                 .connection_status
@@ -261,7 +262,7 @@ impl AirbyteSourceInterceptor {
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
         Box::pin(try_stream! {
-            let mut airbyte_message_stream = Box::pin(stream_all_airbyte_messages(in_stream));
+            let mut airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
             // transaction_pending is true if the connector writes output messages and exits _without_ writing
             // a final state checkpoint.
             let mut transaction_pending = false;

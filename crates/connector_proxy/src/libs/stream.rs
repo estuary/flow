@@ -3,7 +3,7 @@ use crate::{apis::InterceptorStream, errors::create_custom_error};
 
 use crate::errors::raise_err;
 use bytes::{Buf, Bytes, BytesMut};
-use futures::{stream, StreamExt, TryFuture, TryStream, TryStreamExt};
+use futures::{stream, StreamExt, TryStream, TryStreamExt};
 use serde_json::{Deserializer, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::StreamReader;
@@ -26,9 +26,12 @@ pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
     })
 }
 
-// Given a stream of bytes, try to deserialize them into Airbyte Messages, validate them
-// and handling Log messages
-pub fn stream_all_airbyte_messages(
+/// Given a stream of bytes, try to deserialize them into Airbyte Messages.
+/// This can be used when reading responses from the Airbyte connector, and will
+/// handle validation of messages as well as handling of AirbyteLogMessages.
+/// Will ignore* messages that cannot be parsed to an AirbyteMessage.
+/// * See https://docs.airbyte.com/understanding-airbyte/airbyte-specification#the-airbyte-protocol
+pub fn stream_airbyte_responses(
     in_stream: InterceptorStream,
 ) -> impl TryStream<Item = std::io::Result<Message>, Ok = Message, Error = std::io::Error> {
     stream::once(async {
@@ -48,10 +51,16 @@ pub fn stream_all_airbyte_messages(
                 let values: Vec<Result<Message, std::io::Error>> = value_stream
                     .map(|value| match value {
                         Ok(v) => {
-                            let message: Message = serde_json::from_value(v).unwrap();
-                            if let Err(e) = message.validate() {
-                                raise_err(&format!("error in validating message: {:?}", e))?;
-                            }
+                            let message: Message = match serde_json::from_value(v) {
+                                Ok(m) => m,
+                                // We ignore JSONs that are not Airbyte Messages according
+                                // to the specification:
+                                // https://docs.airbyte.com/understanding-airbyte/airbyte-specification#the-airbyte-protocol
+                                Err(_) => return Ok(None),
+                            };
+                            message.validate().map_err(|e| {
+                                create_custom_error(&format!("error in validating message {:?}", e))
+                            })?;
                             tracing::debug!("read message:: {:?}", &message);
                             Ok(Some(message))
                         }
@@ -61,7 +70,7 @@ pub fn stream_all_airbyte_messages(
                             }
 
                             raise_err(&format!(
-                                "error in decoding message: {:?}, {:?}",
+                                "error in decoding JSON: {:?}, {:?}",
                                 e,
                                 std::str::from_utf8(chunk)
                             ))
@@ -94,9 +103,10 @@ pub fn stream_all_airbyte_messages(
     })
 }
 
-/// Read the given stream and try to find a message that matches the predicate
-/// This allows consumers to work with a single message, simplifying the code
-pub fn get_airbyte_message<F: 'static>(
+/// Read the given stream and try to find an Airbyte message that matches the predicate
+/// ignoring* other message kinds. This can be used to work with Airbyte connector responses.
+/// * See https://docs.airbyte.com/understanding-airbyte/airbyte-specification#the-airbyte-protocol
+pub fn get_airbyte_response<F: 'static>(
     in_stream: InterceptorStream,
     predicate: F,
 ) -> impl futures::Future<Output = std::io::Result<Message>>
@@ -104,9 +114,7 @@ where
     F: Fn(&Message) -> bool,
 {
     async move {
-        let stream_head = Box::pin(stream_all_airbyte_messages(in_stream))
-            .next()
-            .await;
+        let stream_head = Box::pin(stream_airbyte_responses(in_stream)).next().await;
 
         let message = match stream_head {
             Some(m) => m,
