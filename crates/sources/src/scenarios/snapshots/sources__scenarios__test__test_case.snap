@@ -1,9 +1,9 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 27
 expression: tables
-
 ---
-Tables {
+Sources {
     capture_bindings: [],
     captures: [],
     collections: [],
@@ -187,7 +187,7 @@ Tables {
             documents: test://example/not-an-array.json,
             partitions: NULL,
             step_index: 0,
-            step_type: "Ingest",
+            step_type: "INGEST",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
@@ -197,7 +197,7 @@ Tables {
             documents: test://example/not-found.json,
             partitions: NULL,
             step_index: 1,
-            step_type: "Verify",
+            step_type: "VERIFY",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/0,
@@ -207,7 +207,7 @@ Tables {
             documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
             partitions: NULL,
             step_index: 0,
-            step_type: "Ingest",
+            step_type: "INGEST",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/1,
@@ -217,7 +217,7 @@ Tables {
             documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
             partitions: NULL,
             step_index: 1,
-            step_type: "Verify",
+            step_type: "VERIFY",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/2,
@@ -227,7 +227,7 @@ Tables {
             documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
             partitions: {"include":{"a_field":["some-val"]},"exclude":{}},
             step_index: 2,
-            step_type: "Verify",
+            step_type: "VERIFY",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3,
@@ -237,7 +237,7 @@ Tables {
             documents: test://example/snapshots/ingest.json,
             partitions: NULL,
             step_index: 3,
-            step_type: "Ingest",
+            step_type: "INGEST",
         },
         TestStep {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4,
@@ -247,7 +247,7 @@ Tables {
             documents: test://example/snapshots/verify.json,
             partitions: NULL,
             step_index: 4,
-            step_type: "Verify",
+            step_type: "VERIFY",
         },
     ],
     transforms: [],

@@ -251,7 +251,7 @@ test://example/int-string-len.schema:
 driver:
   materializations:
     testing/webhook/deliveries:
-      endpoint: FlowSink
+      endpoint: FLOW_SINK
       spec:
         image: webhook/connector
         config:
@@ -279,7 +279,7 @@ driver:
           resourcePath: [targe+, two]
 
     testing/db-views:
-      endpoint: FlowSink
+      endpoint: FLOW_SINK
       spec:
         image: database/image
         config: { foo: bar }
@@ -291,7 +291,7 @@ driver:
 
   captures:
     testing/s3-source:
-      endpoint: AirbyteSource
+      endpoint: AIRBYTE_SOURCE
       spec:
         image: s3
         config:
@@ -302,7 +302,7 @@ driver:
         - resourcePath: [other-bucket]
 
     testing/db-cdc:
-      endpoint: AirbyteSource
+      endpoint: AIRBYTE_SOURCE
       spec:
         image: database
         config:

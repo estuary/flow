@@ -1,11 +1,10 @@
 use doc::inference;
-use models::tables;
 
 #[test]
 fn test_bundle_generation() {
     // Load a fixture into imports, collections, and schema docs.
     let fixture = serde_yaml::from_slice(include_bytes!("bundles.yaml")).unwrap();
-    let sources::Tables {
+    let tables::Sources {
         imports,
         schema_docs,
         collections,
@@ -26,7 +25,7 @@ fn test_bundle_generation() {
 
     for c in collections.iter() {
         // Build the bundled schema DOM.
-        let bundle_dom = models::build::bundled_schema(&c.schema, &imports, &schema_docs);
+        let bundle_dom = assemble::bundled_schema(&c.schema, &imports, &schema_docs);
 
         // Compile the bundle DOM into a schema, and index it.
         // Note that no external schemas are added to the index, unlike |orig_index|.

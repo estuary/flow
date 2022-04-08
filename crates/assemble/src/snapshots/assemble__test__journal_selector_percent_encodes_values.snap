@@ -1,0 +1,43 @@
+---
+source: crates/assemble/src/lib.rs
+assertion_line: 741
+expression: labels
+---
+LabelSelector {
+    include: Some(
+        LabelSet {
+            labels: [
+                Label {
+                    name: "estuary.dev/collection",
+                    value: "the/collection",
+                },
+                Label {
+                    name: "estuary.dev/field/bar",
+                    value: "123",
+                },
+                Label {
+                    name: "estuary.dev/field/bar",
+                    value: "true",
+                },
+                Label {
+                    name: "estuary.dev/field/foo",
+                    value: "a_whole:nother",
+                },
+                Label {
+                    name: "estuary.dev/field/foo",
+                    value: "some%2Fval-ue",
+                },
+            ],
+        },
+    ),
+    exclude: Some(
+        LabelSet {
+            labels: [
+                Label {
+                    name: "estuary.dev/field/foo",
+                    value: "no&no@no$yes%28%29%3B",
+                },
+            ],
+        },
+    ),
+}

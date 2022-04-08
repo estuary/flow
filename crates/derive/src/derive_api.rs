@@ -2,10 +2,7 @@ use super::pipeline::{self, Pipeline};
 use super::registers;
 
 use prost::Message;
-use protocol::{
-    cgo, flow,
-    flow::derive_api::{self, Code},
-};
+use proto_flow::flow::derive_api::{self, Code};
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -34,7 +31,7 @@ enum State {
     Opened(registers::Registers),
     Idle(Pipeline),
     Running(Pipeline),
-    DocHeader(Pipeline, flow::derive_api::DocHeader),
+    DocHeader(Pipeline, derive_api::DocHeader),
     Flushing(Pipeline),
     Prepare(Pipeline),
 }

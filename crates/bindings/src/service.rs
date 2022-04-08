@@ -1,5 +1,5 @@
 use crate::logging::{new_thread_local_subscriber, FileWriter};
-pub use protocol::cgo::{self, Out, Service};
+pub use cgo::{Out, Service};
 
 /// InN is a variadic input which invokes itself against a Service.
 pub trait InN {

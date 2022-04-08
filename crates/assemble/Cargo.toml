@@ -1,0 +1,32 @@
+[package]
+name = "assemble"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2021"
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables" }
+typescript = { path = "../typescript" }
+
+bytes = "*"
+itertools = "*"
+percent-encoding = "*"
+regex = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+thiserror = "*"
+tracing = "*"
+url = "*"
+
+[dev-dependencies]
+sources = { path = "../sources" }
+
+insta = "*"
+lazy_static = "*"
+serde_yaml = "*"

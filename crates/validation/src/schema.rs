@@ -5,7 +5,7 @@ use doc::{
 };
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
-use models::{self, build, tables};
+use proto_flow::flow;
 use superslice::Ext;
 use url::Url;
 
@@ -137,7 +137,7 @@ impl<'a> Ref<'a> {
         let root = &resources[resources.equal_range_by_key(&root_scope, |r| &r.resource)];
         match root.first() {
             Some(tables::Resource {
-                content_type: models::ContentType::JsonSchema,
+                content_type: flow::ContentType::JsonSchema,
                 resource,
                 ..
             }) => {
@@ -289,7 +289,7 @@ pub fn walk_all_schema_refs(
             // Is this an indexed schema of the current build?
             (Some(compiled), _) => (
                 inference::Shape::infer(compiled, &schema_index),
-                build::bundled_schema(schema, imports, &schema_docs),
+                assemble::bundled_schema(schema, imports, &schema_docs),
             ),
             // Is this a foreign collection?
             // Infer from its inline schema instead of the build's schema index.
@@ -382,7 +382,7 @@ pub fn walk_all_schema_refs(
 
         for (field, ptr, shape, exists) in merged {
             // Note we're already ordered on |field|.
-            inferences.insert_row(schema, &ptr, build::inference(shape, exists));
+            inferences.insert_row(schema, &ptr, assemble::inference(shape, exists));
             fields.push((field, ptr));
         }
 

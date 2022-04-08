@@ -1,10 +1,6 @@
 use crate::JsonError;
-use models::tables;
 use prost::Message;
-use protocol::{
-    cgo,
-    flow::{self, schema_api::Code},
-};
+use proto_flow::flow::{self, schema_api::Code};
 use url::Url;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
@@ -77,11 +73,9 @@ impl cgo::Service for API {
 #[cfg(test)]
 pub mod test {
     use super::API;
+    use cgo::Service;
     use prost::Message;
-    use protocol::{
-        cgo::Service,
-        flow::{self, schema_api::Code},
-    };
+    use proto_flow::flow::{self, schema_api::Code};
 
     #[test]
     fn test_schema_api() {

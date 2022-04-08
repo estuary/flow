@@ -1,8 +1,7 @@
 use super::{collection, indexed, reference, storage_mapping, Drivers, Error};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
-use models::{self, build, tables};
-use protocol::{flow, labels, materialize};
+use proto_flow::{flow, materialize};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
 
@@ -146,7 +145,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                     constraints,
                     errors,
                 );
-                let shuffle = models::build::materialization_shuffle(
+                let shuffle = assemble::materialization_shuffle(
                     binding_model,
                     &collection_spec,
                     &resource_path,
@@ -199,13 +198,13 @@ pub async fn walk_all_materializations<D: Drivers>(
             endpoint_spec_json,
             endpoint_type,
             materialization: name.to_string(),
-            recovery_log_template: Some(build::recovery_log_template(
+            recovery_log_template: Some(assemble::recovery_log_template(
                 build_config,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,
                 recovery_stores,
             )),
-            shard_template: Some(build::shard_template(
+            shard_template: Some(assemble::shard_template(
                 build_config,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,

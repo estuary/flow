@@ -13,6 +13,9 @@ path = "src/main.rs"
 
 
 [dependencies]
+json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+
 avro-rs = { version = "*", features = ["snappy"] }
 base64 = "*"
 bytes = "*"
@@ -37,10 +40,6 @@ unicode-normalization = "*"
 url = "*"
 uuid = {version = "*", features = ["v4"]}
 zip = "*"
-
-# TODO: update this depedency spec once we publish the json crate to crates.io
-json = {git = "https://github.com/estuary/flow"}
-doc = {git = "https://github.com/estuary/flow"}
 
 [dev-dependencies]
 assert_cmd = "*"

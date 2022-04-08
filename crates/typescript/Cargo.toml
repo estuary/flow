@@ -1,0 +1,14 @@
+[package]
+name = "typescript"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2021"
+
+[dependencies]
+json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc", version = "0.0.0" }
+
+lazy_static = "*"
+regex = "*"
+serde_json = "*"
+url = "*"

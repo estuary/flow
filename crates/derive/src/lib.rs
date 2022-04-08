@@ -8,7 +8,7 @@ mod pipeline;
 mod registers;
 
 pub use extract_api::extract_uuid_parts;
-use protocol::flow::DocsAndBytes;
+use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 
 /// A type that can accumulate statistics that can be periodically drained.
@@ -35,7 +35,7 @@ trait StatsAccumulator: Default {
 pub struct DocCounter(DocsAndBytes);
 
 impl DocCounter {
-    pub fn new(docs: u64, bytes: u64) -> DocCounter {
+    pub fn new(docs: u32, bytes: u32) -> DocCounter {
         DocCounter(DocsAndBytes { docs, bytes })
     }
 
@@ -46,7 +46,7 @@ impl DocCounter {
 
     /// Add a single document of the given size, incrementing `docs` by 1 and `bytes` by
     /// `doc_byte_len`.
-    pub fn increment(&mut self, doc_byte_len: u64) {
+    pub fn increment(&mut self, doc_byte_len: u32) {
         self.0.docs += 1;
         self.0.bytes += doc_byte_len;
     }

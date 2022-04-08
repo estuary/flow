@@ -41,7 +41,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 	var sourceType pf.ContentType
 	switch cmd.SourceType {
 	case "catalog":
-		sourceType = pf.ContentType_CATALOG_SPEC
+		sourceType = pf.ContentType_CATALOG
 	case "jsonSchema":
 		sourceType = pf.ContentType_JSON_SCHEMA
 	}

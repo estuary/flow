@@ -1,12 +1,11 @@
-use protocol::flow::EndpointType;
+use super::{
+    Collection, ConnectorConfig, Field, Object, PartitionSelector, RelativeUrl, ShardTemplate,
+};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
-
-use super::{
-    Collection, ConnectorConfig, Field, Object, PartitionSelector, RelativeUrl, ShardTemplate,
-};
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
@@ -112,15 +111,6 @@ pub enum MaterializationEndpoint {
     Connector(ConnectorConfig),
     /// # A SQLite database.
     Sqlite(SqliteConfig),
-}
-
-impl MaterializationEndpoint {
-    pub fn endpoint_type(&self) -> EndpointType {
-        match self {
-            Self::Connector(_) => EndpointType::FlowSink,
-            Self::Sqlite(_) => EndpointType::Sqlite,
-        }
-    }
 }
 
 /// Sqlite endpoint configuration.
