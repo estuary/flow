@@ -219,7 +219,7 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 	}
 	if includesUpdate {
 		event.Derive.Registers = &DeriveRegisterStats{
-			CreatedTotal: txnStats.Registers.Created,
+			CreatedTotal: uint64(txnStats.Registers.Created),
 		}
 	}
 	return event

@@ -5,16 +5,17 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
-models = { path = "../models", version = "0.0.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
+assemble = { path = "../assemble" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+tables = { path = "../tables" }
 
 anyhow = "*"
 base64 = "*"
 bytes = "*"
 futures = "*"
-humantime-serde = "*"
 lazy_static = "*"
 regex = "*"
 schemars = "*"
@@ -28,5 +29,5 @@ url = "*"
 yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
 
 [dev-dependencies]
+
 insta = "*"
-base64 = "*"

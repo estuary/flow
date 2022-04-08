@@ -1,9 +1,8 @@
 use futures::future::LocalBoxFuture;
 use futures::{channel::oneshot, FutureExt};
-use models::{self, tables};
 use prost::Message;
 use protocol::{
-    capture, cgo, flow,
+    capture, flow,
     flow::build_api::{self, Code},
     materialize,
 };
@@ -43,11 +42,11 @@ impl sources::Fetcher for Fetcher {
     fn fetch<'a>(
         &self,
         resource: &'a Url,
-        content_type: models::ContentType,
+        content_type: flow::ContentType,
     ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
         let request = build_api::Fetch {
             resource_url: resource.to_string(),
-            content_type: flow::ContentType::from(content_type.into()) as i32,
+            content_type: content_type as i32,
         };
         let (tx, rx) = oneshot::channel();
 

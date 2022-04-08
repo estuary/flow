@@ -2,8 +2,8 @@ use crate::{DebugJson, StatsAccumulator};
 
 use doc::{reduce, FailedValidation, Validation, Validator};
 use prost::Message;
-use protocol::consumer::Checkpoint;
-use protocol::flow::derive_api;
+use proto_flow::flow::derive_api;
+use proto_gazette::consumer::Checkpoint;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -38,7 +38,7 @@ impl RegisterStats {
 }
 
 impl StatsAccumulator for RegisterStats {
-    type Stats = protocol::flow::derive_api::stats::RegisterStats;
+    type Stats = derive_api::stats::RegisterStats;
     fn drain(&mut self) -> Self::Stats {
         std::mem::replace(&mut self.0, Default::default())
     }

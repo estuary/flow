@@ -1,0 +1,63 @@
+---
+source: crates/assemble/src/ops/mod.rs
+assertion_line: 189
+expression: "&tables.collections"
+---
+[
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/acmeCo/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/acmeCo/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/gooble/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/gooble/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/justme/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/justme/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/shamazon/logs,
+        schema: builtin://flow/ops-log-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+    Collection {
+        scope: builtin://flow/ops/generated/collections,
+        collection: ops/shamazon/stats,
+        schema: builtin://flow/ops-stats-schema.json,
+        key: ["/shard/name","/shard/keyBegin","/shard/rClockBegin","/ts"],
+        journals: {"fragments":{}},
+    },
+]

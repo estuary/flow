@@ -2,9 +2,8 @@ use super::combiner::{self, Combiner};
 use crate::{DocCounter, JsonError, StatsAccumulator};
 use doc::{Pointer, Validator};
 use prost::Message;
-use protocol::{
-    cgo,
-    flow::combine_api::{self, Code},
+use proto_flow::flow::{
+    combine_api::{self, Code},
 };
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
@@ -49,9 +48,9 @@ struct CombineStats {
 }
 
 impl StatsAccumulator for CombineStats {
-    type Stats = protocol::flow::combine_api::Stats;
+    type Stats = combine_api::Stats;
     fn drain(&mut self) -> Self::Stats {
-        protocol::flow::combine_api::Stats {
+        combine_api::Stats {
             left: Some(self.left.drain()),
             right: Some(self.right.drain()),
             out: Some(self.out.drain()),
@@ -128,7 +127,7 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::ReduceLeft, Some(mut state)) => {
-                state.stats.left.increment(data.len() as u64);
+                state.stats.left.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.reduce_left(doc, &mut state.validator)?;
@@ -137,7 +136,7 @@ impl cgo::Service for API {
                 Ok(())
             }
             (Code::CombineRight, Some(mut state)) => {
-                state.stats.right.increment(data.len() as u64);
+                state.stats.right.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
                 state.combiner.combine_right(doc, &mut state.validator)?;
@@ -191,7 +190,7 @@ pub fn drain_combiner(
         let w: &mut Vec<u8> = &mut *arena;
         serde_json::to_writer(w, &doc).expect("encoding cannot fail");
         // Only here do we know the actual length of the document in its serialized form.
-        stats.increment((arena.len() - begin) as u64);
+        stats.increment((arena.len() - begin) as u32);
         if fully_reduced {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {
@@ -232,13 +231,11 @@ pub fn drain_combiner(
 #[cfg(test)]
 pub mod test {
     use super::{super::test::build_min_max_sum_schema, Code, Error, API};
+    use cgo::Service;
     use prost::Message;
-    use protocol::{
-        cgo::Service,
-        flow::{
-            combine_api::{self, Stats},
-            DocsAndBytes,
-        },
+    use proto_flow::flow::{
+        combine_api::{self, Stats},
+        DocsAndBytes,
     };
     use serde_json::json;
 

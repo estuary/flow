@@ -5,11 +5,14 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+allocator = { path = "../allocator", version = "0.0.0" }
+cgo = { path = "../cgo" }
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
-allocator = { path = "../allocator", version = "0.0.0" }
 models = { path = "../models", version = "0.0.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables", version = "0.0.0" }
 tuple = { path = "../tuple", version = "0.0.0" }
 
 anyhow = "*"
@@ -17,16 +20,13 @@ bytes = "*"
 futures = "*"
 itertools = "*"
 librocksdb-sys = { version = "*", default-features = false, features = ["snappy", "rtti"] }
-pin-utils = "*"
 prost = "*"
 rocksdb = { version = "*", default-features = false, features = ["snappy", "rtti"] }
 serde = { version = "*", features = ["derive"] }
-serde_json = { version =  "*"}
-stats_alloc = "*"
+serde_json = "*"
 thiserror = "*"
 tracing = "*"
-tracing-futures = "*"
-url = {version = "*", features = ["serde"]}
+url = "*"
 uuid = "*"
 
 [dev-dependencies]

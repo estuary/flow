@@ -4,28 +4,26 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+assemble = { path = "../assemble" }
 build = { path = "../build" }
-control = { path = "../control" }
 derive = { path = "../derive" }
 doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }
+labels = { path = "../labels" }
 models = { path = "../models" }
 protocol = { path = "../protocol" }
 sources = { path = "../sources" }
+tables = { path = "../tables" }
 validation = { path = "../validation" }
 
 anyhow = "*"
 bytes = "*"
-clap = {version = "3.0", features = ["derive"]}
+clap = {version = "*", features = ["derive"]}
 futures = "*"
-percent-encoding = "*"
-tokio = { version = "*", features = ["full"] }
-tracing = "*"
-# Using rustls instead of openssl makes the build process simpler since it doesn't require a C
-# compiler.
-reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
-url = "*"
+reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
 serde_json = "*"
+tracing = "*"
+url = "*"
 
 [dev-dependencies]
 assert_cmd = "*"

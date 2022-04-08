@@ -1,8 +1,0 @@
----
-source: crates/protocol/src/lib.rs
-expression: serialized
----
-{
-  "type": 0,
-  "reason": "field required"
-}

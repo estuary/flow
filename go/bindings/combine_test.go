@@ -28,7 +28,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-strings.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
@@ -106,7 +106,7 @@ func TestCombineBindings(t *testing.T) {
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
 			Source:     "file:///int-strings.flow.yaml",
-			SourceType: pf.ContentType_CATALOG_SPEC,
+			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
@@ -198,10 +198,10 @@ func expectCombineFixture(t *testing.T, finish func(CombineCallback) (*pf.Combin
 	t.Log(stats)
 	// Technically, we already test the correctness of stats on the rust side, but these assertions
 	// exist to ensure that the stats successfully make it back into the Go side correctly.
-	require.Equal(t, uint64(1), stats.Left.Docs)
-	require.Equal(t, uint64(23), stats.Left.Bytes)
-	require.Equal(t, uint64(3), stats.Right.Docs)
-	require.Equal(t, uint64(72), stats.Right.Bytes)
-	require.Equal(t, uint64(2), stats.Out.Docs)
-	require.Equal(t, uint64(167), stats.Out.Bytes)
+	require.Equal(t, uint32(1), stats.Left.Docs)
+	require.Equal(t, uint32(23), stats.Left.Bytes)
+	require.Equal(t, uint32(3), stats.Right.Docs)
+	require.Equal(t, uint32(72), stats.Right.Bytes)
+	require.Equal(t, uint32(2), stats.Out.Docs)
+	require.Equal(t, uint32(167), stats.Out.Bytes)
 }

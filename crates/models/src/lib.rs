@@ -1,8 +1,6 @@
 use serde_json::{from_value, json};
 
-pub mod build;
 pub mod collate;
-pub mod tables;
 
 mod captures;
 mod catalogs;
@@ -19,6 +17,7 @@ mod shards;
 mod shuffles;
 mod tests;
 
+pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
