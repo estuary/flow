@@ -60,8 +60,11 @@ pub enum Error {
     #[error("The operation of '{0}' is not expected for the given protocol.")]
     UnexpectedOperation(String),
 }
+/*<std::io::Error as From<Elapsed>>
+<std::io::Error as From<EncodeError>>
+<std::io::Error as From<IntoInnerError<W>>>*/
 
-pub fn raise_custom_error(message: &str) -> Result<(), std::io::Error> {
+pub fn raise_err<T>(message: &str) -> Result<T, std::io::Error> {
     Err(create_custom_error(message))
 }
 
@@ -69,6 +72,7 @@ pub fn create_custom_error(message: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, message)
 }
 
+// TODO: refactor to remove or_bail usages
 pub trait Must<T> {
     fn or_bail(self) -> T;
 }

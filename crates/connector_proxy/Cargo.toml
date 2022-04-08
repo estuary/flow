@@ -14,12 +14,12 @@ network-proxy = { path = "../network-proxy", version = "0.1.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 async-trait="*"
-async-stream="*"
 bytes = "*"
 byteorder="*"
 clap = { version = "^3", features = ["derive"] }
 futures-core = "*"
 futures-util="*"
+futures="*"
 json-pointer="*"
 libc="*"
 prost = "*"

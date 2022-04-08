@@ -134,6 +134,11 @@ async fn streaming_all(
         copy(&mut error_reader, &mut error_writer),
     )?;
 
-    tracing::info!("Done streaming, transferred bytes: {} {} {}", a, b, c);
+    tracing::info!(
+        req_stream = a,
+        resp_stream = b,
+        stderr = c,
+        "Done streaming"
+    );
     Ok(())
 }
