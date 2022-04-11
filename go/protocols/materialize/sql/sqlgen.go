@@ -300,13 +300,6 @@ type Generator struct {
 	TypeMappings       TypeMapper
 }
 
-// PostgresParameterPlaceholder returns $N style parameters where N is the parameter number
-// starting at 1.
-func PostgresParameterPlaceholder(parameterIndex int) string {
-	// parameterIndex starts at 0, but postgres parameters start at $1
-	return fmt.Sprintf("$%d", parameterIndex+1)
-}
-
 // QuestionMarkPlaceholder returns the constant string "?".
 func QuestionMarkPlaceholder(_ int) string {
 	return "?"
@@ -336,32 +329,6 @@ func SQLiteSQLGenerator() Generator {
 		ValueRenderer:      NewRenderer(DefaultQuoteSanitizer, SingleQuotesWrapper(), nil),
 		Placeholder:        QuestionMarkPlaceholder,
 		TypeMappings:       nullable,
-	}
-}
-
-// PostgresSQLGenerator returns a SQLGenerator for the postgresql SQL dialect.
-func PostgresSQLGenerator() Generator {
-	var typeMappings TypeMapper = NullableTypeMapping{
-		NotNullText: "NOT NULL",
-		Inner: ColumnTypeMapper{
-			INTEGER: RawConstColumnType("BIGINT"),
-			NUMBER:  RawConstColumnType("DOUBLE PRECISION"),
-			BOOLEAN: RawConstColumnType("BOOLEAN"),
-			OBJECT:  RawConstColumnType("JSON"),
-			ARRAY:   RawConstColumnType("JSON"),
-			BINARY:  RawConstColumnType("BYTEA"),
-			STRING: StringTypeMapping{
-				Default: RawConstColumnType("TEXT"),
-			},
-		},
-	}
-
-	return Generator{
-		CommentRenderer:    LineCommentRenderer(),
-		IdentifierRenderer: NewRenderer(nil, DoubleQuotesWrapper(), DefaultUnwrappedIdentifiers),
-		ValueRenderer:      NewRenderer(DefaultQuoteSanitizer, SingleQuotesWrapper(), nil),
-		Placeholder:        PostgresParameterPlaceholder,
-		TypeMappings:       typeMappings,
 	}
 }
 

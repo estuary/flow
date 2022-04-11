@@ -15,40 +15,35 @@ func TestSQLGenerator(t *testing.T) {
 	var flowMaterializations = FlowMaterializationsTable(DefaultFlowMaterializations)
 	var allTables = []*Table{&testTable, flowCheckpoints, flowMaterializations}
 
-	var endpoints = map[string]Endpoint{
-		"postgres": NewStdEndpoint(nil, nil, PostgresSQLGenerator(), FlowTables{}),
-		"sqlite":   NewStdEndpoint(nil, nil, SQLiteSQLGenerator(), FlowTables{}),
-	}
+	var endpoint = NewStdEndpoint(nil, nil, SQLiteSQLGenerator(), FlowTables{})
 
-	for dialect, ep := range endpoints {
-		for _, table := range allTables {
-			// Test all the generic sql generation functions for each table
-			t.Run(fmt.Sprintf("%s_%s", dialect, table.Identifier), func(t *testing.T) {
-				var createTable, err = ep.CreateTableStatement(table)
-				require.NoError(t, err)
+	for _, table := range allTables {
+		// Test all the generic sql generation functions for each table
+		t.Run(fmt.Sprintf("sqlite_%s", table.Identifier), func(t *testing.T) {
+			var createTable, err = endpoint.CreateTableStatement(table)
+			require.NoError(t, err)
 
-				// Store the Names of the key and value columns so we can reference them when
-				// generating statements.
-				var keyColumns []string
-				var valueColumns []string
-				for _, col := range table.Columns {
-					if col.PrimaryKey {
-						keyColumns = append(keyColumns, col.Name)
-					} else {
-						valueColumns = append(valueColumns, col.Name)
-					}
+			// Store the Names of the key and value columns so we can reference them when
+			// generating statements.
+			var keyColumns []string
+			var valueColumns []string
+			for _, col := range table.Columns {
+				if col.PrimaryKey {
+					keyColumns = append(keyColumns, col.Name)
+				} else {
+					valueColumns = append(valueColumns, col.Name)
 				}
-				query, _, err := ep.Generator().QueryOnPrimaryKey(table, valueColumns...)
-				require.NoError(t, err)
-				insertStatement, _, err := ep.Generator().InsertStatement(table)
-				require.NoError(t, err)
-				updateStatement, _, err := ep.Generator().UpdateStatement(table, valueColumns, keyColumns)
-				require.NoError(t, err)
+			}
+			query, _, err := endpoint.Generator().QueryOnPrimaryKey(table, valueColumns...)
+			require.NoError(t, err)
+			insertStatement, _, err := endpoint.Generator().InsertStatement(table)
+			require.NoError(t, err)
+			updateStatement, _, err := endpoint.Generator().UpdateStatement(table, valueColumns, keyColumns)
+			require.NoError(t, err)
 
-				var allSQL = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
-				cupaloy.SnapshotT(t, allSQL)
-			})
-		}
+			var allSQL = strings.Join([]string{createTable, query, insertStatement, updateStatement}, "\n\n")
+			cupaloy.SnapshotT(t, allSQL)
+		})
 	}
 }
 
