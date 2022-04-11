@@ -196,7 +196,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
@@ -209,7 +209,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
@@ -222,7 +222,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
@@ -235,7 +235,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \

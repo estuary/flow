@@ -1,20 +1,20 @@
-package networkproxy
+package networktunnel
 
 import (
 	"encoding/base64"
 	"os"
 
-	sf "github.com/estuary/flow/go/network-proxy/sshforwarding"
+	sf "github.com/estuary/flow/go/network-tunnel/sshforwarding"
 )
 
 // Configuration set based on sshforwarding/test_sshd_configs/docker-compose.yaml.
-func CreateSshForwardingTestConfig(keyFilePath string, remotePort uint16) (*NetworkProxyConfig, error) {
+func CreateSshForwardingTestConfig(keyFilePath string, remotePort uint16) (*NetworkTunnelConfig, error) {
 	var b, err = os.ReadFile(keyFilePath)
 	if err != nil {
 		return nil, err
 	}
-	return &NetworkProxyConfig{
-		ProxyType: "sshForwarding",
+	return &NetworkTunnelConfig{
+		TunnelType: "sshForwarding",
 		SshForwardingConfig: sf.SshForwardingConfig{
 			SshEndpoint:         "ssh://127.0.0.1:2222",
 			SshPrivateKeyBase64: base64.RawStdEncoding.EncodeToString(b),

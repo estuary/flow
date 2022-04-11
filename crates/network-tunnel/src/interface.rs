@@ -1,4 +1,4 @@
-use super::networkproxy::NetworkProxy;
+use super::networktunnel::NetworkTunnel;
 use super::sshforwarding::{SshForwarding, SshForwardingConfig};
 
 use schemars::JsonSchema;
@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
-pub enum NetworkProxyConfig {
+pub enum NetworkTunnelConfig {
     SshForwarding(SshForwardingConfig),
 }
 
-impl NetworkProxyConfig {
-    pub fn new_proxy(self) -> Box<dyn NetworkProxy> {
+impl NetworkTunnelConfig {
+    pub fn new_tunnel(self) -> Box<dyn NetworkTunnel> {
         match self {
-            NetworkProxyConfig::SshForwarding(config) => Box::new(SshForwarding::new(config)),
+            NetworkTunnelConfig::SshForwarding(config) => Box::new(SshForwarding::new(config)),
         }
     }
 }
