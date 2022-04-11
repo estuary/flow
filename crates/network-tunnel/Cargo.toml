@@ -1,12 +1,12 @@
 [package]
-name = "network-proxy"
+name = "network-tunnel"
 version = "0.1.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "flow-network-proxy"
+name = "flow-network-tunnel"
 path = "src/main.rs"
 
 [dependencies]

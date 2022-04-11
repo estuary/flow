@@ -567,7 +567,7 @@ materializations:
           database: flow
           user: flow_user
           password: secret
-          networkProxy:
+          networkTunnel:
             sshForwarding:
               # Port on the local machine from which you'll connect to the SSH server.
               # If a port is specified elsewhere in the connector configuration, it must match.

@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 doc = { path = "../doc", version = "0.0.0" }
 flow_cli_common = { path = "../flow_cli_common" }
-network-proxy = { path = "../network-proxy", version = "0.1.0" }
+network-tunnel = { path = "../network-tunnel", version = "0.1.0" }
 protocol = { path = "../protocol", version = "0.0.0" }
 
 async-trait="*"
