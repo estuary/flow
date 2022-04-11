@@ -1,5 +1,5 @@
 use super::errors::Error;
-use super::networkproxy::NetworkProxy;
+use super::networktunnel::NetworkTunnel;
 
 use async_trait::async_trait;
 use futures::pin_mut;
@@ -99,7 +99,7 @@ impl SshForwarding {
 }
 
 #[async_trait]
-impl NetworkProxy for SshForwarding {
+impl NetworkTunnel for SshForwarding {
     async fn prepare(&mut self) -> Result<(), Error> {
         self.prepare_ssh_client().await?;
         self.prepare_local_listener().await?;

@@ -2,8 +2,8 @@ use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStr
 use crate::errors::Error;
 use crate::interceptors::{
     airbyte_source_interceptor::AirbyteSourceInterceptor,
-    network_proxy_capture_interceptor::NetworkProxyCaptureInterceptor,
-    network_proxy_materialize_interceptor::NetworkProxyMaterializeInterceptor,
+    network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
+    network_tunnel_materialize_interceptor::NetworkTunnelMaterializeInterceptor,
 };
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
@@ -23,10 +23,10 @@ pub async fn run_flow_capture_connector(
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
     let adapted_request_stream =
-        NetworkProxyCaptureInterceptor::adapt_request_stream(op, request_stream())?;
+        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?;
 
     let adapted_response_stream =
-        NetworkProxyCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
+        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
 
     streaming_all(
         child_stdin,
@@ -50,9 +50,9 @@ pub async fn run_flow_materialize_connector(
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
     let adapted_request_stream =
-        NetworkProxyMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
+        NetworkTunnelMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
 
-    let adapted_response_stream = NetworkProxyMaterializeInterceptor::adapt_response_stream(
+    let adapted_response_stream = NetworkTunnelMaterializeInterceptor::adapt_response_stream(
         op,
         response_stream(child_stdout),
     )?;
@@ -82,10 +82,10 @@ pub async fn run_airbyte_source_connector(
 
     let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
         op,
-        NetworkProxyCaptureInterceptor::adapt_request_stream(op, request_stream())?,
+        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
     )?;
 
-    let adapted_response_stream = NetworkProxyCaptureInterceptor::adapt_response_stream(
+    let adapted_response_stream = NetworkTunnelCaptureInterceptor::adapt_response_stream(
         op,
         airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?,
     )?;

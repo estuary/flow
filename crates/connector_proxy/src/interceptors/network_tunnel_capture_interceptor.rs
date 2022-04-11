@@ -1,6 +1,6 @@
 use crate::apis::{FlowCaptureOperation, InterceptorStream};
 use crate::errors::{Error, Must};
-use crate::libs::network_proxy::NetworkProxy;
+use crate::libs::network_tunnel::NetworkTunnel;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::{get_decoded_message, stream_all_bytes};
 use futures::{future, stream, StreamExt, TryStreamExt};
@@ -11,14 +11,14 @@ use protocol::capture::{
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 
-pub struct NetworkProxyCaptureInterceptor {}
+pub struct NetworkTunnelCaptureInterceptor {}
 
-impl NetworkProxyCaptureInterceptor {
+impl NetworkTunnelCaptureInterceptor {
     fn adapt_discover_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream::once(async {
             let mut request = get_decoded_message::<DiscoverRequest>(in_stream).await?;
 
-            request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+            request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
             )
             .await
@@ -33,7 +33,7 @@ impl NetworkProxyCaptureInterceptor {
         Box::pin(stream::once(async {
             let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
 
-            request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+            request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
             )
             .await
@@ -49,7 +49,7 @@ impl NetworkProxyCaptureInterceptor {
             let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
 
             if let Some(ref mut c) = request.capture {
-                c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                c.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                     RawValue::from_string(c.endpoint_spec_json.clone())?,
                 )
                 .await
@@ -71,7 +71,7 @@ impl NetworkProxyCaptureInterceptor {
                     .expect("expected request is not received.");
                 if let Some(ref mut o) = request.open {
                     if let Some(ref mut c) = o.capture {
-                        c.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                        c.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                             RawValue::from_string(c.endpoint_spec_json.clone())?,
                         )
                         .await
@@ -91,7 +91,7 @@ impl NetworkProxyCaptureInterceptor {
     }
 }
 
-impl NetworkProxyCaptureInterceptor {
+impl NetworkTunnelCaptureInterceptor {
     pub fn adapt_request_stream(
         op: &FlowCaptureOperation,
         in_stream: InterceptorStream,
@@ -114,7 +114,7 @@ impl NetworkProxyCaptureInterceptor {
         Ok(match op {
             FlowCaptureOperation::Spec => Box::pin(stream::once(async move {
                 let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
-                response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
+                response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
                 )
                 .or_bail()
