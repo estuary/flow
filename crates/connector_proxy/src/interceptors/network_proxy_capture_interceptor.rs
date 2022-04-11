@@ -8,7 +8,6 @@ use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
 
-use async_stream::stream;
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 

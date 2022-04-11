@@ -10,7 +10,6 @@ use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::encode_message;
 use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses};
 
-use async_stream::try_stream;
 use bytes::Bytes;
 use protocol::capture::{
     discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
@@ -22,7 +21,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use validator::Validate;
 
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
 use std::fs::File;
@@ -195,65 +194,83 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(try_stream! {
-            let mut request = get_decoded_message::<PullRequest>(in_stream).await?;
-            if let Some(ref mut o) = request.open {
-                File::create(state_file_path)?.write_all(&o.driver_checkpoint_json)?;
+        Box::pin(
+            stream::once(async move {
+                let mut request = get_decoded_message::<PullRequest>(in_stream).await?;
+                if let Some(ref mut o) = request.open {
+                    File::create(state_file_path)?.write_all(&o.driver_checkpoint_json)?;
 
-                if let Some(ref mut c) = o.capture {
-                    File::create(config_file_path)?.write_all(&c.endpoint_spec_json.as_bytes())?;
+                    if let Some(ref mut c) = o.capture {
+                        File::create(config_file_path)?
+                            .write_all(&c.endpoint_spec_json.as_bytes())?;
 
-                    let mut catalog = ConfiguredCatalog {
-                        streams: Vec::new(),
-                        tail: o.tail,
-                        range: Range { begin: o.key_begin, end: o.key_end }
-                    };
+                        let mut catalog = ConfiguredCatalog {
+                            streams: Vec::new(),
+                            tail: o.tail,
+                            range: Range {
+                                begin: o.key_begin,
+                                end: o.key_end,
+                            },
+                        };
 
-                    let mut stream_to_binding = stream_to_binding.lock().await;
+                        let mut stream_to_binding = stream_to_binding.lock().await;
 
-                    for (i, binding) in c.bindings.iter().enumerate() {
-                        let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
-                        stream_to_binding.insert(resource.stream.clone(), i);
+                        for (i, binding) in c.bindings.iter().enumerate() {
+                            let resource: ResourceSpec =
+                                serde_json::from_str(&binding.resource_spec_json)?;
+                            stream_to_binding.insert(resource.stream.clone(), i);
 
-                        let mut projections = HashMap::new();
-                        if let Some(ref collection) = binding.collection {
-                            for p in &collection.projections {
-                                projections.insert(p.field.clone(), p.ptr.clone());
+                            let mut projections = HashMap::new();
+                            if let Some(ref collection) = binding.collection {
+                                for p in &collection.projections {
+                                    projections.insert(p.field.clone(), p.ptr.clone());
+                                }
+
+                                let primary_key: Vec<Vec<String>> = collection
+                                    .key_ptrs
+                                    .iter()
+                                    .map(|ptr| tokenize_jsonpointer(ptr))
+                                    .collect();
+                                catalog.streams.push(ConfiguredStream {
+                                    sync_mode: resource.sync_mode.clone(),
+                                    destination_sync_mode: DestinationSyncMode::Append,
+                                    cursor_field: None,
+                                    primary_key: Some(primary_key),
+                                    stream: airbyte_catalog::Stream {
+                                        name: resource.stream,
+                                        namespace: resource.namespace,
+                                        json_schema: RawValue::from_string(
+                                            collection.schema_json.clone(),
+                                        )?,
+                                        supported_sync_modes: Some(vec![resource
+                                            .sync_mode
+                                            .clone()]),
+                                        default_cursor_field: None,
+                                        source_defined_cursor: None,
+                                        source_defined_primary_key: None,
+                                    },
+                                    projections: projections,
+                                });
                             }
-
-                            let primary_key: Vec<Vec<String>> = collection.key_ptrs.iter().map(|ptr| tokenize_jsonpointer(ptr)).collect();
-                            catalog.streams.push(ConfiguredStream{
-                                sync_mode: resource.sync_mode.clone(),
-                                destination_sync_mode: DestinationSyncMode::Append,
-                                cursor_field: None,
-                                primary_key: Some(primary_key),
-                                stream: airbyte_catalog::Stream{
-                                    name:  resource.stream,
-                                    namespace:          resource.namespace,
-                                    json_schema:         RawValue::from_string(collection.schema_json.clone())?,
-                                    supported_sync_modes: Some(vec![resource.sync_mode.clone()]),
-                                    default_cursor_field: None,
-                                    source_defined_cursor: None,
-                                    source_defined_primary_key: None,
-                                },
-                                projections: projections,
-                            });
                         }
+
+                        if let Err(e) = catalog.validate() {
+                            raise_err(&format!("invalid config_catalog: {:?}", e))?
+                        }
+
+                        serde_json::to_writer(File::create(catalog_file_path)?, &catalog)?
                     }
 
-                    if let Err(e) = catalog.validate() {
-                        raise_err(&format!("invalid config_catalog: {:?}", e))?
-                    }
+                    // release the lock.
+                    drop(stream_to_binding);
 
-                    serde_json::to_writer(File::create(catalog_file_path)?, &catalog)?
+                    Ok(Some(Bytes::from(READY)))
+                } else {
+                    Ok(None)
                 }
-
-                // release the lock.
-                drop(stream_to_binding);
-
-                yield Bytes::from(READY);
-            }
-        })
+            })
+            .try_filter_map(|item| futures::future::ready(Ok(item))),
+        )
     }
 
     fn adapt_pull_response_stream(
@@ -261,35 +278,50 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(try_stream! {
-            let mut airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
-            // transaction_pending is true if the connector writes output messages and exits _without_ writing
-            // a final state checkpoint.
-            let mut transaction_pending = false;
+        let airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
 
-            loop {
-                let message = match airbyte_message_stream.next().await {
-                    None => break,
-                    Some(message) => message?
+        // transaction_pending is true if the connector writes output messages and exits _without_ writing
+        // a final state checkpoint.
+        Box::pin(stream::try_unfold(
+            (false, stream_to_binding, airbyte_message_stream),
+            |(transaction_pending, stb, mut stream)| async move {
+                let message = match stream.next().await {
+                    Some(m) => m?,
+                    None => {
+                        if transaction_pending {
+                            // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
+                            // of the next invocation will be "full refresh".
+                            let mut resp = PullResponse::default();
+                            resp.checkpoint = Some(DriverCheckpoint {
+                                driver_checkpoint_json: Vec::new(),
+                                rfc7396_merge_patch: false,
+                            });
+                            return Ok(Some((encode_message(&resp)?, (false, stb, stream))));
+                        } else {
+                            return Ok(None);
+                        }
+                    }
                 };
 
                 let mut resp = PullResponse::default();
                 if let Some(state) = message.state {
-                    resp.checkpoint = Some(DriverCheckpoint{
-                            driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
-                            rfc7396_merge_patch: match state.merge {
-                                Some(m) => m,
-                                None => false,
-                            },
+                    resp.checkpoint = Some(DriverCheckpoint {
+                        driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
+                        rfc7396_merge_patch: match state.merge {
+                            Some(m) => m,
+                            None => false,
+                        },
                     });
 
-                    yield encode_message(&resp)?;
-                    transaction_pending = false;
+                    Ok(Some((encode_message(&resp)?, (false, stb, stream))))
                 } else if let Some(record) = message.record {
-                    let stream_to_binding = stream_to_binding.lock().await;
+                    let stream_to_binding = stb.lock().await;
                     match stream_to_binding.get(&record.stream) {
                         None => {
-                            raise_err(&format!("connector record with unknown stream {}", record.stream))?;
+                            raise_err(&format!(
+                                "connector record with unknown stream {}",
+                                record.stream
+                            ))?;
                         }
                         Some(binding) => {
                             let arena = record.data.get().as_bytes().to_vec();
@@ -297,29 +329,20 @@ impl AirbyteSourceInterceptor {
                             resp.documents = Some(Documents {
                                 binding: *binding as u32,
                                 arena: arena,
-                                docs_json: vec![Slice{begin: 0, end: arena_len}]
+                                docs_json: vec![Slice {
+                                    begin: 0,
+                                    end: arena_len,
+                                }],
                             })
                         }
                     }
                     drop(stream_to_binding);
-                    yield encode_message(&resp)?;
-                    transaction_pending = true;
+                    Ok(Some((encode_message(&resp)?, (true, stb, stream))))
                 } else {
-                    raise_err("unexpected pull response.")?;
+                    raise_err("unexpected pull response.")
                 }
-            }
-
-            if transaction_pending {
-                // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
-                // of the next invocation will be "full refresh".
-                let mut resp = PullResponse::default();
-                resp.checkpoint = Some(DriverCheckpoint{
-                    driver_checkpoint_json: Vec::new(),
-                    rfc7396_merge_patch: false
-                });
-                yield encode_message(&resp)?;
-            }
-        })
+            },
+        ))
     }
 
     fn input_file_path(&mut self, file_name: &str) -> String {

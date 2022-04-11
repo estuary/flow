@@ -662,7 +662,6 @@ dependencies = [
 name = "connector_proxy"
 version = "0.0.0"
 dependencies = [
- "async-stream",
  "async-trait",
  "byteorder",
  "bytes",

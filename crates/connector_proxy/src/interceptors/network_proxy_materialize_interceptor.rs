@@ -7,7 +7,6 @@ use crate::libs::stream::{get_decoded_message, stream_all_bytes};
 use futures::{future, stream, StreamExt, TryStreamExt};
 use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, ValidateRequest};
 
-use async_stream::stream;
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 
