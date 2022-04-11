@@ -91,7 +91,7 @@ func TestRenderComment(t *testing.T) {
 
 func TestCreateTableWithComments(t *testing.T) {
 
-	endpoint := NewStdEndpoint(nil, nil, PostgresSQLGenerator(), FlowTables{})
+	endpoint := NewStdEndpoint(nil, nil, SQLiteSQLGenerator(), FlowTables{})
 
 	tableRender, err := endpoint.CreateTableStatement(FlowCheckpointsTable("test"))
 	require.Nil(t, err)
@@ -101,11 +101,11 @@ CREATE TABLE IF NOT EXISTS test (
 	-- The name of the materialization.
 	materialization TEXT NOT NULL,
 	-- The inclusive lower-bound key hash covered by this checkpoint.
-	key_begin BIGINT NOT NULL,
+	key_begin INTEGER NOT NULL,
 	-- The inclusive upper-bound key hash covered by this checkpoint.
-	key_end BIGINT NOT NULL,
+	key_end INTEGER NOT NULL,
 	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
-	fence BIGINT NOT NULL,
+	fence INTEGER NOT NULL,
 	-- Checkpoint of the Flow consumer shard, encoded as base64 protobuf.
 	checkpoint TEXT,
 
