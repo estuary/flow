@@ -673,7 +673,7 @@ dependencies = [
  "futures-util",
  "json-pointer",
  "libc",
- "network-proxy",
+ "network-tunnel",
  "prost",
  "protocol",
  "schemars",
@@ -1973,7 +1973,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "network-proxy"
+name = "network-tunnel"
 version = "0.1.0"
 dependencies = [
  "async-trait",

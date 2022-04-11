@@ -1,6 +1,6 @@
 use crate::apis::{FlowMaterializeOperation, InterceptorStream};
 use crate::errors::{Error, Must};
-use crate::libs::network_proxy::NetworkProxy;
+use crate::libs::network_tunnel::NetworkTunnel;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::{get_decoded_message, stream_all_bytes};
 
@@ -10,18 +10,18 @@ use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, Vali
 use serde_json::value::RawValue;
 use tokio_util::io::StreamReader;
 
-pub struct NetworkProxyMaterializeInterceptor {}
+pub struct NetworkTunnelMaterializeInterceptor {}
 
-impl NetworkProxyMaterializeInterceptor {
+impl NetworkTunnelMaterializeInterceptor {
     fn adapt_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
         Box::pin(stream::once(async {
             let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
 
-            request.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+            request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
             )
             .await
-            .expect("failed to start network proxy")
+            .expect("failed to start network tunnel")
             .to_string();
             encode_message(&request)
         }))
@@ -32,7 +32,7 @@ impl NetworkProxyMaterializeInterceptor {
             let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
 
             if let Some(ref mut m) = request.materialization {
-                m.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                m.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                     RawValue::from_string(m.endpoint_spec_json.clone())?,
                 )
                 .await
@@ -54,7 +54,7 @@ impl NetworkProxyMaterializeInterceptor {
                     .expect("expected request is not received.");
                 if let Some(ref mut o) = request.open {
                     if let Some(ref mut m) = o.materialization {
-                        m.endpoint_spec_json = NetworkProxy::consume_network_proxy_config(
+                        m.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                             RawValue::from_string(m.endpoint_spec_json.clone())?,
                         )
                         .await
@@ -73,7 +73,7 @@ impl NetworkProxyMaterializeInterceptor {
     }
 }
 
-impl NetworkProxyMaterializeInterceptor {
+impl NetworkTunnelMaterializeInterceptor {
     pub fn adapt_request_stream(
         op: &FlowMaterializeOperation,
         in_stream: InterceptorStream,
@@ -96,7 +96,7 @@ impl NetworkProxyMaterializeInterceptor {
             FlowMaterializeOperation::Spec => Box::pin(stream::once(async {
                 let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
 
-                response.endpoint_spec_schema_json = NetworkProxy::extend_endpoint_schema(
+                response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
                 )
                 .or_bail()

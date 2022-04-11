@@ -145,9 +145,9 @@ ${RUST_MUSL_BIN}/flow-schemalate:
 ${RUST_MUSL_BIN}/flow-parser:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
 
-.PHONY: ${RUST_MUSL_BIN}/flow-network-proxy
-${RUST_MUSL_BIN}/flow-network-proxy:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-proxy
+.PHONY: ${RUST_MUSL_BIN}/flow-network-tunnel
+${RUST_MUSL_BIN}/flow-network-tunnel:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-tunnel
 
 .PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
 ${RUST_MUSL_BIN}/flow-connector-proxy:
@@ -167,7 +167,7 @@ RUST_TARGETS = \
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schemalate \
-	${PKGDIR}/bin/flow-network-proxy \
+	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-connector-proxy \
 
 .PHONY: rust-binaries
@@ -193,8 +193,8 @@ ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
-${PKGDIR}/bin/flow-network-proxy: ${RUST_MUSL_BIN}/flow-network-proxy | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-network-proxy $@
+${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
 
@@ -228,11 +228,11 @@ install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-test
 rust-test:
-	cargo test --release --locked --workspace --exclude parser --exclude network-proxy --exclude schemalate --exclude connector_proxy
+	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy
 
 .PHONY: musl-test
 musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-proxy --package schemalate --package connector_proxy
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,
