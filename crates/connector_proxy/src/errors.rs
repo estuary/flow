@@ -49,7 +49,7 @@ pub enum Error {
     MissingImageInspectFile,
 
     #[error(transparent)]
-    NetworkProxyError(#[from] network_proxy::errors::Error),
+    NetworkTunnelError(#[from] network_tunnel::errors::Error),
 
     #[error(transparent)]
     TempfilePersistError(#[from] tempfile::PersistError),

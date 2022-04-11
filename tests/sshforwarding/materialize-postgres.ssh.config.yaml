@@ -3,7 +3,7 @@ port: 16666
 user: flow
 password: flow
 database: flow
-networkProxy:
+networkTunnel:
   sshForwarding:
     localPort: 16666
     forwardHost: localhost

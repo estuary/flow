@@ -1,4 +1,4 @@
-package networkproxy
+package networktunnel
 
 /*
 import (
