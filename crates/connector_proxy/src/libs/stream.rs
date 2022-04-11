@@ -2,6 +2,7 @@ use crate::libs::airbyte_catalog::Message;
 use crate::{apis::InterceptorStream, errors::create_custom_error};
 
 use crate::errors::raise_err;
+use async_stream::try_stream;
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{stream, StreamExt, TryStream, TryStreamExt};
 use serde_json::{Deserializer, Value};
@@ -32,9 +33,61 @@ pub fn stream_all_bytes<R: 'static + AsyncRead + std::marker::Unpin>(
 /// Will ignore* messages that cannot be parsed to an AirbyteMessage.
 /// * See https://docs.airbyte.com/understanding-airbyte/airbyte-specification#the-airbyte-protocol
 pub fn stream_airbyte_responses(
-    in_stream: InterceptorStream,
+    mut in_stream: InterceptorStream,
 ) -> impl TryStream<Item = std::io::Result<Message>, Ok = Message, Error = std::io::Error> {
-    stream::once(async {
+    try_stream! {
+        let mut buf = BytesMut::new();
+
+        while let Some(bytes) = in_stream.next().await {
+            match bytes {
+                Ok(b) => {
+                    buf.extend_from_slice(b.chunk());
+                }
+                Err(e) => {
+                    raise_err(&format!("error in reading next in_stream: {:?}", e))?;
+                }
+            }
+
+            let chunk = buf.chunk();
+            let deserializer = Deserializer::from_slice(&chunk);
+
+            // Deserialize to Value first, instead of Message, to avoid missing 'is_eof' signals in error.
+            let mut value_stream = deserializer.into_iter::<Value>();
+            while let Some(value) = value_stream.next() {
+                match value {
+                    Ok(v) => {
+                        let message: Message = serde_json::from_value(v).unwrap();
+                        if let Err(e) = message.validate() {
+                            raise_err(&format!(
+                            "error in validating message: {:?}, {:?}",
+                             e, std::str::from_utf8(&chunk[value_stream.byte_offset()..])))?;
+                        }
+                        tracing::debug!("read message:: {:?}", &message);
+                        yield message;
+                    }
+                    Err(e) => {
+                        if e.is_eof() {
+                            break;
+                        }
+
+                        raise_err(&format!(
+                            "error in decoding message: {:?}, {:?}",
+                             e, std::str::from_utf8(&chunk[value_stream.byte_offset()..])))?;
+                    }
+                }
+            }
+
+            let byte_offset = value_stream.byte_offset();
+            drop(buf.split_to(byte_offset));
+        }
+
+        if buf.len() > 0 {
+            raise_err("unconsumed content in stream found.")?;
+        }
+
+        tracing::info!("done reading all in_stream.");
+    }
+    /*stream::once(async {
         let mut buf = BytesMut::new();
         let items = in_stream
             .map(move |bytes| {
@@ -100,7 +153,7 @@ pub fn stream_airbyte_responses(
         } else {
             Ok(Some(message))
         }
-    })
+    })*/
 }
 
 /// Read the given stream and try to find an Airbyte message that matches the predicate
