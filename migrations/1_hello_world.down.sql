@@ -1,6 +1,6 @@
 drop view draft_specs_ext;
 drop table live_specs;
-drop table published_specs;
+drop table publication_specs;
 drop table publications;
 drop table discovers;
 drop table draft_specs;

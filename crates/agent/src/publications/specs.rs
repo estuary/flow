@@ -295,7 +295,7 @@ pub async fn apply_updates_for_row(
     .context("delete from draft_specs")?;
 
     sqlx::query!(
-        r#"insert into published_specs (
+        r#"insert into publication_specs (
             catalog_name,
             pub_id,
             spec_min_patch,
@@ -311,7 +311,7 @@ pub async fn apply_updates_for_row(
     )
     .execute(&mut *txn)
     .await
-    .context("insert into published_specs")?;
+    .context("insert into publication_specs")?;
 
     if draft_spec.is_none() {
         // Draft is a deletion of a live spec.

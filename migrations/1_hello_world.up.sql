@@ -487,7 +487,7 @@ grant insert (draft_id, dry_run) on publications to authenticated;
 
 -- Published specifications which record the changes
 -- made to specs over time, and power reverts.
-create table published_specs (
+create table publication_specs (
   pub_id flowid references publications(id) not null,
   catalog_name  catalog_name not null,
   primary key (catalog_name, pub_id),
@@ -499,13 +499,13 @@ create table published_specs (
   spec_min_patch  jsonb not null,
   -- spec_rev_patch is like spec_fwd_patch but in reverse.
   -- A revert of a publication can be initialized by creating
-  -- a draft having all of its published_specs.spec_rev_patch
+  -- a draft having all of its publication_specs.spec_rev_patch
   spec_rev_patch  jsonb not null
 );
 alter table draft_specs enable row level security;
 
 create policy "Users must be authorized to the specification catalog name"
-  on published_specs as permissive
+  on publication_specs as permissive
   using (true); -- TODO(johnny) auth on catalog_name.
 grant all on draft_specs to authenticated;
 
