@@ -10,11 +10,11 @@ Also listed are links to the most recent Docker image, which you'll need for cer
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
 ## Available materialization connectors
-* Apache Parquet
-  * Configuration
+* Apache Parquet in S3
+  * [Configuration](./Parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
 * Elasticsearch
-  * Configuration
+  * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:dev
 * Firebolt
   * [Configuration](./Firebolt.md)
