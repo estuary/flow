@@ -1,4 +1,5 @@
 
 # Provide a default DATABASE_URL which is used if none others are set.
+# This is the database presented by a local `supabase start`.
 [env]
-DATABASE_URL = "postgres://flow:flow@localhost:5432/control_development"
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"

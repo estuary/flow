@@ -1,1 +1,5 @@
 target/
+
+# Supabase
+**/supabase/.branches
+**/supabase/.temp
