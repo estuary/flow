@@ -55,6 +55,9 @@ func ValidateNewSQLProjections(proposed *pf.CollectionSpec, deltaUpdates bool) m
 	for _, projection := range proposed.Projections {
 		var constraint = new(pm.Constraint)
 		switch {
+		case len(projection.Field) > 63:
+			constraint.Type = pm.Constraint_FIELD_FORBIDDEN
+			constraint.Reason = "Field names must be less than 63 bytes in length."
 		case projection.IsPrimaryKey:
 			constraint.Type = pm.Constraint_LOCATION_REQUIRED
 			constraint.Reason = "All Locations that are part of the collections key are required"
