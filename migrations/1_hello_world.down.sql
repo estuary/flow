@@ -1,6 +1,11 @@
-
-drop table drafts;
+drop view draft_specs_ext;
+drop table live_specs;
+drop table published_specs;
+drop table publications;
 drop table discovers;
+drop table draft_specs;
+drop table draft_errors;
+drop table drafts;
 drop table connector_tags;
 drop table connectors;
 drop function view_logs;
@@ -11,8 +16,12 @@ alter domain flowid drop default; -- remove dependence on id_generator.
 drop function internal.id_generator;
 drop sequence internal.shard_0_id_sequence;
 drop schema internal;
+drop type catalog_spec_type;
 drop domain catalog_prefix;
 drop domain catalog_name;
+drop function jsonb_strip_null;
+drop function jsonb_merge_diff;
+drop function jsonb_merge_patch;
 drop domain flowid;
 drop domain jsonb_obj;
 drop domain json_obj;

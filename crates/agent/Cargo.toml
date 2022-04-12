@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+models = { git = "https://github.com/estuary/flow", branch = "johnny/bake-build-id" }
+tables = { git = "https://github.com/estuary/flow", branch = "johnny/bake-build-id", features = ["persist"] }
 
 anyhow = "*"
 async-trait = "*"
@@ -14,6 +16,8 @@ bytes = "*"
 chrono = { version = "0.4" }
 clap = { version = "*", features = ["derive", "env"] }
 futures = "*"
+rusqlite = "*"
+scopeguard = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version = "*" }
 sqlx = { version = "*", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
@@ -24,7 +28,8 @@ tokio-util = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["json", "env-filter", "fmt", "time"]}
 url = "*"
-uuid = "*"
+itertools = "*"
+uuid = { version = "*", features = ["v4", "serde"] }
 
 [dev-dependencies]
 insta = { version = "*", features = ["redactions"] }

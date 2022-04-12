@@ -1,14 +1,14 @@
 mod connector_tags;
 mod discovers;
-mod drafts;
 mod id;
 mod jobs;
 pub mod logs;
+mod publications;
 
 pub use connector_tags::TagHandler;
 pub use discovers::DiscoverHandler;
-pub use drafts::DraftHandler;
 pub use id::Id;
+pub use publications::PublishHandler;
 
 /// Handler is the principal trait implemented by the various task-specific
 /// event handlers that the agent runs.

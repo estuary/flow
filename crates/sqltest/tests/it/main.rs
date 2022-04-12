@@ -7,7 +7,7 @@ use sqlx::Row;
 // It would be A Bad Thing if tests were run against a production database,
 // because tests add and revert migrations as part of their execution.
 // We lock it down to a prescribed local database which is put under test.
-const FIXED_DATABASE_URL: &str = "postgresql://flow:flow@localhost:5432/control_development";
+const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 // TODO(johnny): This is merely a proof-of-concept, demonstrating that we can
 // up- and down-migrate the database at will to make assertions about
@@ -21,6 +21,10 @@ async fn test_foobar() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await
         .expect("connect");
+
+    conn.ensure_migrations_table()
+        .await
+        .expect("migrations table");
 
     conn.execute(include_str!("../../supa_mocks.sql"))
         .await

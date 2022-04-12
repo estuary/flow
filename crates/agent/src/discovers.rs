@@ -3,7 +3,8 @@ use super::{jobs, logs, Handler, Id};
 use anyhow::Context;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use sqlx::types::Json;
+use std::collections::BTreeMap;
 use tracing::{debug, info};
 
 /// JobStatus is the possible outcomes of a handled discover operation.
@@ -12,6 +13,7 @@ use tracing::{debug, info};
 pub enum JobStatus {
     Queued,
     WrongProtocol { protocol: String },
+    TagFailed,
     PullFailed,
     DiscoverFailed,
     Success,
@@ -39,7 +41,9 @@ impl DiscoverHandler {
 struct Row {
     capture_name: String,
     connector_tag_id: Id,
+    connector_tag_job_success: bool,
     created_at: DateTime<Utc>,
+    draft_id: Id,
     endpoint_config_json: String,
     id: Id,
     image_name: String,
@@ -57,27 +61,31 @@ impl Handler for DiscoverHandler {
 
         let row: Row = match sqlx::query_as!(
             Row,
-            // TODO(johnny): If we stored `docker inspect` output within connector_images,
+            // TODO(johnny): If we stored `docker inspect` output within connector_tags,
             // we could pull a resolved digest directly from it?
+            // Better: have `flowctl api spec` run it internally and surface the digest?
             r#"select
-                c.image_name,
-                d.capture_name,
-                d.connector_tag_id as "connector_tag_id: Id",
-                d.created_at,
-                d.endpoint_config::text as "endpoint_config_json!",
-                d.id as "id: Id",
-                d.logs_token,
-                d.updated_at,
-                d.user_id,
-                t.image_tag,
-                t.protocol as "protocol!"
-            from discovers as d
-            join connector_tags as t on d.connector_tag_id = t.id
-            join connectors as c on c.id = t.connector_id
-            where d.job_status->>'type' = 'queued' and t.job_status->>'type' = 'success'
-            order by d.id asc
+                discovers.capture_name,
+                discovers.connector_tag_id as "connector_tag_id: Id",
+                connector_tags.job_status->>'type' = 'success' as "connector_tag_job_success!",
+                discovers.created_at,
+                discovers.draft_id as "draft_id: Id",
+                discovers.endpoint_config::text as "endpoint_config_json!",
+                discovers.id as "id: Id",
+                connectors.image_name,
+                connector_tags.image_tag,
+                discovers.logs_token,
+                connector_tags.protocol as "protocol!",
+                discovers.updated_at,
+                drafts.user_id
+            from discovers
+            join drafts on discovers.draft_id = drafts.id
+            join connector_tags on discovers.connector_tag_id = connector_tags.id
+            join connectors on connectors.id = connector_tags.connector_id
+            where discovers.job_status->>'type' = 'queued' and connector_tags.job_status->>'type' != 'queued'
+            order by discovers.id asc
             limit 1
-            for update of d skip locked;
+            for update of discovers skip locked;
             "#
         )
         .fetch_optional(&mut txn)
@@ -87,27 +95,22 @@ impl Handler for DiscoverHandler {
             Some(row) => row,
         };
 
-        let (id, status, catalog_spec) = self.process(row).await?;
+        let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
-        let r = sqlx::query_unchecked!(
+        sqlx::query_unchecked!(
             r#"update discovers set
                     job_status = $2,
-                    updated_at = clock_timestamp(),
-                    -- Remaining fields are null on failure:
-                    catalog_spec = $3
-                where id = $1;
+                    updated_at = clock_timestamp()
+                where id = $1
+                returning 1 as "must_exist";
                 "#,
             id,
             sqlx::types::Json(status),
-            catalog_spec,
         )
-        .execute(&mut txn)
+        .fetch_one(&mut txn)
         .await?;
 
-        if r.rows_affected() != 1 {
-            anyhow::bail!("rows_affected is {}, not one", r.rows_affected())
-        }
         txn.commit().await?;
 
         Ok(std::time::Duration::ZERO)
@@ -119,28 +122,33 @@ impl DiscoverHandler {
     async fn process(
         &mut self,
         row: Row,
-    ) -> anyhow::Result<(Id, JobStatus, Option<serde_json::Value>)> {
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> anyhow::Result<(Id, JobStatus)> {
         info!(
-            %row.image_name,
             %row.capture_name,
             %row.connector_tag_id,
+            %row.connector_tag_job_success,
             %row.created_at,
+            %row.draft_id,
+            %row.image_name,
+            %row.image_tag,
             %row.logs_token,
+            %row.protocol,
             %row.updated_at,
             %row.user_id,
-            %row.image_tag,
-            %row.protocol,
             "processing discover",
         );
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
+        if !row.connector_tag_job_success {
+            return Ok((row.id, JobStatus::TagFailed));
+        }
         if row.protocol != "capture" {
             return Ok((
                 row.id,
                 JobStatus::WrongProtocol {
                     protocol: row.protocol,
                 },
-                None,
             ));
         }
 
@@ -156,7 +164,7 @@ impl DiscoverHandler {
         .await?;
 
         if !pull.success() {
-            return Ok((row.id, JobStatus::PullFailed, None));
+            return Ok((row.id, JobStatus::PullFailed));
         }
 
         // Fetch its discover output.
@@ -178,33 +186,97 @@ impl DiscoverHandler {
         .await?;
 
         if !discover.0.success() {
-            return Ok((row.id, JobStatus::DiscoverFailed, None));
+            return Ok((row.id, JobStatus::DiscoverFailed));
         }
 
-        let spec = swizzle_response_to_bundle(
+        let catalog = swizzle_response_to_catalog(
             &row.capture_name,
             &row.endpoint_config_json,
             &row.image_name,
             &row.image_tag,
             &discover.1,
         )
-        .context("converting discovery response into a bundle")?;
+        .context("converting discovery response into a catalog")?;
 
-        Ok((row.id, JobStatus::Success, Some(spec)))
+        insert_draft_specs(row.draft_id, catalog, txn)
+            .await
+            .context("inserting draft specs")?;
+
+        Ok((row.id, JobStatus::Success))
     }
 }
 
-// swizzle_response_to_bundle accepts a raw discover response (as bytes),
-// along with the raw endpoint configuration and connector image, and returns a
-// swizzled bundle in the shape of a Flow catalog specification.
-// This bundle is suitable for direct usage within the UI.
-fn swizzle_response_to_bundle(
+async fn insert_draft_specs(
+    draft_id: Id,
+    models::Catalog {
+        collections,
+        captures,
+        ..
+    }: models::Catalog,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), sqlx::Error> {
+    for (capture, spec) in captures {
+        sqlx::query!(
+            r#"insert into draft_specs(
+                draft_id,
+                catalog_name,
+                spec_type,
+                spec_patch
+            ) values ($1, $2, 'capture', $3)
+            on conflict (draft_id, catalog_name) do update set
+                spec_type = 'capture',
+                spec_patch = $3
+            returning 1 as "must_exist";
+            "#,
+            draft_id as Id,
+            capture.as_str() as &str,
+            Json(spec) as Json<models::CaptureDef>,
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+    }
+    for (collection, spec) in collections {
+        sqlx::query!(
+            r#"insert into draft_specs(
+                draft_id,
+                catalog_name,
+                spec_type,
+                spec_patch
+            ) values ($1, $2, 'collection', $3)
+            on conflict (draft_id, catalog_name) do update set
+                spec_type = 'collection',
+                spec_patch = $3
+            returning 1 as "must_exist";
+            "#,
+            draft_id as Id,
+            collection.as_str() as &str,
+            Json(spec) as Json<models::CollectionDef>,
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+    }
+
+    sqlx::query_unchecked!(
+        r#"update drafts set updated_at = clock_timestamp() where id = $1
+            returning 1 as "must_exist";"#,
+        draft_id as Id,
+    )
+    .fetch_one(&mut *txn)
+    .await?;
+
+    Ok(())
+}
+
+// swizzle_response_to_catalog accepts a raw discover response (as bytes),
+// along with the raw endpoint configuration and connector image,
+// and returns a models::Catalog.
+fn swizzle_response_to_catalog(
     capture_name: &str,
     endpoint_config_json: &str,
     image_name: &str,
     image_tag: &str,
     response: &[u8],
-) -> Result<serde_json::Value, serde_json::Error> {
+) -> Result<models::Catalog, serde_json::Error> {
     // Split the capture name into a suffix after the final '/',
     // and a prefix of everything before that final '/'.
     // The prefix is used to namespace associated collections of the capture.
@@ -234,89 +306,64 @@ fn swizzle_response_to_bundle(
         /// A recommended display name for this discovered binding.
         recommended_name: String,
         /// JSON-encoded object which specifies the endpoint resource to be captured.
-        resource_spec: serde_json::Value,
+        resource_spec: models::Object,
         /// JSON schema of documents produced by this binding.
-        document_schema: serde_json::Value,
+        document_schema: models::Schema,
         /// Composite key of documents (if known), as JSON-Pointers.
         #[serde(default)]
-        key_ptrs: Vec<String>,
+        key_ptrs: Vec<models::JsonPointer>,
     }
     let response: Response = serde_json::from_value(response)?;
 
-    // Swizzle the discovered bindings into:
-    //  - Separate *.schema.json resources for each captured collection.
-    //  - A single *.config.json for the endpoint configuration.
-    //  - A single catalog *.flow.json resource holding the capture and associated collections.
-    //  - A top-level bundle with inline resources and an import of *.flow.json.
+    // Break apart each response.binding into constituent
+    // collection and capture binding models.
     let mut bindings = Vec::new();
-    let mut collections = serde_json::Map::<String, serde_json::Value>::new();
-    let mut resources = serde_json::Map::<String, serde_json::Value>::new();
+    let mut collections = BTreeMap::new();
 
-    // Relative resource paths are resolved to their absolute
-    let fake_root = "flow://discovered/";
+    for Binding {
+        recommended_name,
+        resource_spec: resource,
+        document_schema: schema,
+        key_ptrs,
+    } in response.bindings
+    {
+        let collection = models::Collection::new(format!("{capture_prefix}/{recommended_name}"));
 
-    for b in response.bindings {
-        let recommended = &b.recommended_name;
-        let collection_name = format!("{capture_prefix}/{recommended}");
-        let schema_url = format!("{recommended}.schema.json");
-
-        bindings.push(json!({
-            "resource": b.resource_spec,
-            "target": collection_name,
-        }));
+        bindings.push(models::CaptureBinding {
+            resource,
+            target: collection.clone(),
+        });
         collections.insert(
-            collection_name,
-            json!({
-                "schema": schema_url,
-                "key": b.key_ptrs,
-            }),
-        );
-        resources.insert(
-            format!("{fake_root}{schema_url}"),
-            json!({
-                "contentType": "JSON_SCHEMA",
-                "content": &b.document_schema,
-            }),
+            collection,
+            models::CollectionDef {
+                schema,
+                key: models::CompositeKey::new(key_ptrs),
+                projections: Default::default(),
+                derivation: None,
+                journals: Default::default(),
+            },
         );
     }
 
-    // Add endpoint configuration as a resource.
-    // We MUST base64 this config, because inlining it directly may re-order
-    // properties which will break a contained sops MAC signature.
-    let config_url = format!("{image_suffix}.config.json");
-    resources.insert(
-        format!("{fake_root}{config_url}"),
-        json!({
-            "contentType": "CONFIG",
-            "content": base64::encode(endpoint_config_json),
-        }),
+    let mut catalog = models::Catalog::default();
+    catalog.collections = collections;
+    catalog.captures.insert(
+        models::Capture::new(capture_name),
+        models::CaptureDef {
+            bindings,
+            endpoint: models::CaptureEndpoint::Connector(models::ConnectorConfig {
+                image: image_composed,
+                // TODO(johnny): This re-orders sops and is WRONG!
+                // Can we make config universally a RawValue?
+                // It will probably require inverting how we do yaml deser,
+                // where we first transcode an entire catalog source file into a
+                // a JSON buffer and *then* parse a models::Catalog using serde_json.
+                config: models::Config::Inline(serde_json::from_str(endpoint_config_json)?),
+            }),
+            interval: models::CaptureDef::default_interval(),
+            shards: Default::default(),
+        },
     );
 
-    // Add top-level Flow catalog specification for this capture.
-    let flow_url = format!("{fake_root}{image_suffix}.flow.json");
-    resources.insert(
-        flow_url.clone(),
-        json!({
-            "contentType": "CATALOG",
-            "content": {
-                "captures": {
-                    capture_name: {
-                        "endpoint": {
-                            "connector": {
-                                "image": image_composed,
-                                "config": config_url,
-                            }
-                        },
-                        "bindings": bindings,
-                    },
-                },
-                "collections": collections,
-            },
-        }),
-    );
-
-    Ok(json!({
-        "resources": resources,
-        "import": [flow_url],
-    }))
+    Ok(catalog)
 }

@@ -3,15 +3,25 @@
 set -o errexit
 set -o pipefail
 set -o nounset
-# set -o xtrace
+#set -o xtrace
 
-# This script requires that you have an access token from Supabase.
+# Running this script against our production endpoint requires that you have an access token from Supabase.
 # It's a little awkward to get at the moment, though we can expose it in our dashboard UI.
-
-# Estuary supabase endpoint.
-API=https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1
+#
+#API=https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1
 # Estuary public API key (this is okay to share).
-APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco
+#APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco
+
+# Configuration for local development:
+
+API=http://localhost:5431/rest/v1
+APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.625_WdcF3KHqz5amU0x2X5WWHP-OEs_4qj0ssLNHzTs
+
+# The local development secret is 'super-secret-jwt-token-with-at-least-32-characters-long'.
+# See: https://github.com/supabase/supabase-js/issues/25#issuecomment-1019935888
+#
+# This TOKEN is bob@example.com, created using https://jwt.io, and is good for 20 years.
+TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoyMjgwMDY3NTAwLCJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJlbWFpbCI6ImJvYkBleGFtcGxlLmNvbSIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.7BJJJI17d24Hb7ZImlGYDRBCMDHkqU1ppVTTfqD5l8I
 
 # REST calls require both the public apikey, and a signed user token.
 args=(-s -H "apikey: ${APIKEY}" -H "Authorization: Bearer ${TOKEN}")
@@ -57,6 +67,7 @@ function poll_while_queued() {
 }
 
 
+function test_discover_then_publish() {
 # Name of the capture to create.
 CAPTURE_NAME=acmeCo/nested/anvils
 # Test connector image and configuration to use for discovery.
@@ -78,6 +89,14 @@ then
     exit 1
 fi
 
+# Create an empty draft.
+DRAFT=$(curl "${args[@]}" \
+    "${API}/drafts?select=id" \
+    -H "Content-Type: application/json" \
+    -H "Prefer: return=representation" \
+    -d "{}" \
+    | jq -r '.[0].id')
+
 # Fetch the most-recent connector image for soure-hello-world.
 CONNECTOR_TAG=$(curl "${args[@]}" "${API}/connectors?select=connector_tags(id)&connector_tags.order=updated_at.asc&image_name=eq.${CONNECTOR}" | jq '.[0].connector_tags[0].id')
 echo "Tagged connector image: ${CONNECTOR_TAG}"
@@ -87,27 +106,29 @@ DISCOVERY=$(curl "${args[@]}" \
     "${API}/discovers?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"capture_name\":\"${CAPTURE_NAME}\",\"endpoint_config\":${CONNECTOR_CONFIG},\"connector_tag_id\":${CONNECTOR_TAG}}" \
+    -d "{\"capture_name\":\"${CAPTURE_NAME}\",\"endpoint_config\":${CONNECTOR_CONFIG},\"connector_tag_id\":${CONNECTOR_TAG},\"draft_id\":\"${DRAFT}\"}" \
     | jq -r '.[0].id')
 poll_while_queued "${API}/discovers?id=eq.${DISCOVERY}"
 
 # Retrieve the discovered specification, and pretty print it.
-DISCOVER_SPEC=$(curl "${args[@]}" "${API}/discovers?id=eq.${DISCOVERY}&select=catalog_spec" | jq -r '.[0].catalog_spec')
-echo $DISCOVER_SPEC | jq '.'
+curl "${args[@]}" "${API}/draft_specs?draft_id=eq.${DRAFT}&select=catalog_name,spec_type,spec_patch" | jq '.'
 
-# Create a draft and grab its id.
-DRAFT=$(curl "${args[@]}" \
-    "${API}/drafts?select=id" \
+# Create a publication and grab its id.
+PUBLISH=$(curl "${args[@]}" \
+    "${API}/publications?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"catalog_spec\":${DISCOVER_SPEC}}" \
+    -d "{\"draft_id\":\"${DRAFT}\"}" \
     | jq -r '.[0].id')
-poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
+poll_while_queued "${API}/publications?id=eq.${PUBLISH}"
 
 # View our completed draft.
-curl "${args[@]}" "${API}/drafts?id=eq.${DRAFT}&select=created_at,updated_at,job_status" | jq '.'
+curl "${args[@]}" "${API}/publications?id=eq.${PUBLISH}&select=created_at,updated_at,job_status" | jq '.'
+}
 
-# Create another draft from a canned catalog specification.
+
+function test_test_failure() {
+# Create draft from a canned catalog specification.
 # This one has a failing test, which is reported and causes us to bail out :(
 DRAFT=$(curl "${args[@]}" \
     "${API}/drafts?select=id" \
@@ -116,4 +137,16 @@ DRAFT=$(curl "${args[@]}" \
     -d "{\"catalog_spec\":$(jq -c '.' $(dirname "$0")/test_catalog.json)}" \
     | jq -r '.[0].id')
 poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
+}
 
+function test_big_catalog() {
+DRAFT=$(jq -c "{catalog_spec:.}" scripts/test_catalog_big.json \
+    | curl "${args[@]}" "${API}/drafts?select=id" \
+    -H "Content-Type: application/json" \
+    -H "Prefer: return=representation" \
+    --data-binary @/dev/stdin \
+    | jq -r '.[0].id')
+poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
+}
+
+test_discover_then_publish

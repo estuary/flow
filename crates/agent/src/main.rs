@@ -70,7 +70,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let serve_fut = agent::serve(
         vec![
-            Box::new(agent::DraftHandler::new(
+            Box::new(agent::PublishHandler::new(
                 &args.connector_network,
                 &args.flowctl,
                 &logs_tx,

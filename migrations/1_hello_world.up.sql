@@ -62,6 +62,19 @@ create domain catalog_prefix as text
 comment on domain catalog_prefix is
   'catalog_prefix is a unique prefix within the Flow catalog namespace';
 
+create type catalog_spec_type as enum (
+  -- These correspond 1:1 with top-level maps of models::Catalog.
+  'collection',
+  'materialization',
+  'capture',
+  'test',
+  'storage_mapping'
+);
+
+comment on type catalog_spec_type is
+  'Enumeration of Flow catalog specification types';
+
+
 create schema internal;
 comment on schema internal is
   'Internal schema used for types, tables, and procedures we don''t expose in our API';
@@ -120,29 +133,87 @@ Which itself was inspired by http://instagram-engineering.tumblr.com/post/108531
 alter domain flowid set default internal.id_generator();
 
 
--- TODO(johnny): I'm not sure we need this. Leaving here but commented out for the moment.
 -- For $reasons PostgreSQL doesn't offer RFC 7396 JSON Merge Patch.
 -- Implement as a function, credit to:
 -- https://stackoverflow.com/questions/63345280/there-is-a-similar-function-json-merge-patch-in-postgres-as-in-oracle
--- CREATE FUNCTION jsonb_merge_patch("target" JSONB, "patch" JSONB)
--- RETURNS JSONB AS $$
--- BEGIN
---     RETURN COALESCE(jsonb_object_agg(
---         COALESCE("tkey", "pkey"),
---         CASE
---             WHEN "tval" ISNULL THEN "pval"
---             WHEN "pval" ISNULL THEN "tval"
---             WHEN jsonb_typeof("tval") != 'object' OR jsonb_typeof("pval") != 'object' THEN "pval"
---             ELSE jsonb_merge_patch("tval", "pval")
---         END
---     ), '{}'::jsonb)
---       FROM jsonb_each("target") e1("tkey", "tval")
---   FULL JOIN jsonb_each("patch") e2("pkey", "pval")
---         ON "tkey" = "pkey"
---       WHERE jsonb_typeof("pval") != 'null'
---         OR "pval" ISNULL;
--- END;
--- $$ LANGUAGE plpgsql;
+create or replace function jsonb_merge_patch("target" jsonb, "patch" jsonb)
+returns jsonb as $$
+begin
+  case
+    when jsonb_typeof("target") != 'object' or jsonb_typeof("patch") != 'object' then
+      return jsonb_strip_null("patch");
+    else
+      return (
+        with inner_patch as (
+          select
+            coalesce("tkey", "pkey") as "key",
+            case
+                when "tval" isnull then jsonb_strip_null("pval")
+                when "pval" isnull then jsonb_strip_null("tval")
+                else jsonb_merge_patch("tval", "pval")
+            end as "val"
+          from            jsonb_each("target") e1("tkey", "tval")
+          full outer join jsonb_each("patch")  e2("pkey", "pval") on "tkey" = "pkey"
+        )
+        select coalesce(jsonb_object_agg("key", "val"), '{}')
+        from inner_patch
+        where "val" is not null
+      );
+  end case;
+end;
+$$ language plpgsql immutable;
+
+
+-- Compute a RFC 7396 JSON merge patch which patches "source" to become "target".
+create or replace function jsonb_merge_diff("target" jsonb, "source" jsonb)
+returns jsonb as $$
+begin
+  case
+    when "target" isnull or "target" = 'null' then
+      return 'null'; -- JSON null is marker to remove location.
+    when jsonb_typeof("target") != 'object' or jsonb_typeof("source") != 'object' then
+      return (case
+        -- If target & source are equal (and not an object), don't include in patch.
+        when "target" = "source" then null
+        -- Include target with JSON null's elided. It's not possible to represent
+        -- a patched object location with an explicit null using JSON merge patch,
+        -- and we canonicalize by always removing nulls.
+        else jsonb_strip_null("target") end);
+    else
+      return (
+        with inner_diff as (
+          select
+            coalesce("tkey", "skey") as "key",
+            jsonb_merge_diff("tval", "sval") as "val"
+          from            jsonb_each("target") e1("tkey", "tval")
+          full outer join jsonb_each("source") e2("skey", "sval") on "tkey" = "skey"
+        )
+        select coalesce(jsonb_object_agg("key", "val"), '{}')
+        from inner_diff
+        where "val" is not null
+      );
+  end case;
+end;
+$$ language plpgsql immutable;
+
+
+create or replace function jsonb_strip_null("doc" jsonb)
+returns jsonb as $$
+begin
+  case
+    when "doc" = 'null' then
+      return null;
+    when jsonb_typeof("doc") != 'object' then
+      return "doc";
+    else
+      return (
+        select coalesce(jsonb_object_agg("key", jsonb_strip_null("val")), '{}')
+        from jsonb_each("doc") d("key", "val")
+        where "val" != 'null'
+      );
+  end case;
+end;
+$$ language plpgsql immutable;
 
 
 -- _model is not used directly, but is a model for other created tables.
@@ -279,65 +350,218 @@ create unique index idx_connector_tags_id_where_queued on connector_tags(id)
   where job_status->>'type' = 'queued';
 
 
--- User-initiated discover operations.
+-- Draft changesets of Flow specifications.
+create table drafts (
+  like internal._model including all,
+
+  user_id uuid references auth.users(id) not null default auth.uid()
+);
+alter table drafts enable row level security;
+
+create policy "Users can access only their created drafts"
+  on drafts as permissive
+  using (user_id = auth.uid());
+
+grant insert (detail) on drafts to authenticated;
+grant select on drafts to authenticated;
+grant delete on drafts to authenticated;
+
+comment on table drafts is
+  'Draft change-sets of Flow catalog specifications';
+comment on column drafts.user_id is
+  'User who owns this draft';
+
+create index idx_drafts_user_id on drafts(user_id);
+
+
+-- Errors encountered within user drafts
+create table draft_errors (
+  draft_id  flowid not null references drafts(id) on delete cascade,
+  scope     text not null,
+  detail    text not null
+);
+alter table draft_errors enable row level security;
+
+create policy "Users can access and delete errors of their drafts"
+  on draft_errors as permissive
+  using (draft_id in (select id from drafts));
+grant select, delete on draft_errors to authenticated;
+
+comment on table draft_errors is
+  'Errors found while validating, testing or publishing a user draft';
+comment on column draft_errors.draft_id is
+  'Draft which produed this error';
+comment on column draft_errors.scope is
+  'Location scope of the error within the draft';
+comment on column draft_errors.detail is
+  'Description of the error';
+
+create index idx_draft_errors_draft_id on draft_errors(draft_id);
+
+
+-- Draft specifications which the user is working on.
+create table draft_specs (
+  draft_id      flowid not null references drafts(id) on delete cascade,
+  catalog_name  catalog_name not null,
+  primary key (draft_id, catalog_name),
+
+  spec_type     catalog_spec_type not null,
+  -- spec_patch is a partial JSON patch of a models::${spec_type}Def specification,
+  -- which may be patched into a live_specs.spec (which is always a fully-reduced spec).
+  --
+  -- Note this also covers deletion! According to the
+  -- JSON merge patch RFC, deletion is expressed as a `null`
+  -- value within a patch, so a patch consisting only of
+  -- `null` is a semantic deletion of the entire specification.
+  spec_patch    jsonb not null
+);
+alter table draft_specs enable row level security;
+
+create policy "Users can access all specifications of their drafts"
+  on draft_specs as permissive
+  using (draft_id in (select id from drafts));
+create policy "Users must be authorized to the specification catalog name"
+  on draft_specs as restrictive
+  using (true); -- TODO(johnny) auth catalog_name.
+grant all on draft_specs to authenticated;
+
+-- TODO - comments
+
+-- User-initiated discover operations, which upsert specifications into a draft.
 create table discovers (
   like internal._model_async including all,
 
   capture_name      catalog_name not null,
-  catalog_spec      json_obj, -- Job output.
-  connector_tag_id  flowid not null references connector_tags(id),
-  endpoint_config   json_obj not null,
-  user_id           uuid references auth.users(id) not null default auth.uid()
+  connector_tag_id  flowid   not null references connector_tags(id),
+  draft_id          flowid   not null references drafts(id) on delete cascade,
+  endpoint_config   json_obj not null
 );
 alter table discovers enable row level security;
 
-create policy "Users can access only their initiated discovery operations"
-  on discovers using (user_id = auth.uid());
+create policy "Users can access discovery operations of their drafts"
+  on discovers as permissive
+  using (draft_id in (select id from drafts));
+create policy "Users must be authorized to the capture name"
+  on discovers as restrictive
+  using (true); -- TODO(johnny) auth catalog_name.
+
 grant select on discovers to authenticated;
-grant insert (capture_name, connector_tag_id, endpoint_config)
+grant insert (capture_name, connector_tag_id, draft_id, endpoint_config)
   on discovers to authenticated;
 
 comment on table discovers is
   'User-initiated connector discovery operations';
 comment on column discovers.capture_name is
   'Intended name of the capture produced by this discover';
-comment on column discovers.catalog_spec is
-  'Discovered catalog specification, available on job completion';
 comment on column discovers.connector_tag_id is
   'Tagged connector which is used for discovery';
+comment on column discovers.draft_id is
+  'Draft to be populated by this discovery operation';
 comment on column discovers.endpoint_config is
   'Endpoint configuration of the connector. May be protected by sops';
-comment on column discovers.user_id is
-  'User which initiated this discovery operation';
-
-create index idx_discovers_user_id on discovers(user_id);
 
 
--- User submitted drafts.
-create table drafts (
+-- publications are operations that publish a draft.
+create table publications (
   like internal._model_async including all,
 
-  catalog_spec  json_obj not null,
-  hide          bool not null default false,
-  user_id       uuid references auth.users(id) not null default auth.uid()
+  user_id   uuid references auth.users(id) not null default auth.uid(),
+  draft_id  flowid not null,
+  dry_run   bool   not null default false
 );
-alter table drafts enable row level security;
+alter table publications enable row level security;
 
-create policy "Users can access only their created drafts"
-  on drafts using (user_id = auth.uid());
-grant insert (hide, catalog_spec) on drafts to authenticated;
-grant select on drafts to authenticated;
-grant update (hide) on drafts to authenticated;
+-- We don't impose a foreign key on drafts, because a publication
+-- operation
+-- audit log may stick around much longer than the draft does.
+create policy "Users can access only their initiated publish operations"
+  on publications as permissive for select
+  using (user_id = auth.uid());
+create policy "Users can insert publications from drafts that they own and are authorized to publish"
+   on publications as permissive for insert
+   with check (draft_id in (select id from drafts));
 
-comment on table drafts is
-  'Submitted drafts of Flow catalog specifications';
-comment on column drafts.catalog_spec is
-  'Submitted Flow catalog specification of this draft';
-comment on column drafts.hide is
-  'Whether this draft is treated as hidden';
-comment on column drafts.user_id is
-  'User which created this draft';
+grant select on publications to authenticated;
+grant insert (draft_id, dry_run) on publications to authenticated;
 
-create index idx_drafts_user_id on drafts(user_id);
-create unique index idx_drafts_id_where_queued on drafts(id)
-  where job_status->>'type' = 'queued';
+
+-- Published specifications which record the changes
+-- made to specs over time, and power reverts.
+create table published_specs (
+  pub_id flowid references publications(id) not null,
+  catalog_name  catalog_name not null,
+  primary key (catalog_name, pub_id),
+
+  spec_type catalog_spec_type not null,
+  -- spec_min_patch is a minimal delta of what actually changed,
+  -- determined at time of publication by diffing the "before"
+  -- and "after" document.
+  spec_min_patch  jsonb not null,
+  -- spec_rev_patch is like spec_fwd_patch but in reverse.
+  -- A revert of a publication can be initialized by creating
+  -- a draft having all of its published_specs.spec_rev_patch
+  spec_rev_patch  jsonb not null
+);
+alter table draft_specs enable row level security;
+
+create policy "Users must be authorized to the specification catalog name"
+  on published_specs as permissive
+  using (true); -- TODO(johnny) auth on catalog_name.
+grant all on draft_specs to authenticated;
+
+
+-- Live (current) specifications of the catalog.
+create table live_specs (
+  like internal._model including all,
+
+  -- catalog_name is the conceptual primary key, but we use flowid as
+  -- the literal primary key for consistency and join performance.
+  catalog_name  catalog_name unique not null,
+
+  -- `spec` is the models::${spec_type}Def specification which corresponds to `spec_type`.
+  spec_type    catalog_spec_type not null,
+  spec         jsonb,
+  last_pub_id  flowid references publications(id) not null,
+
+  -- reads_from and writes_to is the list of collections read
+  -- or written by a task, or is null if not applicable to this
+  -- specification type.
+  -- We'll index these to efficiently retrieve connected components
+  -- using recursive common table expression(s).
+  reads_from text[],
+  writes_to  text[],
+
+  -- Image name and tag are extracted to make it easier
+  -- to determine specs which are out of date w.r.t. the latest
+  -- connector tag.
+  connector_image_name  text,
+  connector_image_tag   text
+);
+alter table live_specs enable row level security;
+
+create policy "Users must be authorized to the specification catalog name"
+  on live_specs as restrictive
+  using (true); -- TODO(johnny) auth catalog_name.
+grant all on live_specs to authenticated;
+
+
+create view draft_specs_ext as
+select
+  draft_specs.*,
+  jsonb_merge_patch(
+    coalesce(live_specs.spec, 'null'::jsonb),
+    draft_specs.spec_patch
+  ) as spec,
+  jsonb_merge_diff(
+    jsonb_merge_patch(
+      coalesce(live_specs.spec, 'null'::jsonb),
+      draft_specs.spec_patch
+    ),
+    live_specs.spec
+  ) as spec_patch_min
+from draft_specs
+left outer join live_specs
+  on draft_specs.catalog_name = live_specs.catalog_name
+;
+
+grant select on draft_specs_ext to authenticated;
