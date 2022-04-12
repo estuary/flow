@@ -13,7 +13,7 @@ This connector materializes Flow collections into indices in an Elasticsearch cl
 To use this connector, you'll need:
 
 * An Elastic cluster with a known [endpoint](https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#send-requests-to-elasticsearch)
-  * If the cluster is on the Elastic Cloud, you'll need an Elastic user with a role that grants all privileges on indices in the cluster.
+  * If the cluster is on the Elastic Cloud, you'll need an Elastic user with a role that grants all privileges on indices you plan to materialize to within the cluster.
     See Elastic's documentation on [defining roles](https://www.elastic.co/guide/en/elasticsearch/reference/current/defining-roles.html#roles-indices-priv) and
     [security privileges](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-privileges.html#privileges-list-indices).
 * At least one Flow collection
@@ -32,7 +32,7 @@ By default, the connector attempts to map each field in the Flow collection to t
 However, because each JSON field type can map to multiple Elasticsearch field types,
 you may want to override the defaults.
 You can configure this by adding `field_overrides` to the collection's [binding](#bindings) in the materialization specification.
-To do so, provide a JSON pointer to the field in the collection schema, choose the output field type, and specify additional properties, if necessary. 
+To do so, provide a JSON pointer to the field in the collection schema, choose the output field type, and specify additional properties, if necessary.
 
 ### Properties
 
@@ -59,7 +59,7 @@ To do so, provide a JSON pointer to the field in the collection schema, choose t
 | _`/field_overrides/-/es_type/text_spec`_ | Text specifications | Configuration for the text field, effective if field&#x5F;type is &#x27;text&#x27;. | object |  |
 | _`/field_overrides/-/es_type/text_spec/dual_keyword`_ | Dual keyword | Whether or not to specify the field as text&#x2F;keyword dual field. | boolean |  |
 | _`/field_overrides/-/es_type/text_spec/keyword_ignore_above`_ | Ignore above | Effective only if Dual Keyword is enabled. Strings longer than the ignore&#x5F;above setting will not be indexed or stored. See [Elasticsearch docs](https://www.elastic.co/guide/en/elasticsearch/reference/current/ignore-above.html). | integer |  |
-| _`/field_overrides/-/pointer`_ | Pointer | A &#x27;&#x2F;&#x27;-delimitated json pointer to the location of the overridden field. | string |  |
+| _`/field_overrides/-/pointer`_ | Pointer | A &#x27;&#x2F;&#x27;-delimited json pointer to the location of the overridden field. | string |  |
 | **`/index`** | index | Name of the ElasticSearch index to store the materialization results. | string | Required |
 | `/number_of_replicas` | Number of replicas | The number of replicas in ElasticSearch index. If not set, default to be 0. For single-node clusters, make sure this field is 0, because the Elastic search needs to allocate replicas on different nodes. | integer | `0` |
 | `/number_of_shards` | Number of shards | The number of shards in ElasticSearch index. Must set to be greater than 0. | integer | `1` |

@@ -64,7 +64,7 @@ materializations:
             awsAccessKeyId: AKIAIOSFODNN7EXAMPLE
             awsSecretAccessKey: wJalrXUtnFEMI/K7MDENG/bPxRfiCYSECRET
             bucket: my-bucket
-            uploadIntervalInSeconds: 10
+            uploadIntervalInSeconds: 300
           # Path to the latest version of the connector, provided as a Docker image
           image: ghcr.io/estuary/materialize-s3-parquet:dev
 	# If you have multiple collections you need to materialize, add a binding for each one
