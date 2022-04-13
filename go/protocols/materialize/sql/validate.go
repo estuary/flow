@@ -2,6 +2,7 @@ package sql
 
 import (
 	"fmt"
+	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -9,7 +10,7 @@ import (
 
 // ValidateSelectedFields validates a proposed MaterializationSpec against a set of constraints. If
 // any constraints would be violated, then an error is returned.
-func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.MaterializationSpec_Binding) error {
+func (d *Driver) ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.MaterializationSpec_Binding) error {
 	// Track all the location pointers for each included field so that we can verify all the
 	// LOCATION_REQUIRED constraints are met.
 	var includedPointers = make(map[string]bool)
@@ -50,11 +51,14 @@ func ValidateSelectedFields(constraints map[string]*pm.Constraint, proposed *pf.
 // **new** materialization (one that is not running and has never been Applied). Note that this will
 // "recommend" all projections of single scalar types, which is what drives the default field
 // selection in flowctl.
-func ValidateNewSQLProjections(proposed *pf.CollectionSpec, deltaUpdates bool) map[string]*pm.Constraint {
+func (d *Driver) ValidateNewSQLProjections(proposed *pf.CollectionSpec, deltaUpdates bool) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, projection := range proposed.Projections {
 		var constraint = new(pm.Constraint)
 		switch {
+		case sliceContains(strings.ToLower(projection.Field), d.ReservedWords):
+			constraint.Type = pm.Constraint_FIELD_FORBIDDEN
+			constraint.Reason = "This field name is a reserved word of this SQL dialect."
 		case len(projection.Field) > 63:
 			constraint.Type = pm.Constraint_FIELD_FORBIDDEN
 			constraint.Reason = "Field names must be less than 63 bytes in length."
@@ -91,7 +95,7 @@ func ValidateNewSQLProjections(proposed *pf.CollectionSpec, deltaUpdates bool) m
 // CollectionSpec for a materialization that is already running, or has been Applied. The returned
 // constraints will explicitly require all fields that are currently materialized, as long as they
 // are not unsatisfiable, and forbid any fields that are not currently materialized.
-func ValidateMatchesExisting(existing *pf.MaterializationSpec_Binding, proposed *pf.CollectionSpec) map[string]*pm.Constraint {
+func (d *Driver) ValidateMatchesExisting(existing *pf.MaterializationSpec_Binding, proposed *pf.CollectionSpec) map[string]*pm.Constraint {
 	var constraints = make(map[string]*pm.Constraint)
 	for _, field := range existing.FieldSelection.AllFields() {
 		var constraint = new(pm.Constraint)

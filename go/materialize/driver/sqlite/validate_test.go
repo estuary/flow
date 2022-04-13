@@ -17,6 +17,7 @@ import (
 )
 
 func TestValidations(t *testing.T) {
+	var driver = &sqlDriver.Driver{}
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
@@ -38,7 +39,7 @@ func TestValidations(t *testing.T) {
 		t.Run(
 			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
 			func(t *testing.T) {
-				constraints := sqlDriver.ValidateNewSQLProjections(spec, false)
+				constraints := driver.ValidateNewSQLProjections(spec, false)
 				cupaloy.SnapshotT(t, constraints)
 			})
 	}
@@ -74,7 +75,8 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	var stringProjection = proposed.GetProjection("string")
 	stringProjection.Inference.Exists = pf.Inference_MUST
 
-	var constraints = sqlDriver.ValidateMatchesExisting(&existingSpec, &proposed)
+	var driver = &sqlDriver.Driver{}
+	var constraints = driver.ValidateMatchesExisting(&existingSpec, &proposed)
 	var req = []string{"theKey", "string", "bool", "flow_document"}
 	for _, field := range req {
 		var constraint, ok = constraints[field]
@@ -93,6 +95,6 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 		Collection:     proposed,
 		FieldSelection: *existingFields,
 	}
-	var constraintsError = sqlDriver.ValidateSelectedFields(constraints, &proposedSpec)
+	var constraintsError = driver.ValidateSelectedFields(constraints, &proposedSpec)
 	require.Error(t, constraintsError)
 }

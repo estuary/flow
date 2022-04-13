@@ -39,6 +39,8 @@ type Driver struct {
 	EndpointSpecType interface{}
 	// Instance of the type into which resource specifications are parsed.
 	ResourceSpecType Resource
+	// List of reserved words to consider when validating projections. The words must all be lowercase.
+	ReservedWords []string
 	// NewEndpoint returns an Endpoint, which will be used to handle interactions with the database.
 	NewEndpoint func(context.Context, json.RawMessage) (Endpoint, error)
 	// NewResource returns an uninitialized Resource which may be parsed into.
@@ -101,7 +103,7 @@ func (d *Driver) Validate(ctx context.Context, req *pm.ValidateRequest) (*pm.Val
 		}
 
 		var target = resource.Path().Join()
-		current, constraints, err := loadConstraints(
+		current, constraints, err := d.loadConstraints(
 			target,
 			resource.DeltaUpdates(),
 			&spec.Collection,
@@ -192,7 +194,7 @@ func (d *Driver) ApplyUpsert(ctx context.Context, req *pm.ApplyRequest) (*pm.App
 
 	// Validate and build SQL statements to apply each binding.
 	for _, spec := range req.Materialization.Bindings {
-		if applyStatements, err := generateApplyStatements(endpoint, existing, spec); err != nil {
+		if applyStatements, err := d.generateApplyStatements(endpoint, existing, spec); err != nil {
 			return nil, fmt.Errorf("building statement for binding %s: %w", ResourcePath(spec.ResourcePath).Join(), err)
 		} else {
 			statements = append(statements, applyStatements...)
@@ -347,7 +349,7 @@ func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
 // loadConstraints retrieves an existing binding spec under the given
 // target, if any, and then builds & returns constraints for the current
 // collection given the (possible) existing binding.
-func loadConstraints(
+func (d *Driver) loadConstraints(
 	target string,
 	deltaUpdates bool,
 	collection *pf.CollectionSpec,
@@ -365,9 +367,9 @@ func loadConstraints(
 
 	var constraints map[string]*pm.Constraint
 	if current == nil {
-		constraints = ValidateNewSQLProjections(collection, deltaUpdates)
+		constraints = d.ValidateNewSQLProjections(collection, deltaUpdates)
 	} else {
-		constraints = ValidateMatchesExisting(current, collection)
+		constraints = d.ValidateMatchesExisting(current, collection)
 	}
 
 	return current, constraints, nil
