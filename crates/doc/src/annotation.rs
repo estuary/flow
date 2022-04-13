@@ -1,6 +1,7 @@
 use super::reduce;
 use json::{schema, validator, validator::Context};
 use serde::Deserialize;
+use serde_json::Value;
 use std::convert::TryFrom;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.
@@ -18,6 +19,9 @@ pub enum Annotation {
     /// "order" annotation keyword, indicates the desired presentation order of fields in the UI.
     /// This is from the airbyte spec.
     Order(i32),
+    /// It has become a sort of convention in JSONSchema and OpenAPI to use X- prefixed fields
+    /// for custom behaviour. We parse these fields to avoid breaking on such custom fields.
+    X(Value),
 }
 
 impl schema::Annotation for Annotation {
@@ -33,6 +37,7 @@ impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
             "reduce" | "secret" | "airbyte_secret" | "multiline" | "order" => true,
+            key if key.starts_with("x-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
@@ -61,6 +66,10 @@ impl schema::build::AnnotationBuilder for Annotation {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(b) => Ok(Annotation::Multiline(b)),
             },
+            key if key.starts_with("x-") => match serde_json::to_value(value) {
+                Ok(v) => Ok(Annotation::X(v)),
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+            },
             _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
     }
@@ -84,3 +93,39 @@ impl<'sm, 'v> super::Valid<'sm, 'v> {
 }
 
 static DEFAULT_STRATEGY: &reduce::Strategy = &reduce::Strategy::LastWriteWins;
+
+#[cfg(test)]
+mod test {
+    use json::schema::build::build_schema;
+    use serde_json::json;
+    use url::Url;
+
+    use crate::Annotation;
+
+    #[test]
+    fn test_x_fields() {
+        let schema = json!({
+            "properties": {
+                "str": {
+                    "type": "integer",
+                    "x-value": "test"
+                },
+                "num": {
+                    "type": "number",
+                    "x-test": 2
+                },
+                "obj": {
+                    "type": "number",
+                    "x-another": { "hello": "world" }
+                },
+                "arr": {
+                    "type": "number",
+                    "x-arr": [1, 2, "test"]
+                }
+            },
+        });
+
+        let curi = Url::parse("https://example/schema").unwrap();
+        build_schema::<Annotation>(curi.clone(), &schema).unwrap();
+    }
+}
