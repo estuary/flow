@@ -83,20 +83,20 @@ func commentForProjection(projection *pf.Projection) string {
 	return fmt.Sprintf("%s projection of JSON at: %s with inferred types: [%s]", source, projection.Ptr, types)
 }
 
-func generateApplyStatements(
+func (d *Driver) generateApplyStatements(
 	endpoint Endpoint,
 	existing map[string]*pf.MaterializationSpec_Binding,
 	spec *pf.MaterializationSpec_Binding,
 ) ([]string, error) {
 	var target = ResourcePath(spec.ResourcePath).Join()
 
-	current, constraints, err := loadConstraints(target, spec.DeltaUpdates, &spec.Collection, existing)
+	current, constraints, err := d.loadConstraints(target, spec.DeltaUpdates, &spec.Collection, existing)
 	if err != nil {
 		return nil, err
 	}
 
 	// Validate the request binding is a valid solution for its own constraints.
-	if err = ValidateSelectedFields(constraints, spec); err != nil {
+	if err = d.ValidateSelectedFields(constraints, spec); err != nil {
 		return nil, fmt.Errorf("re-validating materialization: %w", err)
 	}
 
