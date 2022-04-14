@@ -202,11 +202,13 @@ ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PK
 # Make targets used by CI:
 
 # We use LLVM for faster linking. See .cargo/config.
-.PHONY: extra-ci-setup
+.PHONY: extra-ci-runner-setup
 extra-ci-runner-setup:
 	sudo apt install -y \
 		libprotobuf-dev \
+		libssl-dev \
 		musl-tools \
+		pkg-config \
 		protobuf-compiler
 	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
