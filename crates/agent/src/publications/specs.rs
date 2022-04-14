@@ -85,14 +85,14 @@ pub async fn resolve_specifications(
             ) as "draft_spec: Json<Box<RawValue>>",
             live_specs.spec_type as "live_type: CatalogType",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
-            jsonb_merge_diff(
+            coalesce(jsonb_merge_diff(
                 jsonb_merge_patch(live_specs.spec, draft_specs.spec_patch),
                 live_specs.spec
-            ) as "spec_min_patch!: Json<Box<RawValue>>",
-            jsonb_merge_diff(
+            ), '{}') as "spec_min_patch!: Json<Box<RawValue>>",
+            coalesce(jsonb_merge_diff(
                 live_specs.spec,
                 jsonb_merge_patch(live_specs.spec, draft_specs.spec_patch)
-            ) as "spec_rev_patch!: Json<Box<RawValue>>"
+            ), '{}') as "spec_rev_patch!: Json<Box<RawValue>>"
         from draft_specs
         join live_specs
             on draft_specs.catalog_name = live_specs.catalog_name
