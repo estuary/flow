@@ -70,7 +70,9 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err != nil {
+	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err == errNoChangesToApply {
+		log.Warn("there are no changes to apply")
+	} else if err != nil {
 		return err
 	}
 
