@@ -2,14 +2,14 @@ use crate::apis::{FlowCaptureOperation, InterceptorStream};
 use crate::errors::{Error, Must};
 use crate::libs::network_tunnel::NetworkTunnel;
 use crate::libs::protobuf::{decode_message, encode_message};
-use crate::libs::stream::{get_decoded_message, stream_all_bytes};
+use crate::libs::stream::get_decoded_message;
 use futures::{future, stream, StreamExt, TryStreamExt};
 use protocol::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
 
 use serde_json::value::RawValue;
-use tokio_util::io::StreamReader;
+use tokio_util::io::{ReaderStream, StreamReader};
 
 pub struct NetworkTunnelCaptureInterceptor {}
 
@@ -81,7 +81,7 @@ impl NetworkTunnelCaptureInterceptor {
                 }
 
                 let first = stream::once(future::ready(encode_message(&request)));
-                let rest = stream_all_bytes(reader);
+                let rest = ReaderStream::new(reader);
 
                 // We need to set explicit error type, see https://github.com/rust-lang/rust/issues/63502
                 Ok::<_, std::io::Error>(first.chain(rest))

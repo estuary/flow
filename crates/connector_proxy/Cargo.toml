@@ -33,5 +33,6 @@ tempfile="*"
 thiserror = "*"
 tokio = { version = "1.15.0", features = ["full"] }
 tokio-util = { version = "*", features = ["io"] }
+bytelines = "*"
 tracing="*"
 validator = { version = "*", features = ["derive"] }
