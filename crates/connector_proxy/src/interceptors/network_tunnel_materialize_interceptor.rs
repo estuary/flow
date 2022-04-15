@@ -1,5 +1,5 @@
 use crate::apis::{FlowMaterializeOperation, InterceptorStream};
-use crate::errors::{Error, Must};
+use crate::errors::{create_custom_error, Error};
 use crate::libs::network_tunnel::NetworkTunnel;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::get_decoded_message;
@@ -36,7 +36,9 @@ impl NetworkTunnelMaterializeInterceptor {
                     RawValue::from_string(m.endpoint_spec_json.clone())?,
                 )
                 .await
-                .or_bail()
+                .map_err(|err| {
+                    create_custom_error(&format!("error consuming tunnel configuration {:?}", err))
+                })?
                 .to_string();
             }
 
@@ -50,7 +52,12 @@ impl NetworkTunnelMaterializeInterceptor {
                 let mut reader = StreamReader::new(in_stream);
                 let mut request = decode_message::<TransactionRequest, _>(&mut reader)
                     .await
-                    .or_bail()
+                    .map_err(|err| {
+                        create_custom_error(&format!(
+                            "decoding TransactionRequest failed {:?}",
+                            err
+                        ))
+                    })?
                     .expect("expected request is not received.");
                 if let Some(ref mut o) = request.open {
                     if let Some(ref mut m) = o.materialization {
@@ -58,7 +65,12 @@ impl NetworkTunnelMaterializeInterceptor {
                             RawValue::from_string(m.endpoint_spec_json.clone())?,
                         )
                         .await
-                        .or_bail()
+                        .map_err(|err| {
+                            create_custom_error(&format!(
+                                "error consuming tunnel configuration {:?}",
+                                err
+                            ))
+                        })?
                         .to_string();
                     }
                 }
@@ -99,7 +111,9 @@ impl NetworkTunnelMaterializeInterceptor {
                 response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
                 )
-                .or_bail()
+                .map_err(|err| {
+                    create_custom_error(&format!("extending endpoint schema {:?}", err))
+                })?
                 .to_string();
                 encode_message(&response)
             })),
