@@ -108,3 +108,7 @@ This is because most materializations tend to be roughly chronological over time
 
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
+
+## Reserved Words
+
+Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) as well as [here](https://go.estuary.dev/a9vE7a) in the connector source code.
