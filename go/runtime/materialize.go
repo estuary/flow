@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
@@ -33,8 +32,8 @@ type Materialize struct {
 	spec pf.MaterializationSpec
 	// Stats are handled differently for materializations than they are for other task types,
 	// because materializations don't have stats available until after the transaction starts to
-	// commit. See comment below in StartCommit.
-	statsPublisher *message.Publisher
+	// commit. pendingStats is populated during FinalizeTxn, and resolved in StartCommit.
+	pendingStats message.PendingPublish
 	// Embedded task reader scoped to current task version.
 	// Initialized in RestoreCheckpoint.
 	taskReader
@@ -51,17 +50,14 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	if err != nil {
 		return nil, fmt.Errorf("newConnectorStore: %w", err)
 	}
-	var clock = message.NewClock(time.Now().UTC())
-	var statsPublisher = message.NewPublisher(shard.JournalClient(), &clock)
 
 	var out = &Materialize{
-		host:           host,
-		store:          store,
-		statsPublisher: statsPublisher,
-		client:         nil,                      // Initialized in RestoreCheckpoint.
-		spec:           pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
-		taskReader:     taskReader{},             // Initialized in RestoreCheckpoint.
-		taskTerm:       taskTerm{},               // Initialized in RestoreCheckpoint.
+		host:       host,
+		store:      store,
+		client:     nil,                      // Initialized in RestoreCheckpoint.
+		spec:       pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
+		taskReader: taskReader{},             // Initialized in RestoreCheckpoint.
+		taskTerm:   taskTerm{},               // Initialized in RestoreCheckpoint.
 	}
 
 	return out, nil
@@ -202,20 +198,12 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	if err != nil {
 		return client.FinishedOperation(err)
 	}
-	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
 
-	// Stats are currently written using PublishCommitted for materializations, which means that
-	// we cannot make any transactional guarantees about them. They might get published more than
-	// once for the same transaction, or else not at all. The reason for this is that we don't
-	// actually know the stats until we call client.StartCommit, which requires that we give it our
-	// checkpoint. That checkpoint would need to include ack intents for the published stats
-	// document if we were to make it transactional. So it's a chicken-and-egg problem.
-	// A possible solution to this would be to add the ack intent to the checkpoint in FinalizeTxn,
-	// but actually publish the stats message here using that sequencing info. This would
-	// theoretically allow materialization stats to be published transactionally, but requires
-	// exposing new functionality in the Publisher, so it is being left for a future improvement.
+	// Now that we've drained the combiner, we're able to finish publishing the stats for this
+	// transaciton. This PendingPublish was initialized by the call to DeferPublishUncommitted
+	// in FinalizeTxn.
 	var statsEvent = m.materializationStats(stats)
-	_, err = m.statsPublisher.PublishCommitted(mapper.Map, m.StatsFormatter.FormatEvent(statsEvent))
+	err = m.pendingStats.Resolve(m.StatsFormatter.FormatEvent(statsEvent))
 	if err != nil {
 		return client.FinishedOperation(fmt.Errorf("publishing stats: %w", err))
 	}
@@ -297,8 +285,17 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	return m.client.AddDocument(binding, packedKey, doc)
 }
 
-// FinalizeTxn implements Application.FinalizeTxn and is a no-op.
 func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
+	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
+	var journal, ct, ack, err = m.StatsFormatter.PrepareStatsJournal(mapper)
+	if err != nil {
+		return err
+	}
+
+	m.pendingStats, err = pub.DeferPublishUncommitted(journal, ct, ack)
+	if err != nil {
+		return fmt.Errorf("sequencing future stats message: %w", err)
+	}
 	log.WithFields(log.Fields{"shard": shard.Spec().Id}).Trace("FinalizeTxn")
 	return nil
 }
