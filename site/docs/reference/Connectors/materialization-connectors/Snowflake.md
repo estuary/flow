@@ -109,6 +109,40 @@ This is because most materializations tend to be roughly chronological over time
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
 
-## Reserved Words
+## Reserved words
 
-Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) as well as [here](https://go.estuary.dev/a9vE7a) in the connector source code.
+Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
+
+|Reserved words| | |
+|---|---|---|
+| account	|from	|qualify|
+|all|	full|	regexp|
+|alter|	grant	|revoke|
+|and|	group	|right|
+|any|	gscluster	|rlike|
+|as	|having	|row|
+|between|	ilike	|rows|
+|by	|in	|sample|
+|case	|increment|	schema|
+|cast	|inner|	select|
+|check|	insert|	set|
+|column	|intersect|	some|
+|connect|	into|	start|
+|connection|	is|	table|
+|constraint	|issue|	tablesample|
+|create	|join	|then|
+|cross|	lateral	|to|
+|current|	left|	trigger|
+|current_date|	like|	true |
+|current_time	|localtime|	try_cast|
+|current_timestamp	|localtimestamp|	union|
+|current_user|	minus|	unique|
+|database	|natural	|update|
+|delete	|not|	using|
+|distinct	|null|	values|
+|drop	|of	|view|
+|else|	on|	when|
+|exists	|or	|whenever |
+|false |	order|	where|
+|following|	organization|	with|
+|for| | |
