@@ -3,24 +3,28 @@ pub mod connector_runner;
 pub mod errors;
 pub mod interceptors;
 pub mod libs;
+use std::fs::File;
+use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::{
+    io::AsyncReadExt,
+    signal::unix::{signal, SignalKind},
+};
 
-use apis::{compose, FlowCaptureOperation, FlowMaterializeOperation, Interceptor};
+use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 
 use flow_cli_common::{init_logging, LogArgs};
 
-use connector_runner::run_connector;
-use errors::Error;
-use libs::image_config::ImageConfig;
-
-use interceptors::{
-    airbyte_capture_interceptor::AirbyteCaptureInterceptor,
-    default_interceptors::{DefaultFlowCaptureInterceptor, DefaultFlowMaterializeInterceptor},
-    network_proxy_capture_interceptor::NetworkProxyCaptureInterceptor,
-    network_proxy_materialize_interceptor::NetworkProxyMaterializeInterceptor,
+use connector_runner::{
+    run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
 };
+use errors::Error;
+use libs::{
+    command::{check_exit_status, invoke_connector, read_ready, CommandConfig},
+    image_inspect::ImageInspect,
+};
+use std::process::Stdio;
 
 #[derive(Debug, ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -47,12 +51,19 @@ struct ProxyFlowMaterialize {
     operation: FlowMaterializeOperation,
 }
 
+#[derive(Debug, clap::Parser)]
+struct DelayedExecutionConfig {
+    config_file_path: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum ProxyCommand {
     /// proxies the Flow runtime Capture Protocol to the connector.
     ProxyFlowCapture(ProxyFlowCapture),
     /// proxies the Flow runtime Materialize Protocol to the connector.
     ProxyFlowMaterialize(ProxyFlowMaterialize),
+    /// internal command used by the connector proxy itself to delay execution until signaled.
+    DelayedExecute(DelayedExecutionConfig),
 }
 
 #[derive(Parser, Debug)]
@@ -61,7 +72,7 @@ pub struct Args {
     /// The path (in the container) to the JSON file that contains the inspection results from the connector image.
     /// Normally produced via command "docker inspect <image>".
     #[clap(short, long)]
-    image_inspect_json_path: String,
+    image_inspect_json_path: Option<String>,
 
     /// The type of proxy service to provide.
     #[clap(subcommand)]
@@ -91,9 +102,6 @@ async fn main() -> std::io::Result<()> {
     } = Args::parse();
     init_logging(&log_args);
 
-    // respond to os signals.
-    tokio::task::spawn(async move { signal_handler().await });
-
     let result = async_main(image_inspect_json_path, proxy_command).await;
     if let Err(err) = result.as_ref() {
         tracing::error!(error = ?err, "connector proxy execution failed.");
@@ -102,7 +110,7 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-async fn signal_handler() {
+async fn sigterm_handler() {
     let mut signal_stream = signal(SignalKind::terminate()).expect("failed creating signal.");
 
     signal_stream
@@ -114,54 +122,94 @@ async fn signal_handler() {
 }
 
 async fn async_main(
-    image_inspect_json_path: String,
+    image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
 ) -> Result<(), Error> {
-    let image_config = ImageConfig::parse_from_json_file(image_inspect_json_path)?;
-
-    // TODO(jixiang): add a check to make sure the proxy_command passed in from commandline is consistent with the protocol inferred from image.
     match proxy_command {
-        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_config).await,
-        ProxyCommand::ProxyFlowMaterialize(m) => proxy_flow_materialize(m, image_config).await,
+        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
+        ProxyCommand::ProxyFlowMaterialize(m) => {
+            proxy_flow_materialize(m, image_inspect_json_path).await
+        }
+        ProxyCommand::DelayedExecute(ba) => delayed_execute(ba.config_file_path).await,
     }
 }
 
-async fn proxy_flow_capture(c: ProxyFlowCapture, image_config: ImageConfig) -> Result<(), Error> {
-    let mut converter_pair = match image_config
+async fn proxy_flow_capture(
+    c: ProxyFlowCapture,
+    image_inspect_json_path: Option<String>,
+) -> Result<(), Error> {
+    let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
+    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Capture {
+        return Err(Error::MismatchingRuntimeProtocol);
+    }
+
+    let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+
+    match image_inspect
         .get_connector_protocol::<CaptureConnectorProtocol>(CaptureConnectorProtocol::Airbyte)
     {
-        CaptureConnectorProtocol::FlowCapture => DefaultFlowCaptureInterceptor::get_converters(),
-        CaptureConnectorProtocol::Airbyte => AirbyteCaptureInterceptor::get_converters(),
-    };
-
-    converter_pair = compose(
-        converter_pair,
-        NetworkProxyCaptureInterceptor::get_converters(),
-    );
-
-    run_connector::<FlowCaptureOperation>(
-        c.operation,
-        image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        converter_pair,
-    )
-    .await
+        CaptureConnectorProtocol::FlowCapture => {
+            run_flow_capture_connector(&c.operation, entrypoint).await
+        }
+        CaptureConnectorProtocol::Airbyte => {
+            run_airbyte_source_connector(&c.operation, entrypoint).await
+        }
+    }
 }
 
 async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
-    image_config: ImageConfig,
+    image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    // There is only one type of connector protocol for flow materialize.
-    let mut converter_pair = DefaultFlowMaterializeInterceptor::get_converters();
-    converter_pair = compose(
-        converter_pair,
-        NetworkProxyMaterializeInterceptor::get_converters(),
-    );
+    // Respond to OS sigterm signal.
+    tokio::task::spawn(async move { sigterm_handler().await });
 
-    run_connector::<FlowMaterializeOperation>(
-        m.operation,
-        image_config.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-        converter_pair,
+    let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
+    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Materialize {
+        return Err(Error::MismatchingRuntimeProtocol);
+    }
+
+    run_flow_materialize_connector(
+        &m.operation,
+        image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
     )
     .await
+}
+
+async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
+    // Wait for the "READY" signal from the parent process before starting the connector.
+    read_ready(&mut tokio::io::stdin()).await?;
+
+    tracing::info!("delayed process execution continue...");
+
+    let reader = BufReader::new(File::open(command_config_path)?);
+    let command_config: CommandConfig = serde_json::from_reader(reader)?;
+
+    let mut child = invoke_connector(
+        Stdio::inherit(),
+        Stdio::inherit(),
+        Stdio::piped(),
+        &command_config.entrypoint,
+        &command_config.args,
+    )?;
+
+    match check_exit_status("delayed process", child.wait().await) {
+        Err(e) => {
+            let mut buf = Vec::new();
+            child
+                .stderr
+                .take()
+                .ok_or(Error::MissingIOPipe)?
+                .read_to_end(&mut buf)
+                .await?;
+
+            tracing::error!(
+                "connector failed. command_config: {:?}. stderr from connector: {}",
+                &command_config,
+                std::str::from_utf8(&buf).expect("error when decoding stderr")
+            );
+            Err(e)
+        }
+        _ => Ok(()),
+    }
 }

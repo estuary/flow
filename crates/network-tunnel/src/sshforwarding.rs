@@ -1,5 +1,5 @@
 use super::errors::Error;
-use super::networkproxy::NetworkProxy;
+use super::networktunnel::NetworkTunnel;
 
 use async_trait::async_trait;
 use futures::pin_mut;
@@ -76,6 +76,8 @@ impl SshForwarding {
     }
 
     pub async fn authenticate(&mut self) -> Result<(), Error> {
+        // TODO: this breaks on the new OpenSSH keys, see:
+        // https://stackoverflow.com/questions/54994641/openssh-private-key-to-rsa-private-key
         let key_pair = Arc::new(key::KeyPair::RSA {
             key: openssl::rsa::Rsa::private_key_from_pem(&self.config.private_key.as_bytes())?,
             hash: key::SignatureHash::SHA2_256,
@@ -97,7 +99,7 @@ impl SshForwarding {
 }
 
 #[async_trait]
-impl NetworkProxy for SshForwarding {
+impl NetworkTunnel for SshForwarding {
     async fn prepare(&mut self) -> Result<(), Error> {
         self.prepare_ssh_client().await?;
         self.prepare_local_listener().await?;
