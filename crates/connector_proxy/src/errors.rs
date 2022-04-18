@@ -1,5 +1,8 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("failed in starting bouncer process.")]
+    BouncerProcessStartError,
+
     #[error("channel timeout in receiving messages after 5 seconds.")]
     ChannelTimeoutError,
 
@@ -17,6 +20,12 @@ pub enum Error {
 
     #[error("missing process io pipes.")]
     MissingIOPipe,
+
+    #[error("mismatching runtime protocol")]
+    MismatchingRuntimeProtocol,
+
+    #[error("No ready signal is received. {0}")]
+    NotReady(&'static str),
 
     #[error("invalid endpoint json config.")]
     InvalidEndpointConfig,
@@ -36,13 +45,34 @@ pub enum Error {
     #[error(transparent)]
     MessageEncodeError(#[from] prost::EncodeError),
 
+    #[error("Missing required image inspect file. Specify it via --image-inspect-json-path in command line.")]
+    MissingImageInspectFile,
+
     #[error(transparent)]
-    NetworkProxyError(#[from] network_proxy::errors::Error),
+    NetworkTunnelError(#[from] network_tunnel::errors::Error),
+
+    #[error(transparent)]
+    TempfilePersistError(#[from] tempfile::PersistError),
 
     #[error("Tokio task execution error.")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
+
+    #[error("The operation of '{0}' is not expected for the given protocol.")]
+    UnexpectedOperation(String),
+}
+/*<std::io::Error as From<Elapsed>>
+<std::io::Error as From<EncodeError>>
+<std::io::Error as From<IntoInnerError<W>>>*/
+
+pub fn raise_err<T>(message: &str) -> Result<T, std::io::Error> {
+    Err(create_custom_error(message))
 }
 
+pub fn create_custom_error(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, message)
+}
+
+// TODO: refactor to remove or_bail usages
 pub trait Must<T> {
     fn or_bail(self) -> T;
 }

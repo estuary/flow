@@ -78,3 +78,7 @@ You can find the values for `forwardHost` and `forwardPort` in the following loc
 * Google Cloud SQL: `forwardHost` as Private IP Address; `forwardPort` is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
 * Azure Database: `forwardHost` as Server Name; `forwardPort` under Connection Strings (usually `5432`).
 :::
+
+## Reserved Words
+
+PostgreSQL has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in PostgreSQL's documentation [here](https://www.postgresql.org/docs/current/sql-keywords-appendix.html) as well as [here](https://go.estuary.dev/6DrTYE) in the connector source code. Flow considers all the reserved words which are marked as "reserved" in either of the columns in the official documentation.

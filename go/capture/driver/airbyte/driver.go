@@ -2,18 +2,19 @@ package airbyte
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/alecthomas/jsonschema"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/airbyte"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/go-openapi/jsonpointer"
+	protoio "github.com/gogo/protobuf/io"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 )
 
@@ -92,50 +93,39 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 		"operation":        "spec",
 	})
 
-	var spec *airbyte.Spec
-	var err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
+	var decrypted, err = connector.DecryptConfig(ctx, source.Config)
+	if err != nil {
+		return nil, err
+	}
+	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+	req.EndpointSpecJson = decrypted
+
+	var resp *pc.SpecResponse
+	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{"spec"},
 		// No configuration is passed to the connector.
 		nil,
 		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
 		// Expect to decode Airbyte messages, and a ConnectorSpecification specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.Spec != nil {
-					spec = rec.Spec
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.SpecResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one SpecResponse")
 				}
+				resp = m.(*pc.SpecResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
+	return resp, err
 
-	// Expect connector spit out a successful ConnectorSpecification.
-	if err == nil && spec == nil {
-		err = fmt.Errorf("connector didn't produce a Specification")
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var reflector = jsonschema.Reflector{ExpandedStruct: true}
-	resourceSchema, err := reflector.Reflect(new(ResourceSpec)).MarshalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("generating resource schema: %w", err)
-	}
-
-	return &pc.SpecResponse{
-		EndpointSpecSchemaJson: spec.ConnectionSpecification,
-		ResourceSpecSchemaJson: json.RawMessage(resourceSchema),
-		DocumentationUrl:       spec.DocumentationURL,
-	}, nil
 }
 
 // Discover delegates to the `discover` command of the identified Airbyte image.
@@ -156,78 +146,37 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 		return nil, err
 	}
 	defer connector.ZeroBytes(decrypted) // connector.Run will also ZeroBytes().
+	req.EndpointSpecJson = decrypted
 
-	var catalog *airbyte.Catalog
+	var resp *pc.DiscoverResponse
 	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
 			"discover",
-			"--config",
-			"/tmp/config.json",
 		},
-		// Write configuration JSON to connector input.
-		map[string]json.RawMessage{"config.json": decrypted},
-		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
-		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.Catalog != nil {
-					catalog = rec.Catalog
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		nil,
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.DiscoverResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one DiscoverResponse")
 				}
+				resp = m.(*pc.DiscoverResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
 
 	// Expect connector spit out a successful ConnectionStatus.
-	if err == nil && catalog == nil {
+	if err == nil && resp == nil {
 		err = fmt.Errorf("connector didn't produce a Catalog")
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, err
-	}
-
-	var resp = new(pc.DiscoverResponse)
-	for _, stream := range catalog.Streams {
-		// Use incremental mode if available.
-		var mode = airbyte.SyncModeFullRefresh
-		for _, m := range stream.SupportedSyncModes {
-			if m == airbyte.SyncModeIncremental {
-				mode = m
-			}
-		}
-
-		var resourceSpec, err = json.Marshal(ResourceSpec{
-			Stream:    stream.Name,
-			Namespace: stream.Namespace,
-			SyncMode:  mode,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("encoding resource spec: %w", err)
-		}
-
-		// Encode array of hierarchical properties as a JSON-pointer.
-		var keyPtrs []string
-		for _, tokens := range stream.SourceDefinedPrimaryKey {
-			for i := range tokens {
-				tokens[i] = jsonpointer.Escape(tokens[i])
-			}
-			keyPtrs = append(keyPtrs, "/"+strings.Join(tokens, "/"))
-		}
-
-		resp.Bindings = append(resp.Bindings, &pc.DiscoverResponse_Binding{
-			RecommendedName:    stream.Name,
-			ResourceSpecJson:   json.RawMessage(resourceSpec),
-			DocumentSchemaJson: stream.JSONSchema,
-			KeyPtrs:            keyPtrs,
-		})
 	}
 
 	return resp, nil
@@ -252,57 +201,39 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 		ops.LogSourceField: source.Image,
 		"operation":        "validate",
 	})
+	req.EndpointSpecJson = decrypted
 
-	var status *airbyte.ConnectionStatus
+	var resp *pc.ValidateResponse
 	err = connector.Run(ctx, source.Image, connector.Capture, d.networkName,
 		[]string{
-			"check",
-			"--config",
-			"/tmp/config.json",
+			"validate",
 		},
-		// Write configuration JSON to connector input.
-		map[string]json.RawMessage{"config.json": decrypted},
-		// No stdin is sent to the connector.
-		func(w io.Writer) error { return nil },
-		// Expect to decode Airbyte messages, and a ConnectionStatus specifically.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.ConnectionStatus != nil {
-					status = rec.ConnectionStatus
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
+		nil,
+		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			return protoio.NewUint32DelimitedWriter(w, binary.LittleEndian).
+				WriteMsg(req)
+		},
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.ValidateResponse) },
+			func(m proto.Message) error {
+				if resp != nil {
+					return fmt.Errorf("read more than one ValidateResponse")
 				}
+				resp = m.(*pc.ValidateResponse)
 				return nil
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
 	)
 
-	// Expect connector spit out a successful ConnectionStatus.
-	if err == nil && status == nil {
-		err = fmt.Errorf("connector didn't produce a ConnectionStatus")
-	} else if err == nil && status.Status != airbyte.StatusSucceeded {
-		err = fmt.Errorf("%s: %s", status.Status, status.Message)
+	if err == nil && resp == nil {
+		err = fmt.Errorf("connector didn't produce a response")
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse stream bindings and send back their resource paths.
-	var resp = new(pc.ValidateResponse)
-	for _, binding := range req.Bindings {
-		var stream = new(ResourceSpec)
-		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, stream); err != nil {
-			return nil, fmt.Errorf("parsing stream configuration: %w", err)
-		}
-		resp.Bindings = append(resp.Bindings, &pc.ValidateResponse_Binding{
-			ResourcePath: []string{stream.Stream},
-		})
-	}
 	return resp, nil
 }
 
@@ -332,65 +263,10 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 		return fmt.Errorf("parsing connector configuration: %w", err)
 	}
 
-	var open = req.Open
-	var streamToBinding = make(map[string]int)
 	var logger = ops.NewLoggerWithFields(d.logger, logrus.Fields{
 		ops.LogSourceField: source.Image,
 		"operation":        "read",
 	})
-
-	// Build configured Airbyte catalog.
-	var catalog = airbyte.ConfiguredCatalog{
-		Streams: nil,
-		Tail:    open.Tail,
-		Range: airbyte.Range{
-			Begin: open.KeyBegin,
-			End:   open.KeyEnd,
-		},
-	}
-	for i, binding := range open.Capture.Bindings {
-		var resource = new(ResourceSpec)
-		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, resource); err != nil {
-			return fmt.Errorf("parsing stream configuration: %w", err)
-		}
-
-		var projections = make(map[string]string)
-		for _, p := range binding.Collection.Projections {
-			projections[p.Field] = p.Ptr
-		}
-
-		var primaryKey = make([][]string, 0, len(binding.Collection.KeyPtrs))
-		for _, key := range binding.Collection.KeyPtrs {
-			if ptr, err := jsonpointer.New(key); err != nil {
-				return fmt.Errorf("parsing json pointer: %w", err)
-			} else {
-				primaryKey = append(primaryKey, ptr.DecodedTokens())
-			}
-		}
-
-		catalog.Streams = append(catalog.Streams,
-			airbyte.ConfiguredStream{
-				SyncMode:            resource.SyncMode,
-				DestinationSyncMode: airbyte.DestinationSyncModeAppend,
-				PrimaryKey:          primaryKey,
-				Stream: airbyte.Stream{
-					Name:               resource.Stream,
-					Namespace:          resource.Namespace,
-					JSONSchema:         binding.Collection.SchemaJson,
-					SupportedSyncModes: []airbyte.SyncMode{resource.SyncMode},
-				},
-				Projections: projections,
-			})
-		streamToBinding[resource.Stream] = i
-	}
-
-	catalogJSON, err := json.Marshal(&catalog)
-	if err != nil {
-		return fmt.Errorf("encoding catalog: %w", err)
-	}
-	logger.Log(logrus.DebugLevel, logrus.Fields{
-		"catalog": &catalog,
-	}, "using configured catalog")
 
 	decrypted, err := connector.DecryptConfig(stream.Context(), source.Config)
 	if err != nil {
@@ -398,36 +274,25 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 	}
 	defer connector.ZeroBytes(decrypted) // RunConnector will also ZeroBytes().
 
-	var invokeArgs = []string{
-		"read",
-		"--config",
-		"/tmp/config.json",
-		"--catalog",
-		"/tmp/catalog.json",
-	}
-	var invokeFiles = map[string]json.RawMessage{
-		"config.json":  decrypted,
-		"catalog.json": catalogJSON,
-	}
-
-	if len(open.DriverCheckpointJson) != 0 {
-		invokeArgs = append(invokeArgs, "--state", "/tmp/state.json")
-		// Copy because RunConnector will ZeroBytes() once sent and,
-		// as noted in driver{}, we don't own this memory.
-		invokeFiles["state.json"] = append([]byte(nil), open.DriverCheckpointJson...)
-	}
+	req.Open.Capture.EndpointSpecJson = decrypted
 
 	if err := stream.Send(&pc.PullResponse{Opened: &pc.PullResponse_Opened{}}); err != nil {
 		return fmt.Errorf("sending Opened: %w", err)
 	}
 
-	var resp *pc.PullResponse
-
 	// Invoke the connector for reading.
-	if err := connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
-		invokeArgs,
-		invokeFiles,
+	return connector.Run(stream.Context(), source.Image, connector.Capture, d.networkName,
+		[]string{"pull"},
+		nil,
 		func(w io.Writer) error {
+			defer connector.ZeroBytes(decrypted)
+			var enc = protoio.NewUint32DelimitedWriter(w, binary.LittleEndian)
+			var err = enc.WriteMsg(req)
+
+			if err != nil {
+				return fmt.Errorf("proxying Open: %w", err)
+			}
+
 			for {
 				var req, err = stream.Recv()
 				if err == io.EOF {
@@ -443,49 +308,14 @@ func (d driver) Pull(stream pc.Driver_PullServer) error {
 				}
 			}
 		},
-		// Expect to decode Airbyte messages.
-		connector.NewJSONOutput(
-			func() interface{} { return new(airbyte.Message) },
-			func(i interface{}) error {
-				if rec := i.(*airbyte.Message); rec.Log != nil {
-					logger.Log(airbyteToLogrusLevel(rec.Log.Level), nil, rec.Log.Message)
-				} else if rec.State != nil {
-					return pc.WritePullCheckpoint(stream, &resp,
-						&pf.DriverCheckpoint{
-							DriverCheckpointJson: rec.State.Data,
-							Rfc7396MergePatch:    rec.State.Merge,
-						})
-				} else if rec.Record != nil {
-					if b, ok := streamToBinding[rec.Record.Stream]; ok {
-						return pc.StagePullDocuments(stream, &resp, b, rec.Record.Data)
-					}
-					return fmt.Errorf("connector record with unknown stream %q", rec.Record.Stream)
-				} else {
-					return fmt.Errorf("unexpected connector message: %v", rec)
-				}
-				return nil
+		connector.NewProtoOutput(
+			func() proto.Message { return new(pc.PullResponse) },
+			func(m proto.Message) error {
+				return stream.Send(m.(*pc.PullResponse))
 			},
-			onStdoutDecodeError(logger),
 		),
 		logger,
-	); err != nil {
-		return err
-	}
-
-	if resp == nil {
-		return nil // Connector flushed prior to exiting. All done.
-	}
-
-	// Write a final commit, followed by EOF.
-	// This happens only when a connector writes output and exits _without_
-	// writing a final state checkpoint. We generate a synthetic commit now,
-	// and the nil checkpoint means the assumed behavior of the next invocation
-	// will be "full refresh".
-	return pc.WritePullCheckpoint(stream, &resp,
-		&pf.DriverCheckpoint{
-			DriverCheckpointJson: nil,
-			Rfc7396MergePatch:    false,
-		})
+	)
 }
 
 // onStdoutDecodeError returns a function that is invoked whenever there's an error parsing a line

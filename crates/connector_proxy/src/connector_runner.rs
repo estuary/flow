@@ -1,48 +1,144 @@
-use crate::apis::RequestResponseConverterPair;
+use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStream};
 use crate::errors::Error;
-use crate::libs::command::{check_exit_status, invoke_connector};
+use crate::interceptors::{
+    airbyte_source_interceptor::AirbyteSourceInterceptor,
+    network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
+    network_tunnel_materialize_interceptor::NetworkTunnelMaterializeInterceptor,
+};
+use crate::libs::command::{
+    check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
+};
 use tokio::io::copy;
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
 
-pub async fn run_connector<T: std::fmt::Display>(
-    operation: T,
+pub async fn run_flow_capture_connector(
+    op: &FlowCaptureOperation,
     entrypoint: Vec<String>,
-    converter_pair: RequestResponseConverterPair<T>,
 ) -> Result<(), Error> {
-    // prepare entrypoint and args.
+    let (entrypoint, mut args) = parse_entrypoint(&entrypoint)?;
+    args.push(op.to_string());
+
+    let (mut child, child_stdin, child_stdout, child_stderr) =
+        parse_child(invoke_connector_direct(entrypoint, args)?)?;
+
+    let adapted_request_stream =
+        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?;
+
+    let adapted_response_stream =
+        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
+
+    streaming_all(
+        child_stdin,
+        child_stderr,
+        adapted_request_stream,
+        adapted_response_stream,
+    )
+    .await?;
+
+    check_exit_status("flow capture connector:", child.wait().await)
+}
+
+pub async fn run_flow_materialize_connector(
+    op: &FlowMaterializeOperation,
+    entrypoint: Vec<String>,
+) -> Result<(), Error> {
+    let (entrypoint, mut args) = parse_entrypoint(&entrypoint)?;
+    args.push(op.to_string());
+
+    let (mut child, child_stdin, child_stdout, child_stderr) =
+        parse_child(invoke_connector_direct(entrypoint, args)?)?;
+
+    let adapted_request_stream =
+        NetworkTunnelMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
+
+    let adapted_response_stream = NetworkTunnelMaterializeInterceptor::adapt_response_stream(
+        op,
+        response_stream(child_stdout),
+    )?;
+
+    streaming_all(
+        child_stdin,
+        child_stderr,
+        adapted_request_stream,
+        adapted_response_stream,
+    )
+    .await?;
+
+    check_exit_status("flow materialize connector:", child.wait().await)
+}
+
+pub async fn run_airbyte_source_connector(
+    op: &FlowCaptureOperation,
+    entrypoint: Vec<String>,
+) -> Result<(), Error> {
+    let mut airbyte_interceptor = AirbyteSourceInterceptor::new();
+
+    let (entrypoint, args) = parse_entrypoint(&entrypoint)?;
+    let args = airbyte_interceptor.adapt_command_args(op, args)?;
+
+    let (mut child, child_stdin, child_stdout, child_stderr) =
+        parse_child(invoke_connector_delayed(entrypoint, args).await?)?;
+
+    let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
+        op,
+        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
+    )?;
+
+    let adapted_response_stream = NetworkTunnelCaptureInterceptor::adapt_response_stream(
+        op,
+        airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?,
+    )?;
+
+    streaming_all(
+        child_stdin,
+        child_stderr,
+        adapted_request_stream,
+        adapted_response_stream,
+    )
+    .await?;
+
+    check_exit_status("airbyte source connector:", child.wait().await)
+}
+
+fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), Error> {
     if entrypoint.len() == 0 {
         return Err(Error::EmptyEntrypointError);
     }
-    let mut args = Vec::new();
-    args.extend_from_slice(&entrypoint[1..]);
-    args.push(operation.to_string());
 
-    let entrypoint = entrypoint[0].clone();
+    return Ok((entrypoint[0].clone(), entrypoint[1..].to_vec()));
+}
 
-    // invoke the connector and converts the request/response streams.
-    let mut child = invoke_connector(entrypoint, &args)?;
+fn request_stream() -> InterceptorStream {
+    Box::pin(ReaderStream::new(tokio::io::stdin()))
+}
 
-    let (request_converter, response_converter) = converter_pair;
-    // Perform conversions on requests and responses and starts bi-directional copying.
-    let mut request_source = StreamReader::new((request_converter)(
-        &operation,
-        Box::pin(ReaderStream::new(tokio::io::stdin())),
-    )?);
-    let mut request_destination = child.stdin.take().ok_or(Error::MissingIOPipe)?;
+fn response_stream(child_stdout: ChildStdout) -> InterceptorStream {
+    Box::pin(ReaderStream::new(child_stdout))
+}
 
-    let response_stream_out = child.stdout.take().ok_or(Error::MissingIOPipe)?;
-    let mut response_source = StreamReader::new((response_converter)(
-        &operation,
-        Box::pin(ReaderStream::new(response_stream_out)),
-    )?);
-    let mut response_destination = tokio::io::stdout();
+async fn streaming_all(
+    mut request_stream_writer: ChildStdin,
+    mut error_reader: ChildStderr,
+    request_stream: InterceptorStream,
+    response_stream: InterceptorStream,
+) -> Result<(), Error> {
+    let mut request_stream_reader = StreamReader::new(request_stream);
+    let mut response_stream_reader = StreamReader::new(response_stream);
+    let mut response_stream_writer = tokio::io::stdout();
+    let mut error_writer = tokio::io::stderr();
 
-    let (a, b) = tokio::join!(
-        copy(&mut request_source, &mut request_destination),
-        copy(&mut response_source, &mut response_destination)
+    let (a, b, c) = tokio::try_join!(
+        copy(&mut request_stream_reader, &mut request_stream_writer),
+        copy(&mut response_stream_reader, &mut response_stream_writer),
+        copy(&mut error_reader, &mut error_writer),
+    )?;
+
+    tracing::info!(
+        req_stream = a,
+        resp_stream = b,
+        stderr = c,
+        "Done streaming"
     );
-    a?;
-    b?;
-
-    check_exit_status(child.wait().await)
+    Ok(())
 }

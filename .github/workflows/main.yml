@@ -61,7 +61,6 @@ jobs:
       - run: make install-tools
       - run: go mod download
       - run: make rust-test
-      - run: make go-test-ci
       - run: make rust-binaries
 
       - name: Ensure that generated files are unchanged.
@@ -144,6 +143,19 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install protobuf compiler (it's not already included in CI runner)
+        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+
+      # We require a minimal Go version of 1.17.
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.17.3"
+
+      - name: Install rust toolchain
+        run: rustup show
+      - run: make extra-ci-runner-setup
+      - run: make print-versions
+
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
         with:
@@ -184,7 +196,20 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
+          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
+          -o /home/runner/work/flow/flow/.build/package/bin/sops
+
+      - name: make go-test-ci
+        run: |
+          make go-test-ci \
+          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
@@ -197,7 +222,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
@@ -210,7 +235,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-proxy \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \

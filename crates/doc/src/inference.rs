@@ -689,6 +689,7 @@ impl Shape {
                     Annotation::Secret(b) => shape.secret = Some(*b),
                     Annotation::Multiline(_) => {}
                     Annotation::Order(_) => {}
+                    Annotation::X(_) => {}
                 },
 
                 // Array constraints.
