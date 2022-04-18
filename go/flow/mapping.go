@@ -263,12 +263,18 @@ func (m Mappable) SetUUID(uuid message.UUID) {
 	copy(m.Doc[ind:ind+36], str[0:36])
 }
 
+// NewAcknowledgementMessage returns a new acknowledgement message for a journal of the given
+// collection.
+func NewAcknowledgementMessage(spec *pf.CollectionSpec) Mappable {
+	return Mappable{
+		Spec: spec,
+		Doc:  append(json.RawMessage(nil), spec.AckJsonTemplate...),
+	}
+}
+
 // NewAcknowledgement returns an Mappable of the acknowledgement template.
 func (m Mappable) NewAcknowledgement(pb.Journal) message.Message {
-	return Mappable{
-		Spec: m.Spec,
-		Doc:  append(json.RawMessage(nil), m.Spec.AckJsonTemplate...),
-	}
+	return NewAcknowledgementMessage(m.Spec)
 }
 
 // MarshalJSONTo copies the raw document json into the Writer.

@@ -10,6 +10,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // StatsFormatter creates stats documents for publishing into ops/<tenant>/stats collections.
@@ -63,7 +64,7 @@ func (s *StatsFormatter) NewStatsEvent() StatsEvent {
 	}
 }
 
-func (p *StatsFormatter) FormatEvent(event StatsEvent) flow.Mappable {
+func (s *StatsFormatter) FormatEvent(event StatsEvent) flow.Mappable {
 	var doc, err = json.Marshal(event)
 	if err != nil {
 		panic(fmt.Sprintf("marshaling stats json cannot fail: %v", err))
@@ -71,10 +72,26 @@ func (p *StatsFormatter) FormatEvent(event StatsEvent) flow.Mappable {
 	// We currently omit the key from this Mappable, which is fine because we don't actually use it
 	// for publishing stats.
 	return flow.Mappable{
-		Spec:       p.statsCollection,
+		Spec:       s.statsCollection,
 		Doc:        doc,
-		Partitions: p.partitions,
+		Partitions: s.partitions,
 	}
+}
+
+// PrepareStatsJournal returns the journal, contentType, and a new Acknowledgment message for the
+// stats journal for this task. The journal is created if it does not exist. This is used in
+// conjunction with Publisher.DeferPublishUncommitted, which requires these things to be provided up
+// front.
+func (s *StatsFormatter) PrepareStatsJournal(mapper flow.Mapper) (journal pb.Journal, contentType string, ack flow.Mappable, err error) {
+	var dummy = flow.Mappable{
+		Spec:       s.statsCollection,
+		Partitions: s.partitions,
+	}
+	journal, contentType, err = mapper.Map(dummy)
+	if err == nil {
+		ack = flow.NewAcknowledgementMessage(s.statsCollection)
+	}
+	return
 }
 
 // statsCollection returns the collection to which stats for the given task name are written.
