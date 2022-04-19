@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub enum NetworkTunnelConfig {
     SshForwarding(SshForwardingConfig),
 }
