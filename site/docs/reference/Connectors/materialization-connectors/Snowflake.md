@@ -55,7 +55,7 @@ Use the below properties to configure a Snowflake materialization, which will di
 
 materializations:
   ${tenant}/${mat_name}:
-	  endpoint:
+    endpoint:
   	    connector:
     	    config:
               account: acmeCo
@@ -66,7 +66,7 @@ materializations:
               user: snowflake_user
               warehouse: acmeCo_warehouse
     	    image: ghcr.io/estuary/materialize-snowflake:dev
-	# If you have multiple collections you need to materialize, add a binding for each one
+  # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
     bindings:
   	- resource:
@@ -112,6 +112,10 @@ because those rows will tend to live in the same micro-partitions, and Snowflake
 ## Reserved words
 
 Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
+
+:::caution
+In Snowflake, objects created with quoted identifiers must always be referenced exactly as created, including the quotes. Otherwise, SQL statements and queries can result in errors. See the [Snowflake docs](https://docs.snowflake.com/en/sql-reference/identifiers-syntax.html#double-quoted-identifiers).
+:::
 
 |Reserved words| | |
 |---|---|---|
