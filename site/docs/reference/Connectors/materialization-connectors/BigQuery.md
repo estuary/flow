@@ -59,7 +59,6 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 ### Sample
 
 ```yaml
-# If this is the first materialization, add the section to your catalog spec
 materializations:
   ${tenant}/${mat_name}:
 	  endpoint:
