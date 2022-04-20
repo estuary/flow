@@ -188,26 +188,14 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
     let mut child = invoke_connector(
         Stdio::inherit(),
         Stdio::inherit(),
-        Stdio::piped(),
+        Stdio::inherit(),
         &command_config.entrypoint,
         &command_config.args,
     )?;
 
     match check_exit_status("delayed process", child.wait().await) {
         Err(e) => {
-            let mut buf = Vec::new();
-            child
-                .stderr
-                .take()
-                .ok_or(Error::MissingIOPipe)?
-                .read_to_end(&mut buf)
-                .await?;
-
-            tracing::error!(
-                "connector failed. command_config: {:?}. stderr from connector: {}",
-                &command_config,
-                std::str::from_utf8(&buf).expect("error when decoding stderr")
-            );
+            tracing::error!("connector failed. command_config: {:?}.", &command_config);
             Err(e)
         }
         _ => Ok(()),
