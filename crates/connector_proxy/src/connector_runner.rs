@@ -108,24 +108,27 @@ async fn streaming_all(
     let mut response_stream_reader = StreamReader::new(response_stream);
     let mut response_stream_writer = tokio::io::stdout();
 
-    let (a, b) = tokio::try_join!(
-        copy(&mut request_stream_reader, &mut request_stream_writer),
-        copy(&mut response_stream_reader, &mut response_stream_writer),
-    )?;
+    let request_stream_copy =
+        tokio::spawn(
+            async move { copy(&mut request_stream_reader, &mut request_stream_writer).await },
+        );
 
-    tracing::info!(req_stream = a, resp_stream = b, "Done streaming");
+    let response_stream_copy = tokio::spawn(async move {
+        copy(&mut response_stream_reader, &mut response_stream_writer).await
+    });
+
+    let (a, b) = tokio::try_join!(request_stream_copy, response_stream_copy)?;
+
+    tracing::info!(req_stream = a?, resp_stream = b?, "Done streaming");
     Ok(())
 }
 
 #[cfg(test)]
 mod test {
-    use std::{pin::Pin, process::Stdio};
+    use std::pin::Pin;
 
     use bytes::Bytes;
-    use futures::{stream, TryStream};
-    use tokio::process::Command;
-
-    use crate::libs::command::invoke_connector;
+    use futures::{stream, StreamExt, TryStream};
 
     use super::*;
 
@@ -135,19 +138,28 @@ mod test {
         Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)))
     }
 
+    fn create_cycled_stream<T: std::clone::Clone>(
+        input: Vec<T>,
+    ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
+        Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)).cycle())
+    }
+
     #[tokio::test]
     async fn test_streaming_all_eof() {
-        let input = "hello".as_bytes();
-        let stream = create_stream(vec![Bytes::from(input)]);
-        let stream_2 = create_stream(vec![Bytes::from(input)]);
+        let input = "hello\n".as_bytes();
+        let req_stream = create_stream(vec![Bytes::from(input)]);
 
         // `tail -f` will not exit until EOF has been reached in its stdin
         // This test ensures that once we reach end of the input stream, an EOF is sent to stdin of the proxy process
-        let (_, stdin, _) = parse_child(
+        // even if the stdout of the process is blocked. In this case, tail -f will not terminate its stdout until
+        // stdin has received EOF.
+        let (_, stdin, stdout) = parse_child(
             invoke_connector_direct("tail".to_string(), vec!["-f".to_string()]).unwrap(),
         )
         .unwrap();
 
-        assert!(streaming_all(stdin, stream, stream_2).await.is_ok());
+        let res_stream = response_stream(stdout);
+
+        assert!(streaming_all(stdin, req_stream, res_stream).await.is_ok());
     }
 }
