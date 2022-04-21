@@ -14,7 +14,7 @@ pub fn invoke_connector_direct(entrypoint: String, args: Vec<String>) -> Result<
     invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
-        Stdio::piped(),
+        Stdio::inherit(),
         &entrypoint,
         &args,
     )
@@ -128,12 +128,9 @@ pub fn invoke_connector(
         .map_err(|e| e.into())
 }
 
-pub fn parse_child(
-    mut child: Child,
-) -> Result<(Child, ChildStdin, ChildStdout, ChildStderr), Error> {
+pub fn parse_child(mut child: Child) -> Result<(Child, ChildStdin, ChildStdout), Error> {
     let stdout = child.stdout.take().ok_or(Error::MissingIOPipe)?;
     let stdin = child.stdin.take().ok_or(Error::MissingIOPipe)?;
-    let stderr = child.stderr.take().ok_or(Error::MissingIOPipe)?;
 
-    Ok((child, stdin, stdout, stderr))
+    Ok((child, stdin, stdout))
 }
