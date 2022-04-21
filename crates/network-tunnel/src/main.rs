@@ -1,17 +1,20 @@
-pub mod interface;
-pub mod sshforwarding;
 pub mod errors;
+pub mod interface;
 pub mod networktunnel;
+pub mod sshforwarding;
 
 use errors::Error;
 use flow_cli_common::{init_logging, LogArgs, LogFormat};
-use std::io::{self, Write};
+use std::io::{self};
 
 use interface::NetworkTunnelConfig;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    init_logging(&LogArgs{level: "info".to_string(), format: Some(LogFormat::Json)});
+    init_logging(&LogArgs {
+        level: "info".to_string(),
+        format: Some(LogFormat::Json),
+    });
     if let Err(err) = run().await.as_ref() {
         tracing::error!(error = ?err, "network tunnel failed.");
         std::process::exit(1);
