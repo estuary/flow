@@ -82,7 +82,7 @@ pub async fn invoke_connector_delayed(
     invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
-        Stdio::piped(),
+        Stdio::inherit(),
         bouncer_process_entrypoint,
         &vec!["delayed-execute".to_string(), config_file_path.to_string()],
     )
