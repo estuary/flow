@@ -180,7 +180,8 @@ mod test {
         let reader = ThreadStatsReader::new();
         let start = reader.current();
 
-        let some_vec: Vec<u8> = Vec::with_capacity(8192);
+        let some_vec: Vec<u8> = std::iter::repeat(1).take(8192).collect();
+        let some_sum: usize = some_vec.iter().map(|i| *i as usize).sum();
 
         let end = reader.current();
 
@@ -191,5 +192,7 @@ mod test {
 
         let end = reader.current();
         assert_eq!(0, end.total_allocated() - start.total_allocated());
+
+        println!("{some_sum} cause some_vec to be used and not elided by dead-code analysis");
     }
 }
