@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::process::{ExitStatus, Stdio};
 use tempfile::NamedTempFile;
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
 pub const READY: &[u8] = "READY".as_bytes();

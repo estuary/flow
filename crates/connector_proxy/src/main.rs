@@ -7,10 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
-use tokio::{
-    io::AsyncReadExt,
-    signal::unix::{signal, SignalKind},
-};
+use tokio::signal::unix::{signal, SignalKind};
 
 use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 
