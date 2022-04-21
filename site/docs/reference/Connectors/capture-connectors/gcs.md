@@ -62,7 +62,7 @@ captures:
       connector:
         image: ghcr.io/estuary/source-gcs:dev
         config:
-          bucket: "my-bucket"
+          bucket: my-bucket
     bindings:
       - resource:
           stream: my-bucket/${PREFIX}
@@ -74,3 +74,34 @@ captures:
 Your capture definition may be more complex, with additional bindings for different GCS prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+### Configure Google service account impersonation
+
+As part of your Google IAM management, you may have configured one service account to [impersonate another service account](https://cloud.google.com/iam/docs/impersonating-service-accounts).
+This is useful when you want to easily control multiple service accounts with only one set of keys.
+
+You can configure this authorization model for a GCS capture in Flow using the GitOps workflow.
+To do so, you'll enable sops encryption and impersonate the target account with JSON credentials.
+
+Before you begin, make sure you're familiar with [how to encrypt credentials in Flow using sops](./../../../concepts/connectors.md#protecting-secrets).
+
+Use the following sample as a guide to add the credentials JSON to the capture's endpoint configuration.
+The sample uses the [encrypted suffix feature](../../../concepts/connectors.md#example-protect-portions-of-a-configuration) of sops to encrypt only the sensitive credentials, but you may choose to encrypt the entire configuration.
+
+```yaml
+config:
+  bucket: <bucket-name>
+  googleCredentials_sops:
+    # URL containing the account to impersonate and the associated project
+    service_account_impersonation_url: https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<target-account>@<project>.iam.gserviceaccount.com:generateAccessToken
+    # Credentials for the account that has been configured to impersonate the target
+    source_credentials:
+        client_email: <origin-account>@<anotherproject>.iam.gserviceaccount.com
+        client_id: ...
+        private_key: ...
+        private_key_id: ...
+        project_id: ...
+        token_uri: https://oauth2.googleapis.com/token
+        type: service_account
+    type: impersonated_service_account
+```
