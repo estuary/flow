@@ -9,7 +9,6 @@ pub fn walk_all_derivations(
     built_collections: &[tables::BuiltCollection],
     derivations: &[tables::Derivation],
     imports: &[tables::Import],
-    schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -30,13 +29,36 @@ pub fn walk_all_derivations(
                 built_collections,
                 derivation,
                 imports,
-                schema_index,
                 schema_shapes,
                 storage_mappings,
                 transforms,
                 errors,
             ),
         );
+    }
+
+    for (lhs, rhs) in derivations
+        .iter()
+        .filter_map(|derivation| {
+            if let Some(m) = &derivation.typescript_module {
+                Some((m, &derivation.derivation, &derivation.scope))
+            } else {
+                None
+            }
+        })
+        .sorted()
+        .tuple_windows()
+    {
+        if lhs.0 != rhs.0 {
+            continue;
+        }
+        Error::TypescriptModuleNotUnique {
+            module: lhs.0.clone(),
+            lhs_derivation: lhs.1.to_string(),
+            rhs_derivation: rhs.1.to_string(),
+            rhs_scope: rhs.2.clone(),
+        }
+        .push(lhs.2, errors);
     }
 
     built_derivations
@@ -47,7 +69,6 @@ fn walk_derivation(
     built_collections: &[tables::BuiltCollection],
     derivation: &tables::Derivation,
     imports: &[tables::Import],
-    schema_index: &doc::SchemaIndex<'_>,
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -56,9 +77,17 @@ fn walk_derivation(
     let tables::Derivation {
         scope,
         derivation: collection,
+        spec:
+            models::Derivation {
+                register:
+                    models::Register {
+                        schema: _,
+                        initial: register_initial,
+                    },
+                ..
+            },
         register_schema,
-        register_initial,
-        shards: _,
+        typescript_module,
     } = derivation;
 
     // Pluck the BuiltCollection and register schema Shape of this Derivation.
@@ -70,10 +99,14 @@ fn walk_derivation(
         &schema_shapes[schema_shapes.equal_range_by_key(&register_schema, |s| &s.schema)][0];
 
     // Verify that the register's initial value conforms to its schema.
-    if schema_index.fetch(&register_schema.schema).is_none() {
+    if register_schema
+        .index
+        .fetch(&register_schema.schema)
+        .is_none()
+    {
         // Referential integrity error, which we've already reported.
     } else if let Err(err) = doc::Validation::validate(
-        &mut doc::Validator::new(schema_index),
+        &mut doc::Validator::new(&register_schema.index),
         &register_schema.schema,
         register_initial.clone(),
     )
@@ -87,6 +120,7 @@ fn walk_derivation(
     let mut built_transforms = Vec::new();
     let mut shuffle_types: Vec<(Vec<types::Set>, &tables::Transform)> = Vec::new();
     let mut strict_shuffle = false;
+    let mut has_typescript_lambdas = false;
 
     // Walk transforms of this derivation.
     for transform in transforms {
@@ -108,12 +142,24 @@ fn walk_derivation(
         // (which minimizes data movement).
         // If the derivation is stateful, or if the user showed intent towards a
         // particular means of shuffling, then we *do* require that shuffle keys match.
-        if transform.update_lambda.is_some()
-            || transform.shuffle_key.is_some()
-            || transform.shuffle_lambda.is_some()
-        {
+        if transform.spec.update.is_some() || transform.spec.shuffle.is_some() {
             strict_shuffle = true;
         }
+
+        has_typescript_lambdas |= matches!(
+            &transform.spec.shuffle,
+            Some(models::Shuffle::Lambda(models::Lambda::Typescript))
+        ) || matches!(
+            &transform.spec.update,
+            Some(models::Update {
+                lambda: models::Lambda::Typescript
+            })
+        ) || matches!(
+            &transform.spec.publish,
+            Some(models::Publish {
+                lambda: models::Lambda::Typescript
+            })
+        );
     }
 
     indexed::walk_duplicates(
@@ -134,6 +180,14 @@ fn walk_derivation(
             }
             .push(&l_transform.scope, errors);
         }
+    }
+
+    // Verify that a typescript module is defined if typescript
+    // lambdas are used, and vice versa.
+    if has_typescript_lambdas && typescript_module.is_none() {
+        Error::TypescriptLambdasWithoutModule.push(&derivation.scope, errors);
+    } else if !has_typescript_lambdas && typescript_module.is_some() {
+        Error::TypescriptModuleWithoutLambdas.push(&derivation.scope, errors);
     }
 
     let recovery_stores = storage_mapping::mapped_stores(
@@ -166,16 +220,21 @@ pub fn walk_transform(
     let tables::Transform {
         scope,
         derivation: _,
-        priority: _,
-        publish_lambda,
-        read_delay_seconds: _,
-        shuffle_key,
-        shuffle_lambda,
-        source_collection: source,
-        source_partitions,
-        source_schema,
         transform: name,
-        update_lambda,
+        spec:
+            models::TransformDef {
+                publish,
+                shuffle,
+                source:
+                    models::TransformSource {
+                        name: source,
+                        schema: _,
+                        partitions: source_partitions,
+                    },
+                update,
+                ..
+            },
+        source_schema,
     } = transform;
 
     indexed::walk_name(
@@ -186,7 +245,7 @@ pub fn walk_transform(
         errors,
     );
 
-    if update_lambda.is_none() && publish_lambda.is_none() {
+    if update.is_none() && publish.is_none() {
         Error::NoUpdateOrPublish {
             transform: name.to_string(),
         }
@@ -217,8 +276,8 @@ pub fn walk_transform(
     // Map to an effective source schema & shape.
     let source_schema = match source_schema {
         Some(url) => {
-            // Was the collection locally defined using this same schema?
-            if source.foreign_build_id.is_none() && url.as_str() == &source.spec.schema_uri {
+            // Was the collection defined using this same schema?
+            if url.as_str() == &source.spec.schema_uri {
                 Error::SourceSchemaNotDifferent {
                     schema: url.clone(),
                     collection: source.collection.to_string(),
@@ -243,8 +302,8 @@ pub fn walk_transform(
     );
 
     // Map to an effective shuffle key.
-    let shuffle_key = match (shuffle_key, shuffle_lambda) {
-        (Some(shuffle_key), None) => {
+    let shuffle_key = match shuffle {
+        Some(models::Shuffle::Key(shuffle_key)) => {
             if shuffle_key.iter().eq(source_key.iter()) {
                 Error::ShuffleKeyNotDifferent {
                     transform: name.to_string(),
@@ -262,12 +321,12 @@ pub fn walk_transform(
 
             Some(shuffle_key)
         }
+        Some(models::Shuffle::Lambda(_)) => {
+            // A shuffle lambda is an alternative to a shuffle key.
+            None
+        }
         // If no shuffle_key is set, shuffle on the collection's key.
-        (None, None) => Some(&source_key),
-        // A shuffle lambda is an alternative to a shuffle key.
-        (None, Some(_)) => None,
-
-        (Some(_), Some(_)) => unreachable!("shuffle_key and shuffle_lambda cannot both be set"),
+        None => Some(&source_key),
     };
 
     let shuffle_types = shuffle_key.and_then(|shuffle_key| {

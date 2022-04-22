@@ -5,6 +5,6 @@ expression: errors
 [
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
-        error: must set at least one of 'update' or 'publish' lambdas,
+        error: transform reverseIntString must set at least one of 'update' or 'publish' lambdas,
     },
 ]

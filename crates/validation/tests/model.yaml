@@ -33,7 +33,14 @@ test://example/int-string:
           partition: true
 
     testing/int-string.v2:
-      schema: test://example/int-string.schema
+      schema:
+        # A schema resource (either inline or by URL reference) may define an
+        # alternate canonical ID.
+        # It's *not* okay for a schema to in-turn $ref a schema by a non-canonical
+        # URI, even if it's possible to fetch that URI, because we cannot
+        # later correctly turn this into a schema bundle.
+        $id: test://inlined/canonical/id
+        $ref: test://example/int-string.schema
       key: [/int]
       journals:
         fragments:
@@ -152,6 +159,10 @@ test://example/int-reverse:
       schema: test://example/int-string.schema
       key: [/int]
       derivation:
+        typescript:
+          module: int-reverse.ts
+          npmDependencies:
+            package-one: "v1.2.3"
         transform:
           reverseIntString:
             source:
@@ -183,6 +194,8 @@ test://example/int-halve:
           schema:
             type: integer
           initial: 42
+        typescript:
+          module: int-halve.ts
         transform:
           halveIntString:
             source:
@@ -229,7 +242,9 @@ test://example/int-string.schema:
       required: [one]
 
 test://example/int-string-len.schema:
-  $ref: test://example/int-string.schema
+  # Use an alternate canonical URI for this schema.
+  $id: test://example/canonical/int-string-len.schema
+  $ref: ../int-string.schema
   properties:
     len: { type: integer }
     int: {}
@@ -238,7 +253,7 @@ test://example/int-string-len.schema:
     arr:
       type: array
       additionalItems:
-        $ref: int-string.schema#AnAnchor
+        $ref: ../int-string.schema#AnAnchor
   additionalProperties:
     type: boolean
   required: [len]
