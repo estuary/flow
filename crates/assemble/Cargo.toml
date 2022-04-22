@@ -16,10 +16,12 @@ typescript = { path = "../typescript" }
 
 bytes = "*"
 itertools = "*"
+lazy_static = "*"
 percent-encoding = "*"
 regex = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+superslice = "*"
 thiserror = "*"
 tracing = "*"
 url = "*"

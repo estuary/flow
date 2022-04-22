@@ -1,8 +1,7 @@
 use super::camel_case;
-use itertools::Itertools;
 use std::fmt::Write;
 use std::path;
-use url::Url;
+use superslice::Ext;
 
 #[derive(Debug)]
 pub enum MethodType {
@@ -12,48 +11,32 @@ pub enum MethodType {
 }
 
 impl MethodType {
-    pub fn method_name(&self, transform: &models::Transform) -> String {
-        let mut w = camel_case(transform, false);
+    fn method_name(&self, transform: &tables::Transform) -> String {
+        let mut w = camel_case(&transform.transform, false);
         write!(w, "{:?}", self).unwrap();
         w
     }
 
-    pub fn signature(&self, transform: &tables::Transform, underscore: bool) -> Vec<String> {
-        let tables::Transform {
-            derivation,
-            source_collection,
-            source_schema,
-            transform,
-            ..
-        } = transform;
-
-        let src = match source_schema {
-            Some(_) => format!(
-                "transforms.{}{}Source",
-                camel_case(derivation, true),
-                camel_case(transform, false)
-            ),
-            None => format!("collections.{}", camel_case(source_collection, true)),
-        };
-        let tgt = camel_case(derivation, true);
+    fn signature(&self, transform: &tables::Transform, underscore: bool) -> Vec<String> {
+        let src = format!("{}Source", camel_case(&transform.transform, true));
 
         let mut lines = Vec::new();
         let underscore = if underscore { "_" } else { "" };
 
         lines.push(format!("{}(", self.method_name(transform)));
-        lines.push(format!("    {}source: {},", underscore, src));
+        lines.push(format!("    {underscore}source: {src},"));
 
         match self {
             MethodType::Shuffle => {
                 lines.push("): unknown[]>".to_string());
             }
             MethodType::Update => {
-                lines.push(format!("): registers.{}[]", tgt));
+                lines.push(format!("): Register[]"));
             }
             MethodType::Publish => {
-                lines.push(format!("    {}register: registers.{},", underscore, tgt));
-                lines.push(format!("    {}previous: registers.{},", underscore, tgt));
-                lines.push(format!("): collections.{}[]", tgt));
+                lines.push(format!("    {underscore}register: Register,"));
+                lines.push(format!("    {underscore}previous: Register,"));
+                lines.push(format!("): Document[]"));
             }
         }
 
@@ -71,160 +54,142 @@ impl<'a> Method<'a> {
     pub fn signature(&self, underscore: bool) -> Vec<String> {
         self.type_.signature(&self.transform, underscore)
     }
+
+    pub fn method_name(&self) -> String {
+        self.type_.method_name(&self.transform)
+    }
 }
 
 pub struct Interface<'a> {
+    // Derivation which defines this interface.
     pub derivation: &'a tables::Derivation,
-    pub module: Module,
+    // User TypeScript module which must implement the interface.
+    pub typescript_module: &'a url::Url,
+    // Is the typescript module relative to the package directory
+    // which can be directly imported, or an external module which
+    // must be copied to the local filesystem?
+    pub module_is_relative: bool,
+    // Relative import path of the module within the package directory.
+    pub module_import_path: String,
+    // Methods of the interface.
     pub methods: Vec<Method<'a>>,
+    // Transforms of this derivation.
+    pub transforms: &'a [tables::Transform],
 }
 
 impl<'a> Interface<'a> {
+    // Extract all collections joined with optional Interfaces of its TypeScript derivation.
     pub fn extract_all(
         package_dir: &path::Path,
+        collections: &'a [tables::Collection],
         derivations: &'a [tables::Derivation],
         transforms: &'a [tables::Transform],
-    ) -> Vec<Interface<'a>> {
-        let mut methods = Vec::new();
+    ) -> Vec<(&'a tables::Collection, Option<Self>)> {
+        assert!(package_dir.is_absolute());
+        let mut out = Vec::new();
 
-        for transform in transforms.iter() {
-            // Map transform through the corresponding derivation row.
-            let derivation = match derivations
-                .iter()
-                .find(|d| d.derivation == transform.derivation)
+        for collection in collections {
+            let (derivation, typescript_module) = match derivations
+                .binary_search_by_key(&&collection.collection, |derivation| &derivation.derivation)
+                .ok()
+                .map(|ind| &derivations[ind])
             {
-                Some(d) => d,
-                None => continue,
+                Some(
+                    derivation @ tables::Derivation {
+                        typescript_module: Some(typescript_module),
+                        ..
+                    },
+                ) => (derivation, typescript_module),
+
+                _ => {
+                    // Collection is not a derivation, or has no TypeScript module (and thus no Interface).
+                    out.push((collection, None));
+                    continue;
+                }
             };
 
-            // Pattern-match against the shuffle, update, and publish lambda locations.
-            if matches!(transform.shuffle_lambda, Some(models::Lambda::Typescript)) {
-                methods.push(Method {
-                    derivation,
-                    transform,
-                    type_: MethodType::Shuffle,
-                });
+            let transforms = &transforms[transforms
+                .equal_range_by_key(&&derivation.derivation, |transform| &transform.derivation)];
+
+            let mut methods = Vec::new();
+            for transform in transforms {
+                // Pattern-match against the shuffle, update, and publish lambda locations.
+                if matches!(
+                    transform.spec.shuffle,
+                    Some(models::Shuffle::Lambda(models::Lambda::Typescript))
+                ) {
+                    methods.push(Method {
+                        derivation,
+                        transform,
+                        type_: MethodType::Shuffle,
+                    });
+                }
+                if matches!(
+                    transform.spec.update,
+                    Some(models::Update {
+                        lambda: models::Lambda::Typescript
+                    })
+                ) {
+                    methods.push(Method {
+                        derivation,
+                        transform,
+                        type_: MethodType::Update,
+                    });
+                }
+                if matches!(
+                    transform.spec.publish,
+                    Some(models::Publish {
+                        lambda: models::Lambda::Typescript
+                    })
+                ) {
+                    methods.push(Method {
+                        derivation,
+                        transform,
+                        type_: MethodType::Publish,
+                    });
+                }
             }
-            if matches!(transform.update_lambda, Some(models::Lambda::Typescript)) {
-                methods.push(Method {
+
+            // If `typescript_module` is a regular file (has no query or fragment)
+            // rooted by the `package_dir`, derive its import relative to that root.
+            let module_import_path = package_dir
+                .to_str()
+                .filter(|_| {
+                    typescript_module.query().is_none()
+                        && typescript_module.fragment().is_none()
+                        && typescript_module.scheme() == "file"
+                })
+                .and_then(|d| typescript_module.path().strip_prefix(d))
+                .map(|p| &p[1..]) // Trim leading '/', which remains after stripping directory.
+                .map(str::to_string);
+
+            let module_is_relative = module_import_path.is_some();
+
+            // If the module is _not_ relative, derive the location where we'll
+            // write its content to *make* it relative.
+            // We name these files by the derivation they implement.
+            let module_import_path = match module_import_path {
+                Some(p) => p,
+                None => {
+                    let mut parts = vec!["flow_generated", "external"];
+                    parts.extend(derivation.derivation.split("/"));
+                    format!("{}.ts", parts.join("/"))
+                }
+            };
+
+            out.push((
+                collection,
+                Some(Self {
                     derivation,
-                    transform,
-                    type_: MethodType::Update,
-                });
-            }
-            if matches!(transform.publish_lambda, Some(models::Lambda::Typescript)) {
-                methods.push(Method {
-                    derivation,
-                    transform,
-                    type_: MethodType::Publish,
-                });
-            }
-        }
-
-        methods.sort_by_key(|m| (&m.transform.derivation, &m.transform.transform));
-
-        methods
-            .into_iter()
-            .group_by(|m| &m.transform.derivation)
-            .into_iter()
-            .map(|(_, methods)| {
-                let methods = methods.collect::<Vec<_>>();
-                let derivation = &methods[0].derivation;
-
-                // Map to the TypeScript module URL which must live alongside the
-                // derivation's resource spec, and which must implement this interface.
-                let mut module = derivation.scope.clone();
-                let mut path = path::PathBuf::from(derivation.scope.path());
-                path.set_extension("ts");
-
-                module.set_path(path.to_str().unwrap()); // Still UTF-8.
-                module.set_fragment(None);
-                module.set_query(None);
-
-                Interface {
-                    derivation,
+                    typescript_module,
+                    module_is_relative,
+                    module_import_path,
                     methods,
-                    module: Module::new(&module, package_dir),
-                }
-            })
-            .collect()
-    }
-}
-
-pub struct Module {
-    url: url::Url,
-    relative: Option<String>,
-}
-
-impl Module {
-    pub fn new(url: &Url, package_dir: &path::Path) -> Module {
-        assert!(package_dir.is_absolute());
-
-        let relative = package_dir
-            .to_str()
-            .filter(|_| url.scheme() == "file")
-            .and_then(|d| url.path().strip_prefix(d))
-            .map(|p| &p[1..]) // Trim leading '/', which remains after stripping directory.
-            .map(str::to_string);
-
-        Module {
-            url: url.clone(),
-            relative,
+                    transforms,
+                }),
+            ));
         }
-    }
 
-    pub fn is_relative(&self) -> bool {
-        matches!(self.relative, Some(_))
-    }
-
-    pub fn absolute_url(&self) -> &url::Url {
-        &self.url
-    }
-
-    /// Return the Module as a join-able relative URL, complete with query and fragment.
-    /// The URL is only relative if the Module is rooted by the package directory.
-    /// Otherwise, an absolute URL is returned.
-    pub fn relative_url(&self) -> String {
-        match &self.relative {
-            Some(relative) => {
-                let mut relative = relative.clone();
-
-                // Re-attach trailing query & fragment components.
-                if let Some(query) = self.url.query() {
-                    relative.push('?');
-                    relative.push_str(query);
-                }
-
-                if let Some(fragment) = self.url.fragment() {
-                    relative.push('#');
-                    relative.push_str(fragment);
-                }
-                relative
-            }
-            None => self.url.to_string(),
-        }
-    }
-
-    /// Return the Module as a path relative to the package directory.
-    pub fn relative_path(&self) -> String {
-        assert!(self.url.query().is_none());
-        assert!(self.url.fragment().is_none());
-        assert!(!self.url.cannot_be_a_base());
-
-        if let Some(relative) = &self.relative {
-            return relative.clone();
-        }
-        let mut parts = vec!["flow_generated", "external"];
-
-        if let Some(d) = self.url.domain() {
-            parts.push(d)
-        }
-        parts.extend(
-            self.url
-                .path_segments()
-                .unwrap()
-                .filter(|segment| !segment.is_empty()),
-        );
-        parts.join("/")
+        out
     }
 }

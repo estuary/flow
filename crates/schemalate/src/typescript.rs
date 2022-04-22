@@ -34,15 +34,12 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             | Keyword::Application(Application::Definition { key }, child) => Some((key, child)),
             _ => None,
         }) {
-            top_level.insert(&child.curi, key.as_ref());
+            top_level.insert(&child.curi, key.clone());
         }
     }
 
     let mut w = std::io::stdout();
-    let mapper = Mapper {
-        index: &index,
-        top_level,
-    };
+    let mapper = Mapper { index, top_level };
 
     // Write the root schema type.
     write!(w, "export type {} = ", args.name)?;

@@ -8,15 +8,15 @@ use regex::Regex;
 use std::collections::BTreeMap;
 
 pub struct Mapper<'a> {
-    pub index: &'a SchemaIndex<'a>,
-    pub top_level: BTreeMap<&'a url::Url, &'a str>,
+    pub index: SchemaIndex<'a>,
+    pub top_level: BTreeMap<&'a url::Url, String>,
 }
 
 impl<'a> Mapper<'a> {
     // Map the schema having |url| into an abstract syntax tree.
     pub fn map(&self, url: &url::Url) -> AST {
         let shape = match self.index.fetch(url) {
-            Some(schema) => Shape::infer(schema, self.index),
+            Some(schema) => Shape::infer(schema, &self.index),
             None => Shape::default(),
         };
         self.to_ast(&shape)

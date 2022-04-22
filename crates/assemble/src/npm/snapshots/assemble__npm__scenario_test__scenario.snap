@@ -1,6 +1,5 @@
 ---
 source: crates/assemble/src/npm/scenario_test.rs
-assertion_line: 42
 expression: intents
 ---
 {
@@ -76,89 +75,13 @@ expression: intents
       tabWidth: 4
     };
     ,
-    "flow_generated/external/example/external/module.ts": Always:
+    "flow_generated/external/another/derivation.ts": Always:
+    import { Some } from 'module';
+    
+    content();
+    ,
+    "flow_generated/external/remote/derivation.ts": Always:
     {"Remote":"Content"},
-    "flow_generated/flow/anchors.d.ts": Always:
-    // Ensure module has at least one export, even if otherwise empty.
-    export type __module = null;
-    
-    // Generated from test://example/int-string.schema#AnAnchor.
-    export type AnAnchor = {
-        one: string;
-        two?: number;
-    };
-    
-    // Generated from test://example/int-string.schema#OtherAnchor.
-    export type OtherAnchor = {
-        anAnchor?: AnAnchor;
-        three: string;
-    };
-    ,
-    "flow_generated/flow/collections.d.ts": Always:
-    import * as anchors from './anchors';
-    
-    // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-    export type __module = null;
-    export type __anchors_module = anchors.__module;
-    
-    // Generated from test://example/int-string.schema.
-    // Referenced as schema of test://example/external/module.yaml#/collections/external~1derivation.
-    export type ExternalDerivation = {
-        anAnchor?: anchors.AnAnchor;
-        int: number;
-        str: string;
-    };
-    
-    // Generated from test://example/int-number.schema.
-    // Referenced as schema of sub/module.yaml#/collections/local~1derivation.
-    export type LocalDerivation = {
-        int: number;
-        "need's esc\"aping!"?: boolean;
-        num: number;
-    };
-    
-    // Generated from test://example/int-string.schema.
-    // Referenced as schema of test://example/catalog.yaml#/collections/some~1input.
-    export type SomeInput = {
-        anAnchor?: anchors.AnAnchor;
-        int: number;
-        str: string;
-    };
-    ,
-    "flow_generated/flow/interfaces.d.ts": Always:
-    import * as collections from './collections';
-    import * as registers from './registers';
-    import * as transforms from './transforms';
-    
-    // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-    export type __module = null;
-    export type __collections_module = collections.__module;
-    export type __registers_module = registers.__module;
-    export type __transforms_module = transforms.__module;
-    
-    // Generated from derivation test://example/external/module.yaml#/collections/external~1derivation/derivation.
-    // Required to be implemented by test://example/external/module.ts.
-    export interface ExternalDerivation {
-        somethingSomethingPublish(
-            source: collections.SomeInput,
-            register: registers.ExternalDerivation,
-            previous: registers.ExternalDerivation,
-        ): collections.ExternalDerivation[];
-    }
-    
-    // Generated from derivation sub/module.yaml#/collections/local~1derivation/derivation.
-    // Required to be implemented by sub/module.ts.
-    export interface LocalDerivation {
-        thereItIsUpdate(
-            source: collections.LocalDerivation,
-        ): registers.LocalDerivation[];
-        whootPublish(
-            source: collections.SomeInput,
-            register: registers.LocalDerivation,
-            previous: registers.LocalDerivation,
-        ): collections.LocalDerivation[];
-    }
-    ,
     "flow_generated/flow/main.ts": IfNotExists:
     #!/usr/bin/env node
     import { Server } from './server';
@@ -173,63 +96,36 @@ expression: intents
     }
     main();
     ,
-    "flow_generated/flow/modules.d.ts": IfNotExists:
-    import * as anchors from './anchors';
-    import * as collections from './collections';
-    import * as interfaces from './interfaces';
-    import * as registers from './registers';
-    import * as transforms from './transforms';
-    
-    export { anchors, collections, interfaces, registers, transforms };
-    ,
-    "flow_generated/flow/registers.d.ts": Always:
-    import * as anchors from './anchors';
-    
-    // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-    export type __module = null;
-    export type __anchors_module = anchors.__module;
-    
-    // Generated from test://example/external/module.yaml?ptr=/collections/external~1derivation/derivation/register/schema.
-    // Referenced as register_schema of test://example/external/module.yaml#/collections/external~1derivation/derivation.
-    export type ExternalDerivation = number;
-    
-    // Generated from sub/module.yaml?ptr=/collections/local~1derivation/derivation/register/schema.
-    // Referenced as register_schema of sub/module.yaml#/collections/local~1derivation/derivation.
-    export type LocalDerivation = unknown;
-    ,
     "flow_generated/flow/routes.ts": Always:
-    import * as interfaces from './interfaces';
     
     // Document is a relaxed signature for a Flow document of any kind.
     export type Document = unknown;
     // Lambda is a relaxed signature implemented by all Flow transformation lambdas.
     export type Lambda = (source: Document, register?: Document, previous?: Document) => Document[];
     
-    // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-    export type __interfaces_module = interfaces.__module;
     // Import derivation classes from their implementation modules.
-    import {
-        LocalDerivation,
-    } from '../../sub/module';
-    
-    import {
-        ExternalDerivation,
-    } from '../../flow_generated/external/example/external/module';
+    import { Derivation as anotherDerivation } from '../../flow_generated/external/another/derivation';
+    import { Derivation as localDerivation } from '../../sub/module';
+    import { Derivation as remoteDerivation } from '../../flow_generated/external/remote/derivation';
     
     // Build instances of each class, which will be bound to this module's router.
-    const __ExternalDerivation: interfaces.ExternalDerivation = new ExternalDerivation();
-    const __LocalDerivation: interfaces.LocalDerivation = new LocalDerivation();
+    const __anotherDerivation: anotherDerivation = new anotherDerivation();
+    const __localDerivation: localDerivation = new localDerivation();
+    const __remoteDerivation: remoteDerivation = new remoteDerivation();
     
     // Now build the router that's used for transformation lambda dispatch.
     const routes: { [path: string]: Lambda | undefined } = {
-        '/derive/external/derivation/somethingSomething/Publish': __ExternalDerivation.somethingSomethingPublish.bind(
-            __ExternalDerivation,
+        '/derive/another/derivation/widget/Publish': __anotherDerivation.widgetPublish.bind(
+            __anotherDerivation,
         ) as Lambda,
-        '/derive/local/derivation/thereItIs/Update': __LocalDerivation.thereItIsUpdate.bind(
-            __LocalDerivation,
+        '/derive/local/derivation/thereItIs/Update': __localDerivation.thereItIsUpdate.bind(
+            __localDerivation,
         ) as Lambda,
-        '/derive/local/derivation/whoot/Publish': __LocalDerivation.whootPublish.bind(
-            __LocalDerivation,
+        '/derive/local/derivation/whoot/Publish': __localDerivation.whootPublish.bind(
+            __localDerivation,
+        ) as Lambda,
+        '/derive/remote/derivation/somethingSomething/Publish': __remoteDerivation.somethingSomethingPublish.bind(
+            __remoteDerivation,
         ) as Lambda,
     };
     
@@ -319,29 +215,163 @@ expression: intents
         }
     }
     ,
-    "flow_generated/flow/transforms.d.ts": Always:
-    import * as anchors from './anchors';
-    
-    // "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-    export type __module = null;
-    export type __anchors_module = anchors.__module;
-    ,
     "flow_generated/tsconfig-files.json": Always:
     {
       "files": [
-        "../flow_generated/external/example/external/module.ts",
-        "../flow_generated/flow/anchors.d.ts",
-        "../flow_generated/flow/collections.d.ts",
-        "../flow_generated/flow/interfaces.d.ts",
+        "../flow_generated/external/another/derivation.ts",
+        "../flow_generated/external/remote/derivation.ts",
         "../flow_generated/flow/main.ts",
-        "../flow_generated/flow/modules.d.ts",
-        "../flow_generated/flow/registers.d.ts",
         "../flow_generated/flow/routes.ts",
         "../flow_generated/flow/server.ts",
-        "../flow_generated/flow/transforms.d.ts",
+        "../flow_generated/types/another/derivation.d.ts",
+        "../flow_generated/types/local/derivation.d.ts",
+        "../flow_generated/types/remote/derivation.d.ts",
+        "../flow_generated/types/some/input.d.ts",
         "../sub/module.ts"
       ]
     },
+    "flow_generated/types/another/derivation.d.ts": Always:
+    
+    // Generated from collection schema sub/module.yaml?ptr=/collections/another~1derivation/schema.
+    // Referenced from sub/module.yaml#/collections/another~1derivation.
+    export type Document = {
+        hello: number;
+        world?: boolean;
+    };
+    
+    
+    // Generated from derivation register schema sub/module.yaml?ptr=/collections/another~1derivation/derivation/register/schema.
+    // Referenced from sub/module.yaml#/collections/another~1derivation/derivation.
+    export type Register = unknown;
+    
+    
+    // Generated from transform widget as a re-export of collection some/input.
+    // Referenced from sub/module.yaml#/collections/another~1derivation/derivation/transform/widget."
+    import { Document as WidgetSource } from "./../some/input";
+    export { Document as WidgetSource } from "./../some/input";
+    
+    
+    // Generated from derivation sub/module.yaml#/collections/another~1derivation/derivation.
+    // Required to be implemented by sub/module.yaml?ptr=/collections/another~1derivation/derivation/typescript/module.
+    export interface IDerivation {
+        widgetPublish(
+            source: WidgetSource,
+            register: Register,
+            previous: Register,
+        ): Document[];
+    }
+    ,
+    "flow_generated/types/local/derivation.d.ts": Always:
+    
+    // Generated from collection schema test://example/int-number.schema.
+    // Referenced from sub/module.yaml#/collections/local~1derivation.
+    export type Document = {
+        int: number;
+        "need's esc\"aping!"?: boolean;
+        num: number;
+    };
+    
+    
+    // Generated from derivation register schema sub/module.yaml?ptr=/collections/local~1derivation/derivation/register/schema.
+    // Referenced from sub/module.yaml#/collections/local~1derivation/derivation.
+    export type Register = unknown;
+    
+    
+    // Generated from self-referential transform thereItIs.
+    // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/thereItIs."
+    export type ThereItIsSource = Document;
+    
+    
+    // Generated from transform whoot as a re-export of collection some/input.
+    // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/whoot."
+    import { Document as WhootSource } from "./../some/input";
+    export { Document as WhootSource } from "./../some/input";
+    
+    
+    // Generated from derivation sub/module.yaml#/collections/local~1derivation/derivation.
+    // Required to be implemented by sub/module.ts.
+    export interface IDerivation {
+        thereItIsUpdate(
+            source: ThereItIsSource,
+        ): Register[];
+        whootPublish(
+            source: WhootSource,
+            register: Register,
+            previous: Register,
+        ): Document[];
+    }
+    ,
+    "flow_generated/types/remote/derivation.d.ts": Always:
+    
+    // Generated from $anchor schema test://example/int-string.schema#AnAnchor."
+    export type AnAnchor = {
+        one: string;
+        two?: number;
+    };
+    
+    
+    // Generated from $anchor schema test://example/int-string.schema#OtherAnchor."
+    export type OtherAnchor = {
+        anAnchor?: AnAnchor;
+        three: string;
+    };
+    
+    
+    // Generated from collection schema test://example/int-string.schema.
+    // Referenced from test://example/external/module.yaml#/collections/remote~1derivation.
+    export type Document = {
+        anAnchor?: AnAnchor;
+        int: number;
+        str: string;
+    };
+    
+    
+    // Generated from derivation register schema test://example/external/module.yaml?ptr=/collections/remote~1derivation/derivation/register/schema.
+    // Referenced from test://example/external/module.yaml#/collections/remote~1derivation/derivation.
+    export type Register = number;
+    
+    
+    // Generated from transform somethingSomething as a re-export of collection some/input.
+    // Referenced from test://example/external/module.yaml#/collections/remote~1derivation/derivation/transform/somethingSomething."
+    import { Document as SomethingSomethingSource } from "./../some/input";
+    export { Document as SomethingSomethingSource } from "./../some/input";
+    
+    
+    // Generated from derivation test://example/external/module.yaml#/collections/remote~1derivation/derivation.
+    // Required to be implemented by test://example/external/module.ts.
+    export interface IDerivation {
+        somethingSomethingPublish(
+            source: SomethingSomethingSource,
+            register: Register,
+            previous: Register,
+        ): Document[];
+    }
+    ,
+    "flow_generated/types/some/input.d.ts": Always:
+    
+    // Generated from $anchor schema test://example/int-string.schema#AnAnchor."
+    export type AnAnchor = {
+        one: string;
+        two?: number;
+    };
+    
+    
+    // Generated from $anchor schema test://example/int-string.schema#OtherAnchor."
+    export type OtherAnchor = {
+        anAnchor?: AnAnchor;
+        three: string;
+    };
+    
+    
+    // Generated from collection schema test://example/int-string.schema.
+    // Referenced from test://example/catalog.yaml#/collections/some~1input.
+    export type Document = {
+        anAnchor?: AnAnchor;
+        int: number;
+        str: string;
+    };
+    
+    ,
     "package.json": Always:
     {
       "dependencies": {
@@ -385,20 +415,20 @@ expression: intents
     }
     ,
     "sub/module.ts": IfNotExists:
-    import { collections, interfaces, registers } from 'flow/modules';
+    import { IDerivation, Document, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
     
     // Implementation for derivation sub/module.yaml#/collections/local~1derivation/derivation.
-    export class LocalDerivation implements interfaces.LocalDerivation {
+    export class Derivation implements IDerivation {
         thereItIsUpdate(
-            _source: collections.LocalDerivation,
-        ): registers.LocalDerivation[] {
+            _source: ThereItIsSource,
+        ): Register[] {
             throw new Error("Not implemented");
         }
         whootPublish(
-            _source: collections.SomeInput,
-            _register: registers.LocalDerivation,
-            _previous: registers.LocalDerivation,
-        ): collections.LocalDerivation[] {
+            _source: WhootSource,
+            _register: Register,
+            _previous: Register,
+        ): Document[] {
             throw new Error("Not implemented");
         }
     }
@@ -431,16 +461,15 @@ expression: intents
     		// Any non-relative modules are resolved against this base directory.
     		"baseUrl": ".",
     		"paths": {
-    			// As a bit of sugar, resolve flow/modules to flow_generated/flow/*.
-    			// This is a types-only module, and doesn't require runtime loading.
+    			// As a bit of sugar, resolve flow/* to flow_generated/types/*.
+    			// These are types-only modules, and don't require runtime loading.
     			// Otherwise, a tool like `tspath` must be used to re-write absolute
     			// imports in TypeScript code into relative imports in produced JavaScript.
-    			"flow/modules": [
-    				"flow_generated/flow/modules"
+    			"flow/*": [
+    				"flow_generated/types/*"
     			]
     		}
     	},
     	"extends": "./flow_generated/tsconfig-files"
-    }
-    ,
+    },
 }
