@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 154
 expression: tables
 ---
 Sources {
@@ -8,7 +7,16 @@ Sources {
     captures: [],
     collections: [],
     derivations: [],
-    errors: [],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml#/import/0,
+            error: failed to fetch resource test://example/schema.json
+            
+            Caused by:
+                0: base64-decode of inline resource failed
+                1: Invalid byte 34, offset 0.,
+        },
+    ],
     fetches: [
         Fetch {
             depth: 1,
@@ -16,43 +24,18 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 2,
             resource: test://example/schema.json,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/path/to/email.schema.json,
         },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/import/0,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema.json,
         },
-        Import {
-            scope: test://example/schema.json#/$ref,
-            from_resource: test://example/schema.json,
-            to_resource: test://example/path/to/email.schema.json,
-        },
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [
-        NamedSchema {
-            scope: test://example/path/to/email.schema.json,
-            anchor: test://example/path/to/email.schema.json#Email,
-            anchor_name: Email,
-        },
-    ],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -60,28 +43,10 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/path/to/email.schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-        },
-        Resource {
-            resource: test://example/schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
+            content_dom: {"import":[{"contentType":"JSON_SCHEMA","url":"schema.json"}],"resources":{"test://example/path/to/email.schema.json":{"content":"eyIkYW5jaG9yIjoiRW1haWwiLCJ0eXBlIjoic3RyaW5nIn0=","contentType":"JSON_SCHEMA"},"test://example/schema.json":{"content":"eyIkcmVmIjoicGF0aC90by9lbWFpbC5zY2hlbWEuanNvbiIsImZvcm1hdCI6ImVtYWlsIn0=","contentType":"JSON_SCHEMA"}}},
         },
     ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/path/to/email.schema.json,
-            dom: {"$anchor":"Email","type":"string"},
-        },
-        SchemaDoc {
-            schema: test://example/schema.json,
-            dom: {"$ref":"path/to/email.schema.json","format":"email"},
-        },
-    ],
+    schema_docs: [],
     storage_mappings: [],
     test_steps: [],
     transforms: [],

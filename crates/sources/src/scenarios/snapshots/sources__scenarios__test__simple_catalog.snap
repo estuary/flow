@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,9 +9,13 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
+            spec: {
+              "schema": false,
+              "key": [
+                "/key"
+              ]
+            },
             schema: test://example/schema,
-            key: ["/key"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -39,10 +42,6 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 2,
             resource: test://example/schema,
         },
         Fetch {
@@ -53,17 +52,8 @@ Sources {
             depth: 2,
             resource: test://not/found,
         },
-        Fetch {
-            depth: 3,
-            resource: test://example/sibling.ts,
-        },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
             from_resource: test://example/catalog.yaml,
@@ -84,43 +74,25 @@ Sources {
             from_resource: test://example/catalog.yaml,
             to_resource: test://not/found,
         },
-        Import {
-            scope: test://example/sibling,
-            from_resource: test://example/sibling,
-            to_resource: test://example/sibling.ts,
-        },
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
-    npm_dependencies: [
-        NPMDependency {
-            scope: test://example/catalog.yaml#/npmDependencies/package-one,
-            package: package-one,
-            version: v0.1.2,
-        },
-        NPMDependency {
-            scope: test://example/catalog.yaml#/npmDependencies/pkg-2,
-            package: pkg-2,
-            version: ~v2,
-        },
-    ],
+    npm_dependencies: [],
     projections: [
         Projection {
             scope: test://example/catalog.yaml#/collections/a~1collection/projections/baz,
             collection: a/collection,
             field: baz,
-            location: /bing,
-            partition: 1,
-            user_provided: 1,
+            spec: {
+              "location": "/bing",
+              "partition": true
+            },
         },
         Projection {
             scope: test://example/catalog.yaml#/collections/a~1collection/projections/foo,
             collection: a/collection,
             field: foo,
-            location: /bar,
-            partition: 0,
-            user_provided: 1,
+            spec: "/bar",
         },
     ],
     resources: [
@@ -128,16 +100,19 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"a/collection":{"key":["/key"],"projections":{"baz":{"location":"/bing","partition":true},"foo":"/bar"},"schema":"test://example/schema"}},"import":["sibling","sibling#/bad/fragment","test://not/found"]},
         },
         Resource {
             resource: test://example/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: true,
         },
         Resource {
             resource: test://example/sibling,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {},
         },
     ],
     schema_docs: [

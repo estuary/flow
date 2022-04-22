@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,9 +9,13 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
+            spec: {
+              "schema": false,
+              "key": [
+                "/some-key"
+              ]
+            },
             schema: test://example/catalog.yaml?ptr=/collections/test/schema,
-            key: ["/some-key"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -22,17 +25,8 @@ Sources {
             depth: 1,
             resource: test://example/catalog.yaml,
         },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
             from_resource: test://example/catalog.yaml,
@@ -41,7 +35,6 @@ Sources {
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -49,17 +42,22 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"test":{"key":["/some-key"],"schema":{"additionalProperties":true,"type":"object"}}}},
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/collections/test/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"additionalProperties":true,"type":"object"},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/catalog.yaml?ptr=/collections/test/schema,
-            dom: {"additionalProperties":true,"type":"object"},
+            dom: {
+              "additionalProperties": true,
+              "type": "object"
+            },
         },
     ],
     storage_mappings: [],

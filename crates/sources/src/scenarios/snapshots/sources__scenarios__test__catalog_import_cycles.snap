@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -23,32 +22,11 @@ Sources {
             resource: test://example/B,
         },
         Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/A.ts,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/B.ts,
-        },
-        Fetch {
             depth: 3,
             resource: test://example/C,
         },
-        Fetch {
-            depth: 4,
-            resource: test://example/C.ts,
-        },
     ],
     imports: [
-        Import {
-            scope: test://example/A,
-            from_resource: test://example/A,
-            to_resource: test://example/A.ts,
-        },
         Import {
             scope: test://example/A#/import/1,
             from_resource: test://example/A,
@@ -65,11 +43,6 @@ Sources {
             to_resource: test://example/A,
         },
         Import {
-            scope: test://example/B,
-            from_resource: test://example/B,
-            to_resource: test://example/B.ts,
-        },
-        Import {
             scope: test://example/B#/import/0,
             from_resource: test://example/B,
             to_resource: test://example/C,
@@ -78,11 +51,6 @@ Sources {
             scope: test://example/C#/import/1,
             from_resource: test://example/C,
             to_resource: test://example/B,
-        },
-        Import {
-            scope: test://example/C,
-            from_resource: test://example/C,
-            to_resource: test://example/C.ts,
         },
         Import {
             scope: test://example/C#/import/0,
@@ -99,15 +67,9 @@ Sources {
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/B,
         },
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -115,21 +77,25 @@ Sources {
             resource: test://example/A,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["C","B"]},
         },
         Resource {
             resource: test://example/B,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["C","A"]},
         },
         Resource {
             resource: test://example/C,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["catalog.yaml","B"]},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["A","B"]},
         },
     ],
     schema_docs: [],

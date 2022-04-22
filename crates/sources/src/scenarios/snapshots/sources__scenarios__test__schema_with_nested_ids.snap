@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,9 +9,13 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
+            spec: {
+              "schema": false,
+              "key": [
+                "/key"
+              ]
+            },
             schema: test://example/actual,
-            key: ["/key"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -26,10 +29,6 @@ Sources {
             depth: 2,
             resource: test://example/actual,
         },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
     ],
     imports: [
         Import {
@@ -37,15 +36,9 @@ Sources {
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/actual,
         },
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -53,17 +46,62 @@ Sources {
             resource: test://example/actual,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$id":"test://canonical/id","$ref":"test://fake/root"},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"a/collection":{"key":["/key"],"schema":"actual"}}},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/actual,
-            dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$ref":"test://fake/root"},
+            dom: {
+              "$defs": {
+                "wrapper": {
+                  "$defs": {
+                    "a": {
+                      "$id": "test://fake/other/a-doc",
+                      "items": [
+                        true,
+                        {
+                          "$ref": "b-doc#/items/1"
+                        }
+                      ]
+                    },
+                    "b": {
+                      "$id": "test://fake/other/b-doc",
+                      "items": [
+                        {
+                          "$ref": "a-doc#/items/0"
+                        },
+                        true
+                      ]
+                    },
+                    "c": true
+                  },
+                  "$id": "test://fake/root",
+                  "allOf": [
+                    {
+                      "$ref": "other/a-doc#/items/1"
+                    },
+                    {
+                      "$ref": "test://fake/other/b-doc#/items/0"
+                    },
+                    {
+                      "$ref": "#/$defs/c"
+                    },
+                    {
+                      "$ref": "test://fake/root#/$defs/c"
+                    }
+                  ]
+                }
+              },
+              "$id": "test://canonical/id",
+              "$ref": "test://fake/root"
+            },
         },
     ],
     storage_mappings: [],

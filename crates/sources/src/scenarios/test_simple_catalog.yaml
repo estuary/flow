@@ -3,9 +3,6 @@ test://example/catalog.yaml:
         - sibling
         - sibling#/bad/fragment
         - test://not/found
-    npmDependencies:
-        package-one: "v0.1.2"
-        pkg-2: "~v2"
     collections:
         a/collection:
             schema: "test://example/schema"

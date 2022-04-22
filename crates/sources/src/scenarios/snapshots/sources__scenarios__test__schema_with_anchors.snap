@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,9 +9,13 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
+            spec: {
+              "schema": false,
+              "key": [
+                "/a"
+              ]
+            },
             schema: test://example/schema.json,
-            key: ["/a"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -24,19 +27,10 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 2,
             resource: test://example/schema.json,
         },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
             from_resource: test://example/catalog.yaml,
@@ -45,13 +39,6 @@ Sources {
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [
-        NamedSchema {
-            scope: test://example/schema.json#/$defs/matches,
-            anchor: test://example/schema.json#Match_es,
-            anchor_name: Match_es,
-        },
-    ],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -59,17 +46,35 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"test":{"key":["/a"],"schema":"schema.json"}}},
         },
         Resource {
             resource: test://example/schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/schema.json,
-            dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
+            dom: {
+              "$defs": {
+                "lowercase": {
+                  "$anchor": "lowercase",
+                  "type": "integer"
+                },
+                "matches": {
+                  "$anchor": "Match_es",
+                  "type": "integer"
+                },
+                "punctuation": {
+                  "$anchor": "Spa ce",
+                  "type": "integer"
+                }
+              },
+              "type": "string"
+            },
         },
     ],
     storage_mappings: [],

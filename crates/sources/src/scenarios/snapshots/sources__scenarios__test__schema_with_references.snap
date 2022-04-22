@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,9 +9,13 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
+            spec: {
+              "schema": false,
+              "key": [
+                "/a"
+              ]
+            },
             schema: test://external/a#/$defs/a,
-            key: ["/a"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
@@ -21,10 +24,6 @@ Sources {
         Fetch {
             depth: 1,
             resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
         },
         Fetch {
             depth: 2,
@@ -40,11 +39,6 @@ Sources {
         },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
             from_resource: test://example/catalog.yaml,
@@ -63,7 +57,6 @@ Sources {
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -71,31 +64,47 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"test":{"key":["/a"],"schema":"test://external/a#/$defs/a"}}},
         },
         Resource {
             resource: test://external/a,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
         },
         Resource {
             resource: test://external/b,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"c":{"$ref":"c"}}},
         },
         Resource {
             resource: test://external/c,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: true,
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://external/a,
-            dom: {"$defs":{"a":{"$ref":"b#/$defs/c"}}},
+            dom: {
+              "$defs": {
+                "a": {
+                  "$ref": "b#/$defs/c"
+                }
+              }
+            },
         },
         SchemaDoc {
             schema: test://external/b,
-            dom: {"$defs":{"c":{"$ref":"c"}}},
+            dom: {
+              "$defs": {
+                "c": {
+                  "$ref": "c"
+                }
+              }
+            },
         },
         SchemaDoc {
             schema: test://external/c,
