@@ -127,6 +127,9 @@ pub struct Shuffle {
     /// - Materializations don't, as the materialization runtime immediately
     ///   combines over the document which requires parsing & validation
     ///   anyway.
+    ///
+    /// Unlike other schema_json protobuf fields, we don't use a RawMessage
+    /// casttype so that the generated Go equals method will work.
     #[prost(string, tag="14")]
     pub validate_schema_json: ::prost::alloc::string::String,
 }
@@ -528,14 +531,6 @@ pub struct RangeSpec {
     #[prost(fixed32, tag="5")]
     pub r_clock_end: u32,
 }
-/// SchemaBundle is a bundle of JSON schemas and their base URI.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SchemaBundle {
-    /// Schemas of the bundle. Keys are the absolute URIs of the schema,
-    /// and values are JSON-encoded schema documents.
-    #[prost(map="string, string", tag="1")]
-    pub bundle: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-}
 /// ShuffleRequest is the request message of a Shuffle RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShuffleRequest {
@@ -621,25 +616,6 @@ pub struct DriverCheckpoint {
     pub rfc7396_merge_patch: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SchemaApi {
-}
-/// Nested message and enum types in `SchemaAPI`.
-pub mod schema_api {
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct BuiltIndex {
-        #[prost(fixed64, tag="1")]
-        pub schema_index_memptr: u64,
-    }
-    /// Code labels message codes passed over the CGO bridge.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum Code {
-        Invalid = 0,
-        /// Take a request SchemaBundle and respond with a BuiltIndex. (Go <-> Rust).
-        BuildIndex = 1,
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractApi {
 }
 /// Nested message and enum types in `ExtractAPI`.
@@ -649,17 +625,13 @@ pub mod extract_api {
         /// JSON pointer of the document UUID to extract.
         #[prost(string, tag="1")]
         pub uuid_ptr: ::prost::alloc::string::String,
-        /// URI of schema to validate non-ACK documents against.
-        /// If empty, schema validation is not performed.
+        /// JSON schema to validate non-ACK documents against.
+        /// If empty then schema validation is not performed.
         #[prost(string, tag="2")]
-        pub schema_uri: ::prost::alloc::string::String,
-        /// Memory address of the accosiated SchemaIndex, which must exist for
-        /// the remainder of this API's usage.
-        #[prost(fixed64, tag="3")]
-        pub schema_index_memptr: u64,
+        pub schema_json: ::prost::alloc::string::String,
         /// Field JSON pointers to extract from documents and return as packed
         /// tuples.
-        #[prost(string, repeated, tag="4")]
+        #[prost(string, repeated, tag="3")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
     /// Code labels message codes passed over the CGO bridge.
@@ -684,27 +656,23 @@ pub struct CombineApi {
 pub mod combine_api {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Config {
-        /// Memory address of a shared SchemaIndex, which must exist for
-        /// the complete lifetime of this API's use.
-        #[prost(fixed64, tag="1")]
-        pub schema_index_memptr: u64,
-        /// Schema against which documents are to be validated,
+        /// JSON schema against which documents are to be validated,
         /// and which provides reduction annotations.
-        #[prost(string, tag="2")]
-        pub schema_uri: ::prost::alloc::string::String,
+        #[prost(string, tag="1")]
+        pub schema_json: ::prost::alloc::string::String,
         /// Composite key used to group documents to be combined, specified as one or
         /// more JSON-Pointers indicating a message location to extract.
         /// If empty, all request documents are combined into a single response
         /// document.
-        #[prost(string, repeated, tag="3")]
+        #[prost(string, repeated, tag="2")]
         pub key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Field JSON pointers to be extracted from combined documents and returned.
         /// If empty, no fields are extracted.
-        #[prost(string, repeated, tag="4")]
+        #[prost(string, repeated, tag="3")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON-Pointer at which a placeholder UUID should be inserted into
         /// returned documents. If empty, no placeholder is inserted.
-        #[prost(string, tag="5")]
+        #[prost(string, tag="4")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
     }
     /// Stats holds statistics relating to one or more combiner transactions.
@@ -769,10 +737,6 @@ pub mod derive_api {
         /// Derivation to derive.
         #[prost(message, optional, tag="1")]
         pub derivation: ::core::option::Option<super::DerivationSpec>,
-        /// Memory address of a associated SchemaIndex, which must exist for
-        /// the complete lifetime of this API's use.
-        #[prost(fixed64, tag="2")]
-        pub schema_index_memptr: u64,
     }
     /// DocHeader precedes a JSON-encoded document.
     #[derive(Clone, PartialEq, ::prost::Message)]
