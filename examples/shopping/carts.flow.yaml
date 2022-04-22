@@ -38,3 +38,5 @@ collections:
           shuffle: { key: [/userId] }
           update: { lambda: typescript }
           publish: { lambda: typescript }
+      typescript:
+        module: carts.flow.ts

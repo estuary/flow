@@ -1,14 +1,8 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
 
-// Implementation for derivation acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
-export class AcmeBankBalances implements interfaces.AcmeBankBalances {
-    fromTransfersPublish(
-        source: collections.AcmeBankTransfers,
-        // Registers enable stateful workflows, and are part of
-        // the interface Flow expects, but aren't used here.
-        _register: registers.AcmeBankBalances,
-        _previous: registers.AcmeBankBalances,
-    ): collections.AcmeBankBalances[] {
+// Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
+export class Derivation implements IDerivation {
+    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
         return [
             // A transfer removes from the sender and adds to the recipient.
             { account: source.sender, amount: -source.amount },

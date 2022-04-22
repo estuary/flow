@@ -39,3 +39,5 @@ collections:
           # testing contexts, try using a smaller value (e.g., 2m).
           readDelay: "48h"
           publish: { lambda: typescript }
+      typescript:
+        module: idle-bikes.flow.ts

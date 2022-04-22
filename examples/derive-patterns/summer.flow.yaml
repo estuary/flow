@@ -20,6 +20,8 @@ collections:
           source: { name: patterns/ints }
           shuffle: { key: [/Key] }
           publish: { lambda: typescript }
+      typescript:
+        module: summer.flow.ts
 
   patterns/sums-register:
     schema:
@@ -41,6 +43,8 @@ collections:
           shuffle: { key: [/Key] }
           update: { lambda: typescript }
           publish: { lambda: typescript }
+      typescript:
+        module: summer-reg.flow.ts
 
 tests:
   patterns/test/sums:
