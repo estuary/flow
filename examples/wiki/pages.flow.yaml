@@ -40,3 +40,5 @@ collections:
         rollUpEdits:
           source: { name: examples/wiki/edits }
           publish: { lambda: typescript }
+      typescript:
+        module: pages.flow.ts

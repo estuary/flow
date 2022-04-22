@@ -38,6 +38,8 @@ collections:
           # into a balance update.
           # This declaration tells Flow to look for an associated TypeScript module.
           publish: { lambda: typescript }
+      typescript:
+        module: acmeBank.flow.ts
 
 # Uncomment when updating README:
 #

@@ -1,6 +1,3 @@
-npmDependencies:
-  moment: "^2.24"
-
 collections:
   stock/ticks:
     schema: schemas/L1-tick.schema.yaml
@@ -28,6 +25,10 @@ collections:
             schema: "schemas/L1-tick.schema.yaml#/$defs/withRequired"
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
           publish: { lambda: typescript }
+      typescript:
+        module: flow.ts
+        npmDependencies:
+          moment: "^2.24"
 
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around
