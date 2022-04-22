@@ -19,6 +19,7 @@ test://example/actual:
         - $ref: test://fake/other/b-doc#/items/0
         - $ref: "#/$defs/c"
         - $ref: test://fake/root#/$defs/c
+  $id: test://canonical/id
   $ref: test://fake/root
 
 test://example/catalog.yaml:

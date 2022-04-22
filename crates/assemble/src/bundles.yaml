@@ -1,0 +1,70 @@
+test://example/catalog.yaml:
+  collections:
+    testing/one:
+      schema: schema.A
+      key: [/int]
+
+    testing/two:
+      schema: schema.B
+      key: [/int]
+
+    testing/three:
+      schema: schema.B#/allOf/0
+      key: [/int]
+
+    testing/four:
+      schema:
+        type: object
+        properties:
+          str: { type: string }
+        required: [str]
+      key: [/str]
+
+    testing/five:
+      schema:
+        $ref: schema.B
+        $defs:
+          expect-this-is-merged: true
+        description: "hello!"
+      key: [/int]
+
+    testing/six:
+      # We require that schemas are $ref'd by their canonical $id with _one_
+      # exception: when naming a schema from within a flow catalog without
+      # a schema fragment, and having a different $id.
+      #
+      # We cannot allow a $ref to a non-canonical URI because it's
+      # not possible to correctly turn this into a schema bundle.
+      schema: test://example/NonCanonical
+      key: [/int]
+
+test://example/schema.A:
+  type: object
+  properties:
+    int: { type: integer }
+    foo: { $ref: test://external/Canonical }
+  required: [int]
+
+test://example/schema.B:
+  allOf:
+    - $ref: test://example/schema.A
+    - $ref: "#/$defs/nested"
+  $defs:
+    nested:
+      properties:
+        something: {const: something}
+
+test://external/Canonical:
+  $id: test://external/Canonical
+  $defs:
+    inner:
+      $anchor: Anchor
+      type: string
+      format: email
+  $ref: Canonical#Anchor
+
+test://example/NonCanonical:
+  $id: test://external/ActualCanonicalURI
+  type: object
+  properties:
+    some: { const: stuff }
