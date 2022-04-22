@@ -1,5 +1,4 @@
 use futures::future::LocalBoxFuture;
-use itertools::{EitherOrBoth, Itertools};
 
 mod capture;
 mod collection;
@@ -36,15 +35,12 @@ pub async fn validate<D: Drivers>(
     collections: &[tables::Collection],
     derivations: &[tables::Derivation],
     fetches: &[tables::Fetch],
-    foreign_collections: tables::BuiltCollections,
     imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
-    named_schemas: &[tables::NamedSchema],
     npm_dependencies: &[tables::NPMDependency],
     projections: &[tables::Projection],
     resources: &[tables::Resource],
-    schema_docs: &[tables::SchemaDoc],
     storage_mappings: &[tables::StorageMapping],
     test_steps: &[tables::TestStep],
     transforms: &[tables::Transform],
@@ -59,7 +55,7 @@ pub async fn validate<D: Drivers>(
     }
     let root_scope = root_scope;
 
-    let compiled_schemas = match tables::SchemaDoc::compile_all(schema_docs) {
+    let compiled_schemas = match tables::Resource::compile_all_json_schemas(resources) {
         Ok(c) => c,
         Err(err) => {
             Error::from(err).push(root_scope, &mut errors);
@@ -70,24 +66,10 @@ pub async fn validate<D: Drivers>(
             };
         }
     };
-    let schema_index = schema::index_compiled_schemas(&compiled_schemas, root_scope, &mut errors);
-
-    // Filter from |foreign_collections| any entries that *exactly* match local
-    // |collections|, as the local instances take precedence.
-    let foreign_collections = foreign_collections
-        .into_iter()
-        .merge_join_by(collections.iter(), |l, r| l.collection.cmp(&r.collection))
-        .filter_map(|eob| match eob {
-            EitherOrBoth::Left(foreign) => Some(foreign),
-            _ => None,
-        })
-        .collect::<tables::BuiltCollections>();
 
     let schema_refs = schema::Ref::from_tables(
         collections,
         derivations,
-        &foreign_collections,
-        named_schemas,
         projections,
         resources,
         root_scope,
@@ -95,14 +77,13 @@ pub async fn validate<D: Drivers>(
     );
 
     let (schema_shapes, inferences) = schema::walk_all_schema_refs(
+        &compiled_schemas,
         imports,
-        schema_docs,
-        &schema_index,
+        resources,
         &schema_refs,
         &mut errors,
     );
 
-    schema::walk_all_named_schemas(named_schemas, &mut errors);
     npm_dependency::walk_all_npm_dependencies(npm_dependencies, &mut errors);
     storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
 
@@ -112,7 +93,7 @@ pub async fn validate<D: Drivers>(
         Error::NoStorageMappings {}.push(root_scope, &mut errors);
     }
 
-    let (built_collections, implicit_projections) = collection::walk_all_collections(
+    let built_collections = collection::walk_all_collections(
         build_config,
         collections,
         imports,
@@ -122,18 +103,11 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
-    // Merge locally-built collections with foreign definitions.
-    let built_collections = built_collections
-        .into_iter()
-        .chain(foreign_collections.into_iter())
-        .collect::<tables::BuiltCollections>();
-
     let built_derivations = derivation::walk_all_derivations(
         build_config,
         &built_collections,
         derivations,
         imports,
-        &schema_index,
         &schema_shapes,
         storage_mappings,
         transforms,
@@ -144,7 +118,6 @@ pub async fn validate<D: Drivers>(
         &built_collections,
         imports,
         resources,
-        &schema_index,
         &schema_shapes,
         test_steps,
         &mut errors,
@@ -182,6 +155,7 @@ pub async fn validate<D: Drivers>(
         capture_bindings,
         captures,
         imports,
+        resources,
         storage_mappings,
         &mut errors,
     );
@@ -194,6 +168,7 @@ pub async fn validate<D: Drivers>(
         imports,
         materialization_bindings,
         materializations,
+        resources,
         storage_mappings,
         &mut tmp_errors,
     );
@@ -210,7 +185,6 @@ pub async fn validate<D: Drivers>(
         built_materializations,
         built_tests,
         errors,
-        implicit_projections,
         inferences,
     }
 }
