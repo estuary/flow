@@ -20,6 +20,9 @@ collections:
           update: { lambda: typescript }
           publish: { lambda: typescript }
 
+      typescript:
+        module: zero-crossing.flow.ts
+
 tests:
   patterns/test/zero-crossing:
     - ingest:

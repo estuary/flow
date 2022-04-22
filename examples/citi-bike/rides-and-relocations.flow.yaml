@@ -27,3 +27,5 @@ collections:
             lambda: typescript
           publish:
             lambda: typescript
+      typescript:
+        module: rides-and-relocations.flow.ts

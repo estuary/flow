@@ -17,3 +17,5 @@ collections:
           source: { name: examples/citi-bike/rides }
           publish:
             lambda: typescript
+      typescript:
+        module: last-seen.flow.ts

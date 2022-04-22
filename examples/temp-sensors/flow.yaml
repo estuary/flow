@@ -23,6 +23,8 @@ collections:
             key: [/sensorId]
           source: { name: temperature/readings }
           publish: { lambda: typescript }
+      typescript:
+        module: flow.ts
 
 materializations:
   temperature/views:

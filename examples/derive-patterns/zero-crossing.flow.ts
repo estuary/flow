@@ -1,15 +1,11 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromIntsSource } from 'flow/patterns/zero-crossing';
 
-// Implementation for derivation derive-patterns/zero-crossing.flow.yaml#/collections/patterns~1zero-crossing/derivation.
-export class PatternsZeroCrossing implements interfaces.PatternsZeroCrossing {
-    fromIntsUpdate(source: collections.PatternsInts): registers.PatternsZeroCrossing[] {
+// Implementation for derivation examples/derive-patterns/zero-crossing.flow.yaml#/collections/patterns~1zero-crossing/derivation.
+export class Derivation implements IDerivation {
+    fromIntsUpdate(source: FromIntsSource): Register[] {
         return [source.Int];
     }
-    fromIntsPublish(
-        source: collections.PatternsInts,
-        register: registers.PatternsZeroCrossing,
-        previous: registers.PatternsZeroCrossing,
-    ): collections.PatternsZeroCrossing[] {
+    fromIntsPublish(source: FromIntsSource, register: Register, previous: Register): Document[] {
         if (register > 0 != previous > 0) {
             return [source];
         }

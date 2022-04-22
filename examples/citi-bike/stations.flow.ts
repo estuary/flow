@@ -1,12 +1,8 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, RidesAndMovesSource } from 'flow/examples/citi-bike/stations';
 
 // Implementation for derivation examples/citi-bike/stations.flow.yaml#/collections/examples~1citi-bike~1stations/derivation.
-export class ExamplesCitiBikeStations implements interfaces.ExamplesCitiBikeStations {
-    ridesAndMovesPublish(
-        source: collections.ExamplesCitiBikeRidesAndRelocations,
-        _register: registers.ExamplesCitiBikeStations,
-        _previous: registers.ExamplesCitiBikeStations,
-    ): collections.ExamplesCitiBikeStations[] {
+export class Derivation implements IDerivation {
+    ridesAndMovesPublish(source: RidesAndMovesSource, _register: Register, _previous: Register): Document[] {
         if (source.relocation) {
             return [
                 {

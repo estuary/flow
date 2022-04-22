@@ -36,6 +36,8 @@ collections:
           shuffle:
             key: [/author, /id]
           publish: { lambda: typescript }
+      typescript:
+        module: sets.ts
 
   soak/set-ops/sets-register:
     schema: schema.yaml#/$defs/output
@@ -61,6 +63,8 @@ collections:
             key: [/author, /id]
           update: { lambda: typescript }
           publish: { lambda: typescript }
+      typescript:
+        module: sets-register.ts
 
 tests:
   soak/set-ops/test/update-and-verify:

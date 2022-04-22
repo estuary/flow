@@ -1,16 +1,12 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromRidesSource } from 'flow/examples/citi-bike/rides-and-relocations';
 
 // Implementation for derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
-export class ExamplesCitiBikeRidesAndRelocations implements interfaces.ExamplesCitiBikeRidesAndRelocations {
-    fromRidesUpdate(source: collections.ExamplesCitiBikeRides): registers.ExamplesCitiBikeRidesAndRelocations[] {
+export class Derivation implements IDerivation {
+    fromRidesUpdate(source: FromRidesSource): Register[] {
         // Index last ride for this bike.
         return [source.end];
     }
-    fromRidesPublish(
-        source: collections.ExamplesCitiBikeRides,
-        _register: registers.ExamplesCitiBikeRidesAndRelocations,
-        previous: registers.ExamplesCitiBikeRidesAndRelocations,
-    ): collections.ExamplesCitiBikeRidesAndRelocations[] {
+    fromRidesPublish(source: FromRidesSource, _register: Register, previous: Register): Document[] {
         // Compare |previous| register value from before the update lambda was applied,
         // with the source document to determine if the bike mysteriously moved.
         if (previous.station.id != 0 && previous.station.id != source.begin.station.id) {

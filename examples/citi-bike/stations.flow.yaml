@@ -15,3 +15,5 @@ collections:
             name: examples/citi-bike/rides-and-relocations
           publish:
             lambda: typescript
+      typescript:
+        module: stations.flow.ts

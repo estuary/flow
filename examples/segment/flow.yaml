@@ -34,6 +34,8 @@ collections:
             name: examples/segment/events
           publish:
             lambda: typescript
+      typescript:
+        module: profiles.ts
 
   # Membership is a mapping of (segment, user) => {segmentation status}.
   # The derivation is suited for materialization into sorted key/value stores
@@ -61,6 +63,8 @@ collections:
             name: examples/segment/events
           publish:
             lambda: typescript
+      typescript:
+        module: memberships.ts
 
   # Toggles are annotated events which change the status of a user, e.x. from
   # "added" to "removed". They do not include events which initially add a user
@@ -111,6 +115,9 @@ collections:
             lambda: typescript
           publish:
             lambda: typescript
+
+      typescript:
+        module: toggles.ts
 
   # Something to try: the profiles collection can be altered to a "push"
   # model by reducing user segments within derivation registers, and then

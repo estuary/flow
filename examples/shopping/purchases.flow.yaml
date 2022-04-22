@@ -21,3 +21,5 @@ collections:
             name: examples/shopping/cartPurchaseRequests
           shuffle: { key: [/userId] }
           publish: { lambda: typescript }
+      typescript:
+        module: purchases.flow.ts

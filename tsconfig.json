@@ -25,12 +25,12 @@
 		// Any non-relative modules are resolved against this base directory.
 		"baseUrl": ".",
 		"paths": {
-			// As a bit of sugar, resolve flow/modules to flow_generated/flow/*.
-			// This is a types-only module, and doesn't require runtime loading.
+			// As a bit of sugar, resolve flow/* to flow_generated/types/*.
+			// These are types-only modules, and don't require runtime loading.
 			// Otherwise, a tool like `tspath` must be used to re-write absolute
 			// imports in TypeScript code into relative imports in produced JavaScript.
-			"flow/modules": [
-				"flow_generated/flow/modules"
+			"flow/*": [
+				"flow_generated/types/*"
 			]
 		}
 	},

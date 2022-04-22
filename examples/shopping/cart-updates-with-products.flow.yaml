@@ -35,3 +35,6 @@ collections:
           # register value.
           shuffle: { key: [/productId] }
           publish: { lambda: typescript }
+
+      typescript:
+        module: cart-updates-with-products.flow.ts

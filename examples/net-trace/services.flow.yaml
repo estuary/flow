@@ -1,9 +1,6 @@
 import:
   - pairs.flow.yaml
 
-npmDependencies:
-  moment: "^2.24"
-
 collections:
   examples/net-trace/services:
     key: [/date, /service/ip, /service/port]
@@ -22,6 +19,10 @@ collections:
           source: { name: examples/net-trace/pairs }
           publish:
             lambda: typescript
+      typescript:
+        module: services.flow.ts
+        npmDependencies:
+          moment: "^2.24"
 
 materializations:
   examples/net-trace/views:

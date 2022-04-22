@@ -1,15 +1,11 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, PublishLHSSource, UpdateRHSSource } from 'flow/patterns/one-sided-join';
 
-// Implementation for derivation derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation.
-export class PatternsOneSidedJoin implements interfaces.PatternsOneSidedJoin {
-    publishLHSPublish(
-        source: collections.PatternsInts,
-        register: registers.PatternsOneSidedJoin,
-        _previous: registers.PatternsOneSidedJoin,
-    ): collections.PatternsOneSidedJoin[] {
+// Implementation for derivation examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation.
+export class Derivation implements IDerivation {
+    publishLHSPublish(source: PublishLHSSource, register: Register, _previous: Register): Document[] {
         return [{ Key: source.Key, LHS: source.Int, RHS: register.RHS }];
     }
-    updateRHSUpdate(source: collections.PatternsStrings): registers.PatternsOneSidedJoin[] {
+    updateRHSUpdate(source: UpdateRHSSource): Register[] {
         return [{ RHS: [source.String] }];
     }
 }

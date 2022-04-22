@@ -1,14 +1,10 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromPairsSource } from 'flow/examples/net-trace/services';
 
 import * as moment from 'moment';
 
 // Implementation for derivation examples/net-trace/services.flow.yaml#/collections/examples~1net-trace~1services/derivation.
-export class ExamplesNetTraceServices implements interfaces.ExamplesNetTraceServices {
-    fromPairsPublish(
-        source: collections.ExamplesNetTracePairs,
-        _register: registers.ExamplesNetTraceServices,
-        _previous: registers.ExamplesNetTraceServices,
-    ): collections.ExamplesNetTraceServices[] {
+export class Derivation implements IDerivation {
+    fromPairsPublish(source: FromPairsSource, _register: Register, _previous: Register): Document[] {
         // Use moment.js to deal with oddball timestamp format, and truncate to current date.
         const date = moment(source.timestamp, 'DD/MM/YYYYhh:mm:ss').format('YYYY-MM-DD');
         const out = [];

@@ -19,6 +19,8 @@ collections:
           source: { name: patterns/strings }
           shuffle: { key: [/Key] }
           publish: { lambda: typescript }
+      typescript:
+        module: join-outer.flow.ts
 
 tests:
   patterns/test/outer-join:

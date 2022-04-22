@@ -33,6 +33,8 @@ collections:
                 c: { type: number }
               required: [id, a, b, c]
           publish: { lambda: typescript }
+      typescript:
+        module: flow.ts
 
 tests:
   examples/source-schema/test/passed-through:
