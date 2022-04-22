@@ -34,6 +34,41 @@ impl super::SchemaDoc {
     }
 }
 
+impl super::Resource {
+    pub fn fetch_content_dom<'s>(
+        resources: &'s [Self],
+        url: &Url,
+    ) -> Option<&'s serde_json::value::RawValue> {
+        let range = resources.equal_range_by_key(&url, |resource| &resource.resource);
+        resources[range]
+            .iter()
+            .map(|resource| resource.content_dom.as_ref())
+            .next()
+    }
+
+    pub fn compile_all_json_schemas(
+        slice: &[Self],
+    ) -> Result<Vec<(url::Url, doc::Schema)>, json::schema::build::Error> {
+        slice
+            .iter()
+            .filter_map(|resource| {
+                if resource.content_type == proto_flow::flow::ContentType::JsonSchema {
+                    let v = serde_json::from_str::<serde_json::Value>(resource.content_dom.get())
+                        .unwrap();
+                    let schema = json::schema::build::build_schema(resource.resource.clone(), &v);
+
+                    match schema {
+                        Ok(schema) => Some(Ok((resource.resource.clone(), schema))),
+                        Err(err) => Some(Err(err)),
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
 impl super::Import {
     // path_exists determines whether a forward or backwards import path exists between
     // |src_scope| and |tgt_scope|.
