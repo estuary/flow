@@ -39,6 +39,10 @@ test://example/catalog.yaml:
             update:
               lambda: typescript
             publish: { lambda: typescript }
+        typescript:
+          module: catalog.ts
+          npmDependencies:
+              package-one: "v0.1.2"
 
     d2/collection:
       schema: a-schema.json
@@ -62,6 +66,24 @@ test://example/catalog.yaml:
           hotStandbys: 2
           ringBufferSize: 12345
           readChannelSize: 6789
+
+    d3/collection:
+      schema: a-schema.json
+      key: [/some/key]
+      derivation:
+        transform:
+          frob:
+            source:
+              name: src/collection
+            publish:
+              lambda: typescript
+        typescript:
+          module: |
+            import { some } from 'the/package';
+
+            inlineTypescript();
+          npmDependencies:
+              pkg-2: "~v2"
 
 test://example/catalog.ts:
   typescript: "module placeholder"

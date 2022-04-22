@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -10,16 +9,33 @@ Sources {
         Collection {
             scope: test://example/catalog.yaml#/collections/test~1collection,
             collection: test/collection,
+            spec: {
+              "schema": false,
+              "key": [
+                "/key/1",
+                "/key/0"
+              ]
+            },
             schema: test://example/schema.json#foobar,
-            key: ["/key/1","/key/0"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
             collection: test/collection/with-journals,
+            spec: {
+              "schema": false,
+              "key": [
+                "/a/key"
+              ],
+              "journals": {
+                "fragments": {
+                  "length": 12345,
+                  "compressionCodec": "GZIP_OFFLOAD_DECOMPRESSION",
+                  "retention": "13days 8h",
+                  "flushInterval": "15m"
+                }
+              }
+            },
             schema: test://example/schema.json#foobar,
-            key: ["/a/key"],
-            journals: {"fragments":{"length":12345,"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","retention":"13days 8h","flushInterval":"15m"}},
         },
     ],
     derivations: [],
@@ -31,19 +47,10 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 2,
             resource: test://example/schema.json,
         },
     ],
     imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/schema,
             from_resource: test://example/catalog.yaml,
@@ -57,24 +64,25 @@ Sources {
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [
         Projection {
             scope: test://example/catalog.yaml#/collections/test~1collection/projections/field_a,
             collection: test/collection,
             field: field_a,
-            location: /a/a,
-            partition: 1,
-            user_provided: 1,
+            spec: {
+              "location": "/a/a",
+              "partition": true
+            },
         },
         Projection {
             scope: test://example/catalog.yaml#/collections/test~1collection/projections/field_b,
             collection: test/collection,
             field: field_b,
-            location: /b/b,
-            partition: 0,
-            user_provided: 1,
+            spec: {
+              "location": "/b/b",
+              "partition": false
+            },
         },
     ],
     resources: [
@@ -82,17 +90,47 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"test/collection":{"key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json#foobar"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
         },
         Resource {
             resource: test://example/schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/schema.json,
-            dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+            dom: {
+              "$anchor": "foobar",
+              "properties": {
+                "a": {
+                  "properties": {
+                    "a": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "b": {
+                  "properties": {
+                    "b": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "key": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
         },
     ],
     storage_mappings: [],

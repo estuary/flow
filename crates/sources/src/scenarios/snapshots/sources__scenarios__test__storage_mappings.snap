@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 27
 expression: tables
 ---
 Sources {
@@ -14,21 +13,10 @@ Sources {
             depth: 1,
             resource: test://example/catalog.yaml,
         },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
     ],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
-    ],
+    imports: [],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
@@ -36,6 +24,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"storageMappings":{"":{"stores":[{"bucket":"root-bucket","provider":"S3"}]},"foo/bar/baz/":{"stores":[{"bucket":"a-bucket","prefix":"and-prefix/","provider":"GCS"},{"bucket":"s3-bucket","provider":"S3"}]},"other/thing/":{"stores":[{"bucket":"s3-bucket","provider":"AZURE"}]}}},
         },
     ],
     schema_docs: [],
@@ -43,20 +32,40 @@ Sources {
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/,
             prefix: ,
-            stores: [{"provider":"S3","bucket":"root-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "root-bucket",
+                "prefix": null
+              }
+            ],
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/foo~1bar~1baz~1,
             prefix: foo/bar/baz/,
-            stores: [{"provider":"GCS","bucket":"a-bucket","prefix":"and-prefix/"},{"provider":"S3","bucket":"s3-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "GCS",
+                "bucket": "a-bucket",
+                "prefix": "and-prefix/"
+              },
+              {
+                "provider": "S3",
+                "bucket": "s3-bucket",
+                "prefix": null
+              }
+            ],
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/other~1thing~1,
             prefix: other/thing/,
-            stores: [{"provider":"AZURE","bucket":"s3-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "AZURE",
+                "bucket": "s3-bucket",
+                "prefix": null
+              }
+            ],
         },
     ],
     test_steps: [],

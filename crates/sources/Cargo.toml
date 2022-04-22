@@ -16,8 +16,6 @@ anyhow = "*"
 base64 = "*"
 bytes = "*"
 futures = "*"
-lazy_static = "*"
-regex = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde-transcode = "*"
