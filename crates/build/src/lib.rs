@@ -1,5 +1,6 @@
 use anyhow::Context;
 use protocol::flow;
+use serde_json::value::RawValue;
 use std::path::Path;
 use url::Url;
 
@@ -59,15 +60,16 @@ where
         .context("failed to persist catalog tables")?;
     tracing::info!(?output_path, "wrote build database");
 
+    if config.typescript_generate || config.typescript_compile || config.typescript_package {
+        generate_npm_package(&all_tables, &directory)
+            .context("failed to generate TypeScript package")?;
+    }
+
     if !all_tables.errors.is_empty() {
         // Skip follow-on build steps if errors were encountered.
         return Ok(all_tables);
     }
 
-    if config.typescript_generate || config.typescript_compile || config.typescript_package {
-        generate_npm_package(&all_tables, &directory)
-            .context("failed to generate TypeScript package")?;
-    }
     if config.typescript_compile || config.typescript_package {
         compile_npm(&directory).context("failed to compile TypeScript package")?;
     }
@@ -108,9 +110,8 @@ where
         imports,
         materialization_bindings,
         materializations,
-        named_schemas,
         npm_dependencies,
-        mut projections,
+        projections,
         resources,
         schema_docs,
         storage_mappings,
@@ -125,7 +126,6 @@ where
         built_materializations,
         built_tests,
         errors: validation_errors,
-        implicit_projections,
         inferences,
     } = validation::validate(
         config,
@@ -135,15 +135,12 @@ where
         &collections,
         &derivations,
         &fetches,
-        tables::BuiltCollections::new(),
         &imports,
         &materialization_bindings,
         &materializations,
-        &named_schemas,
         &npm_dependencies,
         &projections,
         &resources,
-        &schema_docs,
         &storage_mappings,
         &test_steps,
         &transforms,
@@ -151,7 +148,6 @@ where
     .await;
 
     errors.extend(validation_errors.into_iter());
-    projections.extend(implicit_projections.into_iter());
 
     tables::All {
         built_captures,
@@ -170,7 +166,6 @@ where
         materialization_bindings,
         materializations,
         meta: tables::Meta::new(),
-        named_schemas,
         npm_dependencies,
         projections,
         resources,
@@ -189,10 +184,9 @@ fn generate_npm_package(tables: &tables::All, dir: &Path) -> Result<(), anyhow::
         &dir,
         &tables.collections,
         &tables.derivations,
-        &tables.named_schemas,
+        &tables.imports,
         &tables.npm_dependencies,
         &tables.resources,
-        &tables.schema_docs,
         &tables.transforms,
     )?;
     assemble::write_npm_package(&dir, write_intents)?;
@@ -221,6 +215,7 @@ fn pack_npm(package_dir: &std::path::Path) -> Result<tables::Resources, anyhow::
         Url::from_file_path(&pack).unwrap(),
         flow::ContentType::NpmPackage,
         bytes::Bytes::from(std::fs::read(&pack)?),
+        RawValue::from_string("null".to_string()).unwrap(),
     );
     std::fs::remove_file(&pack)?;
 

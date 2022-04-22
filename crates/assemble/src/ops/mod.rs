@@ -3,7 +3,7 @@
 //! that data. This module generates the Flow specs and schemas for these collections.
 use models;
 use proto_flow::flow;
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use std::collections::BTreeSet;
 use url::Url;
 
@@ -34,11 +34,21 @@ pub fn generate_ops_collections(tables: &mut tables::Sources) {
             schema.url.clone(),
             flow::ContentType::JsonSchema,
             bytes::Bytes::from_static(schema.content),
+            serde_json::from_slice::<Box<RawValue>>(schema.content)
+                .expect("builtin schema is JSON"),
         );
         let dom = serde_json::from_slice::<Value>(schema.content)
             .expect("failed to parse builtin schema");
         tables.schema_docs.insert_row(schema.url.clone(), dom);
     }
+
+    // Track that stats_schema and log_schema each import shard_schema.
+    tables
+        .imports
+        .insert_row(&stats_schema.url, &stats_schema.url, &shard_schema.url);
+    tables
+        .imports
+        .insert_row(&log_schema.url, &log_schema.url, &shard_schema.url);
 
     // Setup imports to allow derivations and materializations to reference these ops collections.
     // Flow currently validates that an import path exists whenever a derivation or materialization
@@ -86,9 +96,12 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
     tables.collections.insert_row(
         scope.clone(),
         name.clone(),
+        serde_json::from_value::<models::CollectionDef>(serde_json::json!({
+            "schema": false,
+            "key": key,
+        }))
+        .unwrap(),
         schema_url,
-        models::CompositeKey::new(key),
-        models::JournalTemplate::default(),
     );
 
     // Ops collections are partitioned by kind and name, to allow users to easily consume logs or
@@ -99,9 +112,10 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
             scope.clone(),
             name.clone(),
             models::Field::new(*field),
-            models::JsonPointer::new(*ptr),
-            true,
-            true,
+            models::Projection::Extended {
+                location: models::JsonPointer::new(*ptr),
+                partition: true,
+            },
         );
     }
 }
@@ -138,6 +152,7 @@ fn builtin_url(name: &str) -> Url {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::{from_value, json};
 
     #[test]
     fn ops_collections_are_generated() {
@@ -145,49 +160,51 @@ mod test {
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
             models::Capture::new("acmeCo/foo"),
-            proto_flow::flow::EndpointType::AirbyteSource,
-            serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
-            7u32,
-            models::ShardTemplate::default(),
+            from_value::<models::CaptureDef>(
+                json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
+            )
+            .unwrap(),
+            None,
         );
         tables.captures.insert_row(
             builtin_url("test-cap.flow.yaml#/collections/shamazon~1bar"),
             models::Capture::new("shamazon/bar"),
-            proto_flow::flow::EndpointType::AirbyteSource,
-            serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
-            8u32,
-            models::ShardTemplate::default(),
+            from_value::<models::CaptureDef>(
+                json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
+            )
+            .unwrap(),
+            None,
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/gooble~1ads"),
             models::Collection::new("gooble/ads"),
+            from_value::<models::Derivation>(json!({"transform": {}})).unwrap(),
             builtin_url(
                 "test-der.flow.yaml?ptr=/collections/shamazon~1bar/derivation/register/schema",
             ),
-            Value::Null,
-            models::ShardTemplate::default(),
+            None,
         );
         tables.derivations.insert_row(
             builtin_url("test-der.flow.yaml#/collections/acmeCo~1tnt"),
             models::Collection::new("acmeCo/tnt"),
+            from_value::<models::Derivation>(json!({"transform": {}})).unwrap(),
             builtin_url(
                 "test-der.flow.yaml?ptr=/collections/acmeCo~1tnt/derivation/register/schema",
             ),
-            Value::Null,
-            models::ShardTemplate::default(),
+            None,
         );
         tables.materializations.insert_row(
             builtin_url("test-mat.flow.yaml#/collections/justme"),
             models::Materialization::new("justme"),
-            proto_flow::flow::EndpointType::Sqlite,
-            serde_json::value::RawValue::from_string("null".to_owned()).unwrap(),
-            models::ShardTemplate::default(),
+            from_value::<models::MaterializationDef>(
+                json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
+            )
+            .unwrap(),
+            None,
         );
 
         generate_ops_collections(&mut tables);
 
-        insta::assert_debug_snapshot!("ops_generated_schema_docs", &tables.schema_docs);
-        insta::assert_debug_snapshot!("ops_generated_collections", &tables.collections);
-        insta::assert_debug_snapshot!("ops_generated_projections", &tables.projections);
+        insta::assert_debug_snapshot!(&tables);
     }
 }
