@@ -1,3 +1,4 @@
+use json::schema::Keyword;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -7,7 +8,7 @@ use typescript::Mapper;
 mod generators;
 mod interface;
 
-use interface::{Interface, Module};
+use interface::Interface;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -17,6 +18,8 @@ pub enum Error {
     JsonError(#[from] serde_json::Error),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
+    #[error(transparent)]
+    IndexError(#[from] json::schema::index::Error),
 }
 
 pub enum WriteIntent {
@@ -48,68 +51,45 @@ pub fn generate_npm_package<'a>(
     package_dir: &path::Path,
     collections: &'a [tables::Collection],
     derivations: &'a [tables::Derivation],
-    named_schemas: &'a [tables::NamedSchema],
+    imports: &'a [tables::Import],
     npm_dependencies: &'a [tables::NPMDependency],
     resources: &'a [tables::Resource],
-    schema_docs: &'a [tables::SchemaDoc],
     transforms: &'a [tables::Transform],
 ) -> Result<BTreeMap<String, WriteIntent>, Error> {
-    // Compile and index all schemas. We assume that referential integrity
-    // is checked elsewhere, and make only a best-effort attempt to index
-    // and resolve all schemas.
-    let compiled_schemas = tables::SchemaDoc::compile_all(schema_docs)?;
-
-    let mut index = doc::SchemaIndexBuilder::new();
-    for schema in compiled_schemas.iter() {
-        let _ = index.add(schema);
-    }
-    let index = index.into_index();
-
-    // Build mapper for mapping from schema URIs to TypeScript AST's.
-    let mapper = Mapper {
-        index: &index,
-        top_level: named_schemas
-            .iter()
-            .map(|n| (&n.anchor, n.anchor_name.as_str()))
-            .collect(),
-    };
-    let interfaces = Interface::extract_all(package_dir, derivations, transforms);
+    let targets = Interface::extract_all(package_dir, collections, derivations, transforms);
+    let compiled = tables::Resource::compile_all_json_schemas(resources)?;
 
     let mut files = BTreeMap::new();
 
     // TypeScript definitions, which are type-checked but don't produce compilation artifacts.
-    files.insert(
-        "flow_generated/flow/anchors.d.ts".to_string(),
-        WriteIntent::Always(generators::anchors_ts(package_dir, named_schemas, &mapper)),
-    );
-    files.insert(
-        "flow_generated/flow/collections.d.ts".to_string(),
-        WriteIntent::Always(generators::collections_ts(
-            package_dir,
-            collections,
-            &mapper,
-        )),
-    );
-    files.insert(
-        "flow_generated/flow/registers.d.ts".to_string(),
-        WriteIntent::Always(generators::registers_ts(package_dir, derivations, &mapper)),
-    );
-    files.insert(
-        "flow_generated/flow/transforms.d.ts".to_string(),
-        WriteIntent::Always(generators::transforms_ts(package_dir, &interfaces, &mapper)),
-    );
-    files.insert(
-        "flow_generated/flow/interfaces.d.ts".to_string(),
-        WriteIntent::Always(generators::interfaces_ts(package_dir, &interfaces)),
-    );
+    for (collection, interface) in &targets {
+        files.insert(
+            format!(
+                "flow_generated/types/{}.d.ts",
+                collection.collection.as_str()
+            ),
+            WriteIntent::Always(generators::module_types(
+                package_dir,
+                &compiled,
+                imports,
+                *collection,
+                interface.as_ref(),
+            )),
+        );
+    }
+
+    let interfaces = targets
+        .iter()
+        .filter_map(|(_, interface)| interface.as_ref());
+
     files.insert(
         "flow_generated/flow/routes.ts".to_string(),
-        WriteIntent::Always(generators::routes_ts(package_dir, &interfaces)),
+        WriteIntent::Always(generators::routes_ts(package_dir, interfaces.clone())),
     );
 
     // Generate implementation stubs for required relative modules that don't exist.
     files.extend(
-        generators::stubs_ts(package_dir, &interfaces)
+        generators::stubs_ts(package_dir, interfaces.clone())
             .into_iter()
             .map(|(k, v)| (k, WriteIntent::IfNotExists(v))),
     );
@@ -125,10 +105,6 @@ pub fn generate_npm_package<'a>(
             include_str!("../../../../flow_generated/flow/main.ts"),
         ),
         (
-            "flow_generated/flow/modules.d.ts",
-            include_str!("../../../../flow_generated/flow/modules.d.ts"),
-        ),
-        (
             "flow_generated/flow/server.ts",
             include_str!("../../../../flow_generated/flow/server.ts"),
         ),
@@ -138,27 +114,22 @@ pub fn generate_npm_package<'a>(
         files.insert(path.into(), WriteIntent::IfNotExists(content.into()));
     }
 
-    for tables::Resource {
-        resource,
-        content_type,
-        content,
-    } in resources.iter()
+    // Write all external modules as relative to the local package_dir.
+    for Interface {
+        typescript_module,
+        module_import_path,
+        ..
+    } in interfaces.filter(|i| !i.module_is_relative)
     {
-        if !matches!(
-            content_type,
-            proto_flow::flow::ContentType::TypescriptModule
-        ) {
-            continue;
-        }
-        let module = Module::new(&resource, package_dir);
+        let content = &resources[resources
+            .binary_search_by_key(typescript_module, |r| &r.resource)
+            .unwrap()]
+        .content;
 
-        let intent = if module.is_relative() {
-            WriteIntent::Never
-        } else {
-            WriteIntent::Always(String::from_utf8_lossy(content).to_string())
-        };
-
-        files.insert(module.relative_path(), intent);
+        files.insert(
+            module_import_path.clone(),
+            WriteIntent::Always(String::from_utf8_lossy(content).to_string()),
+        );
     }
 
     // Enumerate all project files into a TypeScript compiler config.
@@ -253,6 +224,7 @@ fn patch_package_dot_json(
 
     for tables::NPMDependency {
         scope: _,
+        derivation: _,
         package,
         version,
     } in npm_dependencies.iter()
@@ -279,6 +251,115 @@ fn camel_case(name: &str, mut upper: bool) -> String {
     }
 
     w
+}
+
+fn relative_url(scope: &url::Url, package_dir: &path::Path) -> String {
+    assert!(package_dir.is_absolute());
+
+    package_dir
+        .to_str()
+        .filter(|_| scope.scheme() == "file")
+        .and_then(|d| scope.path().strip_prefix(d))
+        .map(|path| &path[1..]) // Trim leading '/', which remains after stripping directory.
+        .map(|path| {
+            let mut relative = path.to_string();
+
+            // Re-attach trailing query & fragment components.
+            if let Some(query) = scope.query() {
+                relative.push('?');
+                relative.push_str(query);
+            }
+
+            if let Some(fragment) = scope.fragment() {
+                relative.push('#');
+                relative.push_str(fragment);
+            }
+            relative
+        })
+        .unwrap_or_else(|| scope.to_string())
+}
+
+fn relative_path(from: &models::Collection, to: &models::Collection) -> String {
+    let from = url::Url::parse(&format!("https://example/{}", from.as_str())).unwrap();
+    let to = url::Url::parse(&format!("https://example/{}", to.as_str())).unwrap();
+    from.make_relative(&to).unwrap()
+}
+
+fn build_mapper<'a>(
+    compiled: &'a [(url::Url, doc::Schema)],
+    imports: &[tables::Import],
+    schema: &'a url::Url,
+    extract_anchors: bool,
+) -> Mapper<'a> {
+    let mut schema_no_fragment = schema.clone();
+    schema_no_fragment.set_fragment(None);
+
+    // Collect all dependencies of |schema|, with |schema| as the first item.
+    let mut dependencies = tables::Import::transitive_imports(imports, &schema_no_fragment)
+        .filter_map(|url| {
+            compiled
+                .binary_search_by_key(&url, |(resource, _)| resource)
+                .ok()
+                .and_then(|ind| compiled.get(ind).map(|c| &c.1))
+        })
+        .peekable();
+
+    let mut index = doc::SchemaIndexBuilder::new();
+    let mut top_level = BTreeMap::new();
+
+    // A root |schema| reference (no fragment) by which the schema was fetched may
+    // differ from the canonical URI under which it's indexed. Add an alias.
+    if let (None, Some(compiled)) = (schema.fragment(), dependencies.peek()) {
+        let _ = index.add_alias(compiled, schema);
+    }
+
+    for compiled in dependencies {
+        let _ = index.add(compiled); // Best-effort.
+
+        if !extract_anchors {
+            continue;
+        }
+
+        let mut stack = vec![compiled];
+        while let Some(schema) = stack.pop() {
+            for kw in &schema.kw {
+                match kw {
+                    Keyword::Anchor(anchor_uri) => {
+                        // Does this anchor meet our definition of a named schema?
+                        if let Some((_, anchor)) = anchor_uri
+                            .as_str()
+                            .split_once('#')
+                            .filter(|(_, s)| NAMED_SCHEMA_RE.is_match(s))
+                        {
+                            top_level.insert(anchor_uri, anchor.to_owned());
+                        }
+                    }
+                    Keyword::Application(_, child) => {
+                        stack.push(child);
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    // We don't verify index references, as validation is handled
+    // elsewhere and this is a best-effort attempt.
+
+    Mapper {
+        index: index.into_index(),
+        top_level,
+    }
+}
+
+lazy_static::lazy_static! {
+    // The set of allowed characters in a schema `$anchor` is quite limited,
+    // by Sec 8.2.3.
+    //
+    // To identify named schemas, we further restrict to anchors which start
+    // with a capital letter and include only '_' as punctuation.
+    // See: https://json-schema.org/draft/2019-09/json-schema-core.html#anchor
+    static ref NAMED_SCHEMA_RE: regex::Regex = regex::Regex::new("^[A-Z][\\w_]+$").unwrap();
 }
 
 #[cfg(test)]
