@@ -10,6 +10,7 @@ pub async fn walk_all_captures<D: Drivers>(
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
     imports: &[tables::Import],
+    resources: &[tables::Resource],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
@@ -44,6 +45,7 @@ pub async fn walk_all_captures<D: Drivers>(
             capture,
             bindings.into_iter().flatten().collect_vec(),
             imports,
+            resources,
             &mut capture_errors,
         );
 
@@ -65,7 +67,13 @@ pub async fn walk_all_captures<D: Drivers>(
                     .map(|response| (capture, binding_models, request, response))
                     .await
             });
-    let validations = futures::future::join_all(validations).await;
+
+    let validations: Vec<(
+        &tables::Capture,
+        Vec<&tables::CaptureBinding>,
+        proto_flow::capture::ValidateRequest,
+        anyhow::Result<proto_flow::capture::ValidateResponse>,
+    )> = futures::future::join_all(validations).await;
 
     let mut built_captures = tables::BuiltCaptures::new();
 
@@ -86,8 +94,9 @@ pub async fn walk_all_captures<D: Drivers>(
 
         let tables::Capture {
             scope,
-            interval_seconds,
-            shards,
+            spec: models::CaptureDef {
+                interval, shards, ..
+            },
             ..
         } = capture;
 
@@ -175,7 +184,7 @@ pub async fn walk_all_captures<D: Drivers>(
             endpoint_type,
             endpoint_spec_json,
             bindings,
-            interval_seconds: *interval_seconds,
+            interval_seconds: interval.as_secs() as u32,
             recovery_log_template: Some(assemble::recovery_log_template(
                 build_config,
                 &name,
@@ -201,6 +210,7 @@ fn walk_capture_request<'a>(
     capture: &'a tables::Capture,
     capture_bindings: Vec<&'a tables::CaptureBinding>,
     imports: &[tables::Import],
+    resources: &[tables::Resource],
     errors: &mut tables::Errors,
 ) -> Option<(
     &'a tables::Capture,
@@ -210,10 +220,8 @@ fn walk_capture_request<'a>(
     let tables::Capture {
         scope: _,
         capture: name,
-        endpoint_type,
-        endpoint_spec,
-        interval_seconds: _,
-        shards: _,
+        spec: models::CaptureDef { endpoint, .. },
+        endpoint_config,
     } = capture;
 
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
@@ -224,11 +232,30 @@ fn walk_capture_request<'a>(
         })
         .unzip();
 
+    let endpoint_spec_json = match endpoint {
+        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            let config = match endpoint_config
+                .as_ref()
+                .and_then(|url| tables::Resource::fetch_content_dom(resources, url))
+            {
+                Some(external) => external.to_owned(),
+                None => config.to_owned(),
+            };
+
+            serde_json::to_string(&models::ConnectorConfig {
+                image: image.to_owned(),
+                config,
+            })
+            .unwrap()
+        }
+        models::CaptureEndpoint::Ingest(ingest) => serde_json::to_string(ingest).unwrap(),
+    };
+
     let request = capture::ValidateRequest {
         capture: name.to_string(),
         bindings: binding_requests,
-        endpoint_type: *endpoint_type as i32,
-        endpoint_spec_json: endpoint_spec.to_string(),
+        endpoint_type: assemble::capture_endpoint_type(endpoint) as i32,
+        endpoint_spec_json,
     };
 
     Some((capture, binding_models, request))
@@ -244,8 +271,11 @@ fn walk_capture_binding<'a>(
         scope,
         capture: _,
         capture_index: _,
-        resource_spec,
-        collection,
+        spec:
+            models::CaptureBinding {
+                resource,
+                target: collection,
+            },
     } = capture_binding;
 
     // We must resolve the target collection to continue.
@@ -261,7 +291,7 @@ fn walk_capture_binding<'a>(
     )?;
 
     let request = capture::validate_request::Binding {
-        resource_spec_json: resource_spec.to_string(),
+        resource_spec_json: serde_json::to_string(&resource).unwrap(),
         collection: Some(built_collection.spec.clone()),
     };
 

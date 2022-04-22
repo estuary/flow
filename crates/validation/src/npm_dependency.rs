@@ -5,7 +5,11 @@ pub fn walk_all_npm_dependencies(
     npm_dependencies: &[tables::NPMDependency],
     errors: &mut tables::Errors,
 ) {
-    for (lhs, rhs) in npm_dependencies.iter().tuple_windows() {
+    for (lhs, rhs) in npm_dependencies
+        .iter()
+        .sorted_by_key(|p| (&p.package, &p.version))
+        .tuple_windows()
+    {
         if lhs.package != rhs.package {
             continue;
         } else if lhs.version != rhs.version {

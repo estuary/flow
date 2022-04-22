@@ -661,10 +661,58 @@ test://example/int-reverse:
   collections:
     testing/int-reverse:
       derivation:
+        typescript: null
         transform:
           reverseIntString:
             publish: null
-            update: null
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_typescript_lambdas_without_module() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derivation:
+        typescript: null
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_typescript_modules_without_lambdas() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derivation:
+        transform:
+          reverseIntString:
+            publish: { lambda: { remote: https://an/api } }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_typescript_module_used_multiple_times() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derivation:
+        typescript:
+          module: int-halve.ts
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -956,37 +1004,29 @@ test://example/db-views:
 }
 
 #[test]
-fn test_duplicate_named_schema() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-# Repeat a named anchor, in a different schema.
-test://example/int-string-len.schema:
-  $defs:
-    anAnchor:
-      $anchor: AnAnchor
-      type: string
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_incompatible_npm_packages() {
     let errors = run_test_errors(
         &GOLDEN,
         r#"
-test://example/catalog.yaml:
-  npmDependencies:
-    package-one: "same"
-    pkg-2: "different"
-    package-4: "4"
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derivation:
+        typescript:
+          npmDependencies:
+            package-one: "same"
+            pkg-2: "different"
+            package-4: "4"
 
-test://example/int-string:
-  npmDependencies:
-    package-one: "same"
-    pkg-2: "differ ent"
-    pkg-three: "3"
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derivation:
+        typescript:
+          npmDependencies:
+            package-one: "same"
+            pkg-2: "differ ent"
+            pkg-three: "3"
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1100,6 +1140,25 @@ test://example/string-schema:
     testing/string-schema:
       schema: {type: string}
       key: ['']
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_non_canonical_schema_ref() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      # Switch from directly naming the (non-canonical) schema
+      # to instead $ref'ing it from an inline schema.
+      # This is disallowed; we only support $ref's of canonical URIs
+      # (as it's not possible to bundle non-canonical $ref's).
+      schema:
+        $ref: test://example/int-string-len.schema
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1280,9 +1339,8 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         imports,
         materialization_bindings,
         materializations,
-        named_schemas,
         npm_dependencies,
-        mut projections,
+        projections,
         resources,
         schema_docs,
         storage_mappings,
@@ -1297,7 +1355,6 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         built_materializations,
         built_tests,
         errors: validation_errors,
-        implicit_projections,
         inferences,
     } = futures::executor::block_on(validation::validate(
         config,
@@ -1307,22 +1364,18 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         &collections,
         &derivations,
         &fetches,
-        tables::BuiltCollections::new(),
         &imports,
         &materialization_bindings,
         &materializations,
-        &named_schemas,
         &npm_dependencies,
         &projections,
         &resources,
-        &schema_docs,
         &storage_mappings,
         &test_steps,
         &transforms,
     ));
 
     errors.extend(validation_errors.into_iter());
-    projections.extend(implicit_projections.into_iter());
 
     tables::All {
         built_captures,
@@ -1341,7 +1394,6 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         materialization_bindings,
         materializations,
         meta: tables::Meta::new(),
-        named_schemas,
         npm_dependencies,
         projections,
         resources,

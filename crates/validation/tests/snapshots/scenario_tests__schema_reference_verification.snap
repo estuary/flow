@@ -1,13 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 1301
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/catalog.yaml,
-        error: schema $ref 'test://example/int-string.schema#/whoops', referenced by 'test://example/int-string-len.schema', was not found,
+        scope: test://example/int-string-len.schema,
+        error: schema $ref 'test://example/int-string.schema#/whoops', referenced by 'test://example/canonical/int-string-len.schema', was not found,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,

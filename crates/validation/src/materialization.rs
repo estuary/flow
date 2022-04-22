@@ -12,6 +12,7 @@ pub async fn walk_all_materializations<D: Drivers>(
     imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
+    resources: &[tables::Resource],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
@@ -52,6 +53,7 @@ pub async fn walk_all_materializations<D: Drivers>(
             imports,
             materialization,
             bindings.into_iter().flatten().collect(),
+            resources,
             &mut materialization_errors,
         );
 
@@ -73,7 +75,13 @@ pub async fn walk_all_materializations<D: Drivers>(
                     .map(|response| (materialization, binding_models, request, response))
                     .await
             });
-    let validations = futures::future::join_all(validations).await;
+
+    let validations: Vec<(
+        &tables::Materialization,
+        Vec<&tables::MaterializationBinding>,
+        proto_flow::materialize::ValidateRequest,
+        anyhow::Result<proto_flow::materialize::ValidateResponse>,
+    )> = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
@@ -105,7 +113,11 @@ pub async fn walk_all_materializations<D: Drivers>(
         // We constructed |binding_requests| while processing binding models.
         assert!(binding_requests.len() == binding_models.len());
 
-        let tables::Materialization { scope, shards, .. } = materialization;
+        let tables::Materialization {
+            scope,
+            spec: models::MaterializationDef { shards, .. },
+            ..
+        } = materialization;
 
         if binding_requests.len() != binding_responses.len() {
             Error::MaterializationDriver {
@@ -224,6 +236,7 @@ fn walk_materialization_request<'a>(
     imports: &[tables::Import],
     materialization: &'a tables::Materialization,
     materialization_bindings: Vec<&'a tables::MaterializationBinding>,
+    resources: &[tables::Resource],
     errors: &mut tables::Errors,
 ) -> (
     &'a tables::Materialization,
@@ -233,9 +246,8 @@ fn walk_materialization_request<'a>(
     let tables::Materialization {
         scope: _,
         materialization: name,
-        endpoint_type,
-        endpoint_spec,
-        shards: _,
+        spec: models::MaterializationDef { endpoint, .. },
+        endpoint_config,
     } = materialization;
 
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = materialization_bindings
@@ -251,11 +263,30 @@ fn walk_materialization_request<'a>(
         })
         .unzip();
 
+    let endpoint_spec_json = match endpoint {
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            let config = match endpoint_config
+                .as_ref()
+                .and_then(|url| tables::Resource::fetch_content_dom(resources, url))
+            {
+                Some(external) => external.to_owned(),
+                None => config.to_owned(),
+            };
+
+            serde_json::to_string(&models::ConnectorConfig {
+                image: image.to_owned(),
+                config,
+            })
+            .unwrap()
+        }
+        models::MaterializationEndpoint::Sqlite(sqlite) => serde_json::to_string(sqlite).unwrap(),
+    };
+
     let request = materialize::ValidateRequest {
         materialization: name.to_string(),
         bindings: binding_requests,
-        endpoint_type: *endpoint_type as i32,
-        endpoint_spec_json: endpoint_spec.to_string(),
+        endpoint_type: assemble::materialization_endpoint_type(endpoint) as i32,
+        endpoint_spec_json,
     };
 
     (materialization, binding_models, request)
@@ -271,12 +302,18 @@ fn walk_materialization_binding<'a>(
         scope,
         materialization: name,
         materialization_index: _,
-        resource_spec,
-        collection,
-        fields_include,
-        fields_exclude,
-        fields_recommended: _,
-        source_partitions,
+        spec:
+            models::MaterializationBinding {
+                resource,
+                source: collection,
+                fields:
+                    models::MaterializationFields {
+                        include: fields_include,
+                        exclude: fields_exclude,
+                        recommended: _,
+                    },
+                partitions: source_partitions,
+            },
     } = materialization_binding;
 
     // We must resolve the source collection to continue.
@@ -299,7 +336,7 @@ fn walk_materialization_binding<'a>(
         walk_materialization_fields(scope, name, source, fields_include, fields_exclude, errors);
 
     let request = materialize::validate_request::Binding {
-        resource_spec_json: resource_spec.to_string(),
+        resource_spec_json: serde_json::to_string(resource).unwrap(),
         collection: Some(source.spec.clone()),
         field_config_json: field_config.into_iter().collect(),
     };
@@ -366,9 +403,16 @@ fn walk_materialization_response(
 ) -> flow::FieldSelection {
     let tables::MaterializationBinding {
         scope,
-        fields_include: include,
-        fields_exclude: exclude,
-        fields_recommended: recommended,
+        spec:
+            models::MaterializationBinding {
+                fields:
+                    models::MaterializationFields {
+                        include,
+                        exclude,
+                        recommended,
+                    },
+                ..
+            },
         ..
     } = materialization_binding;
 

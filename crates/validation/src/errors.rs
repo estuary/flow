@@ -125,8 +125,19 @@ pub enum Error {
     },
     #[error("transform {transform} shuffle key cannot be empty")]
     ShuffleKeyEmpty { transform: String },
-    #[error("must set at least one of 'update' or 'publish' lambdas")]
+    #[error("transform {transform} must set at least one of 'update' or 'publish' lambdas")]
     NoUpdateOrPublish { transform: String },
+    #[error("derivation defines a TypeScript module but uses no TypeScript lambdas")]
+    TypescriptModuleWithoutLambdas,
+    #[error("derivation uses TypeScript lambdas but defines no TypeScript module")]
+    TypescriptLambdasWithoutModule,
+    #[error("TypeScript module {module} must be unique to one derivation, but is used here by {lhs_derivation} and also by {rhs_derivation} at {rhs_scope}")]
+    TypescriptModuleNotUnique {
+        module: Url,
+        lhs_derivation: String,
+        rhs_derivation: String,
+        rhs_scope: Url,
+    },
     #[error("driver error while validating capture {name}")]
     CaptureDriver {
         name: String,
