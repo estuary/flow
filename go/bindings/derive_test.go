@@ -31,15 +31,10 @@ func TestDeriveWithIntStrings(t *testing.T) {
 	require.NoError(t, BuildCatalog(args))
 
 	var derivation *pf.DerivationSpec
-	var schemaIndex *SchemaIndex
 
 	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
 		if derivation, err = catalog.LoadDerivation(db, "int-strings"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
-		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading bundle: %w", err)
-		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
-			return fmt.Errorf("building index: %w", err)
 		}
 		return nil
 	}))
@@ -77,7 +72,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		// Even transactions start with a re-configuration.
 		// Odd ones re-use the previous configuration.
 		if i%2 == 0 {
-			derive.Configure("test/derive/withIntStrings", schemaIndex, derivation, lambdaClient)
+			derive.Configure("test/derive/withIntStrings", derivation, lambdaClient)
 		}
 
 		// Expect we can restore the last checkpoint in between transactions.
@@ -162,15 +157,10 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	require.NoError(t, BuildCatalog(args))
 
 	var derivation *pf.DerivationSpec
-	var schemaIndex *SchemaIndex
 
 	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
 		if derivation, err = catalog.LoadDerivation(db, "derivation"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
-		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading bundle: %w", err)
-		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
-			return fmt.Errorf("building index: %w", err)
 		}
 		return nil
 	}))
@@ -301,7 +291,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	var build = func(t *testing.T) *Derive {
 		d, err := NewDerive(nil, t.TempDir(), ops.StdLogger())
 		require.NoError(t, err)
-		require.NoError(t, d.Configure("test/derive/withIncReset", schemaIndex, derivation, lambdaClient))
+		require.NoError(t, d.Configure("test/derive/withIncReset", derivation, lambdaClient))
 		return d
 	}
 

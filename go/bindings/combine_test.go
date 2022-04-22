@@ -33,15 +33,10 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	require.NoError(t, BuildCatalog(args))
 
 	var collection *pf.CollectionSpec
-	var schemaIndex *SchemaIndex
 
 	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
-		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading bundle: %w", err)
-		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
-			return fmt.Errorf("building index: %w", err)
 		}
 		return nil
 	}))
@@ -53,9 +48,8 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 
 	err = combiner.Configure(
 		collection.Collection.String(),
-		schemaIndex,
 		collection.Collection,
-		collection.SchemaUri,
+		collection.SchemaJson,
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		nil,
@@ -111,15 +105,10 @@ func TestCombineBindings(t *testing.T) {
 	require.NoError(t, BuildCatalog(args))
 
 	var collection *pf.CollectionSpec
-	var schemaIndex *SchemaIndex
 
 	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
-		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading bundle: %w", err)
-		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
-			return fmt.Errorf("building index: %w", err)
 		}
 		return nil
 	}))
@@ -134,9 +123,8 @@ func TestCombineBindings(t *testing.T) {
 		if i%2 == 0 {
 			err := combiner.Configure(
 				collection.Collection.String(),
-				schemaIndex,
 				collection.Collection,
-				collection.SchemaUri,
+				collection.SchemaJson,
 				collection.UuidPtr,
 				collection.KeyPtrs,
 				[]string{"/s/1", "/i"},

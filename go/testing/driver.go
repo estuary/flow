@@ -34,8 +34,6 @@ type ClusterDriver struct {
 	buildID string
 	// Index of collection specs which may be referenced by test steps.
 	collections map[pf.Collection]*pf.CollectionSpec
-	// Compiled schema index of tests.
-	schemas *bindings.SchemaIndex
 }
 
 // NewClusterDriver builds a ClusterDriver from the provided cluster clients,
@@ -46,14 +44,8 @@ func NewClusterDriver(
 	rjc pb.RoutedJournalClient,
 	tc pf.TestingClient,
 	buildID string,
-	bundle *pf.SchemaBundle,
 	collections []*pf.CollectionSpec,
 ) (*ClusterDriver, error) {
-	var schemas, err = bindings.NewSchemaIndex(bundle)
-	if err != nil {
-		return nil, fmt.Errorf("compiling schema index: %w", err)
-	}
-
 	var collectionIndex = make(map[pf.Collection]*pf.CollectionSpec, len(collections))
 	for _, spec := range collections {
 		collectionIndex[spec.Collection] = spec
@@ -64,7 +56,6 @@ func NewClusterDriver(
 		rjc:         rjc,
 		tc:          tc,
 		buildID:     buildID,
-		schemas:     schemas,
 		collections: collectionIndex,
 	}
 
@@ -202,7 +193,7 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	if !ok {
 		return fmt.Errorf("unknown collection %s", step.Collection)
 	}
-	actual, err := CombineDocuments(collection, c.schemas, fetched)
+	actual, err := CombineDocuments(collection, fetched)
 	if err != nil {
 		return err
 	}
@@ -382,14 +373,13 @@ func FetchDocuments(ctx context.Context, rjc pb.RoutedJournalClient, selector pb
 // Combined documents, one per collection key, are returned.
 func CombineDocuments(
 	collection *pf.CollectionSpec,
-	schemas *bindings.SchemaIndex,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
 	// Feed documents into an extractor, to extract UUIDs.
 	var extractor, err = bindings.NewExtractor()
 	if err != nil {
 		return nil, fmt.Errorf("creating extractor: %w", err)
-	} else if err = extractor.Configure(collection.UuidPtr, nil, "", nil); err != nil {
+	} else if err = extractor.Configure(collection.UuidPtr, nil, nil); err != nil {
 		return nil, fmt.Errorf("configuring extractor: %w", err)
 	}
 	for _, d := range documents {
@@ -405,9 +395,8 @@ func CombineDocuments(
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	} else if err = combiner.Configure(
 		collection.Collection.String(),
-		schemas,
 		collection.Collection,
-		collection.SchemaUri,
+		collection.SchemaJson,
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		nil, // Don't extract additional fields.

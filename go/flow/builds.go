@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"cloud.google.com/go/storage"
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/protocols/catalog"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"google.golang.org/api/option"
@@ -44,10 +43,6 @@ type sharedBuild struct {
 	dbTempfile  *os.File
 	dbErr       error
 	dbOnce      sync.Once
-
-	schemaIndex *bindings.SchemaIndex
-	schemaErr   error
-	schemaOnce  sync.Once
 
 	tsWorker *JSWorker
 	tsClient *http.Client
@@ -121,14 +116,6 @@ func (b *Build) Extract(fn func(*sql.DB) error) error {
 	return fn(b.db)
 }
 
-// SchemaIndex returns the built SchemaIndex of this Catalog.
-// It's invalidated by a future call to Build.Close().
-// TODO(johnny): cleanup of schemas is not wired up.
-func (b *Build) SchemaIndex() (*bindings.SchemaIndex, error) {
-	b.schemaOnce.Do(b.schemaInit)
-	return b.schemaIndex, b.schemaErr
-}
-
 // TypeScriptLocalSocket returns the TypeScript Unix Domain Socket of this Catalog.
 // If a TypeScript worker isn't running, one is started
 // and will be stopped on a future call to Build.Close().
@@ -197,22 +184,6 @@ func (b *Build) dbInit() (err error) {
 	return nil
 }
 
-func (b *Build) schemaInit() {
-	b.schemaErr = b.Extract(func(db *sql.DB) error {
-		// Load the bundle of schemas, and index it.
-		bundle, err := catalog.LoadSchemaBundle(db)
-		if err != nil {
-			return fmt.Errorf("loading schema bundle: %w", err)
-		}
-
-		b.schemaIndex, err = bindings.NewSchemaIndex(&bundle)
-		if err != nil {
-			return fmt.Errorf("building schema index: %w", err)
-		}
-		return nil
-	})
-}
-
 func (b *Build) initTypeScript() (err error) {
 	defer func() { b.tsErr = err }()
 
@@ -271,10 +242,6 @@ func (b *sharedBuild) destroy() error {
 		// Nothing to stop.
 	} else if err := b.tsWorker.Stop(); err != nil {
 		return fmt.Errorf("stopping typescript worker: %w", err)
-	}
-
-	if b.schemaIndex != nil {
-		_ = true // TODO destroy schema index.
 	}
 
 	return nil
