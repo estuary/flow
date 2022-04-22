@@ -81,7 +81,7 @@ where
         match self {
             Ok(t) => t,
             Err(e) => {
-                tracing::debug!(error_details = ?e);
+                tracing::error!(error_details = ?e);
                 std::process::exit(1);
             }
         }
