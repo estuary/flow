@@ -1,4 +1,5 @@
 pub mod combine;
+pub mod draft;
 pub mod go_flowctl;
 pub mod logs;
 
@@ -49,6 +50,8 @@ pub struct InternalSubcommandArgs<T: clap::Args + std::fmt::Debug> {
 pub enum InternalSubcommand {
     /// Reduce JSON documents by key and print the results to stdout
     Combine(InternalSubcommandArgs<combine::CombineArgs>),
+    /// Read catalog sources and submit them as a draft (currently: just print to stdout).
+    Draft(InternalSubcommandArgs<draft::DraftArgs>),
 }
 
 pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> {
@@ -61,6 +64,7 @@ pub fn run_subcommand(subcommand: Subcommand) -> Result<Success, anyhow::Error> 
             Ok(Success::Exec(ExecExternal::from((GO_FLOWCTL, args))))
         }
         Internal(Combine(args)) => run_internal(args, combine::run).map(Into::into),
+        Internal(Draft(args)) => run_internal(args, draft::run).map(Into::into),
         Logs(alias_args) => alias_args.try_into_exec_external().map(Into::into),
         Schemalate(args) => Ok(Success::Exec(ExecExternal::from((
             FLOW_SCHEMALATE,

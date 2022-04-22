@@ -136,8 +136,12 @@ fn get_indexed_schemas_and_key(
         connector_network: String::new(),
     };
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
     let fut = build::configured_build(build_config, Fetcher, NoOpDrivers);
-    let output = futures::executor::block_on(fut)?;
+    let output = rt.block_on(fut)?;
 
     if !output.errors.is_empty() {
         for err in output.errors.iter() {
@@ -259,6 +263,7 @@ impl validation::Drivers for NoOpDrivers {
 }
 
 pub struct Fetcher;
+
 impl sources::Fetcher for Fetcher {
     fn fetch<'a>(
         &'a self,
@@ -269,7 +274,7 @@ impl sources::Fetcher for Fetcher {
     ) -> sources::FetchFuture<'a> {
         tracing::debug!(url = %resource, "fetching resource");
         let url = resource.clone();
-        Box::pin(async move { fetch_async(url).await })
+        Box::pin(fetch_async(url))
     }
 }
 
