@@ -104,7 +104,6 @@ where
 
 /// Index is a packed, sorted index over Schema references.
 /// It provides lookups over Schema canonical and anchor-form URIs.
-#[derive(Clone)]
 pub struct Index<'s, A>
 where
     A: Annotation,
@@ -134,6 +133,21 @@ where
         match self.fetch(uri) {
             None => Err(Error::NotFound { uri: uri.clone() }),
             Some(scm) => Ok(scm),
+        }
+    }
+}
+
+// We implement, rather than derive, Clone in order to avoid requiring
+// that Annotation also be Clone, which is not actually needed but is
+// a constraint produced by #[derive(Clone)].
+impl<'s, A> Clone for Index<'s, A>
+where
+    A: Annotation,
+{
+    fn clone(&self) -> Self {
+        Self {
+            fast: self.fast.clone(),
+            slow: self.slow.clone(),
         }
     }
 }

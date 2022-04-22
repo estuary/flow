@@ -209,12 +209,14 @@ impl std::fmt::Debug for Combiner {
 
 #[cfg(test)]
 mod test {
-    use super::{super::test::build_min_max_sum_schema, *};
+    use super::super::test::build_min_max_sum_schema;
+    use super::super::ValidatorGuard;
+    use super::*;
     use serde_json::json;
 
     #[test]
     fn test_lifecycle() {
-        let (schema_index, schema) = build_min_max_sum_schema();
+        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let key: Vec<Pointer> = vec!["/key/1".into(), "/key/0".into()];
         let key: Rc<[Pointer]> = key.into();
 
@@ -241,13 +243,12 @@ mod test {
             ),
         ];
 
-        let mut validator = Validator::new(schema_index);
-        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        let mut combiner = Combiner::new(guard.schema.curi.clone(), key.clone());
         for (left, doc) in docs {
             if left {
-                combiner.reduce_left(doc, &mut validator)
+                combiner.reduce_left(doc, &mut guard.validator)
             } else {
-                combiner.combine_right(doc, &mut validator)
+                combiner.combine_right(doc, &mut guard.validator)
             }
             .unwrap();
         }
@@ -276,58 +277,63 @@ mod test {
 
     #[test]
     fn test_errors() {
-        let (schema_index, schema) = build_min_max_sum_schema();
+        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let key: Vec<Pointer> = vec!["/key".into()];
         let key: Rc<[Pointer]> = key.into();
 
         // Case: documents to combine don't validate.
-        let mut validator = Validator::new(schema_index);
-        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        let mut combiner = Combiner::new(guard.schema.curi.clone(), key.clone());
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "min": "whoops"}), &mut validator)
+                .reduce_left(json!({"key": 1, "min": "whoops"}), &mut guard.validator)
                 .unwrap_err(),
             Error::PreReduceValidation(_)
         );
         matches!(
             combiner
-                .combine_right(json!({"key": 1, "min": "whoops"}), &mut validator)
+                .combine_right(json!({"key": 1, "min": "whoops"}), &mut guard.validator)
                 .unwrap_err(),
             Error::PreReduceValidation(_)
         );
 
         // Case: reduce LHS & combine RHS which each validate, but don't together.
-        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        let mut combiner = Combiner::new(guard.schema.curi.clone(), key.clone());
         combiner
-            .reduce_left(json!({"key": 1, "sum": -2}), &mut validator)
+            .reduce_left(json!({"key": 1, "sum": -2}), &mut guard.validator)
             .unwrap();
         matches!(
             combiner
-                .combine_right(json!({"key": 1, "sum": 1, "positive": 1}), &mut validator)
+                .combine_right(
+                    json!({"key": 1, "sum": 1, "positive": 1}),
+                    &mut guard.validator
+                )
                 .unwrap_err(),
             Error::PostReduceValidation(_)
         );
 
         // Case: combine RHS & reduce LHS which don't validate together.
-        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        let mut combiner = Combiner::new(guard.schema.curi.clone(), key.clone());
         combiner
-            .combine_right(json!({"key": 1, "sum": -2}), &mut validator)
+            .combine_right(json!({"key": 1, "sum": -2}), &mut guard.validator)
             .unwrap();
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "sum": 1, "positive": 1}), &mut validator)
+                .reduce_left(
+                    json!({"key": 1, "sum": 1, "positive": 1}),
+                    &mut guard.validator
+                )
                 .unwrap_err(),
             Error::PostReduceValidation(_)
         );
 
         // Case: two LHS reductions are prohibited.
-        let mut combiner = Combiner::new(schema.clone(), key.clone());
+        let mut combiner = Combiner::new(guard.schema.curi.clone(), key.clone());
         combiner
-            .reduce_left(json!({"key": 1, "sum": 1}), &mut validator)
+            .reduce_left(json!({"key": 1, "sum": 1}), &mut guard.validator)
             .unwrap();
         matches!(
             combiner
-                .reduce_left(json!({"key": 1, "sum": 1}), &mut validator)
+                .reduce_left(json!({"key": 1, "sum": 1}), &mut guard.validator)
                 .unwrap_err(),
             Error::AlreadyFullyReduced(_)
         );

@@ -1,39 +1,6 @@
 use superslice::Ext;
 use url::Url;
 
-impl super::SchemaDoc {
-    pub fn compile(&self) -> Result<doc::Schema, json::schema::build::Error> {
-        json::schema::build::build_schema(self.schema.clone(), &self.dom)
-    }
-
-    pub fn compile_all(slice: &[Self]) -> Result<Vec<doc::Schema>, json::schema::build::Error> {
-        slice
-            .iter()
-            .map(|d| d.compile())
-            .collect::<Result<Vec<_>, _>>()
-    }
-
-    /// Compile and index all schemas, and leak a 'static index over all built schemas.
-    pub fn leak_index(slice: &[Self]) -> Result<&'static doc::SchemaIndex<'static>, anyhow::Error> {
-        // Compile the bundle of catalog schemas. Then, deliberately "leak" the
-        // immutable Schema bundle for the remainder of program in order to achieve
-        // a 'static lifetime, which is required for use in spawned tokio Tasks (and
-        // therefore in TxnCtx).
-        let schemas = Self::compile_all(&slice)?;
-        let schemas = Box::leak(Box::new(schemas));
-
-        let mut schema_index = doc::SchemaIndexBuilder::<'static>::new();
-        for schema in schemas.iter() {
-            schema_index.add(schema)?;
-        }
-        schema_index.verify_references()?;
-        let schema_index = schema_index.into_index();
-
-        // Also leak a &'static SchemaIndex.
-        Ok(Box::leak(Box::new(schema_index)))
-    }
-}
-
 impl super::Resource {
     pub fn fetch_content_dom<'s>(
         resources: &'s [Self],

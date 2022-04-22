@@ -211,7 +211,9 @@ pub const REGISTERS_CF: &str = "registers";
 
 #[cfg(test)]
 mod test {
-    use super::{super::test::build_min_max_sum_schema, *};
+    use super::super::test::build_min_max_sum_schema;
+    use super::super::ValidatorGuard;
+    use super::*;
     use serde_json::{json, Map, Value};
 
     #[test]
@@ -219,8 +221,7 @@ mod test {
         let dir = tempfile::TempDir::new().unwrap();
         let mut reg = Registers::new(rocksdb::Options::default(), dir.path()).unwrap();
 
-        let (schema_index, schema) = build_min_max_sum_schema();
-        let mut validator = Validator::new(schema_index);
+        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let initial = json!({});
 
         assert_eq!(Checkpoint::default(), reg.last_checkpoint().unwrap());
@@ -240,8 +241,14 @@ mod test {
             (b"baz", vec![json!({"min": 1, "max": 1.1})]),
             (b"baz", vec![json!({"min": 2, "max": 2.2})]),
         ] {
-            reg.reduce(key, &schema, &initial, values, &mut validator)
-                .unwrap();
+            reg.reduce(
+                key,
+                &guard.schema.curi,
+                &initial,
+                values,
+                &mut guard.validator,
+            )
+            .unwrap();
         }
         assert_eq!(2, reg.stats.drain().created);
         // Assert that the counter is reset after drain.
@@ -305,8 +312,7 @@ mod test {
         let dir = tempfile::TempDir::new().unwrap();
         let mut reg = Registers::new(rocksdb::Options::default(), dir.path()).unwrap();
 
-        let (schema_index, schema) = build_min_max_sum_schema();
-        let mut validator = Validator::new(schema_index);
+        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let initial = json!({
             "positive": true, // Causes schema to require that reduced sum >= 0.
             "sum": 0,
@@ -318,10 +324,10 @@ mod test {
         let applied = reg
             .reduce(
                 b"key",
-                &schema,
+                &guard.schema.curi,
                 &initial,
                 vec![json!({"sum": 1}), json!({"sum": -0.1}), json!({"sum": 1.2})],
-                &mut validator,
+                &mut guard.validator,
             )
             .unwrap();
         assert!(applied);
@@ -335,10 +341,10 @@ mod test {
         let err = reg
             .reduce(
                 b"key",
-                &schema,
+                &guard.schema.curi,
                 &initial,
                 vec![json!({"sum": 1}), json!({"sum": -4}), json!({"sum": 5})],
-                &mut validator,
+                &mut guard.validator,
             )
             .unwrap_err();
 

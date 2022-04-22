@@ -7,7 +7,6 @@ use proto_flow::flow::{
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tuple::{TupleDepth, TuplePack};
-use url::Url;
 
 #[test]
 fn test_pipeline_stats() {
@@ -290,17 +289,6 @@ impl FixtureBuilder {
             key_ptrs,
         } = self;
 
-        let collection_schema_url = Url::parse("https://example.test/coll-schema").unwrap();
-        let register_schema_url = Url::parse("https://example.test/reg-schema").unwrap();
-
-        let idx = new_test_schema_index(
-            &collection_schema_url,
-            &collection_schema,
-            &register_schema_url,
-            &register_schema,
-        );
-        let idx = Box::leak(Box::new(idx));
-
         let temp_dir = tempfile::TempDir::new().unwrap();
         let reg = Registers::new(rocksdb::Options::default(), temp_dir.path()).unwrap();
 
@@ -326,14 +314,13 @@ impl FixtureBuilder {
             .collect();
 
         let config = Config {
-            schema_index_memptr: idx as *const doc::SchemaIndex<'static> as u64,
             derivation: Some(DerivationSpec {
-                register_schema_uri: register_schema_url.to_string(),
-                register_schema_json: String::new(), // TODO(johnny): switch to me.
+                register_schema_uri: "http://example/register.schema".to_string(),
+                register_schema_json: register_schema.to_string(),
                 collection: Some(CollectionSpec {
                     collection: derivation.clone(),
-                    schema_uri: collection_schema_url.to_string(),
-                    schema_json: serde_json::to_string(&collection_schema).unwrap(),
+                    schema_uri: "http://example/collection.schema".to_string(),
+                    schema_json: collection_schema.to_string(),
                     key_ptrs,
                     uuid_ptr: String::from("/_meta/uuid"),
                     partition_fields: Vec::new(),
@@ -356,24 +343,4 @@ impl FixtureBuilder {
             transforms,
         }
     }
-}
-
-fn new_test_schema_index(
-    coll_schema_url: &Url,
-    coll_schema: &Value,
-    reg_schema_url: &Url,
-    reg_schema: &Value,
-) -> doc::SchemaIndex<'static> {
-    let collection_schema: doc::Schema =
-        json::schema::build::build_schema(coll_schema_url.clone(), &coll_schema).unwrap();
-    let collection_schema = Box::leak(Box::new(collection_schema));
-    let register_schema: doc::Schema =
-        json::schema::build::build_schema(reg_schema_url.clone(), &reg_schema).unwrap();
-    let register_schema = Box::leak(Box::new(register_schema));
-
-    let mut idx = doc::SchemaIndexBuilder::new();
-    idx.add(collection_schema).unwrap();
-    idx.add(register_schema).unwrap();
-    idx.verify_references().unwrap();
-    idx.into_index()
 }

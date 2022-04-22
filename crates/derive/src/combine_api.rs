@@ -1,10 +1,10 @@
-use super::combiner::{self, Combiner};
-use crate::{DocCounter, JsonError, StatsAccumulator};
-use doc::{Pointer, Validator};
-use prost::Message;
-use proto_flow::flow::{
-    combine_api::{self, Code},
+use super::{
+    combiner::{self, Combiner},
+    ValidatorGuard,
 };
+use crate::{DocCounter, JsonError, StatsAccumulator};
+use prost::Message;
+use proto_flow::flow::combine_api::{self, Code};
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
@@ -59,11 +59,11 @@ impl StatsAccumulator for CombineStats {
 }
 
 struct State {
+    guard: ValidatorGuard,
     combiner: Combiner,
-    fields: Vec<Pointer>,
-    uuid_placeholder_ptr: String,
-    validator: Validator<'static>,
+    fields: Vec<doc::Pointer>,
     stats: CombineStats,
+    uuid_placeholder_ptr: String,
 }
 
 impl cgo::Service for API {
@@ -89,38 +89,31 @@ impl cgo::Service for API {
         match (code, std::mem::take(&mut self.state)) {
             (Code::Configure, _) => {
                 let combine_api::Config {
-                    schema_index_memptr,
-                    schema_uri,
+                    schema_json,
                     key_ptr,
                     field_ptrs,
                     uuid_placeholder_ptr,
                 } = combine_api::Config::decode(data)?;
                 tracing::debug!(
-                    ?schema_index_memptr,
-                    ?schema_uri,
+                    %schema_json,
                     ?key_ptr,
                     ?field_ptrs,
                     ?uuid_placeholder_ptr,
                     "configure",
                 );
 
-                // Re-hydrate a &'static SchemaIndex from a provided memory address.
-                let schema_index_memptr = schema_index_memptr as usize;
-                let schema_index: &doc::SchemaIndex =
-                    unsafe { std::mem::transmute(schema_index_memptr) };
-
-                let schema = url::Url::parse(&schema_uri)?;
-                schema_index.must_fetch(&schema)?;
-
-                let key_ptrs: Vec<Pointer> = key_ptr.iter().map(Pointer::from).collect();
+                let key_ptrs: Vec<doc::Pointer> = key_ptr.iter().map(doc::Pointer::from).collect();
                 if key_ptrs.is_empty() {
                     return Err(Error::EmptyKey);
                 }
 
+                let guard = ValidatorGuard::new(&schema_json)?;
+                let combiner = Combiner::new(guard.schema.curi.clone(), key_ptrs.into());
+
                 self.state = Some(State {
-                    combiner: Combiner::new(schema, key_ptrs.into()),
-                    validator: Validator::new(schema_index),
-                    fields: field_ptrs.iter().map(Pointer::from).collect(),
+                    guard,
+                    combiner,
+                    fields: field_ptrs.iter().map(doc::Pointer::from).collect(),
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
                 });
@@ -130,7 +123,9 @@ impl cgo::Service for API {
                 state.stats.left.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
-                state.combiner.reduce_left(doc, &mut state.validator)?;
+                state
+                    .combiner
+                    .reduce_left(doc, &mut state.guard.validator)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -139,7 +134,9 @@ impl cgo::Service for API {
                 state.stats.right.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
-                state.combiner.combine_right(doc, &mut state.validator)?;
+                state
+                    .combiner
+                    .combine_right(doc, &mut state.guard.validator)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -170,7 +167,7 @@ impl cgo::Service for API {
 pub fn drain_combiner(
     combiner: &mut Combiner,
     uuid_placeholder_ptr: &str,
-    field_ptrs: &[Pointer],
+    field_ptrs: &[doc::Pointer],
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
 ) -> DocCounter {
@@ -230,7 +227,8 @@ pub fn drain_combiner(
 
 #[cfg(test)]
 pub mod test {
-    use super::{super::test::build_min_max_sum_schema, Code, Error, API};
+    use super::super::test::build_min_max_sum_schema;
+    use super::{Code, Error, API};
     use cgo::Service;
     use prost::Message;
     use proto_flow::flow::{
@@ -241,10 +239,6 @@ pub mod test {
 
     #[test]
     fn test_combine_api() {
-        // Not covered: opening the database and building a schema index.
-        // Rather, we install a fixture here.
-        let (index, schema_url) = build_min_max_sum_schema();
-
         let mut svc = API::create();
         let mut arena = Vec::new();
         let mut out = Vec::new();
@@ -253,8 +247,7 @@ pub mod test {
         svc.invoke_message(
             Code::Configure as u32,
             combine_api::Config {
-                schema_index_memptr: index as *const doc::SchemaIndex<'static> as u64,
-                schema_uri: schema_url.as_str().to_owned(),
+                schema_json: build_min_max_sum_schema(),
                 key_ptr: vec!["/key".to_owned()],
                 field_ptrs: vec!["/min".to_owned(), "/max".to_owned()],
                 uuid_placeholder_ptr: "/foo".to_owned(),
@@ -318,8 +311,6 @@ pub mod test {
 
     #[test]
     fn test_combine_empty_key() {
-        let (index, schema_url) = build_min_max_sum_schema();
-
         let mut svc = API::create();
         let mut arena = Vec::new();
         let mut out = Vec::new();
@@ -328,8 +319,7 @@ pub mod test {
             svc.invoke_message(
                 Code::Configure as u32,
                 combine_api::Config {
-                    schema_index_memptr: index as *const doc::SchemaIndex<'static> as u64,
-                    schema_uri: schema_url.as_str().to_owned(),
+                    schema_json: build_min_max_sum_schema(),
                     key_ptr: vec![],
                     field_ptrs: vec![],
                     uuid_placeholder_ptr: String::new(),

@@ -146,16 +146,6 @@ void extract_drop(struct Channel *ch);
  */
 struct GlobalMemoryStats get_memory_stats(void);
 
-struct Channel *schema_create(int32_t log_level, int32_t log_dest_fd);
-
-void schema_invoke1(struct Channel *ch, struct In1 i);
-
-void schema_invoke4(struct Channel *ch, struct In4 i);
-
-void schema_invoke16(struct Channel *ch, struct In16 i);
-
-void schema_drop(struct Channel *ch);
-
 struct Channel *upper_case_create(int32_t log_level, int32_t log_dest_fd);
 
 void upper_case_invoke1(struct Channel *ch, struct In1 i);
