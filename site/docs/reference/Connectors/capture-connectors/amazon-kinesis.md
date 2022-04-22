@@ -9,20 +9,24 @@ This connector captures data from Amazon Kinesis streams.
 
 ## Prerequisites
 
-You'll need one or more Amazon Kinesis streams. For a given capture, all streams must:
+To use this connector, you'll need:
 
-* Contain JSON data only
-* Be accessible from a single root user or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html) in AWS
-* Be in the same [AWS region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html#concepts-available-regions)
+* One or more Amazon Kinesis streams. For a given capture, all streams must:
+  * Contain JSON data only
+  * Be in the same [AWS region](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html#concepts-available-regions)
 
-You'll also need the AWS **access key** and **secret access key** for the user.
+* An IAM user with the following [permissions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonkinesis.html):
+  * `ListShards` on all resources
+  * `GetRecords` on all streams used
+  * `GetShardIterator` on all streams used
+  * `DescribeStream` on all streams used
+  * `DescribeStreamSummary` on all streams used
+
+  These permissions should be specified with the `kinesis:` prefix in an IAM policy document.
+  For more details and examples, see [Controlling Access to Amazon Kinesis Data](https://docs.aws.amazon.com/streams/latest/dev/controlling-access.html) in the Amazon docs.
+
+* The AWS **access key** and **secret access key** for the user.
 See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
-
-:::info Beta
-Your root or IAM user in AWS must have appropriate [permissions](https://aws.amazon.com/iam/features/manage-permissions/).
-Additional details will be added to this article soon.
-In the meantime, you can [contact Estuary Support](mailto:support@estuary.dev) if you encounter unexpected behavior.
-:::
 
 ## Configuration
 
