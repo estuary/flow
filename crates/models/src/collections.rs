@@ -13,7 +13,7 @@ use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, Relat
 /// of the key. By default, this reduction is achieved by completely replacing
 /// the previous document, but much richer reduction behaviors can be specified
 /// through the use of annotated reduction strategies of the collection schema.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "CollectionDef::example")]
 pub struct CollectionDef {
@@ -23,13 +23,14 @@ pub struct CollectionDef {
     /// # Composite key of this collection.
     pub key: CompositeKey,
     /// # Projections and logical partitions of this collection.
-    #[serde(default)]
     #[schemars(schema_with = "projections_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub projections: BTreeMap<Field, Projection>,
     /// # Derivation which builds this collection from others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derivation: Option<Derivation>,
     /// # Template for journals of this collection.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "JournalTemplate::is_empty")]
     pub journals: JournalTemplate,
 }
 
@@ -48,7 +49,7 @@ impl CollectionDef {
 /// Projections are named locations within a collection document which
 /// may be used for logical partitioning or directly exposed to databases
 /// into which collections are materialized.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 pub enum Projection {
     Pointer(JsonPointer),
@@ -62,6 +63,16 @@ pub enum Projection {
 }
 
 impl Projection {
+    pub fn as_parts(&self) -> (&JsonPointer, bool) {
+        match self {
+            Self::Pointer(location) => (location, false),
+            Self::Extended {
+                location,
+                partition,
+            } => (location, *partition),
+        }
+    }
+
     fn example_pointer() -> Self {
         Self::Pointer(JsonPointer::example())
     }

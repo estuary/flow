@@ -34,25 +34,24 @@ impl Config {
 }
 
 /// Connector image and configuration specification.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ConnectorConfig {
     /// # Image of the connector.
     pub image: String,
     /// # Configuration of the connector.
-    pub config: Config,
+    #[schemars(schema_with = "Config::json_schema")]
+    pub config: Box<RawValue>,
 }
 
 impl ConnectorConfig {
     pub fn example() -> Self {
         Self {
             image: "connector/image:tag".to_string(),
-            config: Config::Url(RelativeUrl::new("connector-config.yaml")),
+            config: RawValue::from_string(
+                serde_json::to_string(&Config::Url(RelativeUrl::new("connector-config.yaml")))
+                    .unwrap(),
+            )
+            .unwrap(),
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct RawConnectorConfig {
-    pub image: String,
-    pub config: Box<RawValue>,
 }

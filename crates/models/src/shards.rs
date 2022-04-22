@@ -84,4 +84,23 @@ impl ShardTemplate {
             ..Default::default()
         }
     }
+    pub fn is_empty(&self) -> bool {
+        let ShardTemplate {
+            disable,
+            min_txn_duration: o1,
+            max_txn_duration: o2,
+            hot_standbys: o3,
+            ring_buffer_size: o4,
+            read_channel_size: o5,
+            log_level: o6,
+        } = self;
+
+        !disable
+            && o1.is_none()
+            && o2.is_none()
+            && o3.is_none()
+            && o4.is_none()
+            && o5.is_none()
+            && o6.is_none()
+    }
 }

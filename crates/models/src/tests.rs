@@ -6,7 +6,7 @@ use super::{Collection, Object, PartitionSelector, RelativeUrl};
 
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 #[schemars(example = "TestDocuments::example_relative")]
 #[schemars(example = "TestDocuments::example_inline")]
@@ -32,7 +32,7 @@ impl TestDocuments {
 
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStep::example_ingest")]
 #[schemars(example = "TestStep::example_verify")]
@@ -54,12 +54,12 @@ impl TestStep {
 
 /// An ingestion test step ingests document fixtures into the named
 /// collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStepIngest::example")]
 pub struct TestStepIngest {
     /// # Description of this test ingestion.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// # Name of the collection into which the test will ingest.
     pub collection: Collection,
@@ -81,12 +81,12 @@ impl TestStepIngest {
 /// A verification test step verifies that the contents of the named
 /// collection match the expected fixtures, after fully processing all
 /// preceding ingestion test steps.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TestStepVerify::example")]
 pub struct TestStepVerify {
     /// # Description of this test verification.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// # Collection into which the test will ingest.
     pub collection: Collection,
@@ -97,8 +97,8 @@ pub struct TestStepVerify {
     /// match or the test will fail.
     pub documents: TestDocuments,
     /// # Selector over partitions to verify.
-    #[serde(default)]
-    #[schemars(default = "PartitionSelector::example")]
+    #[schemars(example = "PartitionSelector::example")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partitions: Option<PartitionSelector>,
 }
 

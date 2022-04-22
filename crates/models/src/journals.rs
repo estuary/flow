@@ -39,7 +39,7 @@ impl BucketType {
 ///
 ///   s3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip
 ///
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
 #[schemars(example = "Store::example")]
 pub struct Store {
     /// Cloud storage provider.
@@ -74,7 +74,7 @@ impl Store {
 }
 
 /// Storage defines the backing cloud storage for journals.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
 pub struct StorageDef {
     /// # Stores for journal fragments under this prefix.
     ///
@@ -171,6 +171,16 @@ impl FragmentTemplate {
             ..Default::default()
         }
     }
+    pub fn is_empty(&self) -> bool {
+        let FragmentTemplate {
+            length: o1,
+            compression_codec: o2,
+            retention: o3,
+            flush_interval: o4,
+        } = self;
+
+        o1.is_none() && o2.is_none() && o3.is_none() && o4.is_none()
+    }
 }
 
 /// A JournalTemplate configures the journals which make up the
@@ -188,6 +198,10 @@ impl JournalTemplate {
         Self {
             fragments: FragmentTemplate::example(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        let JournalTemplate { fragments } = self;
+        fragments.is_empty()
     }
 }
 
