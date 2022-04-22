@@ -17,6 +17,11 @@ collections:
     key: [/a_key]
 
     derivation:
+      typescript:
+        module: |
+          import stuff;
+
+          doTheThing();
       transform:
         fromCollection:
           source:

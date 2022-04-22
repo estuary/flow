@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/testing"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/testing"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -70,8 +70,8 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 	}
 
 	// Build a testing graph and driver to track dataflow execution.
-	// It doesn't require a schema bundle or testing client given how we'll use it (no actual tests).
-	driver, err := testing.NewClusterDriver(ctx, sc, rjc, nil, cmd.BuildID, &pf.SchemaBundle{}, collections)
+	// It doesn't require a TestingClient given how we'll use it (no actual tests).
+	driver, err := testing.NewClusterDriver(ctx, sc, rjc, nil, cmd.BuildID, collections)
 	if err != nil {
 		return fmt.Errorf("building test driver: %w", err)
 	}

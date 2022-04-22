@@ -26,7 +26,7 @@ func TestPartitionPicking(t *testing.T) {
 	var fixtures = buildCombineFixtures(t)
 	var logicalPrefix, hexKey, b []byte
 
-	var m = NewMapper(nil, nil, Journals{&keyspace.KeySpace{Root: "/root"}}, "")
+	var m = NewMapper(context.Background(), nil, Journals{&keyspace.KeySpace{Root: "/root"}}, "")
 
 	for ind, tc := range []struct {
 		expectPrefix string
