@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MaterializationDef {
     /// # Endpoint to materialize into.
@@ -17,7 +17,7 @@ pub struct MaterializationDef {
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
     /// # Template for shards of this materialization task.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
 }
 
@@ -31,7 +31,7 @@ impl MaterializationDef {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(example = "MaterializationBinding::example")]
 pub struct MaterializationBinding {
@@ -40,8 +40,8 @@ pub struct MaterializationBinding {
     /// # Name of the collection to be materialized.
     pub source: Collection,
     /// # Selector over partitions of the source collection to read.
-    #[serde(default)]
-    #[schemars(default = "PartitionSelector::example")]
+    #[schemars(example = "PartitionSelector::example")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partitions: Option<PartitionSelector>,
     /// # Selected projections for this materialization.
     #[serde(default)]
@@ -61,7 +61,7 @@ impl MaterializationBinding {
 
 /// MaterializationFields defines a selection of projections to materialize,
 /// as well as optional per-projection, driver-specific configuration.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationFields::example")]
 pub struct MaterializationFields {
@@ -70,11 +70,11 @@ pub struct MaterializationFields {
     /// Values are passed through to the driver, e.x. for customization
     /// of the driver's schema generation or runtime behavior with respect
     /// to the field.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub include: BTreeMap<Field, Object>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<Field>,
     /// # Should recommended projections for the endpoint be used?
     pub recommended: bool,
@@ -103,7 +103,7 @@ impl Default for MaterializationFields {
 }
 
 /// An Endpoint connector used for Flow materializations.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationEndpoint {
     /// # A Connector.
@@ -114,7 +114,7 @@ pub enum MaterializationEndpoint {
 }
 
 /// Sqlite endpoint configuration.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct SqliteConfig {
     /// # Path of the database, relative to this catalog source.
     /// The path may include query arguments. See:
