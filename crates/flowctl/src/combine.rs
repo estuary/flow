@@ -3,7 +3,6 @@ use doc::{ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
 use futures::future::LocalBoxFuture;
 use protocol::flow::{self, build_api};
 use std::io;
-use tables::SchemaDoc;
 use url::Url;
 
 #[derive(Debug, clap::Args)]
@@ -150,7 +149,7 @@ fn get_indexed_schemas_and_key(
         anyhow::bail!("catalog build failed");
     }
 
-    let idx = build_schema_index(output.schema_docs.as_slice())?;
+    let idx = build_schema_index(&output.resources)?;
 
     let (schema_url, key_pointers) = if schema.is_none() {
         let target_collection = collection.as_ref().unwrap();
@@ -186,10 +185,13 @@ fn get_indexed_schemas_and_key(
     Ok((idx, schema_url, key_pointers))
 }
 
-fn build_schema_index(schema_docs: &[SchemaDoc]) -> Result<SchemaIndex<'static>, anyhow::Error> {
+fn build_schema_index(
+    resources: &[tables::Resource],
+) -> Result<SchemaIndex<'static>, anyhow::Error> {
     let mut index_builder = SchemaIndexBuilder::new();
-    let all_compiled = SchemaDoc::compile_all(schema_docs)?;
-    for compiled in all_compiled {
+    let all_compiled = tables::Resource::compile_all_json_schemas(resources)?;
+
+    for (_, compiled) in all_compiled {
         let leaked = Box::leak(Box::new(compiled));
         index_builder.add(leaked)?;
     }
