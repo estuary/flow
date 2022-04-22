@@ -24,6 +24,8 @@ collections:
           source: { name: patterns/strings }
           shuffle: { key: [/Key] }
           update: { lambda: typescript }
+      typescript:
+        module: join-one-sided.flow.ts
 
 tests:
   patterns/test/one-sided-join:

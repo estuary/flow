@@ -1,12 +1,8 @@
-import { collections, interfaces, registers, transforms } from 'flow/modules';
+import { IDerivation, Document, Register, FromPermissiveSource } from 'flow/examples/source-schema/restrictive';
 
-// Implementation for derivation flow.yaml#/collections/examples~1source-schema~1restrictive/derivation.
-export class ExamplesSourceSchemaRestrictive implements interfaces.ExamplesSourceSchemaRestrictive {
-    fromPermissivePublish(
-        source: transforms.ExamplesSourceSchemaRestrictivefromPermissiveSource,
-        _register: registers.ExamplesSourceSchemaRestrictive,
-        _previous: registers.ExamplesSourceSchemaRestrictive,
-    ): collections.ExamplesSourceSchemaRestrictive[] {
+// Implementation for derivation examples/source-schema/flow.yaml#/collections/examples~1source-schema~1restrictive/derivation.
+export class Derivation implements IDerivation {
+    fromPermissivePublish(source: FromPermissiveSource, _register: Register, _previous: Register): Document[] {
         return [source];
     }
 }

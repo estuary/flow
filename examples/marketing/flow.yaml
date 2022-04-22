@@ -1,6 +1,3 @@
-npmDependencies:
-  moment: "^2.24"
-
 collections:
   marketing/campaigns:
     schema: schema.yaml#/$defs/campaign
@@ -48,6 +45,8 @@ collections:
           publish:
             # Join the view with a previously indexed campaign.
             lambda: typescript
+      typescript:
+        module: views-with-campaign.ts
 
   marketing/clicks-with-views:
     schema: schema.yaml#/$defs/click-with-view
@@ -72,6 +71,8 @@ collections:
           shuffle:
             key: [/view_id]
           publish: { lambda: typescript }
+      typescript:
+        module: clicks-with-views.ts
 
   marketing/purchase-with-offers:
     # Example of using inline schemas, which can reference external schemas.
@@ -161,3 +162,8 @@ collections:
           shuffle:
             key: [/user_id]
           publish: { lambda: typescript }
+
+      typescript:
+        module: purchase-with-offers.ts
+        npmDependencies:
+          moment: "^2.24"

@@ -1,13 +1,10 @@
-import { collections, interfaces, transforms } from 'flow/modules';
+import { IDerivation, Document, Register, FromTicksSource } from 'flow/stock/daily-stats';
 
 import * as moment from 'moment';
 
-export class StockDailyStats implements interfaces.StockDailyStats {
-    fromTicksPublish(
-        tick: transforms.StockDailyStatsfromTicksSource,
-        _register: unknown,
-        _previous: unknown,
-    ): [collections.StockDailyStats] {
+// Implementation for derivation examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
+export class Derivation implements IDerivation {
+    fromTicksPublish(tick: FromTicksSource, _register: Register, _previous: Register): Document[] {
         // Current bid/ask price spread of the tick.
         const spread = tick.ask.price - tick.bid.price;
         // Truncate full UTC timestamp to current date.
