@@ -1,5 +1,5 @@
+use super::ValidatorGuard;
 use crate::JsonError;
-use doc::{Pointer, Validator};
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -27,11 +27,14 @@ pub enum Error {
     FailedValidation(doc::FailedValidation),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
+    #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
+    Anyhow(#[from] anyhow::Error),
 }
 
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
-pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &Pointer) -> Option<flow::UuidParts> {
+pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
     let v_uuid = ptr.query(&v).unwrap_or(&serde_json::Value::Null);
     v_uuid
         .as_str()
@@ -66,9 +69,9 @@ pub struct API {
 }
 
 struct State {
-    uuid_ptr: Pointer,
-    field_ptrs: Vec<Pointer>,
-    schema_validator: Option<(url::Url, Validator<'static>)>,
+    uuid_ptr: doc::Pointer,
+    field_ptrs: Vec<doc::Pointer>,
+    schema_validator: Option<ValidatorGuard>,
 }
 
 impl cgo::Service for API {
@@ -95,28 +98,19 @@ impl cgo::Service for API {
             (Code::Configure, _) => {
                 let extract_api::Config {
                     uuid_ptr,
-                    schema_uri,
-                    schema_index_memptr,
+                    schema_json,
                     field_ptrs,
                 } = extract_api::Config::decode(data)?;
 
-                let schema_validator = if schema_uri.is_empty() {
+                let schema_validator = if schema_json.is_empty() {
                     None
                 } else {
-                    // Re-hydrate a &'static SchemaIndex from a provided memory address.
-                    let schema_index_memptr = schema_index_memptr as usize;
-                    let schema_index: &doc::SchemaIndex =
-                        unsafe { std::mem::transmute(schema_index_memptr) };
-
-                    let schema = url::Url::parse(&schema_uri)?;
-                    schema_index.must_fetch(&schema)?;
-
-                    Some((schema, Validator::new(schema_index)))
+                    Some(ValidatorGuard::new(&schema_json)?)
                 };
 
                 self.state = Some(State {
-                    uuid_ptr: Pointer::from(&uuid_ptr),
-                    field_ptrs: field_ptrs.iter().map(Pointer::from).collect(),
+                    uuid_ptr: doc::Pointer::from(&uuid_ptr),
+                    field_ptrs: field_ptrs.iter().map(doc::Pointer::from).collect(),
                     schema_validator,
                 });
                 Ok(())
@@ -132,11 +126,11 @@ impl cgo::Service for API {
                 })?;
 
                 let doc = match &mut state.schema_validator {
-                    Some((schema, validator))
+                    Some(guard)
                         // Transaction acknowledgements aren't expected to validate.
                         if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
                     {
-                        doc::Validation::validate(validator, schema, doc)?
+                        doc::Validation::validate(&mut guard.validator, &guard.schema.curi, doc)?
                             .ok()
                             .map_err(Error::FailedValidation)?
                             .0
@@ -170,7 +164,6 @@ impl cgo::Service for API {
 mod test {
     use super::{extract_uuid_parts, Code, API};
     use cgo::Service;
-    use doc::Pointer;
     use proto_flow::flow;
     use serde_json::{json, Value};
 
@@ -187,24 +180,24 @@ mod test {
         // "/_meta/uuid" maps to an encoded UUID. This fixture and the values
         // below are also used in Go-side tests.
         assert_eq!(
-            extract_uuid_parts(&v, &Pointer::from("/_meta/uuid")).unwrap(),
+            extract_uuid_parts(&v, &doc::Pointer::from("/_meta/uuid")).unwrap(),
             flow::UuidParts {
                 producer_and_flags: 0x0806070503090000 + 0x02,
                 clock: 0x1eac6a39f2952f32,
             },
         );
         // "/missing" maps to Null, which is the wrong type.
-        match extract_uuid_parts(&v, &Pointer::from("/missing")) {
+        match extract_uuid_parts(&v, &doc::Pointer::from("/missing")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
         // "/foo" maps to "bar", also not a UUID.
-        match extract_uuid_parts(&v, &Pointer::from("/foo")) {
+        match extract_uuid_parts(&v, &doc::Pointer::from("/foo")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
         // "/tru" maps to true, of the wrong type.
-        match extract_uuid_parts(&v, &Pointer::from("/tru")) {
+        match extract_uuid_parts(&v, &doc::Pointer::from("/tru")) {
             None => {}
             p @ _ => panic!("{:?}", p),
         }
@@ -234,7 +227,7 @@ mod test {
             ("/arr", json!(["foo"])),
         ];
         for (ptr, expect_value) in cases {
-            let ptr = Pointer::from(ptr);
+            let ptr = doc::Pointer::from(ptr);
             let field = ptr.query(&v1).unwrap_or(&Value::Null);
             assert_eq!(field, &expect_value);
         }
