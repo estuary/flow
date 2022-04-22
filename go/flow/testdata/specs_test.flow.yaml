@@ -25,6 +25,10 @@ collections:
     schema: *schema
     key: [/a_key]
     derivation:
+      typescript:
+        module: |
+          import stuff;
+          doStuff();
       transform:
         fromCollection:
           source: { name: example/collection }

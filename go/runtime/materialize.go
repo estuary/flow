@@ -135,9 +135,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
-			m.schemaIndex,
 			binding.Collection.Collection,
-			binding.Collection.SchemaUri,
+			binding.Collection.SchemaJson,
 			"", // Don't generate UUID placeholders.
 			binding.Collection.KeyPtrs,
 			binding.FieldValuePtrs(),

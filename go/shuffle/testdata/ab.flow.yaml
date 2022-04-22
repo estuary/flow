@@ -18,6 +18,10 @@ collections:
     key: [/a]
 
     derivation:
+      typescript:
+        module: |
+          import something;
+          doSomething();
       transform:
         fromCollection:
           source: { name: a/collection }

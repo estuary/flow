@@ -68,23 +68,14 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	}
 
 	var collection *pf.CollectionSpec
-	var bundle pf.SchemaBundle
 
 	if err = catalog.Extract(config.OutputPath(), func(db *sql.DB) error {
 		if collection, err = catalog.LoadCollection(db, cmd.Collection); err != nil {
 			return fmt.Errorf("loading collection %s: %w", cmd.Collection, err)
 		}
-		if bundle, err = catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading schemas: %w", err)
-		}
 		return nil
 	}); err != nil {
 		return err
-	}
-
-	schemaIndex, err := bindings.NewSchemaIndex(&bundle)
-	if err != nil {
-		return fmt.Errorf("building schema index: %w", err)
 	}
 
 	combine, err := bindings.NewCombine(ops.StdLogger())
@@ -93,9 +84,8 @@ func (cmd cmdCombine) Execute(_ []string) error {
 	}
 	combine.Configure(
 		"flowctl/combine",
-		schemaIndex,
 		collection.Collection,
-		collection.SchemaUri,
+		collection.SchemaJson,
 		"",
 		collection.KeyPtrs,
 		nil,

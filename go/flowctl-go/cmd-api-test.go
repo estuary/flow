@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/testing"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/testing"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -58,7 +58,6 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	var collections []*pf.CollectionSpec
 	var derivations []*pf.DerivationSpec
 	var tests []*pf.TestSpec
-	var bundle pf.SchemaBundle
 
 	if err := build.Extract(func(db *sql.DB) error {
 		if config, err = catalog.LoadBuildConfig(db); err != nil {
@@ -73,9 +72,6 @@ func (cmd apiTest) execute(ctx context.Context) error {
 		if tests, err = catalog.LoadAllTests(db); err != nil {
 			return err
 		}
-		if bundle, err = catalog.LoadSchemaBundle(db); err != nil {
-			return err
-		}
 		return nil
 	}); err != nil {
 		return fmt.Errorf("extracting from build: %w", err)
@@ -87,7 +83,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	})
 
 	// Build a testing graph and driver to track and drive test execution.
-	driver, err := testing.NewClusterDriver(ctx, sc, rjc, tc, cmd.BuildID, &bundle, collections)
+	driver, err := testing.NewClusterDriver(ctx, sc, rjc, tc, cmd.BuildID, collections)
 	if err != nil {
 		return fmt.Errorf("building test driver: %w", err)
 	}

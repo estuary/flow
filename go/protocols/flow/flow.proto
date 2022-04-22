@@ -135,6 +135,9 @@ message Shuffle {
   // - Materializations don't, as the materialization runtime immediately
   //   combines over the document which requires parsing & validation
   //   anyway.
+  //
+  // Unlike other schema_json protobuf fields, we don't use a RawMessage
+  // casttype so that the generated Go equals method will work.
   string validate_schema_json = 14;
 }
 
@@ -473,13 +476,6 @@ message RangeSpec {
   fixed32 r_clock_end = 5;
 }
 
-// SchemaBundle is a bundle of JSON schemas and their base URI.
-message SchemaBundle {
-  // Schemas of the bundle. Keys are the absolute URIs of the schema,
-  // and values are JSON-encoded schema documents.
-  map<string, string> bundle = 1;
-}
-
 // ShuffleRequest is the request message of a Shuffle RPC.
 message ShuffleRequest {
   // Journal to be shuffled, routed to a coordinator.
@@ -572,17 +568,6 @@ message DriverCheckpoint {
   bool rfc7396_merge_patch = 2;
 }
 
-message SchemaAPI {
-  // Code labels message codes passed over the CGO bridge.
-  enum Code {
-    INVALID = 0;
-    // Take a request SchemaBundle and respond with a BuiltIndex. (Go <-> Rust).
-    BUILD_INDEX = 1;
-  }
-
-  message BuiltIndex { fixed64 schema_index_memptr = 1; }
-}
-
 message ExtractAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
@@ -600,15 +585,13 @@ message ExtractAPI {
   message Config {
     // JSON pointer of the document UUID to extract.
     string uuid_ptr = 1;
-    // URI of schema to validate non-ACK documents against.
-    // If empty, schema validation is not performed.
-    string schema_uri = 2;
-    // Memory address of the accosiated SchemaIndex, which must exist for
-    // the remainder of this API's usage.
-    fixed64 schema_index_memptr = 3;
+    // JSON schema to validate non-ACK documents against.
+    // If empty then schema validation is not performed.
+    string schema_json = 2
+      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Field JSON pointers to extract from documents and return as packed
     // tuples.
-    repeated string field_ptrs = 4;
+    repeated string field_ptrs = 3;
   };
 };
 
@@ -639,23 +622,21 @@ message CombineAPI {
   };
 
   message Config {
-    // Memory address of a shared SchemaIndex, which must exist for
-    // the complete lifetime of this API's use.
-    fixed64 schema_index_memptr = 1;
-    // Schema against which documents are to be validated,
+    // JSON schema against which documents are to be validated,
     // and which provides reduction annotations.
-    string schema_uri = 2;
+    string schema_json = 1
+      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Composite key used to group documents to be combined, specified as one or
     // more JSON-Pointers indicating a message location to extract.
     // If empty, all request documents are combined into a single response
     // document.
-    repeated string key_ptr = 3;
+    repeated string key_ptr = 2;
     // Field JSON pointers to be extracted from combined documents and returned.
     // If empty, no fields are extracted.
-    repeated string field_ptrs = 4;
+    repeated string field_ptrs = 3;
     // JSON-Pointer at which a placeholder UUID should be inserted into
     // returned documents. If empty, no placeholder is inserted.
-    string uuid_placeholder_ptr = 5;
+    string uuid_placeholder_ptr = 4;
   };
 
   // Stats holds statistics relating to one or more combiner transactions.
@@ -726,9 +707,6 @@ message DeriveAPI {
   message Config {
     // Derivation to derive.
     DerivationSpec derivation = 1;
-    // Memory address of a associated SchemaIndex, which must exist for
-    // the complete lifetime of this API's use.
-    fixed64 schema_index_memptr = 2;
   }
 
   // DocHeader precedes a JSON-encoded document.

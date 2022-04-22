@@ -3,6 +3,7 @@ package shuffle
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"runtime/pprof"
@@ -217,31 +218,19 @@ func (r *ring) serve() {
 	r.log(logrus.DebugLevel, "started shuffle ring")
 
 	var (
-		build                = r.coordinator.builds.Open(r.shuffle.BuildId)
-		extractor            *bindings.Extractor
-		initErr              error
-		maybeSourceSchemaURI string
-		schemaIndex          *bindings.SchemaIndex
+		build     = r.coordinator.builds.Open(r.shuffle.BuildId)
+		extractor *bindings.Extractor
+		initErr   error
 	)
 	defer build.Close()
 	// TODO(johnny): defer |extractor| cleanup (not yet implemented).
 
-	// TODO(johnny): Switch to using bundled schema.
-	if r.shuffle.DeprecatedValidateSchemaAtRead {
-		maybeSourceSchemaURI = r.shuffle.SourceSchemaUri
-	}
-
-	// Fetch the schema index of the referenced build.
-	// This is fast if this build has already been opened elsewhere.
-	if schemaIndex, initErr = build.SchemaIndex(); initErr != nil {
-		initErr = fmt.Errorf("build %s: %w", r.shuffle.BuildId, initErr)
-	} else if extractor, initErr = bindings.NewExtractor(); initErr != nil {
+	if extractor, initErr = bindings.NewExtractor(); initErr != nil {
 		initErr = fmt.Errorf("building extractor: %w", initErr)
 	} else if initErr = extractor.Configure(
 		r.shuffle.SourceUuidPtr,
 		r.shuffle.ShuffleKeyPtr,
-		maybeSourceSchemaURI,
-		schemaIndex,
+		json.RawMessage(r.shuffle.ValidateSchemaJson),
 	); initErr != nil {
 		initErr = fmt.Errorf("building document extractor: %w", initErr)
 	}

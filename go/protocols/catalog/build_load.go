@@ -190,14 +190,14 @@ func LoadAllInferences(db *sql.DB) ([]SchemaLocation, error) {
 }
 
 // LoadSchemaBundle loads the bundle of schema documents.
-func LoadSchemaBundle(db *sql.DB) (pf.SchemaBundle, error) {
-	var out = pf.SchemaBundle{
-		Bundle: make(map[string]string),
-	}
+// DEPRECATED. This is being kept as a short-term migration capability
+// and can be removed after ~May 15th 2022.
+func LoadSchemaBundle(db *sql.DB) (map[string]string, error) {
+	var out = make(map[string]string)
 	var err = loadRows(db,
 		`SELECT schema, dom FROM schema_docs;`,
 		func() []interface{} { return []interface{}{new(string), new(string)} },
-		func(l []interface{}) { out.Bundle[*l[0].(*string)] = *l[1].(*string) },
+		func(l []interface{}) { out[*l[0].(*string)] = *l[1].(*string) },
 	)
 	return out, err
 }

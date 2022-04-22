@@ -19,7 +19,7 @@ import (
 func TestExtractorBasic(t *testing.T) {
 	var ex, err = NewExtractor()
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, "", nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, nil))
 	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string", [true, null]]`))
 	ex.Document([]byte(`["9f2952f3-c6a3-12fb-8801-080607050309", 52, "other-string", {"k": "v"}]`))
 
@@ -63,22 +63,17 @@ func TestExtractorValidation(t *testing.T) {
 	require.NoError(t, BuildCatalog(args))
 
 	var collection *pf.CollectionSpec
-	var schemaIndex *SchemaIndex
 
 	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-string"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
-		} else if bundle, err := catalog.LoadSchemaBundle(db); err != nil {
-			return fmt.Errorf("loading bundle: %w", err)
-		} else if schemaIndex, err = NewSchemaIndex(&bundle); err != nil {
-			return fmt.Errorf("building index: %w", err)
 		}
 		return nil
 	}))
 
 	var ex, err = NewExtractor()
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.SchemaUri, schemaIndex))
+	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.SchemaJson))
 
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": 32, "s": "valid"}`))         // Valid.
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-11ea-8802-080607050309", "i": "not a string but ACK"}`))   // Invalid but ACK.
@@ -91,7 +86,7 @@ func TestExtractorValidation(t *testing.T) {
 func TestExtractorIntegerBoundaryCases(t *testing.T) {
 	var ex, err = NewExtractor()
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1"}, "", nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
 
 	var minInt64 = strconv.FormatInt(math.MinInt64, 10)
 	var maxInt64 = strconv.FormatInt(math.MaxInt64, 10)
@@ -123,7 +118,7 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 func TestExtractorEmpty(t *testing.T) {
 	var ex, err = NewExtractor()
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1"}, "", nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
 
 	uuids, packed, err := ex.Extract()
 	require.NoError(t, err)

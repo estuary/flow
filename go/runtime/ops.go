@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
@@ -100,7 +99,6 @@ func logCollection(taskName string) pf.Collection {
 func NewLogPublisher(
 	labeling labels.ShardLabeling,
 	collection *pf.CollectionSpec,
-	schemaIndex *bindings.SchemaIndex,
 	ajc client.AsyncJournalClient,
 	mapper flow.Mapper,
 ) (*LogPublisher, error) {

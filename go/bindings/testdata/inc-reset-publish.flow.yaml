@@ -18,6 +18,8 @@ collections:
       register:
         initial: { type: set, value: 1000 }
         schema: inc-reset-publish.schema.yaml#/$defs/register
+      typescript:
+        module: inc-reset-publish.ts
       transform:
         increment:
           source: { name: source }

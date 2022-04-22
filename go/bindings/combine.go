@@ -29,10 +29,9 @@ type CombineCallback = func(
 
 // Combine manages the lifecycle of a combiner operation.
 type Combine struct {
-	svc         *service
-	drained     []C.Out
-	pinnedIndex *SchemaIndex // Used from Rust.
-	metrics     combineMetrics
+	svc     *service
+	drained []C.Out
+	metrics combineMetrics
 }
 
 // NewCombiner builds and returns a new Combine.
@@ -56,9 +55,8 @@ func NewCombine(logPublisher ops.Logger) (*Combine, error) {
 // Configure or re-configure the Combine.
 func (c *Combine) Configure(
 	fqn string,
-	index *SchemaIndex,
 	collection pf.Collection,
-	schemaURI string,
+	schemaJSON json.RawMessage,
 	uuidPtr string,
 	keyPtrs []string,
 	fieldPtrs []string,
@@ -66,12 +64,10 @@ func (c *Combine) Configure(
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 	c.metrics = newCombineMetrics(fqn, collection)
 
-	c.pinnedIndex = index
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
-			SchemaIndexMemptr:  index.indexMemPtr,
-			SchemaUri:          schemaURI,
+			SchemaJson:         schemaJSON,
 			KeyPtr:             keyPtrs,
 			FieldPtrs:          fieldPtrs,
 			UuidPlaceholderPtr: uuidPtr,
