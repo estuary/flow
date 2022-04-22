@@ -12,53 +12,45 @@ use super::{
 /// collections, derivations, tests, and materializations of the Catalog.
 /// Catalog sources may reference and import other sources, in order to
 /// collections and other entities that source defines.
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
-    #[serde(default, rename = "$schema")]
+    #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub _schema: Option<String>,
     /// # Inlined resources of the catalog.
     /// Inline resources are intended for Flow API clients (only), and are used
     /// to bundle multiple resources into a single POSTed catalog document.
     /// Each key must be an absolute URL which is referenced from elsewhere in
     /// the Catalog, which is also the URL from which this resource was fetched.
-    #[serde(default)]
+    #[schemars(skip)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resources: BTreeMap<String, ResourceDef>,
     /// # Import other Flow catalog sources.
     /// By importing another Flow catalog source, the collections, schemas, and derivations
     /// it defines become usable within this Catalog source. Each import is an absolute URI,
     /// or a URI which is relative to this source location.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub import: Vec<Import>,
-    /// # NPM package dependencies of the Catalog.
-    /// Dependencies are included when building the catalog's build NodeJS
-    /// package, as {"package-name": "version"}. I.e. {"moment": "^2.24"}.
-    ///
-    /// Version strings can take any form understood by NPM.
-    /// See https://docs.npmjs.com/files/package.json#dependencies
-    #[serde(default)]
-    #[schemars(default = "Catalog::default_node_dependencies")]
-    pub npm_dependencies: BTreeMap<String, String>,
     /// # Collections of this Catalog.
-    #[serde(default)]
     #[schemars(schema_with = "collections_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub collections: BTreeMap<Collection, CollectionDef>,
     /// # Materializations of this Catalog.
-    #[serde(default)]
     #[schemars(schema_with = "materializations_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub materializations: BTreeMap<Materialization, MaterializationDef>,
     /// # Captures of this Catalog.
-    #[serde(default)]
     #[schemars(schema_with = "captures_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub captures: BTreeMap<Capture, CaptureDef>,
     /// # Tests of this Catalog.
-    #[serde(default)]
     #[schemars(schema_with = "tests_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tests: BTreeMap<Test, Vec<TestStep>>,
     // # Storage mappings of this Catalog.
-    #[serde(default)]
     #[schemars(schema_with = "storage_mappings_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub storage_mappings: BTreeMap<Prefix, StorageDef>,
 }
 
@@ -68,10 +60,6 @@ impl Catalog {
         let settings = schemars::gen::SchemaSettings::draft2019_09();
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<Self>()
-    }
-
-    fn default_node_dependencies() -> BTreeMap<String, String> {
-        from_value(json!({"a-npm-package": "^1.2.3"})).unwrap()
     }
 }
 
