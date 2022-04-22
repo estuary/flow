@@ -110,9 +110,8 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
-			c.schemaIndex,
 			binding.Collection.Collection,
-			binding.Collection.SchemaUri,
+			binding.Collection.SchemaJson,
 			binding.Collection.UuidPtr,
 			binding.Collection.KeyPtrs,
 			flow.PartitionPointers(&binding.Collection),

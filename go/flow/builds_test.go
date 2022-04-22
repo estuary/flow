@@ -95,13 +95,6 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		return nil
 	}))
 
-	// Similarly, a built SchemaIndex is shared.
-	index2, err := b2.SchemaIndex()
-	require.NoError(t, err)
-	index1, err := b1.SchemaIndex()
-	require.NoError(t, err)
-	require.Equal(t, index1, index2)
-
 	// Our fixture doesn't build a typescript package, so initialization
 	// fails with an error. Expect the error is shared.
 	_, err = b1.TypeScriptClient()

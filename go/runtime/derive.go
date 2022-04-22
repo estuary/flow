@@ -101,7 +101,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 		return pf.Checkpoint{}, fmt.Errorf("creating derive service: %w", err)
 	}
 
-	err = d.binding.Configure(shard.FQN(), d.schemaIndex, &d.derivation, tsClient)
+	err = d.binding.Configure(shard.FQN(), &d.derivation, tsClient)
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("configuring derive API: %w", err)
 	}

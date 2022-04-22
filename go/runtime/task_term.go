@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
@@ -33,8 +32,6 @@ type taskTerm struct {
 	labels labels.ShardLabeling
 	// Resolved *Build of the task's build ID.
 	build *flow.Build
-	// Schema index of the task's build ID.
-	schemaIndex *bindings.SchemaIndex
 	// Logger used to publish logs that are scoped to this task.
 	// It is embedded to allow directly calling .Log on a taskTerm.
 	*LogPublisher
@@ -73,10 +70,6 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		t.build = host.Builds.Open(t.labels.Build)
 	}
 
-	if t.schemaIndex, err = t.build.SchemaIndex(); err != nil {
-		return err
-	}
-
 	var statsCollectionSpec *pf.CollectionSpec
 	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
@@ -96,7 +89,6 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	if t.LogPublisher, err = NewLogPublisher(
 		t.labels,
 		logsCollectionSpec,
-		t.schemaIndex,
 		shard.JournalClient(),
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 	); err != nil {
