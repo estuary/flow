@@ -337,8 +337,7 @@ pub fn collection_spec(
         collection: name,
         scope: _,
         schema,
-        key,
-        journals,
+        spec: models::CollectionDef { key, journals, .. },
     } = collection;
 
     let partition_fields = projections
@@ -374,7 +373,7 @@ pub fn collection_spec(
 
 pub fn journal_selector(
     collection: &models::Collection,
-    selector: &Option<models::PartitionSelector>,
+    selector: Option<&models::PartitionSelector>,
 ) -> broker::LabelSelector {
     let mut include = vec![broker::Label {
         name: labels::COLLECTION.to_string(),
@@ -382,7 +381,7 @@ pub fn journal_selector(
     }];
     let mut exclude = Vec::new();
 
-    if let Some(selector) = &selector {
+    if let Some(selector) = selector {
         push_partitions(&selector.include, &mut include);
         push_partitions(&selector.exclude, &mut exclude);
     }
@@ -469,42 +468,59 @@ pub fn transform_spec(
     let tables::Transform {
         scope: _,
         derivation,
-        priority,
-        publish_lambda,
-        read_delay_seconds,
-        shuffle_key,
-        shuffle_lambda,
-        source_collection,
-        source_partitions,
-        source_schema,
         transform: name,
-        update_lambda,
+        spec:
+            models::TransformDef {
+                priority,
+                source:
+                    models::TransformSource {
+                        name: source_collection,
+                        partitions: source_partitions,
+                        schema: _,
+                    },
+                publish,
+                update,
+                read_delay,
+                shuffle,
+            },
+        source_schema,
     } = &transform;
 
-    let shuffle_key_ptr = if let Some(k) = shuffle_key {
-        k.iter().map(|k| k.to_string()).collect() // CompositeKey => Vec<String>.
-    } else {
-        source.key_ptrs.clone()
+    let (uses_source_key, shuffle_key_ptr, shuffle_lambda) = match shuffle {
+        Some(models::Shuffle::Key(key)) => {
+            (
+                false,
+                key.iter().map(|k| k.to_string()).collect(), // CompositeKey => Vec<String>.
+                None,
+            )
+        }
+        Some(models::Shuffle::Lambda(lambda)) => (
+            false,
+            Vec::new(),
+            Some(lambda_spec(&lambda, transform, "Shuffle")),
+        ),
+        None => (true, source.key_ptrs.clone(), None),
     };
 
     let shuffle = flow::Shuffle {
         group_name: transform_group_name(transform),
         source_collection: source.collection.clone(),
-        source_partitions: Some(journal_selector(source_collection, source_partitions)),
+        source_partitions: Some(journal_selector(
+            source_collection,
+            source_partitions.as_ref(),
+        )),
         source_uuid_ptr: source.uuid_ptr.clone(),
         shuffle_key_ptr,
-        uses_source_key: shuffle_key.is_none(),
-        shuffle_lambda: shuffle_lambda
-            .as_ref()
-            .map(|l| lambda_spec(&l, transform, "Shuffle")),
+        uses_source_key,
+        shuffle_lambda,
         source_schema_uri: source_schema
             .as_ref()
             .map(|s| s.to_string())
             .unwrap_or_else(|| source.schema_uri.clone()),
         uses_source_schema: source_schema.is_none(),
         deprecated_validate_schema_at_read: true,
-        filter_r_clocks: update_lambda.is_none(),
-        read_delay_seconds: read_delay_seconds.unwrap_or(0),
+        filter_r_clocks: update.is_none(),
+        read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
         priority: *priority,
         validate_schema_json: validate_schema_bundle.to_string(),
     };
@@ -513,12 +529,12 @@ pub fn transform_spec(
         derivation: derivation.to_string(),
         transform: name.to_string(),
         shuffle: Some(shuffle),
-        update_lambda: update_lambda
+        update_lambda: update
             .as_ref()
-            .map(|l| lambda_spec(l, transform, "Update")),
-        publish_lambda: publish_lambda
+            .map(|update| lambda_spec(&update.lambda, transform, "Update")),
+        publish_lambda: publish
             .as_ref()
-            .map(|l| lambda_spec(l, transform, "Publish")),
+            .map(|publish| lambda_spec(&publish.lambda, transform, "Publish")),
     }
 }
 
@@ -533,9 +549,19 @@ pub fn derivation_spec(
     let tables::Derivation {
         scope: _,
         derivation: name,
+        spec:
+            models::Derivation {
+                register:
+                    models::Register {
+                        initial: register_initial,
+                        schema: _,
+                    },
+                transform: _,
+                typescript: _,
+                shards,
+            },
         register_schema,
-        register_initial,
-        shards,
+        typescript_module: _,
     } = derivation;
 
     transforms.sort_by(|l, r| l.transform.cmp(&r.transform));
@@ -610,9 +636,13 @@ pub fn materialization_shuffle(
     resource_path: &[impl AsRef<str>],
 ) -> flow::Shuffle {
     let tables::MaterializationBinding {
-        collection,
         materialization,
-        source_partitions,
+        spec:
+            models::MaterializationBinding {
+                source: collection,
+                partitions: source_partitions,
+                ..
+            },
         ..
     } = binding;
 
@@ -623,7 +653,7 @@ pub fn materialization_shuffle(
             encode_resource_path(resource_path),
         ),
         source_collection: collection.to_string(),
-        source_partitions: Some(journal_selector(collection, source_partitions)),
+        source_partitions: Some(journal_selector(collection, source_partitions.as_ref())),
         source_uuid_ptr: source.uuid_ptr.clone(),
         // Materializations always group by the collection's key.
         shuffle_key_ptr: source.key_ptrs.clone(),
@@ -653,16 +683,28 @@ pub fn test_step_spec(
     let tables::TestStep {
         scope,
         test: _,
-        description,
-        collection,
-        documents: _,
-        partitions,
         step_index,
-        step_type,
+        spec,
+        documents: _,
     } = test_step;
 
+    let (step_type, collection, description, selector) = match spec {
+        models::TestStep::Ingest(ingest) => (
+            flow::test_spec::step::Type::Ingest,
+            &ingest.collection,
+            &ingest.description,
+            None,
+        ),
+        models::TestStep::Verify(verify) => (
+            flow::test_spec::step::Type::Verify,
+            &verify.collection,
+            &verify.description,
+            verify.partitions.as_ref(),
+        ),
+    };
+
     flow::test_spec::Step {
-        step_type: *step_type as i32,
+        step_type: step_type as i32,
         step_index: *step_index,
         step_scope: scope.to_string(),
         collection: collection.to_string(),
@@ -671,7 +713,7 @@ pub fn test_step_spec(
             .map(|d| serde_json::to_string(d).expect("object cannot fail to serialize"))
             .collect::<Vec<_>>()
             .join("\n"),
-        partitions: Some(journal_selector(collection, partitions)),
+        partitions: Some(journal_selector(collection, selector)),
         description: description.clone(),
     }
 }
@@ -681,7 +723,6 @@ pub fn content_type(t: models::ContentType) -> flow::ContentType {
         models::ContentType::Catalog => flow::ContentType::Catalog,
         models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
         models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
-        models::ContentType::NpmPackage => flow::ContentType::NpmPackage,
         models::ContentType::Config => flow::ContentType::Config,
         models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
     }
@@ -813,7 +854,7 @@ mod test {
 
         let selector = models::PartitionSelector { include, exclude };
         let collection = models::Collection::new("the/collection");
-        let labels = journal_selector(&collection, &Some(selector));
+        let labels = journal_selector(&collection, Some(&selector));
         insta::assert_debug_snapshot!(labels);
     }
 }

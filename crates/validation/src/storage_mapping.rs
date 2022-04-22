@@ -119,14 +119,9 @@ mod test {
         let mut mappings = tables::StorageMappings::new();
         let scope = url::Url::parse("http://scope").unwrap();
 
-        mappings.insert_row(&scope, Prefix::new("foo/"), Vec::new(), None);
-        mappings.insert_row(
-            &scope,
-            Prefix::new("bar/one/"),
-            Vec::new(),
-            Some("build-id".to_string()),
-        );
-        mappings.insert_row(&scope, Prefix::new("bar/two/"), Vec::new(), None);
+        mappings.insert_row(&scope, Prefix::new("foo/"), Vec::new());
+        mappings.insert_row(&scope, Prefix::new("bar/one/"), Vec::new());
+        mappings.insert_row(&scope, Prefix::new("bar/two/"), Vec::new());
 
         assert!(lookup_mapping(&mappings, "foo/foo").is_some());
         assert!(lookup_mapping(&mappings, "fooo/foo").is_none());

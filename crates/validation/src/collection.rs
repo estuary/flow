@@ -14,8 +14,7 @@ pub fn walk_all_collections(
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
-) -> (tables::BuiltCollections, tables::Projections) {
-    let mut implicit_projections = tables::Projections::new();
+) -> tables::BuiltCollections {
     let mut built_collections = tables::BuiltCollections::new();
 
     for collection in collections {
@@ -33,13 +32,11 @@ pub fn walk_all_collections(
                 schema_shapes,
                 storage_mappings,
                 errors,
-                &mut implicit_projections,
             ),
-            None, // Not foreign.
         );
     }
 
-    (built_collections, implicit_projections)
+    built_collections
 }
 
 fn walk_collection(
@@ -50,14 +47,12 @@ fn walk_collection(
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
-    implicit_projections: &mut tables::Projections,
 ) -> flow::CollectionSpec {
     let tables::Collection {
-        collection: name,
         scope,
+        collection: name,
+        spec: models::CollectionDef { key, .. },
         schema,
-        key,
-        journals: _,
     } = collection;
 
     indexed::walk_name(
@@ -85,13 +80,7 @@ fn walk_collection(
         .push(scope, errors);
     }
 
-    let projections = walk_collection_projections(
-        collection,
-        projections,
-        schema,
-        errors,
-        implicit_projections,
-    );
+    let projections = walk_collection_projections(collection, projections, schema, errors);
 
     let partition_stores = storage_mapping::mapped_stores(
         scope,
@@ -116,7 +105,6 @@ fn walk_collection_projections(
     projections: &[tables::Projection],
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
-    implicit_projections: &mut tables::Projections,
 ) -> Vec<flow::Projection> {
     // Require that projection fields have no duplicates under our collation.
     // This restricts *manually* specified projections, but not canonical ones.
@@ -128,24 +116,20 @@ fn walk_collection_projections(
         errors,
     );
 
-    let mut specs = Vec::new();
-    for eob in projections.iter().merge_join_by(
-        schema_shape
-            .fields
-            .iter()
-            .map(|(f, p)| (models::Field::new(f), p)),
-        |projection, (field, _)| projection.field.cmp(field),
-    ) {
-        let (spec, implicit) =
-            walk_projection_with_inference(collection, eob, schema_shape, errors);
+    // Projections which are statically inferred from the JSON schema.
+    let implied_projections = schema_shape
+        .fields
+        .iter()
+        .map(|(f, p)| (models::Field::new(f), p));
 
-        if let Some(implicit) = implicit {
-            implicit_projections.insert(implicit);
-        }
-        specs.push(spec);
-    }
-
-    specs
+    // Walk merged projections, mapping each to a flow::Projection and producing errors.
+    projections
+        .iter()
+        .merge_join_by(implied_projections, |projection, (infer_field, _)| {
+            projection.field.cmp(infer_field)
+        })
+        .map(|eob| walk_projection_with_inference(collection, eob, schema_shape, errors))
+        .collect()
 }
 
 fn walk_projection_with_inference(
@@ -153,30 +137,35 @@ fn walk_projection_with_inference(
     eob: EitherOrBoth<&tables::Projection, (models::Field, &models::JsonPointer)>,
     schema_shape: &schema::Shape,
     errors: &mut tables::Errors,
-) -> (flow::Projection, Option<tables::Projection>) {
+) -> flow::Projection {
     let (scope, field, location, projection) = match &eob {
-        EitherOrBoth::Both(projection, (field, location)) => {
-            if &projection.location != *location {
+        EitherOrBoth::Both(projection, (_, canonical_location)) => {
+            let (user_location, _) = projection.spec.as_parts();
+
+            if user_location != *canonical_location {
                 Error::ProjectionRemapsCanonicalField {
-                    field: field.to_string(),
-                    canonical_ptr: location.to_string(),
-                    wrong_ptr: projection.location.to_string(),
+                    field: projection.field.to_string(),
+                    canonical_ptr: canonical_location.to_string(),
+                    wrong_ptr: user_location.to_string(),
                 }
                 .push(&projection.scope, errors);
             }
             (
                 &projection.scope,
                 &projection.field,
-                &projection.location,
-                Some(projection),
+                user_location,
+                Some(&projection.spec),
             )
         }
-        EitherOrBoth::Left(projection) => (
-            &projection.scope,
-            &projection.field,
-            &projection.location,
-            Some(projection),
-        ),
+        EitherOrBoth::Left(projection) => {
+            let (location, _) = projection.spec.as_parts();
+            (
+                &projection.scope,
+                &projection.field,
+                location,
+                Some(&projection.spec),
+            )
+        }
         EitherOrBoth::Right((field, location)) => (&collection.scope, field, *location, None),
     };
 
@@ -186,13 +175,15 @@ fn walk_projection_with_inference(
         ptr: location.to_string(),
         field: field.to_string(),
         user_provided: false,
-        is_primary_key: collection.key.iter().any(|k| k == location),
+        is_primary_key: collection.spec.key.iter().any(|k| k == location),
         is_partition_key: false,
         inference: Some(assemble::inference(shape, exists)),
     };
 
     if let Some(projection) = projection {
-        if projection.partition {
+        let (_, partition) = projection.as_parts();
+
+        if partition {
             indexed::walk_name(
                 scope,
                 "partition",
@@ -202,31 +193,20 @@ fn walk_projection_with_inference(
             );
         }
         schema::walk_explicit_location(
-            &projection.scope,
+            scope,
             &schema_shape.schema,
             location,
-            projection.partition,
+            partition,
             shape,
             exists,
             errors,
         );
 
         spec.user_provided = true;
-        spec.is_partition_key = projection.partition;
-
-        (spec, None)
-    } else {
-        // This is a discovered projection not provided by the user.
-        let implicit = tables::Projection {
-            scope: collection.scope.clone(),
-            collection: collection.collection.clone(),
-            field: field.clone(),
-            location: location.clone(),
-            partition: false,
-            user_provided: false,
-        };
-        (spec, Some(implicit))
+        spec.is_partition_key = partition;
     }
+
+    spec
 }
 
 pub fn walk_selector(
