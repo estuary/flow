@@ -128,6 +128,97 @@ func (p *Publisher) PublishUncommitted(mapping MappingFunc, msg Message) (*clien
 	return aa, nil
 }
 
+// PendingPublish is returned from DeferPublishUncommitted, and allows appending a single message
+// that had previously been sequenced.
+//
+// **This is a new and unstable API, that is subject to breaking changes.**
+type PendingPublish struct {
+	publisher   *Publisher
+	journal     pb.Journal
+	contentType string
+	uuid        UUID
+}
+
+// Resolve completes a PendingPublish by appending the finalized content of a message that had
+// previously been sequenced. See DeferPublishUncommitted docs for more.
+//
+// **This is a new and unstable API, that is subject to breaking changes.**
+func (pf *PendingPublish) Resolve(msg Message) error {
+	if pf.publisher == nil {
+		// Sanity check for if Resolve has already been called, or if PendingPublish is zero-valued
+		// due to SequenceFutureMessage having returned an error.
+		panic("Pending publish has already been resolved")
+	}
+	if v, ok := msg.(Validator); ok {
+		if err := v.Validate(); err != nil {
+			return err
+		}
+	}
+	msg.SetUUID(pf.uuid)
+
+	var framing, err = FramingByContentType(pf.contentType)
+	if err != nil {
+		return err
+	}
+
+	var aa = pf.publisher.ajc.StartAppend(pb.AppendRequest{Journal: pf.journal}, nil)
+	aa.Require(framing.Marshal(msg, aa.Writer()))
+	err = aa.Release()
+	pf.publisher = nil // so that we can sanity check that Resolve isn't called twice
+	return err
+}
+
+// DeferPublishUncommitted is used to sequence a message that will be published at some future
+// point, but before the end of the transaction. It returns a PendingPublish, which can be resolved
+// by passing it the actual message to be published. This is used in situations where you need to
+// transactionally publish a message when you don't have the content of that message until after the
+// ack intents are built. This is an advanced, low level api, and care must be taken to use it
+// correctly to avoid corruption of journal content.
+//
+// The journal and contentType must be known up front, and the acknowledgement Message must also be
+// provided by the caller. It's up to the caller to ensure that these things are correct and
+// consistent.
+//
+// The returned PendingPublish does not need to ever be resolved, and can be dropped with no harm
+// done. If Resolve is called, then it must be called _before_ the acknowledgements are written.
+// Otherwise the resolved message will be ignored by ReadCommitted consumers. Also note that the
+// PendingPublish is not safe to Resolve concurrently with other uses of a Publisher.
+//
+// No other messages should be published to the journal using PublishUncommitted or PublishCommitted
+// before the PendingPublish is resolved. It it permissible to publish more than one message using
+// DeferPublishUncommitted, as long as all PendingPublish instances are resolved in exactly the
+// order in which they were created.
+//
+// **This is a new and unstable API, that is subject to breaking changes.**
+func (p *Publisher) DeferPublishUncommitted(journal pb.Journal, contentType string, ack Message) (fut PendingPublish, err error) {
+	if p.autoUpdate {
+		p.clock.Update(time.Now())
+	}
+
+	var framing Framing
+	if framing, err = FramingByContentType(contentType); err != nil {
+		return
+	}
+
+	var uuid = BuildUUID(p.producer, p.clock.Tick(), Flag_CONTINUE_TXN)
+	// Is this the first publish to this journal since our last commit?
+	if _, ok := p.intentIdx[journal]; !ok {
+		p.intentIdx[journal] = len(p.intents)
+		p.intents = append(p.intents, AckIntent{
+			Journal: journal,
+			// Call NewAcknowledgement to create the ack, to ensure that each ack message is unique.
+			msg:     ack.NewAcknowledgement(journal),
+			framing: framing,
+		})
+	}
+	return PendingPublish{
+		publisher:   p,
+		journal:     journal,
+		contentType: contentType,
+		uuid:        uuid,
+	}, nil
+}
+
 // BuildAckIntents returns the []AckIntents which acknowledge all pending
 // Messages published since its last invocation. It's the caller's job to
 // actually append the intents to their respective journals, and only *after*
