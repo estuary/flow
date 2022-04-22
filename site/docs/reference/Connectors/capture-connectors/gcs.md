@@ -40,7 +40,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 |---|---|---|---|---|
 | `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
 | **`/bucket`** | Bucket | Name of the Google Cloud Storage bucket | string | Required |
-| `/googleCredentials` | Google service account | Service account JSON file. Required unless the bucket is public.| object |  |
+| `/googleCredentials` | Google service account | Contents of the service account JSON file. Required unless the bucket is public.| object |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
 | `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
 
@@ -53,7 +53,6 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 ### Sample
 
-A minimal capture definition will look like the following:
 
 ```yaml
 captures:
@@ -62,7 +61,7 @@ captures:
       connector:
         image: ghcr.io/estuary/source-gcs:dev
         config:
-          bucket: "my-bucket"
+          bucket: my-bucket
     bindings:
       - resource:
           stream: my-bucket/${PREFIX}
@@ -74,3 +73,36 @@ captures:
 Your capture definition may be more complex, with additional bindings for different GCS prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+### Advanced: Configure Google service account impersonation
+
+:::info
+This is an advanced workflow and is typically not necessary to successfully configure this connector.
+:::
+
+As part of your Google IAM management, you may have configured one service account to [impersonate another service account](https://cloud.google.com/iam/docs/impersonating-service-accounts).
+You may find this useful when you want to easily control access to multiple service accounts with only one set of keys.
+
+If necessary, you can configure this authorization model for a GCS capture in Flow using the GitOps workflow.
+To do so, you'll enable sops encryption and impersonate the target account with JSON credentials.
+
+Before you begin, make sure you're familiar with [how to encrypt credentials in Flow using sops](./../../../concepts/connectors.md#protecting-secrets).
+
+Use the following sample as a guide to add the credentials JSON to the capture's endpoint configuration.
+The sample uses the [encrypted suffix feature](../../../concepts/connectors.md#example-protect-portions-of-a-configuration) of sops to encrypt only the sensitive credentials, but you may choose to encrypt the entire configuration.
+
+```yaml
+config:
+  bucket: <bucket-name>
+  googleCredentials_sops:
+    # URL containing the account to impersonate and the associated project
+    service_account_impersonation_url: https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<target-account>@<project>.iam.gserviceaccount.com:generateAccessToken
+    # Credentials for the account that has been configured to impersonate the target.
+    source_credentials:
+        # In addition to the listed fields, copy and paste the rest of your JSON key file as your normally would
+        # for the `googleCredentials` field
+        client_email: <origin-account>@<anotherproject>.iam.gserviceaccount.com
+        token_uri: https://oauth2.googleapis.com/token
+        type: service_account
+    type: impersonated_service_account
+```
