@@ -20,12 +20,12 @@ pub enum CatalogType {
 #[derive(Debug)]
 pub struct SpecRow {
     pub catalog_name: String,
-    pub draft_spec: Option<Json<Box<RawValue>>>,
+    pub draft_spec: Json<Box<RawValue>>,
     pub draft_type: CatalogType,
-    pub live_spec: Option<Json<Box<RawValue>>>,
+    pub expect_pub_id: Option<Id>,
+    pub last_pub_id: Id,
+    pub live_spec: Json<Box<RawValue>>,
     pub live_type: CatalogType,
-    pub spec_min_patch: Json<Box<RawValue>>,
-    pub spec_rev_patch: Json<Box<RawValue>>,
 }
 
 pub async fn resolve_specifications(
@@ -44,14 +44,18 @@ pub async fn resolve_specifications(
     // "on conflict .. do nothing" semantics, and we'll next lock the new row.
     //
     // See: https://www.postgresql.org/docs/14/transaction-iso.html#XACT-READ-COMMITTED
-    sqlx::query!(
+    let rows = sqlx::query!(
         r#"
-        insert into live_specs(catalog_name, spec_type, last_pub_id)
-            (select catalog_name, spec_type, $2
-                from draft_specs
-                where draft_specs.draft_id = $1
-                for update of draft_specs)
-        on conflict (catalog_name) do nothing
+        insert into live_specs(catalog_name, spec_type, spec, last_pub_id) (
+            select
+                catalog_name,
+                spec_type,
+                'null',
+                $2
+            from draft_specs
+            where draft_specs.draft_id = $1
+            for update of draft_specs
+        ) on conflict (catalog_name) do nothing
         "#,
         draft_id as Id,
         pub_id as Id,
@@ -59,6 +63,8 @@ pub async fn resolve_specifications(
     .execute(&mut *txn)
     .await
     .context("inserting new live_specs")?;
+
+    tracing::debug!(rows = %rows.rows_affected(), "inserted new live_specs");
 
     // Fetch all of the draft's patches, along with their (now locked) live specifications.
     // This query is where we determine "before" and "after" states for each specification,
@@ -78,21 +84,12 @@ pub async fn resolve_specifications(
         r#"
         select
             draft_specs.catalog_name,
+            draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
             draft_specs.spec_type as "draft_type: CatalogType",
-            jsonb_merge_patch(
-                live_specs.spec,
-                draft_specs.spec_patch
-            ) as "draft_spec: Json<Box<RawValue>>",
-            live_specs.spec_type as "live_type: CatalogType",
+            draft_specs.expect_pub_id as "expect_pub_id: Id",
+            live_specs.last_pub_id as "last_pub_id: Id",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
-            coalesce(jsonb_merge_diff(
-                jsonb_merge_patch(live_specs.spec, draft_specs.spec_patch),
-                live_specs.spec
-            ), '{}') as "spec_min_patch!: Json<Box<RawValue>>",
-            coalesce(jsonb_merge_diff(
-                live_specs.spec,
-                jsonb_merge_patch(live_specs.spec, draft_specs.spec_patch)
-            ), '{}') as "spec_rev_patch!: Json<Box<RawValue>>"
+            live_specs.spec_type as "live_type: CatalogType"
         from draft_specs
         join live_specs
             on draft_specs.catalog_name = live_specs.catalog_name
@@ -185,6 +182,7 @@ pub fn extend_catalog<'a>(
 }
 
 pub fn validate_transition(
+    pub_id: Id,
     live: &models::Catalog,
     draft: &models::Catalog,
     spec_rows: &[SpecRow],
@@ -194,6 +192,8 @@ pub fn validate_transition(
     for SpecRow {
         catalog_name,
         draft_type,
+        expect_pub_id,
+        last_pub_id,
         live_type,
         ..
     } in spec_rows
@@ -207,6 +207,36 @@ pub fn validate_transition(
                 ..Default::default()
             });
         }
+
+        match expect_pub_id {
+            Some(id) if id.is_zero() && *last_pub_id == pub_id => {
+                // The spec is expected to be created, and it is.
+            }
+            Some(id) if id.is_zero() => {
+                errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "publication expects to create this specification, but it exists from publication {last_pub_id}"
+                    ),
+                    ..Default::default()
+                });
+            }
+            Some(id) if id == last_pub_id => {
+                // The spec is expected to exist at |id|, and it does.
+            }
+            Some(id) => {
+                errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "draft expects a last publication ID of {id}, but it's now {last_pub_id}"
+                    ),
+                    ..Default::default()
+                });
+            }
+            None => {
+                // No constraint.
+            }
+        };
     }
 
     for eob in draft
@@ -275,12 +305,12 @@ pub async fn apply_updates_for_row(
 ) -> anyhow::Result<()> {
     let SpecRow {
         catalog_name,
-        draft_type,
         draft_spec,
+        draft_type,
+        expect_pub_id: _,
+        last_pub_id: _,
+        live_spec,
         live_type: _,
-        live_spec: _,
-        spec_min_patch,
-        spec_rev_patch,
     } = spec_row;
 
     sqlx::query!(
@@ -296,24 +326,24 @@ pub async fn apply_updates_for_row(
 
     sqlx::query!(
         r#"insert into publication_specs (
-            catalog_name,
             pub_id,
-            spec_min_patch,
-            spec_rev_patch,
-            spec_type
+            catalog_name,
+            spec_type,
+            spec_before,
+            spec_after
         ) values ($1, $2, $3, $4, $5);
         "#,
-        &catalog_name as &str,
         pub_id as Id,
-        spec_min_patch as &Json<Box<RawValue>>,
-        spec_rev_patch as &Json<Box<RawValue>>,
+        &catalog_name as &str,
         draft_type as &CatalogType,
+        live_spec as &Json<Box<RawValue>>,
+        draft_spec as &Json<Box<RawValue>>,
     )
     .execute(&mut *txn)
     .await
     .context("insert into publication_specs")?;
 
-    if draft_spec.is_none() {
+    if draft_spec.get() == "null" {
         // Draft is a deletion of a live spec.
         sqlx::query!(
             r#"delete from live_specs where catalog_name = $1
@@ -404,7 +434,7 @@ pub async fn apply_updates_for_row(
         image_parts.as_ref().map(|p| &p.1),
         pub_id as Id,
         &reads_from,
-        draft_spec as &Option<Json<Box<RawValue>>>,
+        draft_spec as &Json<Box<RawValue>>,
         &writes_to,
     )
     .fetch_one(&mut *txn)

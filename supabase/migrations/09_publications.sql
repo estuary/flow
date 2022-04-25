@@ -8,6 +8,7 @@ create table publications (
   dry_run   bool   not null default false
 );
 alter table publications enable row level security;
+alter publication supabase_realtime add table publications;
 
 -- We don't impose a foreign key on drafts, because a publication
 -- operation
@@ -20,8 +21,16 @@ create policy "Users can insert publications from permitted drafts"
    with check (draft_id in (select id from drafts));
 
 grant select on publications to authenticated;
-grant insert (draft_id, dry_run) on publications to authenticated;
+grant insert (draft_id, dry_run, detail) on publications to authenticated;
 
+comment on table publications is
+  'Publications are operations which test and publish drafts into live specifications';
+comment on column publications.user_id is
+  'User who created the publication';
+comment on column publications.draft_id is
+  'Draft which is published';
+comment on column publications.dry_run is
+  'A dry-run publication will test and verify a draft, but doesn''t publish into live specifications';
 
 -- Published specifications which record the changes
 -- made to specs over time, and power reverts.
@@ -34,11 +43,11 @@ create table publication_specs (
   -- spec_min_patch is a minimal delta of what actually changed,
   -- determined at time of publication by diffing the "before"
   -- and "after" document.
-  spec_min_patch  jsonb not null,
+  spec_before json not null,
   -- spec_rev_patch is like spec_fwd_patch but in reverse.
   -- A revert of a publication can be initialized by creating
   -- a draft having all of its publication_specs.spec_rev_patch
-  spec_rev_patch  jsonb not null
+  spec_after  json not null
 );
 alter table draft_specs enable row level security;
 
@@ -46,6 +55,28 @@ create policy "Users must be authorized to the specification catalog name"
   on publication_specs as permissive
   using (true); -- TODO(johnny) auth on catalog_name.
 grant all on draft_specs to authenticated;
+
+
+comment on table publication_specs is '
+For each publication, publication_specs details the set of catalog specifications
+that changed and their "before" and "after" versions.
+';
+comment on column publication_specs.pub_id is
+  'Publication which published this specification';
+comment on column publication_specs.catalog_name is
+  'Catalog name of this specification';
+comment on column publication_specs.spec_type is
+  'Type of this published catalog specification';
+comment on column publication_specs.spec_before is '
+Former catalog specification which was replaced by this publication.
+If the publication created this specification, this will be
+the JSON `null` value.
+';
+comment on column publication_specs.spec_before is '
+Catalog specification which was published by this publication.
+If the publication deleted this specification, this will be
+the JSON `null` value.
+';
 
 
 -- Live (current) specifications of the catalog.
@@ -58,7 +89,7 @@ create table live_specs (
 
   -- `spec` is the models::${spec_type}Def specification which corresponds to `spec_type`.
   spec_type    catalog_spec_type not null,
-  spec         jsonb,
+  spec         json not null,
   last_pub_id  flowid references publications(id) not null,
 
   -- reads_from and writes_to is the list of collections read
@@ -78,40 +109,45 @@ create table live_specs (
 alter table live_specs enable row level security;
 
 create policy "Users must be authorized to the specification catalog name"
-  on live_specs as restrictive
+  on live_specs as permissive
   using (true); -- TODO(johnny) auth catalog_name.
 grant all on live_specs to authenticated;
+
+comment on table live_specs is
+  'Live (in other words, current) catalog specifications of the platform';
+comment on column live_specs.catalog_name is
+  'Catalog name of this specification';
+comment on column live_specs.spec_type is
+  'Type of this catalog specification';
+comment on column live_specs.spec is
+  'Serialized catalog specification';
+comment on column live_specs.last_pub_id is
+  'Last publication ID which updated this live specification';
+
+comment on column live_specs.reads_from is
+  'Collections which are read by this specification';
+comment on column live_specs.writes_to is
+  'Collections which are written to by this specification';
+
+comment on column live_specs.connector_image_name is
+  'OCI (Docker) connector image name used by this specification';
+comment on column live_specs.connector_image_tag is
+  'OCI (Docker) connector image tag used by this specification';
 
 
 create view draft_specs_ext as
 select
-  draft_specs.*,
+  draft_specs.catalog_name,
+  draft_specs.draft_id,
+  draft_specs.expect_pub_id,
+  draft_specs.spec as draft_spec,
+  draft_specs.spec_type as draft_spec_type,
+  live_specs.last_pub_id,
   live_specs.spec as live_spec,
-  jsonb_merge_patch(
-    coalesce(live_specs.spec, 'null'::jsonb),
-    draft_specs.spec_patch
-  ) as draft_spec,
-  coalesce(
-    jsonb_merge_diff(
-      jsonb_merge_patch(
-        coalesce(live_specs.spec, 'null'::jsonb),
-        draft_specs.spec_patch
-      ),
-      live_specs.spec
-    ),
-    '{}'
-  ) as spec_patch_min
+  live_specs.spec_type as live_spec_type
 from draft_specs
 left outer join live_specs
   on draft_specs.catalog_name = live_specs.catalog_name
 ;
 
 grant select on draft_specs_ext to authenticated;
-
-comment on view draft_specs_ext is 'Extended draft specifications view';
-comment on column draft_specs_ext.live_spec is
-  'Live specification to be updated by this draft';
-comment on column draft_specs_ext.draft_spec is
-  'Fully patched draft specification which would be published by this draft';
-comment on column draft_specs_ext.spec_patch_min is
-  'Minimized effective patch of the live specification contained by this draft specification';

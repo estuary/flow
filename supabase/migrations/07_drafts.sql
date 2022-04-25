@@ -54,15 +54,9 @@ create table draft_specs (
   catalog_name  catalog_name not null,
   primary key (draft_id, catalog_name),
 
-  spec_type     catalog_spec_type not null,
-  -- spec_patch is a partial JSON patch of a models::${spec_type}Def specification,
-  -- which may be patched into a live_specs.spec (which is always a fully-reduced spec).
-  --
-  -- Note this also covers deletion! According to the
-  -- JSON merge patch RFC, deletion is expressed as a `null`
-  -- value within a patch, so a patch consisting only of
-  -- `null` is a semantic deletion of the entire specification.
-  spec_patch    jsonb not null
+  expect_pub_id   flowid default null,
+  spec            json not null,
+  spec_type       catalog_spec_type not null
 );
 alter table draft_specs enable row level security;
 
@@ -74,4 +68,36 @@ create policy "Users must be authorized to the specification catalog name"
   using (true); -- TODO(johnny) auth catalog_name.
 grant all on draft_specs to authenticated;
 
--- TODO - comments
+comment on table draft_specs is
+  'Proposed catalog specifications of a draft';
+comment on column draft_specs.draft_id is
+  'Draft which this specification belongs to';
+comment on column draft_specs.catalog_name is
+  'Catalog name of this specification';
+comment on column draft_specs.spec_type is
+  'Type of this draft catalog specification';
+comment on column draft_specs.spec is '
+Spec is a serialized catalog specification. Its schema depends on its spec_type:
+either CollectionDef, CaptureDef, MaterializationDef, DerivationDef,
+or an array of TestStep from the Flow catalog schema.
+
+Spec may also be the JSON `null` value, in which case the specification will be
+deleted when this draft is published.
+';
+comment on column draft_specs.expect_pub_id is '
+Draft specifications may be drawn from a current live specification,
+and in this case it''s recommended that expect_pub_id is also set to the
+last_pub_id of that inititializing live specification.
+
+Or if there isn''t expected to be a live specification then
+expect_pub_id can be the set to an explicit value of ''00:00:00:00:00:00:00:00''
+to represent that no live specification is expected to exist.
+
+Then when this draft is published, the publication will fail if the now-current
+live specification has a different last_pub_id. This prevents inadvertent errors
+where two users attempt to modify or create a catalog specification at the same time,
+as the second user publication will fail rather than silently overwriting changes
+made by the first user.
+
+When NULL, expect_pub_id has no effect.
+';

@@ -3,7 +3,7 @@ use super::{logs, Handler, Id};
 use anyhow::Context;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::types::Json;
+use sqlx::types::{Json, Uuid};
 use tracing::info;
 
 mod builds;
@@ -23,6 +23,7 @@ pub enum JobStatus {
     Queued,
     BuildFailed,
     TestFailed,
+    PublishFailed,
     Success,
 }
 
@@ -57,9 +58,9 @@ struct Row {
     draft_id: Id,
     dry_run: bool,
     pub_id: Id,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     updated_at: DateTime<Utc>,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
 }
 
 #[async_trait::async_trait]
@@ -90,23 +91,43 @@ impl Handler for PublishHandler {
             Some(row) => row,
         };
 
+        let delete_draft_id = if !row.dry_run {
+            Some(row.draft_id)
+        } else {
+            None
+        };
+
         let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
         sqlx::query!(
             r#"update publications set
-                    job_status = $2::json,
+                    job_status = $2,
                     updated_at = clock_timestamp()
                 where id = $1
                 returning 1 as "must_exist";
             "#,
             id as Id,
-            Json(status) as Json<JobStatus>,
+            Json(&status) as Json<&JobStatus>,
         )
         .fetch_one(&mut txn)
         .await?;
 
         txn.commit().await?;
+
+        // As a separate transaction, delete the draft if it has no draft_specs.
+        // The user could have raced an insertion of a new spec.
+        if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
+            sqlx::query!(
+                r#"
+                delete from drafts where id = $1 and not exists
+                    (select 1 from draft_specs where draft_id = $1)
+                "#,
+                delete_draft_id as Id,
+            )
+            .execute(pg_pool)
+            .await?;
+        }
 
         Ok(std::time::Duration::ZERO)
     }
@@ -126,7 +147,7 @@ impl PublishHandler {
             %row.logs_token,
             %row.updated_at,
             %row.user_id,
-            "processing draft",
+            "processing publication",
         );
 
         // Remove draft errors from a previous publication attempt.
@@ -145,6 +166,7 @@ impl PublishHandler {
             .context("creating savepoint")?;
 
         let spec_rows = specs::resolve_specifications(row.draft_id, row.pub_id, txn).await?;
+        tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
         let mut draft_catalog = models::Catalog::default();
         let mut live_catalog = models::Catalog::default();
@@ -152,9 +174,11 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut live_catalog,
             spec_rows.iter().filter_map(|r| {
-                r.live_spec
-                    .as_ref()
-                    .map(|spec| (r.live_type, r.catalog_name.as_str(), spec.0.as_ref()))
+                if r.live_spec.0.get() == "null" {
+                    None
+                } else {
+                    Some((r.live_type, r.catalog_name.as_str(), r.live_spec.0.as_ref()))
+                }
             }),
         );
         if !errors.is_empty() {
@@ -164,16 +188,23 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut draft_catalog,
             spec_rows.iter().filter_map(|r| {
-                r.draft_spec
-                    .as_ref()
-                    .map(|spec| (r.draft_type, r.catalog_name.as_str(), spec.0.as_ref()))
+                if r.draft_spec.0.get() == "null" {
+                    None
+                } else {
+                    Some((
+                        r.draft_type,
+                        r.catalog_name.as_str(),
+                        r.draft_spec.0.as_ref(),
+                    ))
+                }
             }),
         );
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let errors = specs::validate_transition(&live_catalog, &draft_catalog, &spec_rows);
+        let errors =
+            specs::validate_transition(row.pub_id, &live_catalog, &draft_catalog, &spec_rows);
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
@@ -258,17 +289,23 @@ impl PublishHandler {
                 .execute(&mut *txn)
                 .await
                 .context("rolling back to savepoint")?;
-        } else {
-            builds::deploy_build(
-                &spec_rows,
-                &self.connector_network,
-                &self.flowctl,
-                row.logs_token,
-                &self.logs_tx,
-                row.pub_id,
-            )
-            .await
-            .context("deploying build")?;
+
+            return Ok((row.pub_id, JobStatus::Success));
+        }
+
+        let errors = builds::deploy_build(
+            &spec_rows,
+            &self.connector_network,
+            &self.flowctl,
+            row.logs_token,
+            &self.logs_tx,
+            row.pub_id,
+        )
+        .await
+        .context("deploying build")?;
+
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::PublishFailed, row, txn).await;
         }
 
         Ok((row.pub_id, JobStatus::Success))

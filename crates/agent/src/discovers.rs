@@ -3,7 +3,8 @@ use super::{jobs, logs, Handler, Id};
 use anyhow::Context;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::types::Json;
+use serde_json::value::RawValue;
+use sqlx::types::{Json, Uuid};
 use std::collections::BTreeMap;
 use tracing::{debug, info};
 
@@ -44,14 +45,14 @@ struct Row {
     connector_tag_job_success: bool,
     created_at: DateTime<Utc>,
     draft_id: Id,
-    endpoint_config_json: String,
+    endpoint_config: Json<Box<RawValue>>,
     id: Id,
     image_name: String,
     image_tag: String,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     protocol: String,
     updated_at: DateTime<Utc>,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
 }
 
 #[async_trait::async_trait]
@@ -70,7 +71,7 @@ impl Handler for DiscoverHandler {
                 connector_tags.job_status->>'type' = 'success' as "connector_tag_job_success!",
                 discovers.created_at,
                 discovers.draft_id as "draft_id: Id",
-                discovers.endpoint_config::text as "endpoint_config_json!",
+                discovers.endpoint_config as "endpoint_config: Json<Box<RawValue>>",
                 discovers.id as "id: Id",
                 connectors.image_name,
                 connector_tags.image_tag,
@@ -172,7 +173,7 @@ impl DiscoverHandler {
             "discover",
             &self.logs_tx,
             row.logs_token,
-            row.endpoint_config_json.as_bytes(),
+            row.endpoint_config.0.get().as_bytes(),
             tokio::process::Command::new(&self.flowctl)
                 .arg("api")
                 .arg("discover")
@@ -191,7 +192,7 @@ impl DiscoverHandler {
 
         let catalog = swizzle_response_to_catalog(
             &row.capture_name,
-            &row.endpoint_config_json,
+            &row.endpoint_config.0,
             &row.image_name,
             &row.image_tag,
             &discover.1,
@@ -221,11 +222,11 @@ async fn insert_draft_specs(
                 draft_id,
                 catalog_name,
                 spec_type,
-                spec_patch
+                spec
             ) values ($1, $2, 'capture', $3)
             on conflict (draft_id, catalog_name) do update set
                 spec_type = 'capture',
-                spec_patch = $3
+                spec = $3
             returning 1 as "must_exist";
             "#,
             draft_id as Id,
@@ -241,11 +242,11 @@ async fn insert_draft_specs(
                 draft_id,
                 catalog_name,
                 spec_type,
-                spec_patch
+                spec
             ) values ($1, $2, 'collection', $3)
             on conflict (draft_id, catalog_name) do update set
                 spec_type = 'collection',
-                spec_patch = $3
+                spec = $3
             returning 1 as "must_exist";
             "#,
             draft_id as Id,
@@ -272,7 +273,7 @@ async fn insert_draft_specs(
 // and returns a models::Catalog.
 fn swizzle_response_to_catalog(
     capture_name: &str,
-    endpoint_config_json: &str,
+    endpoint_config: &RawValue,
     image_name: &str,
     image_tag: &str,
     response: &[u8],
@@ -353,12 +354,7 @@ fn swizzle_response_to_catalog(
             bindings,
             endpoint: models::CaptureEndpoint::Connector(models::ConnectorConfig {
                 image: image_composed,
-                // TODO(johnny): This re-orders sops and is WRONG!
-                // Can we make config universally a RawValue?
-                // It will probably require inverting how we do yaml deser,
-                // where we first transcode an entire catalog source file into a
-                // a JSON buffer and *then* parse a models::Catalog using serde_json.
-                config: models::Config::Inline(serde_json::from_str(endpoint_config_json)?),
+                config: endpoint_config.to_owned(),
             }),
             interval: models::CaptureDef::default_interval(),
             shards: Default::default(),

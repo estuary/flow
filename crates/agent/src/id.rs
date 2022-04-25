@@ -6,6 +6,12 @@ use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 8]);
 
+impl Id {
+    pub fn is_zero(&self) -> bool {
+        self.0 == [0u8; 8]
+    }
+}
+
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:016x}", i64::from_be_bytes(self.0))

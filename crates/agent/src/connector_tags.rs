@@ -3,6 +3,8 @@ use super::{jobs, logs, Handler, Id};
 use anyhow::Context;
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use sqlx::types::{Json, Uuid};
 use tracing::info;
 
 /// JobStatus is the possible outcomes of a handled connector tag.
@@ -39,7 +41,7 @@ struct Row {
     id: Id,
     image_name: String,
     image_tag: String,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -72,24 +74,33 @@ impl Handler for TagHandler {
             Some(row) => row,
         };
 
-        let (id, status, doc_url, spec, protocol) = self.process(row).await?;
+        let ProcessedTag {
+            id,
+            status,
+            doc_url,
+            endpoint_spec,
+            protocol,
+            resource_spec,
+        } = self.process(row).await?;
         info!(%id, ?status, "finished");
 
         let r = sqlx::query_unchecked!(
             r#"update connector_tags set
-                    job_status = $2,
-                    updated_at = clock_timestamp(),
-                    -- Remaining fields are null on failure:
-                    documentation_url = $3,
-                    endpoint_spec_schema = $4,
-                    protocol = $5
-                where id = $1;
-                "#,
+                job_status = $2,
+                updated_at = clock_timestamp(),
+                -- Remaining fields are null on failure:
+                documentation_url = $3,
+                endpoint_spec_schema = $4,
+                protocol = $5,
+                resource_spec_schema = $6
+            where id = $1;
+            "#,
             id,
-            sqlx::types::Json(status),
+            Json(status),
             doc_url,
-            spec,
+            Json(endpoint_spec) as Json<Option<Box<RawValue>>>,
             protocol,
+            Json(resource_spec) as Json<Option<Box<RawValue>>>,
         )
         .execute(&mut txn)
         .await?;
@@ -103,18 +114,31 @@ impl Handler for TagHandler {
     }
 }
 
+struct ProcessedTag {
+    id: Id,
+    status: JobStatus,
+    doc_url: Option<String>,
+    endpoint_spec: Option<Box<RawValue>>,
+    protocol: Option<String>,
+    resource_spec: Option<Box<RawValue>>,
+}
+
+impl ProcessedTag {
+    fn failure(id: Id, status: JobStatus) -> Self {
+        Self {
+            id,
+            status,
+            doc_url: None,
+            endpoint_spec: None,
+            protocol: None,
+            resource_spec: None,
+        }
+    }
+}
+
 impl TagHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.id))]
-    async fn process(
-        &mut self,
-        row: Row,
-    ) -> anyhow::Result<(
-        Id,
-        JobStatus,
-        Option<String>,
-        Option<serde_json::Value>,
-        Option<String>,
-    )> {
+    async fn process(&mut self, row: Row) -> anyhow::Result<ProcessedTag> {
         info!(
             %row.image_name,
             %row.created_at,
@@ -137,7 +161,7 @@ impl TagHandler {
         .await?;
 
         if !pull.success() {
-            return Ok((row.id, JobStatus::PullFailed, None, None, None));
+            return Ok(ProcessedTag::failure(row.id, JobStatus::PullFailed));
         }
 
         // Fetch its connector specification.
@@ -156,7 +180,7 @@ impl TagHandler {
         .await?;
 
         if !spec.0.success() {
-            return Ok((row.id, JobStatus::SpecFailed, None, None, None));
+            return Ok(ProcessedTag::failure(row.id, JobStatus::SpecFailed));
         }
 
         /// Spec is the output shape of the `flowctl api spec` command.
@@ -165,22 +189,25 @@ impl TagHandler {
         struct Spec {
             #[serde(rename = "documentationURL")]
             documentation_url: String,
-            endpoint_spec_schema: serde_json::Value,
+            endpoint_spec_schema: Box<RawValue>,
             #[serde(rename = "type")]
             protocol: String,
+            resource_spec_schema: Box<RawValue>,
         }
         let Spec {
             documentation_url,
             endpoint_spec_schema,
             protocol,
+            resource_spec_schema,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
-        return Ok((
-            row.id,
-            JobStatus::Success,
-            Some(documentation_url),
-            Some(endpoint_spec_schema),
-            Some(protocol),
-        ));
+        return Ok(ProcessedTag {
+            id: row.id,
+            status: JobStatus::Success,
+            doc_url: Some(documentation_url),
+            endpoint_spec: Some(endpoint_spec_schema),
+            protocol: Some(protocol),
+            resource_spec: Some(resource_spec_schema),
+        });
     }
 }
