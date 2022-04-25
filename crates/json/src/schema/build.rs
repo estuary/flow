@@ -1,12 +1,21 @@
+use std::iter::FromIterator;
+
 use crate::schema::{
     intern, keywords, types, Annotation, Application, CoreAnnotation, HashedLiteral, Keyword,
     Schema, Validation,
 };
 use crate::{de, NoopWalker, Number};
 use fancy_regex as regex;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde_json as sj;
 use thiserror;
+
+// There is a limit to how many properties can be at each level
+// of the Schema. This limit is worked around by creating chunks of
+// properties that do not exceed the limit and wrapping them with
+// an `allOf` block
+const SCHEMA_PROPERTIES_LIMIT: usize = 64;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -256,12 +265,28 @@ where
             keywords::PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
             keywords::PROPERTIES => match v {
                 sj::Value::Object(m) => {
-                    for (prop, child) in m {
-                        let app = App::Properties {
-                            name: prop.clone(),
-                            name_interned: self.tbl.intern(prop)?,
-                        };
-                        self.add_application(app, child)?;
+                    if m.len() > SCHEMA_PROPERTIES_LIMIT {
+                        let chunks = m.iter().chunks(SCHEMA_PROPERTIES_LIMIT);
+                        for (i, group) in chunks.into_iter().enumerate() {
+                            // Create a new `properties` with $SCHEMA_PROPERTIES_LIMIT or less items
+                            // and add it as part of an `allOf`
+                            let group_children = sj::Value::Object(sj::Map::from_iter([(
+                                "properties".to_string(),
+                                serde_json::Value::Object(sj::Map::from_iter(
+                                    group.map(|(a, b)| (a.to_owned(), b.to_owned())),
+                                )),
+                            )]));
+
+                            self.add_application(App::AllOf { index: i }, &group_children)?;
+                        }
+                    } else {
+                        for (prop, child) in m.iter() {
+                            let app = App::Properties {
+                                name: prop.clone(),
+                                name_interned: self.tbl.intern(prop)?,
+                            };
+                            self.add_application(app, child)?;
+                        }
                     }
                 }
                 _ => return Err(ExpectedObject),
@@ -611,5 +636,63 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
             _ => panic!("unexpected keyword: '{}'", kw),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::iter::FromIterator;
+
+    use super::{super::build::build_schema, super::CoreAnnotation};
+    use crate::schema::{Application::AllOf, Application::Properties, Keyword};
+    use serde_json::Map;
+
+    #[test]
+    fn test_properties_64() {
+        let sixty_four_properties =
+            (0..64).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
+
+        let schema = serde_json::Value::Object(Map::from_iter([
+            (
+                "type".to_string(),
+                serde_json::Value::String("object".to_string()),
+            ),
+            (
+                "properties".to_string(),
+                serde_json::Value::Object(Map::from_iter(sixty_four_properties)),
+            ),
+        ]));
+
+        let curi = url::Url::parse("http://example/schema").unwrap();
+        let result = build_schema::<CoreAnnotation>(curi, &schema);
+
+        assert!(result.is_ok());
+        let kw = result.unwrap().kw;
+        assert!(matches!(kw[0], Keyword::Application(Properties { .. }, _)))
+    }
+
+    #[test]
+    fn test_properties_more_than_64() {
+        let sixty_four_properties =
+            (0..65).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
+
+        let schema = serde_json::Value::Object(Map::from_iter([
+            (
+                "type".to_string(),
+                serde_json::Value::String("object".to_string()),
+            ),
+            (
+                "properties".to_string(),
+                serde_json::Value::Object(Map::from_iter(sixty_four_properties)),
+            ),
+        ]));
+
+        let curi = url::Url::parse("http://example/schema").unwrap();
+        let result = build_schema::<CoreAnnotation>(curi, &schema);
+
+        assert!(result.is_ok());
+        let kw = result.unwrap().kw;
+        assert!(matches!(kw[0], Keyword::Application(AllOf { index: 0 }, _)));
+        assert!(matches!(kw[1], Keyword::Application(AllOf { index: 1 }, _)));
     }
 }
