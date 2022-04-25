@@ -3,6 +3,7 @@
 create table connectors (
   like internal._model including all,
 
+  external_url      text not null,
   image_name        text unique not null,
   open_graph        jsonb_obj
     generated always as (internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)) stored,
@@ -19,12 +20,14 @@ Connectors are Docker / OCI images which implement a standard protocol,
 and allow Flow to interface with an external system for the capture
 or materialization of data.
 ';
+comment on column connectors.external_url is
+  'External URL which provides more information about the endpoint';
 comment on column connectors.image_name is
   'Name of the connector''s container (Docker) image, for example "ghcr.io/estuary/source-postgres"';
 comment on column connectors.open_graph is
-  'Open-graph metadata for the connector, such as title, description, & image';
+  'Open-graph metadata for the connector, such as title, description, and image';
 comment on column connectors.open_graph_raw is
-  'Open-graph metadata as returned from open_graph->>''url''';
+  'Open-graph metadata as returned by the external_url';
 comment on column connectors.open_graph_patch is
   'Patches to open-graph metadata, as a JSON merge patch';
 
@@ -81,7 +84,7 @@ create table connector_tags (
   endpoint_spec_schema  json_obj, -- Job output.
   image_tag             text not null,
   protocol              text,     -- Job output.
-  resource_spec_schema  json_obj, -- Job output,
+  resource_spec_schema  json_obj, -- Job output.
   --
   constraint "image_tag must start with : (as in :latest) or @sha256:<hash>"
     check (image_tag like ':%' or image_tag like '@sha256:')

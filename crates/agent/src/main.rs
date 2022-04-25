@@ -27,9 +27,9 @@ struct Args {
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "host")]
     connector_network: String,
-    /// Path to the `flowctl` binary.
-    #[clap(long, default_value = "flowctl")]
-    flowctl: String,
+    /// Path to binaries like `flowctl`.
+    #[clap(long = "bin-dir")]
+    bindir: String,
 }
 
 #[tokio::main]
@@ -72,18 +72,18 @@ async fn main() -> Result<(), anyhow::Error> {
         vec![
             Box::new(agent::PublishHandler::new(
                 &args.connector_network,
-                &args.flowctl,
+                &args.bindir,
                 &logs_tx,
                 &args.builds_root,
             )),
             Box::new(agent::TagHandler::new(
                 &args.connector_network,
-                &args.flowctl,
+                &args.bindir,
                 &logs_tx,
             )),
             Box::new(agent::DiscoverHandler::new(
                 &args.connector_network,
-                &args.flowctl,
+                &args.bindir,
                 &logs_tx,
             )),
         ],

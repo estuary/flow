@@ -11,7 +11,7 @@ pub async fn build_catalog(
     builds_root: &url::Url,
     catalog: &models::Catalog,
     connector_network: &str,
-    flowctl: &str,
+    bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
@@ -36,7 +36,7 @@ pub async fn build_catalog(
         "build",
         logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("build")
             .arg("--build-id")
@@ -102,7 +102,7 @@ pub async fn build_catalog(
 
 pub async fn data_plane(
     connector_network: &str,
-    flowctl: &str,
+    bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     tmpdir: &path::Path,
@@ -114,7 +114,7 @@ pub async fn data_plane(
         "temp-data-plane",
         logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("temp-data-plane")
             .arg("--network")
             .arg(connector_network)
@@ -137,7 +137,7 @@ pub async fn data_plane(
 
 pub async fn test_catalog(
     connector_network: &str,
-    flowctl: &str,
+    bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
@@ -160,7 +160,7 @@ pub async fn test_catalog(
         "setup",
         &logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("activate")
             .arg("--all-derivations")
@@ -191,7 +191,7 @@ pub async fn test_catalog(
         "test",
         &logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("test")
             .arg("--build-id")
@@ -218,7 +218,7 @@ pub async fn test_catalog(
         "cleanup",
         logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("delete")
             .arg("--all-derivations")
@@ -248,7 +248,7 @@ pub async fn test_catalog(
 pub async fn deploy_build(
     spec_rows: &[SpecRow],
     connector_network: &str,
-    flowctl: &str,
+    bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
@@ -262,7 +262,7 @@ pub async fn deploy_build(
         &logs_tx,
         logs_token,
         tokio::process::Command::new("echo")
-            .arg(flowctl)
+            .arg(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("activate")
             .arg("--build-id")
@@ -295,7 +295,7 @@ pub async fn deploy_build(
         &logs_tx,
         logs_token,
         tokio::process::Command::new("echo")
-            .arg(flowctl)
+            .arg(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("delete")
             .arg("--build-id")

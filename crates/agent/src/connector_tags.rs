@@ -14,21 +14,22 @@ pub enum JobStatus {
     Queued,
     PullFailed,
     SpecFailed,
+    OpenGraphFailed { error: String },
     Success,
 }
 
 /// A TagHandler is a Handler which evaluates tagged connector images.
 pub struct TagHandler {
     connector_network: String,
-    flowctl: String,
+    bindir: String,
     logs_tx: logs::Tx,
 }
 
 impl TagHandler {
-    pub fn new(connector_network: &str, flowctl: &str, logs_tx: &logs::Tx) -> Self {
+    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx) -> Self {
         Self {
             connector_network: connector_network.to_string(),
-            flowctl: flowctl.to_string(),
+            bindir: bindir.to_string(),
             logs_tx: logs_tx.clone(),
         }
     }
@@ -37,11 +38,13 @@ impl TagHandler {
 // Row is the dequeued task shape of a tag connector operation.
 #[derive(Debug)]
 struct Row {
+    connector_id: Id,
     created_at: DateTime<Utc>,
-    id: Id,
+    external_url: String,
     image_name: String,
     image_tag: String,
     logs_token: Uuid,
+    tag_id: Id,
     updated_at: DateTime<Utc>,
 }
 
@@ -53,9 +56,11 @@ impl Handler for TagHandler {
         let row: Row = match sqlx::query_as!(
             Row,
             r#"select
+                c.id as "connector_id: Id",
+                c.external_url,
                 c.image_name,
                 t.created_at,
-                t.id as "id: Id",
+                t.id as "tag_id: Id",
                 t.image_tag,
                 t.logs_token,
                 t.updated_at
@@ -74,71 +79,35 @@ impl Handler for TagHandler {
             Some(row) => row,
         };
 
-        let ProcessedTag {
-            id,
-            status,
-            doc_url,
-            endpoint_spec,
-            protocol,
-            resource_spec,
-        } = self.process(row).await?;
+        let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
-        let r = sqlx::query_unchecked!(
+        sqlx::query_unchecked!(
             r#"update connector_tags set
                 job_status = $2,
-                updated_at = clock_timestamp(),
-                -- Remaining fields are null on failure:
-                documentation_url = $3,
-                endpoint_spec_schema = $4,
-                protocol = $5,
-                resource_spec_schema = $6
-            where id = $1;
+                updated_at = clock_timestamp()
+            where id = $1
+            returning 1 as "must_exist";
             "#,
             id,
             Json(status),
-            doc_url,
-            Json(endpoint_spec) as Json<Option<Box<RawValue>>>,
-            protocol,
-            Json(resource_spec) as Json<Option<Box<RawValue>>>,
         )
-        .execute(&mut txn)
+        .fetch_one(&mut txn)
         .await?;
 
-        if r.rows_affected() != 1 {
-            anyhow::bail!("rows_affected is {}, not one", r.rows_affected())
-        }
         txn.commit().await?;
 
         Ok(std::time::Duration::ZERO)
     }
 }
 
-struct ProcessedTag {
-    id: Id,
-    status: JobStatus,
-    doc_url: Option<String>,
-    endpoint_spec: Option<Box<RawValue>>,
-    protocol: Option<String>,
-    resource_spec: Option<Box<RawValue>>,
-}
-
-impl ProcessedTag {
-    fn failure(id: Id, status: JobStatus) -> Self {
-        Self {
-            id,
-            status,
-            doc_url: None,
-            endpoint_spec: None,
-            protocol: None,
-            resource_spec: None,
-        }
-    }
-}
-
 impl TagHandler {
-    #[tracing::instrument(err, skip_all, fields(id=?row.id))]
-    async fn process(&mut self, row: Row) -> anyhow::Result<ProcessedTag> {
+    #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
+    async fn process(
+        &mut self,
+        row: Row,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> anyhow::Result<(Id, JobStatus)> {
         info!(
             %row.image_name,
             %row.created_at,
@@ -161,7 +130,7 @@ impl TagHandler {
         .await?;
 
         if !pull.success() {
-            return Ok(ProcessedTag::failure(row.id, JobStatus::PullFailed));
+            return Ok((row.tag_id, JobStatus::PullFailed));
         }
 
         // Fetch its connector specification.
@@ -169,7 +138,7 @@ impl TagHandler {
             "spec",
             &self.logs_tx,
             row.logs_token,
-            tokio::process::Command::new(&self.flowctl)
+            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("spec")
                 .arg("--image")
@@ -180,8 +149,39 @@ impl TagHandler {
         .await?;
 
         if !spec.0.success() {
-            return Ok(ProcessedTag::failure(row.id, JobStatus::SpecFailed));
+            return Ok((row.tag_id, JobStatus::SpecFailed));
         }
+
+        let fetch_open_graph = tokio::process::Command::new(format!("{}/fetch-open-graph", &self.bindir))
+            .kill_on_drop(true)
+            .arg("-url")
+            .arg(&row.external_url)
+            .output()
+            .await?;
+
+        if !fetch_open_graph.status.success() {
+            return Ok((
+                row.tag_id,
+                JobStatus::OpenGraphFailed {
+                    error: String::from_utf8_lossy(&fetch_open_graph.stderr).into(),
+                },
+            ));
+        }
+        let open_graph_raw: Box<RawValue> = serde_json::from_slice(&fetch_open_graph.stdout)
+            .context("parsing open graph response")?;
+
+        sqlx::query_unchecked!(
+            r#"update connectors set
+                open_graph_raw = $2,
+                updated_at = clock_timestamp()
+            where id = $1
+            returning 1 as "must_exist";
+            "#,
+            row.connector_id,
+            Json(open_graph_raw) as Json<Box<RawValue>>,
+        )
+        .fetch_one(&mut *txn)
+        .await?;
 
         /// Spec is the output shape of the `flowctl api spec` command.
         #[derive(Deserialize)]
@@ -201,13 +201,24 @@ impl TagHandler {
             resource_spec_schema,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
-        return Ok(ProcessedTag {
-            id: row.id,
-            status: JobStatus::Success,
-            doc_url: Some(documentation_url),
-            endpoint_spec: Some(endpoint_spec_schema),
-            protocol: Some(protocol),
-            resource_spec: Some(resource_spec_schema),
-        });
+        sqlx::query_unchecked!(
+            r#"update connector_tags set
+                documentation_url = $2,
+                endpoint_spec_schema = $3,
+                protocol = $4,
+                resource_spec_schema = $5
+            where id = $1
+            returning 1 as "must_exist";
+            "#,
+            row.tag_id,
+            documentation_url,
+            Json(endpoint_spec_schema) as Json<Box<RawValue>>,
+            protocol,
+            Json(resource_spec_schema) as Json<Box<RawValue>>,
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+
+        return Ok((row.tag_id, JobStatus::Success));
     }
 }

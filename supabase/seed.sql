@@ -14,23 +14,26 @@ declare
   connector_id flowid;
 begin
 
-  insert into connectors (image_name, detail) values (
+  insert into connectors (image_name, detail, external_url) values (
     'ghcr.io/estuary/source-hello-world',
-    'A flood of greetings'
+    'A flood of greetings',
+    'https://estuary.dev'
   )
   returning id strict into connector_id;
   insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
-  insert into connectors (image_name, detail) values (
+  insert into connectors (image_name, detail, external_url) values (
     'ghcr.io/estuary/source-postgres',
-    'Capture PostgreSQL tables into collections'
+    'Capture PostgreSQL tables into collections',
+    'https://postgresql.org'
   )
   returning id strict into connector_id;
   insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
-  insert into connectors (image_name, detail) values (
+  insert into connectors (image_name, detail, external_url) values (
     'ghcr.io/estuary/materialize-postgres',
-    'Materialize collections into PostgreSQL'
+    'Materialize collections into PostgreSQL',
+    'https://postgresql.org'
   )
   returning id strict into connector_id;
   insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
