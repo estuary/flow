@@ -1681,6 +1681,7 @@ dependencies = [
 name = "json"
 version = "0.0.0"
 dependencies = [
+ "bit-set",
  "bitvec",
  "criterion",
  "fancy-regex",
