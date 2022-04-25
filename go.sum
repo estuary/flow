@@ -499,14 +499,6 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.0 h1:2aQv6F436YnN7I4VbI8PPYrBhu+SmrTaADcf8Mi/
 go.etcd.io/etcd/client/pkg/v3 v3.5.0/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3YSwc9/Ac1g=
 go.etcd.io/etcd/client/v3 v3.5.0 h1:62Eh0XOro+rDwkrypAGDfgmNh5Joq+z+W9HZdlXMzek=
 go.etcd.io/etcd/client/v3 v3.5.0/go.mod h1:AIKXXVX/DQXtfTEqBryiLTUXwON+GuvO6Z7lLS/oTh0=
-go.gazette.dev/core v0.89.1-0.20220212151322-e7c18c1b78cc h1:GyR68JB114+qvRCqqD4Isnm8wedXq3DTmYkdr9x+9g8=
-go.gazette.dev/core v0.89.1-0.20220212151322-e7c18c1b78cc/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
-go.gazette.dev/core v0.89.1-0.20220418210632-87abd3ec00c7 h1:R5KScja+3FLSeTYdOZXQF9nlAAr2lOi0esCf9g08TtI=
-go.gazette.dev/core v0.89.1-0.20220418210632-87abd3ec00c7/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
-go.gazette.dev/core v0.89.1-0.20220418223204-73b0642a3b26 h1:fnynjyNGqGelyLpDi7KAr6qstwEddDDyTV8abYGLd2c=
-go.gazette.dev/core v0.89.1-0.20220418223204-73b0642a3b26/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
-go.gazette.dev/core v0.89.1-0.20220421045821-1a5ca64a877a h1:0wEFbgbWsl4IVarPPD1XCeB5zSJrtfzymdWpvSFAueg=
-go.gazette.dev/core v0.89.1-0.20220421045821-1a5ca64a877a/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
 go.gazette.dev/core v0.89.1-0.20220422210424-fa37e21e0464 h1:AgpjL3XZc5huCsPPQ7GA2vxmesZcWffInWYkQyahGLo=
 go.gazette.dev/core v0.89.1-0.20220422210424-fa37e21e0464/go.mod h1:c/5g5752X3AH+g1ItiQaq9x+gmCFRmdTCFSkp5hypVQ=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=

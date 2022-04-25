@@ -17,6 +17,7 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -332,11 +333,20 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		statsPerBinding = append(statsPerBinding, stats)
 	}
 
-	// Publish a final message with statistics about the capture transaction we'll soon finish
+	// Publish a final message with statistics about the capture transaction we'll soon finish, but
+	// only if we've actually published any documents. It's possible for Capture transactions to
+	// update the driver checkpoint without actually emitting any new documents. We choose not to
+	// publish stats in that case in order to reduce noise in the stats collections, and simplify
+	// working with them (readers of stats can safely assume that there will be capture stats when
+	// kind = capture).
 	var statsEvent = c.captureStats(statsPerBinding)
-	var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
-	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
-		return fmt.Errorf("publishing stats document: %w", err)
+	if len(statsEvent.Capture) > 0 {
+		var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
+		if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
+			return fmt.Errorf("publishing stats document: %w", err)
+		}
+	} else {
+		c.Log(logrus.DebugLevel, nil, "capture transaction committing updating driver checkpoint only")
 	}
 
 	return nil
@@ -356,6 +366,13 @@ func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEven
 		captureStats[name] = CaptureBindingStats{
 			Right: prevStats.Right.with(bindingStats.Right),
 			Out:   prevStats.Out.with(bindingStats.Out),
+		}
+	}
+	// Prune stats for any collections that didn't have any data. This allows us to check
+	// len(statsEvent.Capture) to see if the event contains any non-zero capture stats.
+	for k, v := range captureStats {
+		if v.Right.Docs == 0 {
+			delete(captureStats, k)
 		}
 	}
 	var event = c.NewStatsEvent()
