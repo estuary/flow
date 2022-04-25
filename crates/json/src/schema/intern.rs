@@ -33,10 +33,7 @@ impl Table {
     /// of the Set type).
     pub fn intern(&mut self, s: &str) -> Result<&Set, Error> {
         let l = self.m.len();
-        if l == MAX_TABLE_SIZE {
-            return Err(Error::Overflow);
-        }
-        let mut id = BitSet::new();
+        let mut id = BitSet::with_capacity(DEFAULT_BITSET_SIZE);
         id.insert(l);
         Ok(self.m.entry(s.to_owned()).or_insert(id.clone()))
     }
@@ -92,4 +89,4 @@ mod test {
     }
 }
 
-const MAX_TABLE_SIZE: usize = 256;
+pub const DEFAULT_BITSET_SIZE: usize = 64;
