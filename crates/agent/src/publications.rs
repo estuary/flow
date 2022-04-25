@@ -30,7 +30,7 @@ pub enum JobStatus {
 /// A PublishHandler is a Handler which publishes catalog specifications.
 pub struct PublishHandler {
     connector_network: String,
-    flowctl: String,
+    bindir: String,
     logs_tx: logs::Tx,
     root: url::Url,
 }
@@ -38,13 +38,13 @@ pub struct PublishHandler {
 impl PublishHandler {
     pub fn new(
         connector_network: &str,
-        flowctl: &str,
+        bindir: &str,
         logs_tx: &logs::Tx,
         root: &url::Url,
     ) -> Self {
         Self {
             connector_network: connector_network.to_string(),
-            flowctl: flowctl.to_string(),
+            bindir: bindir.to_string(),
             logs_tx: logs_tx.clone(),
             root: root.clone(),
         }
@@ -243,7 +243,7 @@ impl PublishHandler {
             &self.root,
             &draft_catalog,
             &self.connector_network,
-            &self.flowctl,
+            &self.bindir,
             row.logs_token,
             &self.logs_tx,
             row.pub_id,
@@ -256,14 +256,14 @@ impl PublishHandler {
 
         let data_plane_job = builds::data_plane(
             &self.connector_network,
-            &self.flowctl,
+            &self.bindir,
             row.logs_token,
             &self.logs_tx,
             tmpdir,
         );
         let test_jobs = builds::test_catalog(
             &self.connector_network,
-            &self.flowctl,
+            &self.bindir,
             row.logs_token,
             &self.logs_tx,
             row.pub_id,
@@ -296,7 +296,7 @@ impl PublishHandler {
         let errors = builds::deploy_build(
             &spec_rows,
             &self.connector_network,
-            &self.flowctl,
+            &self.bindir,
             row.logs_token,
             &self.logs_tx,
             row.pub_id,

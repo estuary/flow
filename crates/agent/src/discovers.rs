@@ -23,15 +23,15 @@ pub enum JobStatus {
 /// A DiscoverHandler is a Handler which performs discovery operations.
 pub struct DiscoverHandler {
     connector_network: String,
-    flowctl: String,
+    bindir: String,
     logs_tx: logs::Tx,
 }
 
 impl DiscoverHandler {
-    pub fn new(connector_network: &str, flowctl: &str, logs_tx: &logs::Tx) -> Self {
+    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx) -> Self {
         Self {
             connector_network: connector_network.to_string(),
-            flowctl: flowctl.to_string(),
+            bindir: bindir.to_string(),
             logs_tx: logs_tx.clone(),
         }
     }
@@ -174,7 +174,7 @@ impl DiscoverHandler {
             &self.logs_tx,
             row.logs_token,
             row.endpoint_config.0.get().as_bytes(),
-            tokio::process::Command::new(&self.flowctl)
+            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("discover")
                 .arg("--config=/dev/stdin")
