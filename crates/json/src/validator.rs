@@ -1,4 +1,3 @@
-use crate::schema::intern::DEFAULT_BITSET_SIZE;
 use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use bit_set::BitSet;
@@ -605,7 +604,7 @@ where
             invalid: false,
             outcomes: self.outcomes_pool.pop().unwrap_or_else(Vec::new),
             outcomes_unevaluated: self.outcomes_uneval_pool.pop().unwrap_or_else(Vec::new),
-            seen_interned: BitSet::with_capacity(DEFAULT_BITSET_SIZE),
+            seen_interned: BitSet::new(),
             valid_if: None,
             valid_any_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),
             valid_one_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),

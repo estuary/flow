@@ -62,8 +62,6 @@ pub enum Error {
 }
 use Error::*;
 
-use super::intern::DEFAULT_BITSET_SIZE;
-
 pub trait AnnotationBuilder: Annotation {
     /// uses_keyword returns true if the builder knows how to extract
     /// an Annotation from the given keyword.
@@ -557,7 +555,7 @@ fn extract_intern_set(
 ) -> Result<(intern::Set, Vec<String>), Error> {
     match v {
         sj::Value::Array(vec) => {
-            let mut set: intern::Set = BitSet::with_capacity(DEFAULT_BITSET_SIZE);
+            let mut set: intern::Set = BitSet::new();
             let mut props = Vec::new();
 
             for item in vec {
