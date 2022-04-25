@@ -141,6 +141,7 @@ fn test_validate_then_reduce() {
             .unwrap()
             .ok()
             .unwrap();
+
         let reduced = reduce::reduce(lhs, rhs, true).unwrap();
         assert_eq!(&reduced, &expect);
         lhs = Some(reduced);

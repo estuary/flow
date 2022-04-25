@@ -75,4 +75,4 @@ mod test {
     }
 }
 
-const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;
+pub const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;
