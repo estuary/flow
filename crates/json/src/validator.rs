@@ -1,5 +1,6 @@
 use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
+use bit_set::BitSet;
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
 
@@ -297,7 +298,7 @@ where
             let mut evaluated = false;
 
             let interned = scope.schema.tbl.lookup(loc.name);
-            scope.seen_interned |= interned;
+            scope.seen_interned.union_with(&interned);
 
             for kw in &scope.schema.kw {
                 let (app, sub) = match kw {
@@ -402,14 +403,21 @@ where
                 Required {
                     props_interned: set,
                     ..
-                } => *set & scope.seen_interned == *set,
+                } => set.intersection(&scope.seen_interned).collect::<BitSet>() == *set,
                 MinProperties(bound) => num_properties >= *bound,
                 MaxProperties(bound) => num_properties <= *bound,
                 DependentRequired {
                     if_interned: if_,
                     then_interned: then_,
                     ..
-                } => (scope.seen_interned & *if_ == 0) || (scope.seen_interned & *then_ == *then_),
+                } => {
+                    (scope
+                        .seen_interned
+                        .intersection(if_)
+                        .collect::<BitSet>()
+                        .is_empty())
+                        || (scope.seen_interned.intersection(then_).collect::<BitSet>() == *then_)
+                }
                 _ => true,
             }
         });
@@ -596,7 +604,7 @@ where
             invalid: false,
             outcomes: self.outcomes_pool.pop().unwrap_or_else(Vec::new),
             outcomes_unevaluated: self.outcomes_uneval_pool.pop().unwrap_or_else(Vec::new),
-            seen_interned: 0 as intern::Set,
+            seen_interned: BitSet::new(),
             valid_if: None,
             valid_any_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),
             valid_one_of: self.bits_pool.pop().unwrap_or_else(BitVec::new),
@@ -817,7 +825,11 @@ where
                 _ => Ignore,
             },
             App::DependentSchema { if_interned: i, .. } => {
-                if (*i & parent.seen_interned) != 0 {
+                if !i
+                    .intersection(&parent.seen_interned)
+                    .collect::<BitSet>()
+                    .is_empty()
+                {
                     RequiredInPlace
                 } else {
                     Ignore

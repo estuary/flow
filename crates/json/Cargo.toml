@@ -16,6 +16,7 @@ serde_json = "*"
 thiserror = "*"
 tracing = "*"
 url = {version = "*", features = ["serde"]}
+bit-set = "*"
 
 [dev-dependencies]
 criterion = "*"
