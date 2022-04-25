@@ -19,10 +19,6 @@ implied length, with bytes optionally separated by any arrangement
 of ":" or "-".
 ';
 
-create schema internal;
-comment on schema internal is
-  'Internal schema used for types, tables, and procedures we don''t expose in our API';
-
 create sequence internal.shard_0_id_sequence;
 
 create function internal.id_generator()
@@ -97,6 +93,9 @@ comment on column internal._model.updated_at is
   'Time at which the record was last updated';
 
 -- _model_async is a model for other created tables that imply server-side operations.
+--
+-- NOTE(johnny): Also add async tables to the `supabase_realtime` publication:
+--   alter publication supabase_realtime add table my_async_table;
 create table internal._model_async (
   like internal._model including all,
 

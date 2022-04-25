@@ -1,5 +1,6 @@
 use super::logs;
 use futures::TryFutureExt;
+use sqlx::types::Uuid;
 use tokio::io::AsyncRead;
 use tracing::debug;
 
@@ -40,7 +41,7 @@ impl Error {
 pub async fn run(
     name: &str,
     logs_tx: &logs::Tx,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     cmd: &mut tokio::process::Command,
 ) -> Result<std::process::ExitStatus, Error> {
     let child = spawn(name, cmd)?;
@@ -58,7 +59,7 @@ pub async fn run(
 pub async fn run_with_output(
     name: &str,
     logs_tx: &logs::Tx,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     cmd: &mut tokio::process::Command,
 ) -> Result<(std::process::ExitStatus, Vec<u8>), Error> {
     let mut child = spawn(name, cmd)?;
@@ -79,7 +80,7 @@ pub async fn run_with_output(
 pub async fn run_with_input_output<I>(
     name: &str,
     logs_tx: &logs::Tx,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     stdin: I,
     cmd: &mut tokio::process::Command,
 ) -> Result<(std::process::ExitStatus, Vec<u8>), Error>
@@ -128,7 +129,7 @@ pub fn spawn(
 pub async fn wait<I>(
     name: &str,
     logs_tx: &logs::Tx,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     mut stdin: I,
     mut child: tokio::process::Child,
 ) -> Result<std::process::ExitStatus, Error>

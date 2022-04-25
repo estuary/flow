@@ -57,20 +57,20 @@ begin
   loop
 
     return query select is(
-      jsonb_merge_patch(test_case.orig, test_case.patch), test_case.result,
+      internal.jsonb_merge_patch(test_case.orig, test_case.patch), test_case.result,
       format('merge orig <- patch is result: %s', row_to_json(test_case)));
 
-    fwd_patch = jsonb_merge_diff(test_case.result, test_case.orig);
-    rev_patch = jsonb_merge_diff(test_case.orig, test_case.result);
+    fwd_patch = internal.jsonb_merge_diff(test_case.result, test_case.orig);
+    rev_patch = internal.jsonb_merge_diff(test_case.orig, test_case.result);
 
     return query select is(fwd_patch, test_case.patch,
         format('diff orig <- result is patch: %s', row_to_json(test_case)));
 
     return query select is(
-      jsonb_merge_patch(test_case.orig, fwd_patch), test_case.result,
+      internal.jsonb_merge_patch(test_case.orig, fwd_patch), test_case.result,
         format('round-trip of fwd_patch: %s', row_to_json(test_case)));
     return query select is(
-      jsonb_merge_patch(test_case.result, rev_patch), test_case.orig,
+      internal.jsonb_merge_patch(test_case.result, rev_patch), test_case.orig,
         format('round-trip of rev_patch: %s', row_to_json(test_case)));
 
   end loop;
@@ -85,7 +85,7 @@ begin
     ) as t(orig, patch, result)
   loop
     return query select is(
-      jsonb_merge_patch(test_case.orig, test_case.patch), test_case.result,
+      internal.jsonb_merge_patch(test_case.orig, test_case.patch), test_case.result,
       format('merge orig <- patch is result: %s', row_to_json(test_case)));
   end loop;
 
@@ -97,13 +97,13 @@ create function tests.test_strip_json_null()
 returns setof text as $$
 begin
 
-  return query select is(jsonb_strip_nested_null('null'), 'null');
-  return query select is(jsonb_strip_nested_null('42'), '42');
-  return query select is(jsonb_strip_nested_null('[42, null, true]'), '[42, null, true]');
+  return query select is(jsonb_strip_nulls('null'), 'null');
+  return query select is(jsonb_strip_nulls('42'), '42');
+  return query select is(jsonb_strip_nulls('[42, null, true]'), '[42, null, true]');
 
-  return query select is(jsonb_strip_nested_null('{"a":1,"b":null,"c":false}'),
+  return query select is(jsonb_strip_nulls('{"a":1,"b":null,"c":false}'),
     '{"a":1,"c":false}');
-  return query select is(jsonb_strip_nested_null('{"a":1,"b":{"c":{"d":null}}}'),
+  return query select is(jsonb_strip_nulls('{"a":1,"b":{"c":{"d":null}}}'),
     '{"a":1,"b":{"c":{}}}');
 
 end;

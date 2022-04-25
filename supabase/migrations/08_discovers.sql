@@ -9,6 +9,7 @@ create table discovers (
   endpoint_config   json_obj not null
 );
 alter table discovers enable row level security;
+alter publication supabase_realtime add table discovers;
 
 create policy "Users can access discovery operations of their drafts"
   on discovers as permissive

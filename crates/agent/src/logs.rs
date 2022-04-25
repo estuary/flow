@@ -1,3 +1,4 @@
+use sqlx::types::Uuid;
 use tokio::io::AsyncBufReadExt;
 use tracing::{debug, trace};
 
@@ -5,7 +6,7 @@ use tracing::{debug, trace};
 #[derive(Debug)]
 pub struct Line {
     // Token which identifies the line's log set.
-    token: uuid::Uuid,
+    token: Uuid,
     // Stream of this logged line.
     stream: String,
     // Contents of the line.
@@ -21,7 +22,7 @@ pub type Tx = tokio::sync::mpsc::Sender<Line>;
 pub async fn capture_lines<R>(
     tx: Tx,
     stream: String,
-    token: uuid::Uuid,
+    token: Uuid,
     reader: R,
 ) -> Result<(), std::io::Error>
 where

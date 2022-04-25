@@ -2,6 +2,7 @@ use super::{specs::SpecRow, Error};
 use crate::{jobs, logs, Id};
 
 use anyhow::Context;
+use sqlx::types::Uuid;
 use std::io::Write;
 use std::path;
 use tables::SqlTableObj;
@@ -11,7 +12,7 @@ pub async fn build_catalog(
     catalog: &models::Catalog,
     connector_network: &str,
     flowctl: &str,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
     tmpdir: &path::Path,
@@ -102,7 +103,7 @@ pub async fn build_catalog(
 pub async fn data_plane(
     connector_network: &str,
     flowctl: &str,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     logs_tx: &logs::Tx,
     tmpdir: &path::Path,
 ) -> anyhow::Result<()> {
@@ -137,7 +138,7 @@ pub async fn data_plane(
 pub async fn test_catalog(
     connector_network: &str,
     flowctl: &str,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
     tmpdir: &path::Path,
@@ -179,7 +180,7 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test setup failed (placeholder error)".to_string(),
+            detail: "test setup failed".to_string(),
             ..Default::default()
         });
         return Ok(errors);
@@ -207,7 +208,7 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more test cases failed (placeholder error)".to_string(),
+            detail: "one or more test cases failed".to_string(),
             ..Default::default()
         });
     }
@@ -236,7 +237,7 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test cleanup failed (placeholder error)".to_string(),
+            detail: "test cleanup failed".to_string(),
             ..Default::default()
         });
     }
@@ -248,7 +249,7 @@ pub async fn deploy_build(
     spec_rows: &[SpecRow],
     connector_network: &str,
     flowctl: &str,
-    logs_token: uuid::Uuid,
+    logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
 ) -> anyhow::Result<Vec<Error>> {
@@ -260,7 +261,8 @@ pub async fn deploy_build(
         "activate",
         &logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new("echo")
+            .arg(flowctl)
             .arg("api")
             .arg("activate")
             .arg("--build-id")
@@ -268,10 +270,10 @@ pub async fn deploy_build(
             .arg("--network")
             .arg(connector_network)
             .args(spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.is_some() {
-                    Some(format!("--name={}", r.catalog_name))
-                } else {
+                if r.draft_spec.get() == "null" {
                     None
+                } else {
+                    Some(format!("--name={}", r.catalog_name))
                 }
             }))
             .arg("--log.level=info")
@@ -283,16 +285,17 @@ pub async fn deploy_build(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more activations failed (placeholder error)".to_string(),
+            detail: "one or more activations failed".to_string(),
             ..Default::default()
         });
     }
 
     let job = jobs::run(
-        "activate",
+        "delete",
         &logs_tx,
         logs_token,
-        tokio::process::Command::new(flowctl)
+        tokio::process::Command::new("echo")
+            .arg(flowctl)
             .arg("api")
             .arg("delete")
             .arg("--build-id")
@@ -300,7 +303,7 @@ pub async fn deploy_build(
             .arg("--network")
             .arg(connector_network)
             .args(spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.is_none() && r.live_spec.is_some() {
+                if r.draft_spec.get() == "null" && r.live_spec.get() != "null" {
                     Some(format!("--name={}", r.catalog_name))
                 } else {
                     None
@@ -315,7 +318,7 @@ pub async fn deploy_build(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more deletions failed (placeholder error)".to_string(),
+            detail: "one or more deletions failed".to_string(),
             ..Default::default()
         });
     }

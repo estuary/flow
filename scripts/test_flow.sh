@@ -13,7 +13,6 @@ set -o nounset
 #APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco
 
 # Configuration for local development:
-
 API=http://localhost:5431/rest/v1
 APIKEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.625_WdcF3KHqz5amU0x2X5WWHP-OEs_4qj0ssLNHzTs
 
@@ -111,42 +110,19 @@ DISCOVERY=$(curl "${args[@]}" \
 poll_while_queued "${API}/discovers?id=eq.${DISCOVERY}"
 
 # Retrieve the discovered specification, and pretty print it.
-curl "${args[@]}" "${API}/draft_specs?draft_id=eq.${DRAFT}&select=catalog_name,spec_type,spec_patch" | jq '.'
+curl "${args[@]}" "${API}/draft_specs?draft_id=eq.${DRAFT}&select=catalog_name,spec_type,spec" | jq '.'
 
 # Create a publication and grab its id.
 PUBLISH=$(curl "${args[@]}" \
     "${API}/publications?select=id" \
     -H "Content-Type: application/json" \
     -H "Prefer: return=representation" \
-    -d "{\"draft_id\":\"${DRAFT}\"}" \
+    -d "{\"draft_id\":\"${DRAFT}\",\"dry_run\":true}" \
     | jq -r '.[0].id')
 poll_while_queued "${API}/publications?id=eq.${PUBLISH}"
 
 # View our completed draft.
 curl "${args[@]}" "${API}/publications?id=eq.${PUBLISH}&select=created_at,updated_at,job_status" | jq '.'
-}
-
-
-function test_test_failure() {
-# Create draft from a canned catalog specification.
-# This one has a failing test, which is reported and causes us to bail out :(
-DRAFT=$(curl "${args[@]}" \
-    "${API}/drafts?select=id" \
-    -H "Content-Type: application/json" \
-    -H "Prefer: return=representation" \
-    -d "{\"catalog_spec\":$(jq -c '.' $(dirname "$0")/test_catalog.json)}" \
-    | jq -r '.[0].id')
-poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
-}
-
-function test_big_catalog() {
-DRAFT=$(jq -c "{catalog_spec:.}" scripts/test_catalog_big.json \
-    | curl "${args[@]}" "${API}/drafts?select=id" \
-    -H "Content-Type: application/json" \
-    -H "Prefer: return=representation" \
-    --data-binary @/dev/stdin \
-    | jq -r '.[0].id')
-poll_while_queued "${API}/drafts?id=eq.${DRAFT}"
 }
 
 test_discover_then_publish

@@ -7,36 +7,32 @@
 -- applied. The create table statements were copied verbatim from the connector's output.
 
 -- This table holds Flow processing checkpoints used for exactly-once processing of materializations
-CREATE TABLE IF NOT EXISTS flow_checkpoints_v1 (
+create table if not exists flow_checkpoints_v1 (
 	-- The name of the materialization.
-	materialization TEXT NOT NULL,
+	materialization text not null,
 	-- The inclusive lower-bound key hash covered by this checkpoint.
-	key_begin BIGINT NOT NULL,
+	key_begin bigint not null,
 	-- The inclusive upper-bound key hash covered by this checkpoint.
-	key_end BIGINT NOT NULL,
+	key_end bigint not null,
 	-- This nonce is used to uniquely identify unique process assignments of a shard and prevent them from conflicting.
-	fence BIGINT NOT NULL,
+	fence bigint not null,
 	-- Checkpoint of the Flow consumer shard, encoded as base64 protobuf.
-	checkpoint TEXT,
+	checkpoint text,
 
-	PRIMARY KEY(materialization, key_begin, key_end)
+	primary key(materialization, key_begin, key_end)
 );
--- RLS is enabled to prevent clients from viewing or altering the state of materializations.
-alter table flow_checkpoints_v1 enable row level security;
 
 -- This table is the source of truth for all materializations into this system.
-CREATE TABLE IF NOT EXISTS flow_materializations_v2 (
+create table if not exists flow_materializations_v2 (
 	-- The name of the materialization.
-	materialization TEXT NOT NULL,
+	materialization text not null,
 	-- Version of the materialization.
-	version TEXT NOT NULL,
+	version text not null,
 	-- Specification of the materialization, encoded as base64 protobuf.
-	spec TEXT NOT NULL,
+	spec text not null,
 
-	PRIMARY KEY(materialization)
+	primary key(materialization)
 );
--- RLS is enabled to prevent clients from viewing or altering the state of materializations.
-alter table flow_materializations_v2 enable row level security;
 
 create type task_type as enum ('capture', 'derivation', 'materialization');
 
