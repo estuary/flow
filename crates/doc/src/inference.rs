@@ -592,6 +592,18 @@ impl Shape {
         let mut unevaluated_properties: Option<Shape> = None;
         let mut unevaluated_items: Option<Shape> = None;
 
+        // Flatten Inline Applications into Applications
+        let inlined_kws = schema
+            .kw
+            .iter()
+            .map(|item| match item {
+                Keyword::Application(Application::Inline, inner_schema) => {
+                    inner_schema.kw.iter().collect()
+                }
+                _ => vec![item],
+            })
+            .concat();
+
         // Does this schema have any keywords which directly affect its validation
         // or annotation result? `$defs` and `definition` are non-operative keywords
         // and have no effect. We would also give a pass to `$id`for the same reason,
@@ -603,7 +615,7 @@ impl Shape {
         // though, Provenance is used to guide generation into static types
         // (whether to nest/inline a definition, or reference an external definition),
         // and excluding these keywords works better for this intended use.
-        if !schema.kw.iter().all(|kw| {
+        if !inlined_kws.iter().all(|kw| {
             matches!(
                 kw,
                 Keyword::Application(Application::Ref(_), _)
@@ -631,7 +643,7 @@ impl Shape {
 
         // Walk validation keywords and subordinate applications which influence
         // the present Location.
-        for kw in &schema.kw {
+        for kw in inlined_kws.iter() {
             match kw {
                 // Type constraints.
                 Keyword::Validation(Validation::False) => shape.type_ = types::INVALID,
@@ -788,7 +800,7 @@ impl Shape {
         let mut then_: Option<Shape> = None;
         let mut else_: Option<Shape> = None;
 
-        for kw in &schema.kw {
+        for kw in inlined_kws.iter() {
             match kw {
                 Keyword::Application(Application::Ref(uri), _) => {
                     let mut referent = if visited.iter().any(|u| u.as_str() == uri.as_str()) {
