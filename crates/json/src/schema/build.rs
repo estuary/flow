@@ -277,7 +277,7 @@ where
                                 )),
                             )]));
 
-                            self.add_application(App::AllOf { index: i }, &group_children)?;
+                            self.add_inline_application(App::AllOf { index: i }, &group_children)?;
                         }
                     } else {
                         for (prop, child) in m.iter() {
@@ -377,13 +377,30 @@ where
             // Object-specific validation keywords.
             keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
-            keywords::REQUIRED => {
-                let (set, props) = extract_intern_set(&mut self.tbl, v)?;
-                self.add_validation(Val::Required {
-                    props,
-                    props_interned: set,
-                });
-            }
+            keywords::REQUIRED => match v {
+                sj::Value::Array(vec) => {
+                    if vec.len() > SCHEMA_PROPERTIES_LIMIT {
+                        let chunks = vec.chunks(SCHEMA_PROPERTIES_LIMIT);
+                        for (i, group) in chunks.into_iter().enumerate() {
+                            // Create a new `required` with $SCHEMA_PROPERTIES_LIMIT or less items
+                            // and add it as part of an `allOf`
+                            let group_children = sj::Value::Object(sj::Map::from_iter([(
+                                "required".to_string(),
+                                serde_json::Value::Array(group.to_vec()),
+                            )]));
+
+                            self.add_inline_application(App::AllOf { index: i }, &group_children)?;
+                        }
+                    } else {
+                        let (set, props) = extract_intern_set(&mut self.tbl, v)?;
+                        self.add_validation(Val::Required {
+                            props,
+                            props_interned: set,
+                        });
+                    }
+                }
+                _ => return Err(ExpectedStringArray),
+            },
             keywords::DEPENDENT_REQUIRED => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
@@ -443,6 +460,22 @@ where
 
         let child = build_schema(child_uri, child)?;
         self.kw.push(Keyword::Application(app, child));
+
+        Ok(())
+    }
+
+    fn add_inline_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
+        // Init a fragment pointer for the schema of this application.
+        let mut ptr = "#".to_string();
+        // Extend with path of this *this* schema, the application's parent.
+        if let Some(f) = self.curi.fragment() {
+            ptr.push_str(f);
+        }
+
+        let child_uri = self.curi.join(ptr.as_str()).unwrap();
+
+        let child = build_schema(child_uri, child)?;
+        self.kw.push(Keyword::InlineApplication(app, child));
 
         Ok(())
     }
@@ -645,23 +678,17 @@ mod test {
 
     use super::{super::build::build_schema, super::CoreAnnotation};
     use crate::schema::{Application::AllOf, Application::Properties, Keyword};
-    use serde_json::Map;
+    use serde_json::{json, Map};
 
     #[test]
     fn test_properties_64() {
         let sixty_four_properties =
             (0..64).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
 
-        let schema = serde_json::Value::Object(Map::from_iter([
-            (
-                "type".to_string(),
-                serde_json::Value::String("object".to_string()),
-            ),
-            (
-                "properties".to_string(),
-                serde_json::Value::Object(Map::from_iter(sixty_four_properties)),
-            ),
-        ]));
+        let schema = json!({
+            "type": "object",
+            "properties": Map::from_iter(sixty_four_properties)
+        });
 
         let curi = url::Url::parse("http://example/schema").unwrap();
         let result = build_schema::<CoreAnnotation>(curi, &schema);
@@ -673,19 +700,13 @@ mod test {
 
     #[test]
     fn test_properties_more_than_64() {
-        let sixty_four_properties =
-            (0..65).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
+        let many_properties =
+            (0..200).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
 
-        let schema = serde_json::Value::Object(Map::from_iter([
-            (
-                "type".to_string(),
-                serde_json::Value::String("object".to_string()),
-            ),
-            (
-                "properties".to_string(),
-                serde_json::Value::Object(Map::from_iter(sixty_four_properties)),
-            ),
-        ]));
+        let schema = json!({
+            "type": "object",
+            "properties": Map::from_iter(many_properties)
+        });
 
         let curi = url::Url::parse("http://example/schema").unwrap();
         let result = build_schema::<CoreAnnotation>(curi, &schema);

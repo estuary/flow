@@ -32,7 +32,28 @@ where
         Self(BTreeMap::new())
     }
 
-    // Index a schema and all sub-schemas by their canonical URIs.
+    pub fn add_kw(&mut self, kw: &'s Keyword<A>, schema: &'s Schema<A>) -> Result<(), Error> {
+        match kw {
+            // Recurse to index a subordinate schema application.
+            Keyword::Application(_, child) => self.add(child)?,
+            // Inline applications skip one level, so instead of adding its child, we add the children of its child
+            Keyword::InlineApplication(_, child) => child
+                .kw
+                .iter()
+                .try_for_each(|inner| self.add_kw(inner, schema))?,
+            // Index an alternative, anchor-form canonical URI.
+            Keyword::Anchor(auri) => {
+                if let Some(_) = self.0.insert(auri, schema) {
+                    return Err(Error::DuplicateAnchorURI(schema.curi.clone()));
+                }
+            }
+            // No-ops.
+            Keyword::RecursiveAnchor | Keyword::Validation(_) | Keyword::Annotation(_) => (),
+        }
+
+        Ok(())
+    }
+
     pub fn add(&mut self, schema: &'s Schema<A>) -> Result<(), Error> {
         // Index this schema's canonical URI.
         if let Some(_) = self.0.insert(&schema.curi, schema) {
@@ -40,18 +61,7 @@ where
         }
 
         for kw in &schema.kw {
-            match kw {
-                // Recurse to index a subordinate schema application.
-                Keyword::Application(_, child) => self.add(child)?,
-                // Index an alternative, anchor-form canonical URI.
-                Keyword::Anchor(auri) => {
-                    if let Some(_) = self.0.insert(auri, schema) {
-                        return Err(Error::DuplicateAnchorURI(schema.curi.clone()));
-                    }
-                }
-                // No-ops.
-                Keyword::RecursiveAnchor | Keyword::Validation(_) | Keyword::Annotation(_) => (),
-            }
+            self.add_kw(kw, schema)?;
         }
         Ok(())
     }
@@ -154,8 +164,11 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::iter::FromIterator;
+
     use super::{super::build::build_schema, super::CoreAnnotation, IndexBuilder};
-    use serde_json::json;
+    use itertools::Itertools;
+    use serde_json::{json, Map};
 
     #[test]
     fn test_indexing() {
@@ -238,5 +251,38 @@ mod test {
                 *is_some,
             );
         }
+    }
+
+    #[test]
+    fn test_indexing_inline() {
+        let many_properties =
+            (0..200).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
+
+        let schema = json!({
+            "type": "object",
+            "properties": Map::from_iter(many_properties)
+        });
+
+        let curi = url::Url::parse("http://example/schema").unwrap();
+        let schema = build_schema::<CoreAnnotation>(curi.clone(), &schema).unwrap();
+
+        let mut builder = IndexBuilder::new();
+        builder.add(&schema).unwrap();
+        builder.verify_references().unwrap();
+        let index = builder.into_index();
+
+        let mut indexes = (0..200)
+            .map(|i| format!("http://example/schema#/properties/{i}"))
+            .collect::<Vec<String>>();
+        indexes.push("http://example/schema".to_string());
+        indexes.sort();
+        assert_eq!(
+            index
+                .slow
+                .iter()
+                .map(|(u, _)| u.as_str())
+                .collect::<Vec<_>>(),
+            indexes
+        );
     }
 }
