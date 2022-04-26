@@ -414,11 +414,9 @@ impl ObjShape {
 
         if let Some(pattern) = pattern {
             Some(pattern)
-        }
-        /*else if let Some(addl) = additional {
+        } else if let Some(addl) = additional {
             Some(addl.clone())
-        }*/
-        else {
+        } else {
             None
         }
     }
@@ -594,6 +592,26 @@ impl Shape {
         let mut unevaluated_properties: Option<Shape> = None;
         let mut unevaluated_items: Option<Shape> = None;
 
+        // Flatten InlineApplications into Applications
+        let inlined_kws = schema
+            .kw
+            .iter()
+            .map(|item| match item {
+                Keyword::InlineApplication(Application::Inline, inner_schema) => {
+                    inner_schema.kw.iter().for_each(|inner| match inner {
+                        Keyword::Application(Application::Properties { name, .. }, child) => {
+                            println!("inner properties {:?} {:?}\nchild {:?}", name, inner, child);
+                        }
+                        _ => (),
+                    });
+                    inner_schema.kw.iter().collect()
+                }
+                _ => vec![item],
+            })
+            .concat();
+
+        println!("{:?}", inlined_kws);
+
         // Does this schema have any keywords which directly affect its validation
         // or annotation result? `$defs` and `definition` are non-operative keywords
         // and have no effect. We would also give a pass to `$id`for the same reason,
@@ -605,7 +623,7 @@ impl Shape {
         // though, Provenance is used to guide generation into static types
         // (whether to nest/inline a definition, or reference an external definition),
         // and excluding these keywords works better for this intended use.
-        if !schema.kw.iter().all(|kw| {
+        if !inlined_kws.iter().all(|kw| {
             matches!(
                 kw,
                 Keyword::Application(Application::Ref(_), _)
@@ -626,7 +644,6 @@ impl Shape {
                 | Keyword::Application(Application::Then { .. }, _)
                 | Keyword::Application(Application::Else { .. }, _)
                 | Keyword::Application(Application::Not { .. }, _)
-                | Keyword::InlineApplication(Application::Inline, _)
             )
         }) {
             shape.provenance = Provenance::Inline;
@@ -634,7 +651,7 @@ impl Shape {
 
         // Walk validation keywords and subordinate applications which influence
         // the present Location.
-        for kw in &schema.kw {
+        for kw in inlined_kws.iter() {
             match kw {
                 // Type constraints.
                 Keyword::Validation(Validation::False) => shape.type_ = types::INVALID,
@@ -791,7 +808,7 @@ impl Shape {
         let mut then_: Option<Shape> = None;
         let mut else_: Option<Shape> = None;
 
-        for kw in &schema.kw {
+        for kw in inlined_kws.iter() {
             match kw {
                 Keyword::Application(Application::Ref(uri), _) => {
                     let mut referent = if visited.iter().any(|u| u.as_str() == uri.as_str()) {
@@ -813,10 +830,6 @@ impl Shape {
                     }
 
                     shape = Shape::intersect(shape, referent);
-                }
-                Keyword::InlineApplication(Application::Inline, schema) => {
-                    let inferred_inner = Shape::infer_inner(schema, index, visited);
-                    shape = Shape::intersect(shape, inferred_inner);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
                     shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
@@ -2148,52 +2161,6 @@ mod test {
     }
 
     #[test]
-    fn test_intersect_additional_properties_with_properties() {
-        let left = shape_from(
-            r#"
-            type: object
-            properties:
-                prop: { const: prop }
-            "#,
-        );
-        let right = shape_from(
-            r#"
-            type: object
-            additionalProperties: { const: addl-prop }
-            "#,
-        );
-
-        let intersect = Shape::intersect(left, right);
-
-        let first_prop = &intersect.object.properties[0];
-        let additional = intersect.object.additional.as_ref().unwrap();
-        assert_eq!(first_prop.name, "prop");
-        assert_eq!(first_prop.shape.enum_, Some(vec![json!("prop")]));
-        assert_eq!(additional.enum_, Some(vec![json!("addl-prop")]),);
-    }
-
-    #[test]
-    fn test_intersect_additional_properties_with_additional_properties() {
-        let left = shape_from(
-            r#"
-            type: object
-            additionalProperties: { type: "string" }
-            "#,
-        );
-        let right = shape_from(
-            r#"
-            type: object
-            additionalProperties: { type: "string", minLength: 5 }
-            "#,
-        );
-
-        let intersect = Shape::intersect(left, right);
-        let additional = intersect.object.additional.as_ref().unwrap();
-        assert_eq!(additional.type_, types::STRING);
-        assert_eq!(additional.string.min_length, 5);
-    }
-
-    #[test]
     fn test_locate() {
         let obj = shape_from(
             r#"
@@ -2269,6 +2236,7 @@ mod test {
 
         for (shape, ptr, expect) in cases {
             let actual = shape.locate(&Pointer::from(ptr));
+            println!("pointer {:?} found {:?}", ptr, actual);
             let actual = (
                 actual
                     .0

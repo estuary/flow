@@ -167,7 +167,6 @@ mod test {
     use std::iter::FromIterator;
 
     use super::{super::build::build_schema, super::CoreAnnotation, IndexBuilder};
-    use itertools::Itertools;
     use serde_json::{json, Map};
 
     #[test]
