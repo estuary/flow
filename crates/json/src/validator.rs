@@ -850,7 +850,8 @@ where
             | App::Items { .. }
             | App::Properties { .. }
             | App::PropertyNames
-            | App::AdditionalItems => RequiredChild,
+            | App::AdditionalItems
+            | App::Inline => RequiredChild,
 
             // Speculative "unevaluated" child applications.
             App::UnevaluatedProperties => UnevaluatedChild,

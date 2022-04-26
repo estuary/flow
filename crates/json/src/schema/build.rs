@@ -11,12 +11,6 @@ use serde::Deserialize;
 use serde_json as sj;
 use thiserror;
 
-// There is a limit to how many properties can be at each level
-// of the Schema. This limit is worked around by creating chunks of
-// properties that do not exceed the limit and wrapping them with
-// an `allOf` block
-const SCHEMA_PROPERTIES_LIMIT: usize = 64;
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("expected a boolean")]
@@ -265,19 +259,20 @@ where
             keywords::PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
             keywords::PROPERTIES => match v {
                 sj::Value::Object(m) => {
-                    if m.len() > SCHEMA_PROPERTIES_LIMIT {
-                        let chunks = m.iter().chunks(SCHEMA_PROPERTIES_LIMIT);
-                        for (i, group) in chunks.into_iter().enumerate() {
+                    if m.len() > 1
+                    /*intern::MAX_TABLE_SIZE*/
+                    {
+                        let chunks = m.iter().chunks(1 /*intern::MAX_TABLE_SIZE*/);
+                        for group in chunks.into_iter() {
                             // Create a new `properties` with $SCHEMA_PROPERTIES_LIMIT or less items
                             // and add it as part of an `allOf`
-                            let group_children = sj::Value::Object(sj::Map::from_iter([(
-                                "properties".to_string(),
-                                serde_json::Value::Object(sj::Map::from_iter(
+                            let group_children = sj::json!({
+                                "properties": sj::Map::from_iter(
                                     group.map(|(a, b)| (a.to_owned(), b.to_owned())),
-                                )),
-                            )]));
+                                )
+                            });
 
-                            self.add_inline_application(App::AllOf { index: i }, &group_children)?;
+                            self.add_inline_application(App::Inline, &group_children)?;
                         }
                     } else {
                         for (prop, child) in m.iter() {
@@ -379,17 +374,16 @@ where
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
             keywords::REQUIRED => match v {
                 sj::Value::Array(vec) => {
-                    if vec.len() > SCHEMA_PROPERTIES_LIMIT {
-                        let chunks = vec.chunks(SCHEMA_PROPERTIES_LIMIT);
-                        for (i, group) in chunks.into_iter().enumerate() {
+                    if vec.len() > intern::MAX_TABLE_SIZE {
+                        let chunks = vec.chunks(intern::MAX_TABLE_SIZE);
+                        for group in chunks.into_iter() {
                             // Create a new `required` with $SCHEMA_PROPERTIES_LIMIT or less items
                             // and add it as part of an `allOf`
-                            let group_children = sj::Value::Object(sj::Map::from_iter([(
-                                "required".to_string(),
-                                serde_json::Value::Array(group.to_vec()),
-                            )]));
+                            let group_children = sj::json!({
+                                "required": group.to_vec()
+                            });
 
-                            self.add_inline_application(App::AllOf { index: i }, &group_children)?;
+                            self.add_inline_application(App::Inline, &group_children)?;
                         }
                     } else {
                         let (set, props) = extract_intern_set(&mut self.tbl, v)?;
@@ -443,9 +437,11 @@ where
         self.kw.push(Keyword::Validation(val))
     }
 
-    // build_app builds a child of the current Builder schema,
-    // wrapped in an a Keyword::Application.
-    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
+    fn create_application_child(
+        &mut self,
+        app: &Application,
+        child: &sj::Value,
+    ) -> Result<Schema<A>, Error> {
         // Init a fragment pointer for the schema of this application.
         let mut ptr = "#".to_string();
         // Extend with path of this *this* schema, the application's parent.
@@ -458,23 +454,20 @@ where
         // Note that it could still override with it's own $id keyword.
         let child_uri = self.curi.join(ptr.as_str()).unwrap();
 
-        let child = build_schema(child_uri, child)?;
+        build_schema(child_uri, child)
+    }
+
+    // build_app builds a child of the current Builder schema,
+    // wrapped in an a Keyword::Application.
+    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
+        let child = self.create_application_child(&app, child)?;
         self.kw.push(Keyword::Application(app, child));
 
         Ok(())
     }
 
     fn add_inline_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
-        // Init a fragment pointer for the schema of this application.
-        let mut ptr = "#".to_string();
-        // Extend with path of this *this* schema, the application's parent.
-        if let Some(f) = self.curi.fragment() {
-            ptr.push_str(f);
-        }
-
-        let child_uri = self.curi.join(ptr.as_str()).unwrap();
-
-        let child = build_schema(child_uri, child)?;
+        let child = self.create_application_child(&app, child)?;
         self.kw.push(Keyword::InlineApplication(app, child));
 
         Ok(())
@@ -677,7 +670,7 @@ mod test {
     use std::iter::FromIterator;
 
     use super::{super::build::build_schema, super::CoreAnnotation};
-    use crate::schema::{Application::AllOf, Application::Properties, Keyword};
+    use crate::schema::{Application::Inline, Application::Properties, Keyword};
     use serde_json::{json, Map};
 
     #[test]
@@ -713,7 +706,9 @@ mod test {
 
         assert!(result.is_ok());
         let kw = result.unwrap().kw;
-        assert!(matches!(kw[0], Keyword::Application(AllOf { index: 0 }, _)));
-        assert!(matches!(kw[1], Keyword::Application(AllOf { index: 1 }, _)));
+        assert!(matches!(&kw[0], Keyword::InlineApplication(Inline, _)));
+        assert!(matches!(&kw[1], Keyword::InlineApplication(Inline, _)));
+        assert!(matches!(&kw[2], Keyword::InlineApplication(Inline, _)));
+        assert!(matches!(&kw[3], Keyword::InlineApplication(Inline, _)));
     }
 }

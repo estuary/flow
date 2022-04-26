@@ -624,6 +624,7 @@ impl Shape {
                 | Keyword::Application(Application::Then { .. }, _)
                 | Keyword::Application(Application::Else { .. }, _)
                 | Keyword::Application(Application::Not { .. }, _)
+                | Keyword::InlineApplication(Application::Inline, _)
             )
         }) {
             shape.provenance = Provenance::Inline;
@@ -810,6 +811,13 @@ impl Shape {
                     }
 
                     shape = Shape::intersect(shape, referent);
+                }
+                Keyword::InlineApplication(Application::Inline, schema) => {
+                    let inferred_inner = Shape::infer_inner(schema, index, visited);
+                    println!("SHAPE SO FAR {:?}", shape.object);
+                    println!("INFERRED SHAPE: {:?}", inferred_inner.object);
+                    shape = Shape::intersect(shape, inferred_inner);
+                    println!("INTERSECTED SHAPE: {:?}", shape.object);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
                     shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
@@ -2214,8 +2222,12 @@ mod test {
             (&arr2, "/-", ("<missing>", Exists::Cannot)),
         ];
 
+        println!("SHAPE {:?}", obj);
+
         for (shape, ptr, expect) in cases {
+            println!("expected {expect:?}");
             let actual = shape.locate(&Pointer::from(ptr));
+            println!("actual {:?}", actual);
             let actual = (
                 actual
                     .0
