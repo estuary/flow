@@ -414,9 +414,11 @@ impl ObjShape {
 
         if let Some(pattern) = pattern {
             Some(pattern)
-        } else if let Some(addl) = additional {
+        }
+        /*else if let Some(addl) = additional {
             Some(addl.clone())
-        } else {
+        }*/
+        else {
             None
         }
     }
@@ -814,10 +816,7 @@ impl Shape {
                 }
                 Keyword::InlineApplication(Application::Inline, schema) => {
                     let inferred_inner = Shape::infer_inner(schema, index, visited);
-                    println!("SHAPE SO FAR {:?}", shape.object);
-                    println!("INFERRED SHAPE: {:?}", inferred_inner.object);
                     shape = Shape::intersect(shape, inferred_inner);
-                    println!("INTERSECTED SHAPE: {:?}", shape.object);
                 }
                 Keyword::Application(Application::AllOf { .. }, schema) => {
                     shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
@@ -2149,6 +2148,52 @@ mod test {
     }
 
     #[test]
+    fn test_intersect_additional_properties_with_properties() {
+        let left = shape_from(
+            r#"
+            type: object
+            properties:
+                prop: { const: prop }
+            "#,
+        );
+        let right = shape_from(
+            r#"
+            type: object
+            additionalProperties: { const: addl-prop }
+            "#,
+        );
+
+        let intersect = Shape::intersect(left, right);
+
+        let first_prop = &intersect.object.properties[0];
+        let additional = intersect.object.additional.as_ref().unwrap();
+        assert_eq!(first_prop.name, "prop");
+        assert_eq!(first_prop.shape.enum_, Some(vec![json!("prop")]));
+        assert_eq!(additional.enum_, Some(vec![json!("addl-prop")]),);
+    }
+
+    #[test]
+    fn test_intersect_additional_properties_with_additional_properties() {
+        let left = shape_from(
+            r#"
+            type: object
+            additionalProperties: { type: "string" }
+            "#,
+        );
+        let right = shape_from(
+            r#"
+            type: object
+            additionalProperties: { type: "string", minLength: 5 }
+            "#,
+        );
+
+        let intersect = Shape::intersect(left, right);
+        let additional = intersect.object.additional.as_ref().unwrap();
+        assert_eq!(additional.type_, types::STRING);
+        assert_eq!(additional.string.min_length, 5);
+    }
+
+    #[test]
     fn test_locate() {
         let obj = shape_from(
             r#"
@@ -2222,12 +2267,8 @@ mod test {
             (&arr2, "/-", ("<missing>", Exists::Cannot)),
         ];
 
-        println!("SHAPE {:?}", obj);
-
         for (shape, ptr, expect) in cases {
-            println!("expected {expect:?}");
             let actual = shape.locate(&Pointer::from(ptr));
-            println!("actual {:?}", actual);
             let actual = (
                 actual
                     .0
