@@ -123,7 +123,7 @@ where
                 K::RecursiveAnchor => 0,
 
                 // Properties / PatternProperties conditions whether AdditionalProperties applies.
-                K::Application(A::Properties { .. }, _) => 2,
+                K::Application(A::Properties { .. }, _) | K::Application(A::Inline, _) => 2,
                 K::Application(A::PatternProperties { .. }, _) => 3,
                 // AdditionalProperties also conditions whether UnevaluatedProperties applies.
                 K::Application(A::AdditionalProperties, _) => 4,
@@ -264,15 +264,15 @@ where
                     {
                         let chunks = m.iter().chunks(1 /*intern::MAX_TABLE_SIZE*/);
                         for group in chunks.into_iter() {
-                            // Create a new `properties` with $SCHEMA_PROPERTIES_LIMIT or less items
-                            // and add it as part of an `allOf`
+                            // Create a new `properties` with $MAX_TABLE_SIZE or less items
+                            // and add it as part of an `inline`
                             let group_children = sj::json!({
                                 "properties": sj::Map::from_iter(
                                     group.map(|(a, b)| (a.to_owned(), b.to_owned())),
                                 )
                             });
 
-                            self.add_inline_application(App::Inline, &group_children)?;
+                            self.add_inline_application(&group_children)?;
                         }
                     } else {
                         for (prop, child) in m.iter() {
@@ -383,7 +383,7 @@ where
                                 "required": group.to_vec()
                             });
 
-                            self.add_inline_application(App::Inline, &group_children)?;
+                            self.add_inline_application(&group_children)?;
                         }
                     } else {
                         let (set, props) = extract_intern_set(&mut self.tbl, v)?;
@@ -466,9 +466,10 @@ where
         Ok(())
     }
 
-    fn add_inline_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
-        let child = self.create_application_child(&app, child)?;
-        self.kw.push(Keyword::InlineApplication(app, child));
+    fn add_inline_application(&mut self, child: &sj::Value) -> Result<(), Error> {
+        let child = self.create_application_child(&Application::Inline, child)?;
+        self.kw
+            .push(Keyword::Application(Application::Inline, child));
 
         Ok(())
     }
@@ -670,7 +671,9 @@ mod test {
     use std::iter::FromIterator;
 
     use super::{super::build::build_schema, super::CoreAnnotation};
-    use crate::schema::{Application::Inline, Application::Properties, Keyword};
+    use crate::schema::{
+        Application::Inline, Application::PatternProperties, Application::Properties, Keyword,
+    };
     use serde_json::{json, Map};
 
     #[test]
@@ -706,9 +709,38 @@ mod test {
 
         assert!(result.is_ok());
         let kw = result.unwrap().kw;
-        assert!(matches!(&kw[0], Keyword::InlineApplication(Inline, _)));
-        assert!(matches!(&kw[1], Keyword::InlineApplication(Inline, _)));
-        assert!(matches!(&kw[2], Keyword::InlineApplication(Inline, _)));
-        assert!(matches!(&kw[3], Keyword::InlineApplication(Inline, _)));
+        assert!(matches!(&kw[0], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[1], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[2], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[3], Keyword::Application(Inline, _)));
+    }
+
+    #[test]
+    fn test_properties_more_than_64_keep_ordering() {
+        let many_properties =
+            (0..200).map(|i: u8| (i.to_string(), serde_json::Value::Object(Map::new())));
+
+        let schema = json!({
+            "type": "object",
+            "properties": Map::from_iter(many_properties),
+            "patternProperties": {
+                "test+": {"const": "a"}
+            }
+        });
+
+        let curi = url::Url::parse("http://example/schema").unwrap();
+        let result = build_schema::<CoreAnnotation>(curi, &schema);
+
+        assert!(result.is_ok());
+        let kw = result.unwrap().kw;
+        println!("{:#?}", kw[0]);
+        assert!(matches!(&kw[0], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[1], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[2], Keyword::Application(Inline, _)));
+        assert!(matches!(&kw[3], Keyword::Application(Inline, _)));
+        assert!(matches!(
+            &kw[4],
+            Keyword::Application(PatternProperties { .. }, _)
+        ));
     }
 }

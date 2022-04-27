@@ -70,8 +70,6 @@ where
     Anchor(url::Url),
     // Application of an in-place or child Schema, with respect to this Schema.
     Application(Application, Schema<A>),
-    // Inline Application is an application which does not get indexed itself.
-    InlineApplication(Application, Schema<A>),
     // Validation keyword verified by this Schema.
     Validation(Validation),
     // Annotation collected by a successful application of this Schema.

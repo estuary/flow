@@ -577,7 +577,7 @@ impl Shape {
 
     pub fn infer<'s>(schema: &'s Schema, index: &SchemaIndex<'s>) -> Shape {
         let mut visited = Vec::new();
-        Self::infer_inner(schema, index, &mut visited)
+        Shape::infer_inner(schema, index, &mut visited)
     }
 
     fn infer_inner<'s>(
@@ -597,20 +597,12 @@ impl Shape {
             .kw
             .iter()
             .map(|item| match item {
-                Keyword::InlineApplication(Application::Inline, inner_schema) => {
-                    inner_schema.kw.iter().for_each(|inner| match inner {
-                        Keyword::Application(Application::Properties { name, .. }, child) => {
-                            println!("inner properties {:?} {:?}\nchild {:?}", name, inner, child);
-                        }
-                        _ => (),
-                    });
+                Keyword::Application(Application::Inline, inner_schema) => {
                     inner_schema.kw.iter().collect()
                 }
                 _ => vec![item],
             })
             .concat();
-
-        println!("{:?}", inlined_kws);
 
         // Does this schema have any keywords which directly affect its validation
         // or annotation result? `$defs` and `definition` are non-operative keywords
@@ -2236,7 +2228,7 @@ mod test {
 
         for (shape, ptr, expect) in cases {
             let actual = shape.locate(&Pointer::from(ptr));
-            println!("pointer {:?} found {:?}", ptr, actual);
+            //println!("pointer {:?} found {:?}", ptr, actual);
             let actual = (
                 actual
                     .0
