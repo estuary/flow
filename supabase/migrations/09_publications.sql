@@ -103,7 +103,7 @@ alter table live_specs enable row level security;
 create policy "Users must be authorized to the specification catalog name"
   on live_specs as permissive
   using (true); -- TODO(johnny) auth catalog_name.
-grant all on live_specs to authenticated;
+grant select on live_specs to authenticated;
 
 comment on table live_specs is
   'Live (in other words, current) catalog specifications of the platform';
@@ -128,6 +128,8 @@ create table live_spec_flows (
   target_id flowid not null references live_specs(id),
   flow_type catalog_spec_type not null
 );
+grant select on live_specs to authenticated;
+
 create unique index idx_live_spec_flows_forward
   on live_spec_flows(source_id, target_id) include (flow_type);
 create unique index idx_live_spec_flows_reverse

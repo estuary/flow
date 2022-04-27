@@ -8,6 +8,7 @@ use tracing::info;
 
 mod builds;
 mod specs;
+mod storage;
 
 #[derive(Debug, Default)]
 pub struct Error {
@@ -229,7 +230,18 @@ impl PublishHandler {
             anyhow::bail!("unexpected errors from expanded specs: {errors:?}");
         }
 
-        inject_storage_mapping(&mut draft_catalog);
+        let errors = storage::inject_mappings(
+            spec_rows
+                .iter()
+                .map(|r| r.catalog_name.as_ref())
+                .chain(expanded_rows.iter().map(|r| r.catalog_name.as_ref())),
+            &mut draft_catalog,
+            txn,
+        )
+        .await?;
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+        }
 
         let tmpdir = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir.path();
@@ -322,27 +334,4 @@ async fn stop_with_errors(
     specs::insert_errors(row.draft_id, errors, txn).await?;
 
     Ok((row.pub_id, job_status))
-}
-
-/// Injects valid StorageMappings into the Catalog. We're setting these up upon
-/// signup and this avoids the need for users to include these in every Build's
-/// catalog json individually.
-fn inject_storage_mapping(catalog: &mut models::Catalog) {
-    // Don't mess with an existing storage mapping.
-    if !catalog.storage_mappings.is_empty() {
-        return;
-    }
-
-    let store = models::Store {
-        provider: models::BucketType::Gcs,
-        bucket: "flow-example".to_string(),
-        prefix: None,
-    };
-
-    catalog.storage_mappings.insert(
-        models::Prefix::new(""),
-        models::StorageDef {
-            stores: vec![store],
-        },
-    );
 }

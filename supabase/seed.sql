@@ -41,4 +41,27 @@ begin
 end;
 $$ language plpgsql;
 
+-- Create some storage mappings.
+do $$
+declare
+  connector_id flowid;
+begin
+
+  -- This is an awkward list which lets us accomodate our
+  -- current catalog integration tests.
+  insert into storage_mappings (catalog_prefix, spec) values
+    ('acmeBank/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('example/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('examples/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('marketing/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('ops/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('patterns/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('recovery/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('soak/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('stock/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+    ('temperature/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
+
+end;
+$$ language plpgsql;
+
 commit;
