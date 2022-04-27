@@ -909,7 +909,7 @@ where
 
     fn expand_scope<'a>(&mut self, index: usize, span: &Span, loc: &'a Location<'a>) {
         use Application::{
-            AllOf, AnyOf, DependentSchema, Else, If, Not, OneOf, RecursiveRef, Ref, Then,
+            AllOf, AnyOf, DependentSchema, Else, If, Inline, Not, OneOf, RecursiveRef, Ref, Then,
         };
 
         //println!("expand_scope '{}' '{}'", self.scopes[index].keyword_location(&self.scopes), self.scopes[index].schema.curi);
@@ -953,7 +953,8 @@ where
                 | If
                 | Then
                 | Else
-                | DependentSchema { .. } => (schema, None),
+                | DependentSchema { .. }
+                | Inline => (schema, None),
 
                 _ => continue, // Not an in-place application.
             };

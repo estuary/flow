@@ -167,7 +167,7 @@ impl Application {
             UnevaluatedItems => parent.push_prop(keywords::UNEVALUATED_ITEMS),
 
             // Inline is a special application that does not in itself have a location
-            // and is only useful for wrapping other applications to work around the 64 intern table limit
+            // and is only useful for wrapping other applications to work around the intern table limit
             Inline => *parent,
         }
     }

@@ -114,6 +114,7 @@ where
 
 /// Index is a packed, sorted index over Schema references.
 /// It provides lookups over Schema canonical and anchor-form URIs.
+#[derive(Debug)]
 pub struct Index<'s, A>
 where
     A: Annotation,

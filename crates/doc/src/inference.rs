@@ -577,7 +577,7 @@ impl Shape {
 
     pub fn infer<'s>(schema: &'s Schema, index: &SchemaIndex<'s>) -> Shape {
         let mut visited = Vec::new();
-        Shape::infer_inner(schema, index, &mut visited)
+        Self::infer_inner(schema, index, &mut visited)
     }
 
     fn infer_inner<'s>(
@@ -592,7 +592,7 @@ impl Shape {
         let mut unevaluated_properties: Option<Shape> = None;
         let mut unevaluated_items: Option<Shape> = None;
 
-        // Flatten InlineApplications into Applications
+        // Flatten Inline Applications into Applications
         let inlined_kws = schema
             .kw
             .iter()
@@ -2228,7 +2228,6 @@ mod test {
 
         for (shape, ptr, expect) in cases {
             let actual = shape.locate(&Pointer::from(ptr));
-            //println!("pointer {:?} found {:?}", ptr, actual);
             let actual = (
                 actual
                     .0

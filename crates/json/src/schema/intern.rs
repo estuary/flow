@@ -10,7 +10,7 @@ pub enum Error {
     Overflow,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Table {
     m: HashMap<String, Set>,
 }

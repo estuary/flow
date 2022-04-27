@@ -272,7 +272,7 @@ where
                                 )
                             });
 
-                            self.add_inline_application(&group_children)?;
+                            self.add_application(App::Inline, &group_children)?;
                         }
                     } else {
                         for (prop, child) in m.iter() {
@@ -372,29 +372,13 @@ where
             // Object-specific validation keywords.
             keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
-            keywords::REQUIRED => match v {
-                sj::Value::Array(vec) => {
-                    if vec.len() > intern::MAX_TABLE_SIZE {
-                        let chunks = vec.chunks(intern::MAX_TABLE_SIZE);
-                        for group in chunks.into_iter() {
-                            // Create a new `required` with $SCHEMA_PROPERTIES_LIMIT or less items
-                            // and add it as part of an `allOf`
-                            let group_children = sj::json!({
-                                "required": group.to_vec()
-                            });
-
-                            self.add_inline_application(&group_children)?;
-                        }
-                    } else {
-                        let (set, props) = extract_intern_set(&mut self.tbl, v)?;
-                        self.add_validation(Val::Required {
-                            props,
-                            props_interned: set,
-                        });
-                    }
-                }
-                _ => return Err(ExpectedStringArray),
-            },
+            keywords::REQUIRED => {
+                let (set, props) = extract_intern_set(&mut self.tbl, v)?;
+                self.add_validation(Val::Required {
+                    props,
+                    props_interned: set,
+                });
+            }
             keywords::DEPENDENT_REQUIRED => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
@@ -437,11 +421,9 @@ where
         self.kw.push(Keyword::Validation(val))
     }
 
-    fn create_application_child(
-        &mut self,
-        app: &Application,
-        child: &sj::Value,
-    ) -> Result<Schema<A>, Error> {
+    // build_app builds a child of the current Builder schema,
+    // wrapped in an a Keyword::Application.
+    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
         // Init a fragment pointer for the schema of this application.
         let mut ptr = "#".to_string();
         // Extend with path of this *this* schema, the application's parent.
@@ -454,22 +436,8 @@ where
         // Note that it could still override with it's own $id keyword.
         let child_uri = self.curi.join(ptr.as_str()).unwrap();
 
-        build_schema(child_uri, child)
-    }
-
-    // build_app builds a child of the current Builder schema,
-    // wrapped in an a Keyword::Application.
-    fn add_application(&mut self, app: Application, child: &sj::Value) -> Result<(), Error> {
-        let child = self.create_application_child(&app, child)?;
+        let child = build_schema(child_uri, child)?;
         self.kw.push(Keyword::Application(app, child));
-
-        Ok(())
-    }
-
-    fn add_inline_application(&mut self, child: &sj::Value) -> Result<(), Error> {
-        let child = self.create_application_child(&Application::Inline, child)?;
-        self.kw
-            .push(Keyword::Application(Application::Inline, child));
 
         Ok(())
     }
