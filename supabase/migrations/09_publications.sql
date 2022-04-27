@@ -92,14 +92,6 @@ create table live_specs (
   spec         json not null,
   last_pub_id  flowid references publications(id) not null,
 
-  -- reads_from and writes_to is the list of collections read
-  -- or written by a task, or is null if not applicable to this
-  -- specification type.
-  -- We'll index these to efficiently retrieve connected components
-  -- using recursive common table expression(s).
-  reads_from text[],
-  writes_to  text[],
-
   -- Image name and tag are extracted to make it easier
   -- to determine specs which are out of date w.r.t. the latest
   -- connector tag.
@@ -124,15 +116,29 @@ comment on column live_specs.spec is
 comment on column live_specs.last_pub_id is
   'Last publication ID which updated this live specification';
 
-comment on column live_specs.reads_from is
-  'Collections which are read by this specification';
-comment on column live_specs.writes_to is
-  'Collections which are written to by this specification';
-
 comment on column live_specs.connector_image_name is
   'OCI (Docker) connector image name used by this specification';
 comment on column live_specs.connector_image_tag is
   'OCI (Docker) connector image tag used by this specification';
+
+
+-- Data-flows between live specifications.
+create table live_spec_flows (
+  source_id flowid not null references live_specs(id),
+  target_id flowid not null references live_specs(id),
+  flow_type catalog_spec_type not null
+);
+create unique index idx_live_spec_flows_forward
+  on live_spec_flows(source_id, target_id) include (flow_type);
+create unique index idx_live_spec_flows_reverse
+  on live_spec_flows(target_id, source_id) include (flow_type);
+
+comment on table live_spec_flows is
+  'Join table of directed data-flows between live specifications';
+comment on column live_spec_flows.source_id is
+  'Specification from which data originates';
+comment on column live_spec_flows.target_id is
+  'Specification to which data flows';
 
 
 create view draft_specs_ext as

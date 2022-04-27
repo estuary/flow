@@ -36,12 +36,7 @@ pub struct PublishHandler {
 }
 
 impl PublishHandler {
-    pub fn new(
-        connector_network: &str,
-        bindir: &str,
-        logs_tx: &logs::Tx,
-        root: &url::Url,
-    ) -> Self {
+    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx, root: &url::Url) -> Self {
         Self {
             connector_network: connector_network.to_string(),
             bindir: bindir.to_string(),
@@ -221,18 +216,18 @@ impl PublishHandler {
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
-        let _all_names = spec_rows
-            .iter()
-            .map(|r| r.catalog_name.to_string())
-            .collect::<Vec<_>>();
+        let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;
+        tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 
-        // TODO(johnny):
-        // Project |names| through live_specs.reads_from & live_specs.writes_to
-        // to gather additional specs to add to our catalog.
-        // We're operating in read-committed mode and DO NOT obtain
-        // update locks on these rows. They may change due to a concurrent
-        // transaction and that's okay. We have blocking, exclusive locks
-        // on the things we need to strictly serialize.
+        let errors = specs::extend_catalog(
+            &mut draft_catalog,
+            expanded_rows
+                .iter()
+                .map(|r| (r.live_type, r.catalog_name.as_str(), r.live_spec.0.as_ref())),
+        );
+        if !errors.is_empty() {
+            anyhow::bail!("unexpected errors from expanded specs: {errors:?}");
+        }
 
         inject_storage_mapping(&mut draft_catalog);
 
@@ -295,6 +290,7 @@ impl PublishHandler {
 
         let errors = builds::deploy_build(
             &spec_rows,
+            &expanded_rows,
             &self.connector_network,
             &self.bindir,
             row.logs_token,

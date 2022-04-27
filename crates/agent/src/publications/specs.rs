@@ -11,9 +11,9 @@ use std::collections::BTreeMap;
 #[sqlx(type_name = "catalog_spec_type")]
 #[sqlx(rename_all = "lowercase")]
 pub enum CatalogType {
+    Capture,
     Collection,
     Materialization,
-    Capture,
     Test,
 }
 
@@ -25,9 +25,14 @@ pub struct SpecRow {
     pub expect_pub_id: Option<Id>,
     pub last_pub_id: Id,
     pub live_spec: Json<Box<RawValue>>,
+    pub live_spec_id: Id,
     pub live_type: CatalogType,
 }
 
+// resolve_specifications returns the definitive set of specifications which
+// are changing in this publication. It obtains sufficient locks to ensure
+// that raced publications to returned specifications are serialized with
+// this publication.
 pub async fn resolve_specifications(
     draft_id: Id,
     pub_id: Id,
@@ -84,9 +89,10 @@ pub async fn resolve_specifications(
         r#"
         select
             draft_specs.catalog_name,
+            draft_specs.expect_pub_id as "expect_pub_id: Id",
             draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
             draft_specs.spec_type as "draft_type: CatalogType",
-            draft_specs.expect_pub_id as "expect_pub_id: Id",
+            live_specs.id as "live_spec_id: Id",
             live_specs.last_pub_id as "last_pub_id: Id",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
             live_specs.spec_type as "live_type: CatalogType"
@@ -103,6 +109,56 @@ pub async fn resolve_specifications(
     .context("selecting joined draft & live specs")?;
 
     Ok(spec_rows)
+}
+
+#[derive(Debug)]
+pub struct ExpandedRow {
+    pub catalog_name: String,
+    pub live_spec: Json<Box<RawValue>>,
+    pub live_spec_id: Id,
+    pub live_type: CatalogType,
+}
+
+// expanded_specifications returns additional specifications which should be
+// included in this publication's build. These specifications are not changed
+// by the publication and are read with read-committed transaction semantics,
+// but (if not a dry-run) we do re-activate each specification within the
+// data-plane with the outcome of this publication's build.
+pub async fn expanded_specifications(
+    spec_rows: &[SpecRow],
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<Vec<ExpandedRow>> {
+    let live_ids: Vec<Id> = spec_rows.iter().map(|r| r.live_spec_id).collect();
+
+    let expanded_rows = sqlx::query_as!(
+        ExpandedRow,
+        r#"
+        with recursive clique(id, seed) as (
+            select id, true from unnest($1::flowid[]) as id
+          union
+            select
+                case when clique.id = e.source_id then e.target_id else e.source_id end,
+                false
+            from clique join live_spec_flows as e
+            on clique.id = e.source_id or clique.id = e.target_id
+            where clique.seed or e.flow_type in ('collection', 'test')
+        )
+        select
+            id as "live_spec_id: Id",
+            catalog_name,
+            spec_type as "live_type: CatalogType",
+            spec as "live_spec: Json<Box<RawValue>>"
+        from live_specs natural join clique
+        group by id
+        having not bool_or(seed);
+        "#,
+        live_ids as Vec<Id>,
+    )
+    .fetch_all(&mut *txn)
+    .await
+    .context("selecting expanded specs")?;
+
+    Ok(expanded_rows)
 }
 
 pub async fn insert_errors(
@@ -191,11 +247,13 @@ pub fn validate_transition(
 
     for SpecRow {
         catalog_name,
+        draft_spec,
         draft_type,
         expect_pub_id,
         last_pub_id,
+        live_spec,
+        live_spec_id: _,
         live_type,
-        ..
     } in spec_rows
     {
         if draft_type != live_type {
@@ -203,6 +261,16 @@ pub fn validate_transition(
                 catalog_name: catalog_name.clone(),
                 detail: format!(
                     "draft has an incompatible {draft_type:?} vs current {live_type:?}"
+                ),
+                ..Default::default()
+            });
+        }
+
+        if draft_spec.get() == "null" && live_spec.get() == "null" {
+            errors.push(Error {
+                catalog_name: catalog_name.clone(),
+                detail: format!(
+                    "draft marks this specification for deletion, but it doesn't exist"
                 ),
                 ..Default::default()
             });
@@ -310,7 +378,8 @@ pub async fn apply_updates_for_row(
         expect_pub_id: _,
         last_pub_id: _,
         live_spec,
-        live_type: _,
+        live_spec_id,
+        live_type,
     } = spec_row;
 
     sqlx::query!(
@@ -323,6 +392,46 @@ pub async fn apply_updates_for_row(
     .fetch_one(&mut *txn)
     .await
     .context("delete from draft_specs")?;
+
+    // Clear out data-flow edges that we'll replace.
+    match live_type {
+        CatalogType::Capture => {
+            sqlx::query!(
+                "delete from live_spec_flows where source_id = $1 and flow_type = 'capture'",
+                *live_spec_id as Id,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("delete stale capture edges")?;
+        }
+        CatalogType::Collection => {
+            sqlx::query!(
+                "delete from live_spec_flows where target_id = $1 and flow_type = 'collection'",
+                *live_spec_id as Id,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("delete stale derivation edges")?;
+        }
+        CatalogType::Materialization => {
+            sqlx::query!(
+                "delete from live_spec_flows where target_id = $1 and flow_type = 'materialization'",
+                *live_spec_id as Id,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("delete stale materialization edges")?;
+        }
+        CatalogType::Test => {
+            sqlx::query!(
+                "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'",
+                *live_spec_id as Id,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("delete stale test edges")?;
+        }
+    }
 
     sqlx::query!(
         r#"insert into publication_specs (
@@ -346,10 +455,10 @@ pub async fn apply_updates_for_row(
     if draft_spec.get() == "null" {
         // Draft is a deletion of a live spec.
         sqlx::query!(
-            r#"delete from live_specs where catalog_name = $1
+            r#"delete from live_specs where id = $1
                 returning 1 as "must_exist";
             "#,
-            catalog_name,
+            *live_spec_id as Id,
         )
         .fetch_one(&mut *txn)
         .await
@@ -361,21 +470,9 @@ pub async fn apply_updates_for_row(
     // Draft is an update of a live spec. The insertion case is also an update:
     // we previously created a live_specs rows for the draft in order to lock it.
 
-    let mut reads_from = Vec::new();
-    let mut writes_to = Vec::new();
     let mut image_parts = None;
 
     match *draft_type {
-        CatalogType::Collection => {
-            let key = models::Collection::new(catalog_name);
-            let collection = catalog.collections.get(&key).unwrap();
-
-            if let Some(derivation) = &collection.derivation {
-                for (_, tdef) in &derivation.transform {
-                    reads_from.push(tdef.source.name.to_string());
-                }
-            }
-        }
         CatalogType::Capture => {
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
@@ -383,28 +480,89 @@ pub async fn apply_updates_for_row(
             if let models::CaptureEndpoint::Connector(config) = &capture.endpoint {
                 image_parts = Some(split_tag(&config.image));
             }
-            for binding in &capture.bindings {
-                writes_to.push(binding.target.to_string());
+            let targets: Vec<String> = capture
+                .bindings
+                .iter()
+                .map(|b| b.target.to_string())
+                .sorted()
+                .unique()
+                .collect();
+
+            sqlx::query!(
+                r#"
+                insert into live_spec_flows (source_id, target_id, flow_type)
+                select $1, live_specs.id, 'capture'
+                from unnest($2::text[]) as n join live_specs on catalog_name = n;
+                "#,
+                *live_spec_id as Id,
+                &targets as &Vec<String>,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("insert capture edges")?;
+        }
+        CatalogType::Collection => {
+            let key = models::Collection::new(catalog_name);
+            let collection = catalog.collections.get(&key).unwrap();
+
+            if let Some(derivation) = &collection.derivation {
+                let sources: Vec<String> = derivation
+                    .transform
+                    .iter()
+                    .map(|(_, tdef)| tdef.source.name.to_string())
+                    .sorted()
+                    .unique()
+                    .collect();
+
+                sqlx::query!(
+                    r#"
+                    insert into live_spec_flows (source_id, target_id, flow_type)
+                    select live_specs.id, $1, 'collection'
+                    from unnest($2::text[]) as n join live_specs on catalog_name = n;
+                    "#,
+                    *live_spec_id as Id,
+                    &sources as &Vec<String>,
+                )
+                .execute(&mut *txn)
+                .await
+                .context("insert derivation edges")?;
             }
         }
         CatalogType::Materialization => {
             let key = models::Materialization::new(catalog_name);
             let materialization = catalog.materializations.get(&key).unwrap();
 
+            // TODO(johnny): should we disallow sqlite? or remove sqlite altogether as an endpoint?
             if let models::MaterializationEndpoint::Connector(config) = &materialization.endpoint {
                 image_parts = Some(split_tag(&config.image));
             }
-            // TODO(johnny): should we disallow sqlite? or remove sqlite altogether as an endpoint?
+            let sources: Vec<String> = materialization
+                .bindings
+                .iter()
+                .map(|b| b.source.to_string())
+                .sorted()
+                .unique()
+                .collect();
 
-            for binding in &materialization.bindings {
-                reads_from.push(binding.source.to_string());
-            }
+            sqlx::query!(
+                r#"
+                insert into live_spec_flows (source_id, target_id, flow_type)
+                select live_specs.id, $1, 'materialization'
+                from unnest($2::text[]) as n join live_specs on catalog_name = n;
+                "#,
+                *live_spec_id as Id,
+                &sources as &Vec<String>,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("insert materialization edges")?;
         }
         CatalogType::Test => {
             let key = models::Test::new(catalog_name);
-            let test = catalog.tests.get(&key).unwrap();
+            let steps = catalog.tests.get(&key).unwrap();
 
-            for step in test {
+            let (mut reads_from, mut writes_to) = (Vec::new(), Vec::new());
+            for step in steps {
                 match step {
                     models::TestStep::Ingest(ingest) => {
                         writes_to.push(ingest.collection.to_string())
@@ -414,28 +572,45 @@ pub async fn apply_updates_for_row(
                     }
                 }
             }
+            for v in [&mut reads_from, &mut writes_to] {
+                v.sort();
+                v.dedup();
+            }
+
+            sqlx::query!(
+                r#"
+                insert into live_spec_flows (source_id, target_id, flow_type)
+                    select live_specs.id, $1, 'test'::catalog_spec_type
+                    from unnest($2::text[]) as n join live_specs on catalog_name = n
+                union
+                    select $1, live_specs.id, 'test'
+                    from unnest($3::text[]) as n join live_specs on catalog_name = n;
+                "#,
+                *live_spec_id as Id,
+                &reads_from as &Vec<String>,
+                &writes_to as &Vec<String>,
+            )
+            .execute(&mut *txn)
+            .await
+            .context("insert test edges")?;
         }
     }
 
     sqlx::query!(
         r#"update live_specs set
-                connector_image_name = $2,
-                connector_image_tag = $3,
-                last_pub_id = $4,
-                reads_from = $5,
-                spec = $6,
-                updated_at = clock_timestamp(),
-                writes_to = $7
-            where catalog_name = $1
-            returning 1 as "must_exist";
-            "#,
+            connector_image_name = $2,
+            connector_image_tag = $3,
+            last_pub_id = $4,
+            spec = $5,
+            updated_at = clock_timestamp()
+        where catalog_name = $1
+        returning 1 as "must_exist";
+        "#,
         catalog_name,
         image_parts.as_ref().map(|p| &p.0),
         image_parts.as_ref().map(|p| &p.1),
         pub_id as Id,
-        &reads_from,
         draft_spec as &Json<Box<RawValue>>,
-        &writes_to,
     )
     .fetch_one(&mut *txn)
     .await

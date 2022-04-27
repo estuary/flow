@@ -32,6 +32,12 @@ impl Type<postgres::Postgres> for Id {
     }
 }
 
+impl sqlx::postgres::PgHasArrayType for Id {
+    fn array_type_info() -> postgres::PgTypeInfo {
+        postgres::PgTypeInfo::with_name("_flowid")
+    }
+}
+
 impl Encode<'_, postgres::Postgres> for Id {
     fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         buf.extend_from_slice(&self.0);

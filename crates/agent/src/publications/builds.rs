@@ -1,4 +1,5 @@
-use super::{specs::SpecRow, Error};
+use super::specs::{ExpandedRow, SpecRow};
+use super::Error;
 use crate::{jobs, logs, Id};
 
 use anyhow::Context;
@@ -25,7 +26,7 @@ pub async fn build_catalog(
     std::fs::create_dir(&builds_dir).context("creating builds directory")?;
 
     // Write our catalog source file within the build directory.
-    std::fs::File::create(&builds_dir.join(&format!("{}.flow.yaml", pub_id)))
+    std::fs::File::create(&builds_dir.join("flow.json"))
         .and_then(|mut f| f.write_all(serde_json::to_string_pretty(catalog).unwrap().as_bytes()))
         .context("writing catalog file")?;
 
@@ -48,7 +49,7 @@ pub async fn build_catalog(
             .arg("--network")
             .arg(connector_network)
             .arg("--source")
-            .arg(format!("file:///{pub_id}.flow.yaml"))
+            .arg("file:///flow.json")
             .arg("--source-type")
             .arg("catalog")
             .arg("--ts-package")
@@ -247,6 +248,7 @@ pub async fn test_catalog(
 
 pub async fn deploy_build(
     spec_rows: &[SpecRow],
+    expanded_rows: &[ExpandedRow],
     connector_network: &str,
     bindir: &str,
     logs_token: Uuid,
@@ -269,13 +271,24 @@ pub async fn deploy_build(
             .arg(&build_id)
             .arg("--network")
             .arg(connector_network)
-            .args(spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.get() == "null" {
-                    None
-                } else {
-                    Some(format!("--name={}", r.catalog_name))
-                }
-            }))
+            .args(
+                // Activate drafts which are not deleted,
+                // plus all expanded specifications of the build.
+                spec_rows
+                    .iter()
+                    .filter_map(|r| {
+                        if r.draft_spec.get() == "null" {
+                            None
+                        } else {
+                            Some(format!("--name={}", r.catalog_name))
+                        }
+                    })
+                    .chain(
+                        expanded_rows
+                            .iter()
+                            .map(|r| format!("--name={}", r.catalog_name)),
+                    ),
+            )
             .arg("--log.level=info")
             .arg("--log.format=color")
             .arg("--help"), // TODO make this a no-op for now.
@@ -303,7 +316,7 @@ pub async fn deploy_build(
             .arg("--network")
             .arg(connector_network)
             .args(spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.get() == "null" && r.live_spec.get() != "null" {
+                if r.draft_spec.get() == "null" {
                     Some(format!("--name={}", r.catalog_name))
                 } else {
                     None
