@@ -9,8 +9,8 @@ create table storage_mappings (
 alter table storage_mappings enable row level security;
 
 create policy "Users must be authorized to the specification catalog prefix"
-  on storage_mappings as permissive
-  using (true); -- TODO(johnny) auth catalog_name.
+  on storage_mappings as permissive for select
+  using (auth_catalog(catalog_prefix, 'read'));
 grant select on storage_mappings to authenticated;
 
 comment on table storage_mappings is
