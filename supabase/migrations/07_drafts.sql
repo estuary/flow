@@ -12,6 +12,7 @@ create policy "Users can access only their created drafts"
   using (user_id = auth.uid());
 
 grant insert (detail) on drafts to authenticated;
+grant update (detail) on drafts to authenticated;
 grant select on drafts to authenticated;
 grant delete on drafts to authenticated;
 
@@ -60,12 +61,12 @@ create table draft_specs (
 );
 alter table draft_specs enable row level security;
 
-create policy "Users can access all specifications of their drafts"
+create policy "Users access their draft specs with admin'd catalog names"
   on draft_specs as permissive
-  using (draft_id in (select id from drafts));
-create policy "Users must be authorized to the specification catalog name"
-  on draft_specs as restrictive
-  using (true); -- TODO(johnny) auth catalog_name.
+  using (draft_id in (select id from drafts))
+  with check (
+    draft_id in (select id from drafts) and auth_catalog(catalog_name, 'admin')
+  );
 grant all on draft_specs to authenticated;
 
 comment on table draft_specs is

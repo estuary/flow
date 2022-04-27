@@ -11,8 +11,7 @@ alter table publications enable row level security;
 alter publication supabase_realtime add table publications;
 
 -- We don't impose a foreign key on drafts, because a publication
--- operation
--- audit log may stick around much longer than the draft does.
+-- operation audit log may stick around much longer than the draft does.
 create policy "Users can access only their initiated publish operations"
   on publications as permissive for select
   using (user_id = auth.uid());
@@ -51,10 +50,10 @@ create table publication_specs (
 );
 alter table draft_specs enable row level security;
 
-create policy "Users must be authorized to the specification catalog name"
-  on publication_specs as permissive
-  using (true); -- TODO(johnny) auth on catalog_name.
-grant all on draft_specs to authenticated;
+create policy "Users must be read-authorized to the specification catalog name"
+  on publication_specs as permissive for select
+  using (auth_catalog(catalog_name, 'read'));
+grant select on publication_specs to authenticated;
 
 
 comment on table publication_specs is '
@@ -100,9 +99,9 @@ create table live_specs (
 );
 alter table live_specs enable row level security;
 
-create policy "Users must be authorized to the specification catalog name"
-  on live_specs as permissive
-  using (true); -- TODO(johnny) auth catalog_name.
+create policy "Users must be read-authorized to the specification catalog name"
+  on live_specs as permissive for select
+  using (auth_catalog(catalog_name, 'read'));
 grant select on live_specs to authenticated;
 
 comment on table live_specs is
@@ -128,6 +127,14 @@ create table live_spec_flows (
   target_id flowid not null references live_specs(id),
   flow_type catalog_spec_type not null
 );
+alter table live_spec_flows enable row level security;
+
+create policy "Users must be authorized to referenced specifications"
+  on live_spec_flows as permissive for select
+  using (
+    source_id in (select id from live_specs) and
+    target_id in (select id from live_specs)
+  );
 grant select on live_specs to authenticated;
 
 create unique index idx_live_spec_flows_forward

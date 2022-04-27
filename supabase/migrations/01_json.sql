@@ -1,3 +1,7 @@
+-- We write SQL according to https://www.sqlstyle.guide/
+-- It's an arbitrary style guide, but it's important to have one for consistency.
+-- We also lower-case SQL keywords, as is common within Supabase documentation.
+
 create domain json_obj as json check (json_typeof(value) = 'object');
 comment on domain json_obj is
   'json_obj is JSON which is restricted to the "object" type';
