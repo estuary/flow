@@ -1,0 +1,241 @@
+{
+    "$schema": "https://json-schema.org/draft/2019-09/schema",
+    "$id": "https://json-schema.org/draft/2019-09/additional-props-inline",
+    "$vocabulary": {
+        "https://json-schema.org/draft/2019-09/vocab/core": true,
+        "https://json-schema.org/draft/2019-09/vocab/applicator": true,
+        "https://json-schema.org/draft/2019-09/vocab/validation": true,
+        "https://json-schema.org/draft/2019-09/vocab/meta-data": true,
+        "https://json-schema.org/draft/2019-09/vocab/format": false,
+        "https://json-schema.org/draft/2019-09/vocab/content": true
+    },
+    "$recursiveAnchor": true,
+    "title": "Inlining of `allOf` beside additonalProperties",
+    "allOf": [
+        {
+            "$ref": "meta/core"
+        },
+        {
+            "$ref": "meta/applicator"
+        },
+        {
+            "$ref": "meta/validation"
+        },
+        {
+            "$ref": "meta/meta-data"
+        },
+        {
+            "$ref": "meta/format"
+        },
+        {
+            "$ref": "meta/content"
+        }
+    ],
+    "properties": {
+        "0": {
+            "const": "0"
+        },
+        "1": {
+            "const": "1"
+        },
+        "2": {
+            "const": "2"
+        },
+        "3": {
+            "const": "3"
+        },
+        "4": {
+            "const": "4"
+        },
+        "5": {
+            "const": "5"
+        },
+        "6": {
+            "const": "6"
+        },
+        "7": {
+            "const": "7"
+        },
+        "8": {
+            "const": "8"
+        },
+        "9": {
+            "const": "9"
+        },
+        "10": {
+            "const": "10"
+        },
+        "11": {
+            "const": "11"
+        },
+        "12": {
+            "const": "12"
+        },
+        "13": {
+            "const": "13"
+        },
+        "14": {
+            "const": "14"
+        },
+        "15": {
+            "const": "15"
+        },
+        "16": {
+            "const": "16"
+        },
+        "17": {
+            "const": "17"
+        },
+        "18": {
+            "const": "18"
+        },
+        "19": {
+            "const": "19"
+        },
+        "20": {
+            "const": "20"
+        },
+        "21": {
+            "const": "21"
+        },
+        "22": {
+            "const": "22"
+        },
+        "23": {
+            "const": "23"
+        },
+        "24": {
+            "const": "24"
+        },
+        "25": {
+            "const": "25"
+        },
+        "26": {
+            "const": "26"
+        },
+        "27": {
+            "const": "27"
+        },
+        "28": {
+            "const": "28"
+        },
+        "29": {
+            "const": "29"
+        },
+        "30": {
+            "const": "30"
+        },
+        "31": {
+            "const": "31"
+        },
+        "32": {
+            "const": "32"
+        },
+        "33": {
+            "const": "33"
+        },
+        "34": {
+            "const": "34"
+        },
+        "35": {
+            "const": "35"
+        },
+        "36": {
+            "const": "36"
+        },
+        "37": {
+            "const": "37"
+        },
+        "38": {
+            "const": "38"
+        },
+        "39": {
+            "const": "39"
+        },
+        "40": {
+            "const": "40"
+        },
+        "41": {
+            "const": "41"
+        },
+        "42": {
+            "const": "42"
+        },
+        "43": {
+            "const": "43"
+        },
+        "44": {
+            "const": "44"
+        },
+        "45": {
+            "const": "45"
+        },
+        "46": {
+            "const": "46"
+        },
+        "47": {
+            "const": "47"
+        },
+        "48": {
+            "const": "48"
+        },
+        "49": {
+            "const": "49"
+        },
+        "50": {
+            "const": "50"
+        },
+        "51": {
+            "const": "51"
+        },
+        "52": {
+            "const": "52"
+        },
+        "53": {
+            "const": "53"
+        },
+        "54": {
+            "const": "54"
+        },
+        "55": {
+            "const": "55"
+        },
+        "56": {
+            "const": "56"
+        },
+        "57": {
+            "const": "57"
+        },
+        "58": {
+            "const": "58"
+        },
+        "59": {
+            "const": "59"
+        },
+        "60": {
+            "const": "60"
+        },
+        "61": {
+            "const": "61"
+        },
+        "62": {
+            "const": "62"
+        },
+        "63": {
+            "const": "63"
+        },
+        "64": {
+            "const": "64"
+        },
+        "65": {
+            "const": "65"
+        }
+    },
+    "additionalProperties": {
+        "const": "additional-prop"
+    },
+    "type": [
+        "object",
+        "boolean"
+    ]
+}
