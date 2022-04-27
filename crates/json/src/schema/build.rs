@@ -259,10 +259,8 @@ where
             keywords::PROPERTY_NAMES => self.add_application(App::PropertyNames, v)?,
             keywords::PROPERTIES => match v {
                 sj::Value::Object(m) => {
-                    if m.len() > 1
-                    /*intern::MAX_TABLE_SIZE*/
-                    {
-                        let chunks = m.iter().chunks(1 /*intern::MAX_TABLE_SIZE*/);
+                    if m.len() > intern::MAX_TABLE_SIZE {
+                        let chunks = m.iter().chunks(intern::MAX_TABLE_SIZE);
                         for group in chunks.into_iter() {
                             // Create a new `properties` with $MAX_TABLE_SIZE or less items
                             // and add it as part of an `inline`
@@ -701,7 +699,6 @@ mod test {
 
         assert!(result.is_ok());
         let kw = result.unwrap().kw;
-        println!("{:#?}", kw[0]);
         assert!(matches!(&kw[0], Keyword::Application(Inline, _)));
         assert!(matches!(&kw[1], Keyword::Application(Inline, _)));
         assert!(matches!(&kw[2], Keyword::Application(Inline, _)));
