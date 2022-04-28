@@ -21,11 +21,9 @@ url = {version = "*", features = ["serde"]}
 criterion = "*"
 glob = "*"
 
-# TODO(johnny): This benchmark is disabled because it
-# overflows our maximum intern table size.
-# [[bench]]
-# name = "github_events"
-# harness = false
+[[bench]]
+name = "github_events"
+harness = false
 
 [[bench]]
 name = "citi_rides"

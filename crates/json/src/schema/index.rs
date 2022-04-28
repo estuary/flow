@@ -41,6 +41,10 @@ where
 
         for kw in &schema.kw {
             match kw {
+                // We skip Inline applications for indexing.
+                // They share the canonical URI of their parent, and we use them only
+                // for the `required` keywords which has no sub-schemas.
+                Keyword::Application(Application::Inline, _) => {}
                 // Recurse to index a subordinate schema application.
                 Keyword::Application(_, child) => self.add(child)?,
                 // Index an alternative, anchor-form canonical URI.
