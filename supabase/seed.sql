@@ -15,10 +15,13 @@ insert into user_grants (user_id, object_role, capability) values
 
 -- Also grant other namespaces commonly used while testing.
 insert into role_grants (subject_role, object_role, capability) values
+  ('acmeCo/', 'acmeCo/', 'write'),
   ('bobCo/', 'acmeCo/', 'admin'),
   ('bobCo/', 'examples/', 'admin'),
+  ('bobCo/', 'ops/bobCo/', 'read'),
   ('bobCo/', 'testing/', 'admin'),
-  ('bobCo/', 'ops/bobCo/', 'read')
+  ('examples/', 'examples/', 'write'),
+  ('testing/', 'testing/', 'write')
 ;
 
 -- Seed a small number of connectors. This is a small list, separate from our
@@ -78,12 +81,19 @@ insert into storage_mappings (catalog_prefix, spec) values
   ('temperature/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
 
 insert into role_grants (subject_role, object_role, capability) values
+  ('acmeBank/', 'acmeBank/', 'write'),
   ('bobCo/', 'acmeBank/', 'admin'),
   ('bobCo/', 'example/', 'admin'),
   ('bobCo/', 'marketing/', 'admin'),
   ('bobCo/', 'patterns/', 'admin'),
   ('bobCo/', 'soak/', 'admin'),
   ('bobCo/', 'stock/', 'admin'),
-  ('bobCo/', 'temperature/', 'admin');
+  ('bobCo/', 'temperature/', 'admin'),
+  ('example/', 'example/', 'write'),
+  ('marketing/', 'marketing/', 'write'),
+  ('patterns/', 'patterns/', 'write'),
+  ('soak/', 'soak/', 'write'),
+  ('stock/', 'stock/', 'write'),
+  ('temperature/', 'temperature/', 'write');
 
 commit;
