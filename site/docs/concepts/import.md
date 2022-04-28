@@ -5,7 +5,7 @@ sidebar_position: 6
 
 Catalog spec files may include an `import` section.
 This is what allows you to organize your catalog spec across multiple
-interlinked files, and in some cases, import other resources.
+interlinked files.
 When a catalog is deployed, the imported resources are treated as part of the file
 into which they are imported.
 
@@ -62,7 +62,7 @@ import:
    contentType: CATALOG
 ```
 
-Other permitted content types include `JSON_SCHEMA` and `TYPESCRIPT_MODULE`,
+Other permitted content types include `JSON_SCHEMA`,
 but these are not typically used and are needed only for advanced use cases.
 
 ## JSON Schema `$ref`
@@ -80,27 +80,18 @@ In this case, the schema must be referenced through its canonical URL,
 and then explicitly added to the `import` section
 with `JSON_SCHEMA` content type.
 
-## TypeScript modules
+## Importing derivation resources
 
-Certain entities in your catalog spec — typically derivations — may use
-TypeScript lambda definitions.
-These lambdas are conventionally defined in TypeScript modules
-that accompany the specific catalog spec file.
-Flow looks for and automatically imports TypeScript modules
-which live alongside a Flow catalog spec file.
+In many cases, [derivations](./derivations.md) in your catalog will need to import resources.
+Usually, these are Typescript modules that define the lambda functions of a transformation,
+and, in certain cases, the NPM dependencies of that Typescript module.
 
-Given a Flow catalog spec at `/path/to/my.flow.yaml`,
-Flow automatically imports the TypeScript module `/path/to/my.flow.ts`.
-This is conventionally the module which implements all TypeScript lambdas
-related to catalog entities defined in `my.flow.yaml`.
-You do not need to add `my.flow.ts` to the `import` stanza.
+These imports are specified in the derivation specification, _not_ in the import section of the catalog spec.
 
-However, Flow must know of all additional TypeScript modules that
-are part of the catalog.
-If other modules are needed, they must be added as a to the `import` section
-with `TYPESCRIPT_MODULE` content type.
+For more information, see [Derivation specification](./derivations.md#specification) and [Typescript generation](./flowctl.md#typescript-code-generation).
 
 ## NPM dependencies
+TODO OLIVIA MOVE THIS SOMEWHERE
 
 Your TypeScript modules may depend on other
 [NPM packages](https://www.npmjs.com/),

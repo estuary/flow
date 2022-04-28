@@ -1,18 +1,14 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromTransfersSenderSource, FromTransfersRecipientSource } from 'flow/acmeBank/flagged-transfers';
 
-// Implementation for derivation site/docs/concepts/derivations/bank/flagged-transfers.flow.yaml#/collections/acmeBank~1flagged-transfers/derivation.
-export class AcmeBankFlaggedTransfers implements interfaces.AcmeBankFlaggedTransfers {
-    fromTransferRecipientUpdate(source: collections.AcmeBankTransfers): registers.AcmeBankFlaggedTransfers[] {
+// Implementation for derivation examples/bank/flagged-transfers.flow.yaml#/collections/acmeBank~1flagged-transfers/derivation.
+export class Derivation implements IDerivation {
+    fromTransferRecipientUpdate(source: FromTransfersRecipientSource): Register[] {
         return [source.amount]; // Credit recipient.
     }
-    fromTransferSenderUpdate(source: collections.AcmeBankTransfers): registers.AcmeBankFlaggedTransfers[] {
+    fromTransferSenderUpdate(source: FromTransfersSenderSource): Register[] {
         return [-source.amount]; // Debit sender.
     }
-    fromTransferSenderPublish(
-        source: collections.AcmeBankTransfers,
-        balance: registers.AcmeBankFlaggedTransfers,
-        _previous: registers.AcmeBankFlaggedTransfers,
-    ): collections.AcmeBankFlaggedTransfers[] {
+    fromTransferSenderPublish(source: FromTransfersSenderSource, balance: Register, _previous: Register): Document [] {
         if (balance > 0 || source.sender == 'CREDIT') {
             return [{ ...source, balance: balance, overdrawn: false }];
         } else {

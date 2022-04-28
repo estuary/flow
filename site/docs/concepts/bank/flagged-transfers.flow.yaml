@@ -26,6 +26,9 @@ collections:
           reduce: { strategy: sum }
         initial: 0
 
+      typescript:
+        module: flagged-transfers.flow.ts
+
       transform:
         fromTransferSender:
           source: { name: acmeBank/transfers }

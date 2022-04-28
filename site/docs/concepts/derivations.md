@@ -18,6 +18,9 @@ transforming them into updates of the derived collection.
 In addition to their collection,
 derivations are defined by their **transformations** and **registers**.
 
+Complex transformations can be implemented with **lambdas**,
+functions defined in referenced TypeScript modules.
+
 ![](<derivations.svg>)
 
 ## Specification
@@ -50,6 +53,20 @@ collections:
         # Initial value taken by a register which has never been updated before.
         # Optional, default: null
         initial: 0
+
+      # TypeScript module that implements any lambda functions invoked by this derivation.
+      # Optional, type: object
+      typescript:
+
+        # TypeScript module implementing this derivation.
+        # Module is either a relative URL of a TypeScript module file (recommended),
+        # or an inline representation of a TypeScript module.
+        module: acmeModule.flow.ts
+
+        # NPM package dependencies of the module
+        # Version strings can take any form understood by NPM.
+        # See https://docs.npmjs.com/files/package.json#dependencies
+        npmDependencies: {}
 
       # Transformations of the derivation,
       # specified as a map of named transformations.
@@ -258,7 +275,65 @@ However, one transformation _can_ shuffle on `[/sender]`
 while another shuffles on `[/recipient]`,
 as in the examples below.
 
-## Publish lambdas
+## Registers
+
+Registers are the internal _memory_ of a derivation.
+They are a building block that enable derivations to tackle advanced stateful
+streaming computations like multi-way joins, windowing, and transaction processing.
+As we've already seen, not all derivations require registers,
+but they are essential for a variety of important use cases.
+
+Each register is a document with a user-defined
+[schema](schemas.md).
+Registers are keyed, and every derivation maintains an index of keys
+and their corresponding register documents.
+Every source document is mapped to a specific register document
+through its extracted [shuffle key](#shuffles).
+
+For example, when shuffling `acmeBank/transfers` on `[/sender]`,
+each account ("alice", "bob", or "carol")
+is allocated its own register.
+If you instead shuffle on `[/sender, /recipient]` then each
+_pair_ of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
+is allocated a register.
+
+Registers are best suited for relatively small,
+fast-changing documents that are shared within and across
+the transformations of a derivation.
+The number of registers indexed within a derivation may be very large,
+and if a register has never before been used,
+it starts with a user-defined initial value.
+From there, registers may be modified through an **update lambda**.
+
+:::info
+Under the hood, registers are backed by replicated,
+embedded RocksDB instances, which co-locate
+with the lambda execution contexts that Flow manages.
+As contexts are assigned and re-assigned,
+their register databases travel with them.
+
+If any single RocksDB instance becomes too large,
+Flow is able to perform an online **split**,
+which subdivides its contents into two new databases
+ — and paired execution contexts — which are re-assigned to other machines.
+:::
+
+## Lambdas
+
+Lambdas are user-defined functions that are invoked by a derivation.
+In simple terms, lambdas are what give you the full power of MapReduce in derivations:
+while [reductions](./schemas.md#reductions) can be defined in collection schemas,
+and shuffles perform basic key-based mapping, lambdas allow you to perform more complex mapping.
+
+Lambdas accept documents as arguments and return documents in response.
+They may update documents in registers or publish documents to the derived collection.
+For performance reasons, **update** and **publish** lambdas are implemented differently.
+
+Flow currently supports TypeScript lambdas, which you define in an accompanying TypeScript module.
+The module must be added to [the derivation's definition](#specification) in the `typescript` stanza.
+See [TypeScript generation](./flowctl.md#typescript-code-generation) for more details on how to get started.
+
+### Publish lambdas
 
 A **publish** lambda publishes documents into the derived collection.
 
@@ -292,7 +367,6 @@ which is implemented in an accompanying TypeScript module.
 The lambda is invoked as each source transfer document arrives.
 It is given the `source` document,
 and also includes the a `_register` and `_previous` register, which are not used here.
-[Registers](#registers) are discussed in depth below.
 The lambda outputs zero or more documents,
 each of which must conform to the derivation's schema.
 
@@ -303,8 +377,9 @@ then _all_ transfers with large amounts would be retained.
 In SQL terms, the collection key acts as a GROUP BY.
 
 :::tip
-Flow will initialize a TypeScript module for your lambdas if one doesn't exist,
-with stubs of the required interfaces
+If the referenced TypeScript module for your lambdas does not yet exist,
+you can use `flowctl check` to generate it.
+Flow creates a module with the name you specified, stubs of the required interfaces,
 and TypeScript types that match your schemas.
 You just write the function body.
 
@@ -354,50 +429,7 @@ for each user from all of the credit and debit amounts of their transfers:
 </TabItem>
 </Tabs>
 
-## Registers
-
-Registers are the internal _memory_ of a derivation.
-They are a building block that enable derivations to tackle advanced stateful
-streaming computations like multi-way joins, windowing, and transaction processing.
-As we've already seen, not all derivations require registers,
-but they are essential for a variety of important use cases.
-
-Each register is a document with a user-defined
-[schema](schemas.md).
-Registers are keyed, and every derivation maintains an index of keys
-and their corresponding register documents.
-Every source document is mapped to a specific register document
-through its extracted [shuffle key](#shuffles).
-
-For example, when shuffling `acmeBank/transfers` on `[/sender]`,
-each account ("alice", "bob", or "carol")
-is allocated its own register.
-If you instead shuffle on `[/sender, /recipient]` then each
-_pair_ of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
-is allocated a register.
-
-Registers are best suited for relatively small,
-fast-changing documents that are shared within and across
-the transformations of a derivation.
-The number of registers indexed within a derivation may be very large,
-and if a register has never before been used,
-it starts with a user-defined initial value.
-From there, registers may be modified through an **update lambda**.
-
-:::info
-Under the hood, registers are backed by replicated,
-embedded RocksDB instances, which co-locate
-with the lambda execution contexts that Flow manages.
-As contexts are assigned and re-assigned,
-their register databases travel with them.
-
-If any single RocksDB instance becomes too large,
-Flow is able to perform an online **split**,
-which subdivides its contents into two new databases
- — and paired execution contexts — which are re-assigned to other machines.
-:::
-
-## Update lambdas
+### Update lambdas
 
 An **update** lambda transforms a source document
 into an update of the source document's register.

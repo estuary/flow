@@ -13,6 +13,9 @@ collections:
         schema: { type: boolean }
         initial: false
 
+      typescript:
+        module: flagged-transfers.flow.ts
+
       transform:
         fromTransfers:
           source:

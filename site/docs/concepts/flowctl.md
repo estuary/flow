@@ -37,13 +37,7 @@ Except where noted, it's recommended that these outputs be committed within your
 
 * `flow_generated/`: ♻
   Directory of generated files, including TypeScript classes and interfaces.
-  See [Typescript code generation](#typescript-code-generation).
-
-* `*.flow.ts`: ⚓
-  TypeScript modules that accompany your catalog source files.
-  A stub is generated for you if your catalog source uses a TypeScript lambda, and a module doesn't yet exist.
-  See [Typescript code generation](#typescript-code-generation) and
-  [learn how TypeScript modules are imported](import.md#typescript-modules).
+  See [TypeScript code generation](#typescript-code-generation).
 
 * `dist/`: ♻
   Holds JavaScript and source map files produced during TypeScript compilation.
@@ -75,6 +69,10 @@ Except where noted, it's recommended that these outputs be committed within your
 
 ### TypeScript code generation
 
+TypeScript files are used in two major ways in your Flow catalog:
+As part of the overall catalog build, which is automatic,
+and to define lambdas for [derivations](./derivations.md), which requires your input.
+
 As part of the catalog build process, Flow translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
@@ -83,10 +81,15 @@ and are frequently over-written by invocations of `flowctl`.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn't required.
 
-Flow also generates TypeScript module stubs for Flow catalog sources, which reference
-a TypeScript lambda, if that particular Flow catalog source doesn't yet have an accompanying TypeScript module.
-Generated stubs include implementations of the required TypeScript interfaces,
-with all method signatures filled out for you:
+Whenever you define a derivation that uses a [lambda](./derivations.md#lambdas),
+you must define the lambda in an accompanying TypeScript module, and reference that module
+in the derivation's definition.
+
+To make this easier, you can name a TypeScript module that does not yet exist in the derivation definition.
+Then, use `flowctl check` to generate a stubbed-out module, update the module with your lambda function bodies,
+and proceed to test and deploy your catalog.
+
+Using the example below, `flowctl check acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
@@ -101,6 +104,8 @@ collections:
     key: [/account]
 
     derivation:
+      typescript:
+        module: acmeBank.flow.ts
       transform:
         fromTransfers:
           source: { name: acmeBank/transfers }
@@ -111,15 +116,11 @@ collections:
 <TabItem value="acmeBank.flow.ts (generated stub)" default>
 
 ```typescript
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
 
 // Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
-export class AcmeBankBalances implements interfaces.AcmeBankBalances {
-    fromTransfersPublish(
-        _source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankBalances,
-        _previous: registers.AcmeBankBalances,
-    ): collections.AcmeBankBalances[] {
+export class Derivation implements IDerivation {
+    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
         throw new Error("Not implemented");
     }
 }
@@ -128,16 +129,5 @@ export class AcmeBankBalances implements interfaces.AcmeBankBalances {
 </TabItem>
 </Tabs>
 
-If a TypeScript module exists, `flowctl` will never over-write it,
+If a TypeScript module exists, `flowctl` will never overwrite it,
 even if you update or expand your catalog sources such that the required interfaces have changed.
-
-:::tip
-
-If you make changes to a catalog source file `my.flow.yaml` that substantially
-change the required TypeScript interfaces, try re-naming an existing
-`my.flow.ts` to another name like `old.flow.ts`.
-
-Then run `flowctl check` to re-generate a new implementation stub,
-which will have correct interfaces and can be updated from the definitions of `old.flow.ts`.
-
-:::

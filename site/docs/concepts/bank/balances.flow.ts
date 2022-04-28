@@ -1,12 +1,8 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
 
-// Implementation for derivation site/docs/concepts/derivations/bank/balances.flow.yaml#/collections/acmeBank~1balances/derivation.
-export class AcmeBankBalances implements interfaces.AcmeBankBalances {
-    fromTransfersPublish(
-        source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankBalances,
-        _previous: registers.AcmeBankBalances,
-    ): collections.AcmeBankBalances[] {
+// Implementation for derivation examples/bank/balances.flow.yaml#/collections/acmeBank~1balances/derivation.
+export class Derivation implements IDerivation {
+    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
         return [
             // Debit the sender.
             { user: source.sender, balance: -source.amount },

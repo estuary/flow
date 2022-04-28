@@ -7,6 +7,8 @@ collections:
     key: [/sender]
 
     derivation:
+      typescript:
+        module: last-large-send.flow.ts
       transform:
         fromTransfers:
           source:

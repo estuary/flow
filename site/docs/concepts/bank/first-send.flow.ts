@@ -1,15 +1,11 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/first-send';
 
-// Implementation for derivation site/docs/concepts/derivations/bank/first-send.flow.yaml#/collections/acmeBank~1first-send/derivation.
-export class AcmeBankFirstSend implements interfaces.AcmeBankFirstSend {
-    fromTransfersUpdate(_source: collections.AcmeBankTransfers): registers.AcmeBankFirstSend[] {
+// Implementation for derivation examples/bank/first-send.flow.yaml#/collections/acmeBank~1first-send/derivation.
+export class Derivation implements IDerivation {
+    fromTransfersUpdate(_source: FromTransfersSource): Register[] {
         return [true]; // Toggle the register from `false` => `true`.
     }
-    fromTransfersPublish(
-        source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankFirstSend,
-        previous: registers.AcmeBankFirstSend,
-    ): collections.AcmeBankFirstSend[] {
+    fromTransfersPublish(source: FromTransfersSource, _register: Register, previous: Register): Document[] {
         // If the register was previously false, than this is the first
         // transfer for this account pair.
         if (!previous) {
