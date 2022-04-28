@@ -108,12 +108,16 @@ create table role_grants (
 
   subject_role catalog_prefix   not null,
   object_role  catalog_prefix   not null,
-  capability   grant_capability not null,
-
-  unique(subject_role, object_role)
+  capability   grant_capability not null
 );
 alter table role_grants enable row level security;
 
+-- text_pattern_ops enables the index to accelerate prefix lookups.
+-- starts_with() is common when searching role_grants and we don't use
+-- ordering operators ( >, >=, <) on subject or object roles.
+-- See: https://www.postgresql.org/docs/current/indexes-opclass.html
+create unique index idx_role_grants_sub_obj on role_grants
+  (subject_role text_pattern_ops, object_role text_pattern_ops);
 
 comment on table role_grants is
   'Roles and capabilities that roles have been granted to other roles';

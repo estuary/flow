@@ -84,7 +84,7 @@ create table live_specs (
 
   -- catalog_name is the conceptual primary key, but we use flowid as
   -- the literal primary key for consistency and join performance.
-  catalog_name  catalog_name unique not null,
+  catalog_name  catalog_name not null,
 
   -- `spec` is the models::${spec_type}Def specification which corresponds to `spec_type`.
   spec_type    catalog_spec_type not null,
@@ -98,6 +98,13 @@ create table live_specs (
   connector_image_tag   text
 );
 alter table live_specs enable row level security;
+
+-- text_pattern_ops enables the index to accelerate prefix lookups.
+-- starts_with() is common when comparing to role_grants,
+-- and we don't use ordering operators ( >, >=, <) on catalog_names.
+-- See: https://www.postgresql.org/docs/current/indexes-opclass.html
+create unique index idx_live_specs_catalog_name on live_specs
+  (catalog_name text_pattern_ops);
 
 create policy "Users must be read-authorized to the specification catalog name"
   on live_specs as permissive for select
