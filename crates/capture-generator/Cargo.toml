@@ -1,0 +1,27 @@
+[package]
+name = "capture-generator"
+version = "0.0.0"
+authors = ["Estuary Technologies, Inc"]
+edition = "2018"
+
+[dependencies]
+doc = { path = "../doc", version = "0.0.0" }
+flow_cli_common = { path = "../flow_cli_common" }
+json = { path = "../json", version = "0.0.0" }
+
+anyhow = "*"
+bytes = "*"
+clap = { version = "3", features = ["derive"] }
+itertools = "*"
+lazy_static = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = { version =  "*", features = ["raw_value"] }
+thiserror = "*"
+schemars = "*"
+http = "*"
+tracing = "*"
+url = "*"
+tokio = { version = "*", features = ["macros"] }
+reqwest = { version = "*" }
+futures = "*"
+async-trait = "*"

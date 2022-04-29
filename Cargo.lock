@@ -495,6 +495,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-generator"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "clap 3.1.8",
+ "doc",
+ "flow_cli_common",
+ "futures",
+ "http",
+ "itertools",
+ "json",
+ "lazy_static",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "caseless"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
