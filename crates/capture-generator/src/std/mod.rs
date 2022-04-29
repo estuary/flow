@@ -40,6 +40,7 @@ pub struct BasicStream {
     pub method: http::Method,
     pub spec: RootSchema,
 }
+#[async_trait]
 impl Stream for BasicStream {
     type Config = ();
 
@@ -63,8 +64,8 @@ impl Stream for BasicStream {
         request
     }
 
-    fn spec(&mut self) -> RootSchema {
-        self.spec.clone()
+    async fn spec(&mut self) -> Result<RootSchema, anyhow::Error> {
+        Ok(self.spec.clone())
     }
 }
 
