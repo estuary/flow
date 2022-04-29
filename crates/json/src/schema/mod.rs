@@ -115,7 +115,6 @@ pub enum Application {
     PropertyNames,
     Properties {
         name: String,
-        name_interned: intern::Set,
     },
     PatternProperties {
         re: fancy_regex::Regex,
@@ -130,6 +129,7 @@ pub enum Application {
     },
     AdditionalItems,
     UnevaluatedItems,
+    Inline,
 }
 
 impl Application {
@@ -164,6 +164,10 @@ impl Application {
             Items { .. } => parent.push_prop(keywords::ITEMS),
             AdditionalItems => parent.push_prop(keywords::ADDITIONAL_ITEMS),
             UnevaluatedItems => parent.push_prop(keywords::UNEVALUATED_ITEMS),
+
+            // Inline is a special application that does not in itself have a location
+            // and is only useful for wrapping other applications to work around the intern table limit
+            Inline => *parent,
         }
     }
 
@@ -198,7 +202,7 @@ impl Application {
             Contains => *parent,
             Items { index: None } => *parent,
             Items { index: Some(i) } => parent.push_item(*i),
-            AdditionalItems | UnevaluatedItems => *parent,
+            AdditionalItems | UnevaluatedItems | Inline => *parent,
         }
     }
 

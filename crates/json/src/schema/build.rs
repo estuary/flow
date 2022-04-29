@@ -4,6 +4,7 @@ use crate::schema::{
 };
 use crate::{de, NoopWalker, Number};
 use fancy_regex as regex;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde_json as sj;
 use thiserror;
@@ -257,10 +258,7 @@ where
             keywords::PROPERTIES => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
-                        let app = App::Properties {
-                            name: prop.clone(),
-                            name_interned: self.tbl.intern(prop)?,
-                        };
+                        let app = App::Properties { name: prop.clone() };
                         self.add_application(app, child)?;
                     }
                 }
@@ -352,17 +350,14 @@ where
             // Object-specific validation keywords.
             keywords::MAX_PROPERTIES => self.add_validation(Val::MaxProperties(extract_usize(v)?)),
             keywords::MIN_PROPERTIES => self.add_validation(Val::MinProperties(extract_usize(v)?)),
-            keywords::REQUIRED => {
-                let (set, props) = extract_intern_set(&mut self.tbl, v)?;
-                self.add_validation(Val::Required {
-                    props,
-                    props_interned: set,
-                });
-            }
+            keywords::REQUIRED => panic!("`required` keyword should use process_required"),
             keywords::DEPENDENT_REQUIRED => match v {
                 sj::Value::Object(m) => {
                     for (prop, child) in m {
-                        let (then_set, then_props) = extract_intern_set(&mut self.tbl, child)?;
+                        let (then_set, then_props) = match child {
+                            sj::Value::Array(vec) => extract_intern_set(&mut self.tbl, vec.iter())?,
+                            _ => return Err(ExpectedStringArray),
+                        };
 
                         let dr = Val::DependentRequired {
                             if_: prop.clone(),
@@ -395,6 +390,30 @@ where
         } else {
             Ok(())
         }
+    }
+
+    fn process_required(&mut self, child: &sj::Value) -> Result<(), Error> {
+        let vec = match child {
+            sj::Value::Array(vec) => vec,
+            _ => return Err(ExpectedStringArray),
+        };
+
+        // Split |vec| into a |head| which will fit within the remaining intern
+        // table space, and a |tail| which is chunked by the maximum table size
+        // and pushed down into inline schemas.
+        let (head, tail) = vec.split_at(vec.len().min(self.tbl.remaining()));
+
+        let (set, props) = extract_intern_set(&mut self.tbl, head.iter())?;
+        self.add_validation(Validation::Required {
+            props,
+            props_interned: set,
+        });
+
+        for chunk in tail.iter().chunks(intern::MAX_TABLE_SIZE).into_iter() {
+            let vec: Vec<_> = chunk.map(|v| v.clone()).collect();
+            self.add_application(Application::Inline, &sj::json!({ "required": vec }))?;
+        }
+        Ok(())
     }
 
     fn add_validation(&mut self, val: Validation) {
@@ -464,19 +483,35 @@ where
             .unwrap_or_default(),
     };
 
-    for (k, v) in obj {
-        builder.process_keyword(k, v).map_err(|e| match e {
-            // Pass through errors that have already been located.
-            AtSchema { .. } | AtKeyword { .. } => e,
-            // Otherwise, wrap error with its keyword location.
-            _ => {
-                return AtKeyword {
-                    detail: Box::new(e),
-                    curi: builder.curi.clone(),
-                    keyword: k.to_owned(),
-                }
+    let mapped_err = |err: Error, curi: &url::Url, keyword: &str| match err {
+        // Pass through errors that have already been located.
+        AtSchema { .. } | AtKeyword { .. } => err,
+        // Otherwise, wrap error with its keyword location.
+        _ => {
+            return AtKeyword {
+                detail: Box::new(err),
+                curi: curi.clone(),
+                keyword: keyword.to_string(),
             }
-        })?;
+        }
+    };
+
+    let mut required = None;
+    for (k, v) in obj {
+        if k == keywords::REQUIRED {
+            required = Some(v);
+            continue;
+        }
+        builder
+            .process_keyword(k, v)
+            .map_err(|e| mapped_err(e, &builder.curi, k))?;
+    }
+
+    // Process `required` last, once we know how much intern table space remains.
+    if let Some(required) = required {
+        builder
+            .process_required(required)
+            .map_err(|e| mapped_err(e, &builder.curi, keywords::REQUIRED))?;
     }
 
     Ok(builder.build())
@@ -548,24 +583,19 @@ fn extract_number(v: &sj::Value) -> Result<Number, Error> {
     }
 }
 
-fn extract_intern_set(
+fn extract_intern_set<'a>(
     tbl: &mut intern::Table,
-    v: &sj::Value,
+    vec: impl Iterator<Item = &'a sj::Value>,
 ) -> Result<(intern::Set, Vec<String>), Error> {
-    match v {
-        sj::Value::Array(vec) => {
-            let mut set: intern::Set = 0;
-            let mut props = Vec::new();
+    let mut set: intern::Set = 0;
+    let mut props = Vec::new();
 
-            for item in vec {
-                let prop = extract_str(item)?;
-                set |= tbl.intern(extract_str(item)?)?;
-                props.push(prop.to_owned());
-            }
-            Ok((set, props))
-        }
-        _ => return Err(ExpectedStringArray),
+    for item in vec {
+        let prop = extract_str(item)?;
+        set |= tbl.intern(extract_str(item)?)?;
+        props.push(prop.to_owned());
     }
+    Ok((set, props))
 }
 
 impl AnnotationBuilder for CoreAnnotation {
@@ -611,5 +641,83 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::WRITE_ONLY => CoreAnnotation::WriteOnly(extract_bool(v)?),
             _ => panic!("unexpected keyword: '{}'", kw),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{super::build::build_schema, super::CoreAnnotation};
+    use crate::schema::{intern, Application, Keyword, Validation};
+
+    #[test]
+    fn test_required_splits_into_inline_schemas() {
+        let do_test = |fill_to: usize| {
+            // Our fixture under test uses seven properties other than those of `required`.
+            let required: Vec<_> = (0..fill_to).map(|i| i.to_string()).collect();
+
+            let schema = serde_json::json!({
+                "type": "object",
+                "dependentRequired": {
+                    "foo": ["bar", "baz"],
+                    "bar": ["baz"],
+                },
+                "dependentSchemas": {
+                    "bing": true,
+                    "quark": {},
+                    "baz": {},
+                },
+                "properties": {
+                    "these-props": true,
+                    "dont-get-interned": false,
+                },
+                "required": required,
+            });
+
+            let curi = url::Url::parse("http://example/schema").unwrap();
+            let schema = build_schema::<CoreAnnotation>(curi, &schema).unwrap();
+
+            let mut saw_required = false;
+            let mut total_inline = 0;
+            let mut total_required = 0;
+
+            for kw in &schema.kw {
+                match kw {
+                    Keyword::Application(Application::Inline, schema) => {
+                        assert_eq!(schema.kw.len(), 1, "{:?}", &schema.kw);
+                        match &schema.kw[0] {
+                            Keyword::Validation(Validation::Required { props, .. }) => {
+                                total_required += props.len();
+                            }
+                            kw => panic!("unexpected inline keyword: {:?}", kw),
+                        }
+                        total_inline += 1;
+                    }
+                    Keyword::Validation(Validation::Required { props, .. }) => {
+                        total_required += props.len();
+                        saw_required = true;
+                    }
+                    _ => {}
+                }
+            }
+            assert!(saw_required);
+            assert_eq!(total_required, fill_to);
+
+            (schema.tbl.len(), total_inline)
+        };
+
+        assert_eq!(do_test(0), (5, 0));
+        assert_eq!(do_test(3), (8, 0));
+        assert_eq!(
+            do_test(intern::MAX_TABLE_SIZE - 5),
+            (intern::MAX_TABLE_SIZE, 0)
+        );
+        assert_eq!(
+            do_test(intern::MAX_TABLE_SIZE * 3 - 5),
+            (intern::MAX_TABLE_SIZE, 2)
+        );
+        assert_eq!(
+            do_test(intern::MAX_TABLE_SIZE * 3 - 4),
+            (intern::MAX_TABLE_SIZE, 3)
+        );
     }
 }
