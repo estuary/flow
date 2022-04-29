@@ -88,53 +88,7 @@ and, in certain cases, the NPM dependencies of that Typescript module.
 
 These imports are specified in the derivation specification, _not_ in the import section of the catalog spec.
 
-For more information, see [Derivation specification](./derivations.md#specification) and [Typescript generation](./flowctl.md#typescript-code-generation).
-
-## NPM dependencies
-TODO OLIVIA MOVE THIS SOMEWHERE
-
-Your TypeScript modules may depend on other
-[NPM packages](https://www.npmjs.com/),
-which can be be imported through the `npmDependencies`
-stanza of a Flow catalog spec.
-For example, [moment](https://momentjs.com/) is a common library
-for working with times:
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
-<Tabs>
-<TabItem value="catalog.flow.yaml" default>
-
-```yaml
-npmDependencies:
-  moment: "^2.24"
-
-collections: { ... }
-```
-
-</TabItem>
-<TabItem value="catalog.flow.ts" default>
-
-```typescript
-import * as moment from 'moment';
-
-// ... use `moment` as per usual.
-```
-
-</TabItem>
-</Tabs>
-
-Use any version string understood by `package.json`,
-which can include local packages, GitHub repository commits, and more.
-See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
-
-During the catalog build process, Flow gathers NPM dependencies
-across all catalog source files and patches them into the catalog's
-managed `package.json`.
-Flow organizes its generated TypeScript project structure
-for a seamless editing experience out of the box with VS Code
-and other common editors.
+For more information, see [Derivation specification](./derivations.md#specification) and [creating TypeScript modules](./derivations.md#creating-typescript-modules).
 
 ## Import paths
 

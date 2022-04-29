@@ -14,7 +14,7 @@ collections:
         initial: false
 
       typescript:
-        module: flagged-transfers.flow.ts
+        module: first-send.flow.ts
 
       transform:
         fromTransfers:

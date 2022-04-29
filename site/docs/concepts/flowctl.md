@@ -83,51 +83,10 @@ You may want to commit them as part of a GitOps-managed project, but this isn't 
 
 Whenever you define a derivation that uses a [lambda](./derivations.md#lambdas),
 you must define the lambda in an accompanying TypeScript module, and reference that module
-in the derivation's definition.
-
-To make this easier, you can name a TypeScript module that does not yet exist in the derivation definition.
-Then, use `flowctl check` to generate a stubbed-out module, update the module with your lambda function bodies,
-and proceed to test and deploy your catalog.
-
-Using the example below, `flowctl check acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
-<Tabs>
-<TabItem value="acmeBank.flow.yaml" default>
-
-```yaml
-collections:
-  acmeBank/balances:
-    schema: balances.schema.yaml
-    key: [/account]
-
-    derivation:
-      typescript:
-        module: acmeBank.flow.ts
-      transform:
-        fromTransfers:
-          source: { name: acmeBank/transfers }
-          publish: { lambda: typescript }
-```
-
-</TabItem>
-<TabItem value="acmeBank.flow.ts (generated stub)" default>
-
-```typescript
-import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
-
-// Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
-export class Derivation implements IDerivation {
-    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
-        throw new Error("Not implemented");
-    }
-}
-```
-
-</TabItem>
-</Tabs>
+in the derivation's definition. To facilitate this,
+you can generate a stub of the module using `flowctl check`
+and simply write the function bodies.
+[Learn more about this workflow.](./derivations.md#creating-typescript-modules)
 
 If a TypeScript module exists, `flowctl` will never overwrite it,
 even if you update or expand your catalog sources such that the required interfaces have changed.

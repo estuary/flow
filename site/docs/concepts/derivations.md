@@ -330,8 +330,9 @@ They may update documents in registers or publish documents to the derived colle
 For performance reasons, **update** and **publish** lambdas are implemented differently.
 
 Flow currently supports TypeScript lambdas, which you define in an accompanying TypeScript module.
-The module must be added to [the derivation's definition](#specification) in the `typescript` stanza.
-See [TypeScript generation](./flowctl.md#typescript-code-generation) for more details on how to get started.
+The module must be added to the derivation's definition in the `typescript` stanza.
+See the [derivation specification](#specification) and [Creating TypeScript modules](#creating-typescript-modules)
+for more details.
 
 ### Publish lambdas
 
@@ -376,15 +377,6 @@ If it were instead keyed on `/id`,
 then _all_ transfers with large amounts would be retained.
 In SQL terms, the collection key acts as a GROUP BY.
 
-:::tip
-If the referenced TypeScript module for your lambdas does not yet exist,
-you can use `flowctl check` to generate it.
-Flow creates a module with the name you specified, stubs of the required interfaces,
-and TypeScript types that match your schemas.
-You just write the function body.
-
-[Learn more about TypeScript generation](flowctl.md#typescript-generation)
-:::
 
 ***
 
@@ -570,6 +562,101 @@ into a derivation register keyed on the account.
     Derivation->>Publish λ: publish({sender: alice, amount: 75, ...}, register = -25, previous = 50)?
     Publish λ-->>Derivation: return {sender: alice, amount: 75, balance: -25, overdrawn: true}
 `}/>
+
+### Creating TypeScript modules
+
+To create a new TypeScript module for the lambdas of your derivation,
+you can use `flowctl check` to generate it.
+In the derivation specification, choose the name for the new module and
+run `flowctl check`.
+Flow creates a module with the name you specified, stubs of the required interfaces,
+and TypeScript types that match your schemas.
+Update the module with your lambda function bodies,
+and proceed to test and deploy your catalog.
+
+Using the example below, `flowctl check --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
+
+<Tabs>
+<TabItem value="acmeBank.flow.yaml" default>
+
+```yaml
+collections:
+  acmeBank/balances:
+    schema: balances.schema.yaml
+    key: [/account]
+
+    derivation:
+      typescript:
+        module: acmeBank.flow.ts
+      transform:
+        fromTransfers:
+          source: { name: acmeBank/transfers }
+          publish: { lambda: typescript }
+```
+
+</TabItem>
+<TabItem value="acmeBank.flow.ts (generated stub)" default>
+
+```typescript
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
+
+// Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
+export class Derivation implements IDerivation {
+    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
+        throw new Error("Not implemented");
+    }
+}
+```
+
+</TabItem>
+</Tabs>
+
+
+[Learn more about TypeScript generation](flowctl.md#typescript-generation)
+
+### NPM dependencies
+
+Your TypeScript modules may depend on other
+[NPM packages](https://www.npmjs.com/),
+which can be be imported through the `npmDependencies`
+stanza of the [derivation spec](#specification).
+For example, [moment](https://momentjs.com/) is a common library
+for working with times:
+
+<Tabs>
+<TabItem value="catalog.flow.yaml" default>
+
+```yaml
+derivation:
+  typescript:
+    module: first-send.flow.ts
+    npmDependencies:
+      moment: "^2.24"
+  transform: { ... }
+```
+
+</TabItem>
+<TabItem value="catalog.flow.ts" default>
+
+```typescript
+import * as moment from 'moment';
+
+// ... use `moment` as per usual.
+```
+
+</TabItem>
+</Tabs>
+
+Use any version string understood by `package.json`,
+which can include local packages, GitHub repository commits, and more.
+See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
+
+During the catalog build process, Flow gathers NPM dependencies
+across all catalog source files and patches them into the catalog's
+managed `package.json`.
+Flow organizes its generated TypeScript project structure
+for a seamless editing experience out of the box with VS Code
+and other common editors.
 
 ## Processing order
 
