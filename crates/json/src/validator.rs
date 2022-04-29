@@ -296,8 +296,7 @@ where
             let scope = &mut self.scopes[scope_index];
             let mut evaluated = false;
 
-            let interned = scope.schema.tbl.lookup(loc.name);
-            scope.seen_interned |= interned;
+            scope.seen_interned |= scope.schema.tbl.lookup(loc.name);
 
             for kw in &scope.schema.kw {
                 let (app, sub) = match kw {
@@ -307,10 +306,8 @@ where
                 // Property applications have preference rules (which keywords are sorted by).
                 // C.f. https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.9.3.2
                 let evaluates = match app {
-                    // Properties always applies on equality of (interned) property name.
-                    Properties {
-                        name_interned: i, ..
-                    } if *i == interned => true,
+                    // Properties always applies on equality of the property name.
+                    Properties { name } if name == loc.name => true,
                     // PatternProperties always applies on regex match of property name.
                     PatternProperties { re } if regex_matches(re, loc.name) => true,
                     // AdditionalProperties applies if Properties and PatternProperties haven't.
@@ -804,7 +801,9 @@ where
             App::Def { .. } | App::Definition { .. } => panic!("unexpected Def"),
 
             // In-place keywords which must always validate.
-            App::AllOf { .. } | App::Ref(_) | App::RecursiveRef(_) | App::Not => RequiredInPlace,
+            App::AllOf { .. } | App::Ref(_) | App::RecursiveRef(_) | App::Not | App::Inline => {
+                RequiredInPlace
+            }
 
             // In-place keywords which must validate subject to the state
             // of a previously-collected annotation.
@@ -908,7 +907,7 @@ where
 
     fn expand_scope<'a>(&mut self, index: usize, span: &Span, loc: &'a Location<'a>) {
         use Application::{
-            AllOf, AnyOf, DependentSchema, Else, If, Not, OneOf, RecursiveRef, Ref, Then,
+            AllOf, AnyOf, DependentSchema, Else, If, Inline, Not, OneOf, RecursiveRef, Ref, Then,
         };
 
         //println!("expand_scope '{}' '{}'", self.scopes[index].keyword_location(&self.scopes), self.scopes[index].schema.curi);
@@ -952,7 +951,8 @@ where
                 | If
                 | Then
                 | Else
-                | DependentSchema { .. } => (schema, None),
+                | DependentSchema { .. }
+                | Inline => (schema, None),
 
                 _ => continue, // Not an in-place application.
             };

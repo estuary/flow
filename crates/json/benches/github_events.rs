@@ -37,11 +37,10 @@ pub fn github_events(c: &mut Criterion) {
         c.bench_function(&format!("scrape{}", s), |b| {
             let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
             b.iter(|| {
-                for (n, doc) in scrape.iter().enumerate() {
+                for (_n, doc) in scrape.iter().enumerate() {
                     val.prepare(&schema.curi).unwrap();
                     let _ = de::walk(doc, &mut val).expect("validation error");
-
-                    println!("scrape {} outcomes {}: {:?}", s, n, val.outcomes());
+                    //println!("scrape {} errors {}: {:?}", s, _n, errors);
                     assert!(!val.invalid());
                 }
             })
