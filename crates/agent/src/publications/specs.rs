@@ -3,8 +3,9 @@ use crate::Id;
 
 use anyhow::Context;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::Json;
+use sqlx::types::{Json, Uuid};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type)]
@@ -17,16 +18,50 @@ pub enum CatalogType {
     Test,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "grant_capability")]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
+pub enum Capability {
+    Read,
+    Write,
+    Admin,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RoleGrant {
+    pub subject_role: String,
+    pub object_role: String,
+    pub capability: Capability,
+}
+
 #[derive(Debug)]
 pub struct SpecRow {
+    // Name of the specification.
     pub catalog_name: String,
+    // Specification which will be applied by this draft.
     pub draft_spec: Json<Box<RawValue>>,
+    // ID of the draft specification.
+    pub draft_spec_id: Id,
+    // Spec type of this draft.
+    // We validate and require that this equals `live_type`.
     pub draft_type: CatalogType,
+    // Optional expected value for `last_pub_id` of the live spec.
+    // A special all-zero value means "this should be a creation".
     pub expect_pub_id: Option<Id>,
+    // Last publication ID of the live spec.
+    // If the spec is being created, this is the current publication ID.
     pub last_pub_id: Id,
+    // Current live specification which will be replaced by this draft.
     pub live_spec: Json<Box<RawValue>>,
+    // ID of the live specification.
     pub live_spec_id: Id,
+    // Spec type of the live specification.
     pub live_type: CatalogType,
+    // Capabilities of the specification with respect to other roles.
+    pub spec_capabilities: Json<Vec<RoleGrant>>,
+    // User's capability to the specification `catalog_name`.
+    pub user_capability: Option<Capability>,
 }
 
 // resolve_specifications returns the definitive set of specifications which
@@ -36,6 +71,7 @@ pub struct SpecRow {
 pub async fn resolve_specifications(
     draft_id: Id,
     pub_id: Id,
+    user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<SpecRow>> {
     // Attempt to create a row in live_specs for each of our draft_specs.
@@ -84,18 +120,29 @@ pub async fn resolve_specifications(
     // of what's "in" this publication, and what's not. Anything we don't pick up here will
     // be left behind as a draft_spec, and this is the reason we don't delete the draft
     // itself within this transaction.
-    let spec_rows = sqlx::query_as!(
+    let mut spec_rows = sqlx::query_as!(
         SpecRow,
         r#"
         select
             draft_specs.catalog_name,
             draft_specs.expect_pub_id as "expect_pub_id: Id",
             draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
+            draft_specs.id as "draft_spec_id: Id",
             draft_specs.spec_type as "draft_type: CatalogType",
-            live_specs.id as "live_spec_id: Id",
             live_specs.last_pub_id as "last_pub_id: Id",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
-            live_specs.spec_type as "live_type: CatalogType"
+            live_specs.id as "live_spec_id: Id",
+            live_specs.spec_type as "live_type: CatalogType",
+            coalesce(
+                (select json_agg(row_to_json(role_grants))
+                from role_grants
+                where starts_with(draft_specs.catalog_name, subject_role)),
+                '[]'
+            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            (
+                select max(capability) from internal.user_roles($2) r
+                where starts_with(draft_specs.catalog_name, r.role_prefix)
+            ) as "user_capability: Capability"
         from draft_specs
         join live_specs
             on draft_specs.catalog_name = live_specs.catalog_name
@@ -103,19 +150,38 @@ pub async fn resolve_specifications(
         for update of draft_specs, live_specs;
         "#,
         draft_id as Id,
+        user_id,
     )
     .fetch_all(&mut *txn)
     .await
     .context("selecting joined draft & live specs")?;
+
+    // The query may return live specifications that the user is not
+    // authorized to know anything about. Tweak such rows to appear
+    // as if the spec is being created.
+    for row in &mut spec_rows {
+        if row.user_capability.is_none() {
+            row.last_pub_id = pub_id;
+            row.live_spec = Json(RawValue::from_string("null".to_string()).unwrap());
+            row.live_spec_id = row.draft_spec_id;
+            row.live_type = row.draft_type;
+            row.spec_capabilities = Json(Vec::new());
+        }
+    }
 
     Ok(spec_rows)
 }
 
 #[derive(Debug)]
 pub struct ExpandedRow {
+    // Name of the specification.
     pub catalog_name: String,
+    // Current live specification of this expansion.
+    // It won't be changed by this publication.
     pub live_spec: Json<Box<RawValue>>,
+    // ID of the expanded live specification.
     pub live_spec_id: Id,
+    // Spec type of the live specification.
     pub live_type: CatalogType,
 }
 
@@ -128,31 +194,44 @@ pub async fn expanded_specifications(
     spec_rows: &[SpecRow],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<ExpandedRow>> {
-    let live_ids: Vec<Id> = spec_rows.iter().map(|r| r.live_spec_id).collect();
+    // We seed expansion with the set of live specifications
+    // (that the user must be authorized to administer).
+    let seed_ids: Vec<Id> = spec_rows
+        .iter()
+        .map(|r| {
+            assert!(matches!(r.user_capability, Some(Capability::Admin)));
+            r.live_spec_id
+        })
+        .collect();
 
     let expanded_rows = sqlx::query_as!(
         ExpandedRow,
         r#"
-        with recursive clique(id, seed) as (
+        -- Perform a graph traversal which expands the seed set of
+        -- specifications. Directly-adjacent captures and materializations
+        -- are resolved, as is the full connected component of tests and
+        -- derivations.
+        with recursive expanded(id, seed) as (
             select id, true from unnest($1::flowid[]) as id
           union
             select
-                case when clique.id = e.source_id then e.target_id else e.source_id end,
+                case when expanded.id = e.source_id then e.target_id else e.source_id end,
                 false
-            from clique join live_spec_flows as e
-            on clique.id = e.source_id or clique.id = e.target_id
-            where clique.seed or e.flow_type in ('collection', 'test')
+            from expanded join live_spec_flows as e
+            on expanded.id = e.source_id or expanded.id = e.target_id
+            where expanded.seed or e.flow_type in ('collection', 'test')
         )
+        -- Join the expanded IDs with live_specs.
         select
             id as "live_spec_id: Id",
             catalog_name,
             spec_type as "live_type: CatalogType",
             spec as "live_spec: Json<Box<RawValue>>"
-        from live_specs natural join clique
-        group by id
-        having not bool_or(seed);
+        from live_specs natural join expanded
+        -- Strip specs which are already part of the seed set.
+        group by id having not bool_or(seed);
         "#,
-        live_ids as Vec<Id>,
+        seed_ids as Vec<Id>,
     )
     .fetch_all(&mut *txn)
     .await
@@ -245,22 +324,72 @@ pub fn validate_transition(
 ) -> Vec<Error> {
     let mut errors = Vec::new();
 
-    for SpecRow {
+    for spec_row @ SpecRow {
         catalog_name,
         draft_spec,
+        draft_spec_id: _,
         draft_type,
         expect_pub_id,
         last_pub_id,
         live_spec,
         live_spec_id: _,
         live_type,
+        spec_capabilities,
+        user_capability,
     } in spec_rows
     {
+        // Check that the user is authorized to change this spec.
+        if !matches!(user_capability, Some(Capability::Admin)) {
+            errors.push(Error {
+                catalog_name: catalog_name.clone(),
+                detail: format!("User is not authorized to create or change this catalog name"),
+                ..Default::default()
+            });
+            // Continue because we'll otherwise produce superfluous auth errors
+            // of referenced collections.
+            continue;
+        }
+        // Check that the specification is authorized to its referants.
+        let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
+        for source in reads_from.iter().flatten() {
+            if !spec_capabilities.iter().any(|c| {
+                source.starts_with(&c.object_role)
+                    && matches!(
+                        c.capability,
+                        Capability::Read | Capability::Write | Capability::Admin
+                    )
+            }) {
+                errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "Specification is not read-authorized to '{source}'.\nAvailable grants are: {}",
+                        serde_json::to_string_pretty(&spec_capabilities).unwrap(),
+                    ),
+                    ..Default::default()
+                });
+            }
+        }
+        for target in writes_to.iter().flatten() {
+            if !spec_capabilities.iter().any(|c| {
+                target.starts_with(&c.object_role)
+                    && matches!(c.capability, Capability::Write | Capability::Admin)
+            }) {
+                errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
+                        serde_json::to_string_pretty(&spec_capabilities).unwrap(),
+                    ),
+                    ..Default::default()
+                });
+            }
+        }
+
         if draft_type != live_type {
             errors.push(Error {
                 catalog_name: catalog_name.clone(),
                 detail: format!(
-                    "draft has an incompatible {draft_type:?} vs current {live_type:?}"
+                    "Draft has an incompatible {draft_type:?} vs current {live_type:?}"
                 ),
                 ..Default::default()
             });
@@ -270,7 +399,7 @@ pub fn validate_transition(
             errors.push(Error {
                 catalog_name: catalog_name.clone(),
                 detail: format!(
-                    "draft marks this specification for deletion, but it doesn't exist"
+                    "Draft marks this specification for deletion, but it doesn't exist"
                 ),
                 ..Default::default()
             });
@@ -284,7 +413,7 @@ pub fn validate_transition(
                 errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
-                        "publication expects to create this specification, but it exists from publication {last_pub_id}"
+                        "Publication expected to create this specification, but it already exists from publication {last_pub_id}"
                     ),
                     ..Default::default()
                 });
@@ -296,7 +425,7 @@ pub fn validate_transition(
                 errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
-                        "draft expects a last publication ID of {id}, but it's now {last_pub_id}"
+                        "Draft expects a last publication ID of {id}, but it's now {last_pub_id}"
                     ),
                     ..Default::default()
                 });
@@ -321,7 +450,7 @@ pub fn validate_transition(
             errors.push(Error {
                 catalog_name: catalog_name.to_string(),
                 detail: format!(
-                    "cannot change key of an established collection from {:?} to {:?}",
+                    "Cannot change key of an established collection from {:?} to {:?}",
                     &live.key, &draft.key,
                 ),
                 ..Default::default()
@@ -354,7 +483,7 @@ pub fn validate_transition(
             errors.push(Error {
                 catalog_name: catalog_name.to_string(),
                 detail: format!(
-                    "cannot change partitions of an established collection (from {live_partitions:?} to {draft_partitions:?})",
+                    "Cannot change partitions of an established collection (from {live_partitions:?} to {draft_partitions:?})",
                 ),
                 ..Default::default()
             });
@@ -366,7 +495,6 @@ pub fn validate_transition(
 
 pub async fn apply_updates_for_row(
     pub_id: Id,
-    draft_id: Id,
     catalog: &models::Catalog,
     spec_row: &SpecRow,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -374,20 +502,22 @@ pub async fn apply_updates_for_row(
     let SpecRow {
         catalog_name,
         draft_spec,
+        draft_spec_id,
         draft_type,
         expect_pub_id: _,
         last_pub_id: _,
         live_spec,
         live_spec_id,
         live_type,
+        spec_capabilities: _,
+        user_capability,
     } = spec_row;
 
+    assert!(matches!(user_capability, Some(Capability::Admin)));
+
     sqlx::query!(
-        r#"delete from draft_specs where draft_id = $1 and catalog_name = $2
-            returning 1 as "must_exist";
-        "#,
-        draft_id as Id,
-        &catalog_name as &str,
+        r#"delete from draft_specs where id = $1 returning 1 as "must_exist";"#,
+        *draft_spec_id as Id,
     )
     .fetch_one(&mut *txn)
     .await
@@ -470,6 +600,83 @@ pub async fn apply_updates_for_row(
     // Draft is an update of a live spec. The insertion case is also an update:
     // we previously created a live_specs rows for the draft in order to lock it.
 
+    let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
+
+    sqlx::query!(
+        r#"
+        update live_specs set
+            connector_image_name = $2,
+            connector_image_tag = $3,
+            last_pub_id = $4,
+            reads_from = $5,
+            spec = $6,
+            updated_at = clock_timestamp(),
+            writes_to = $7
+        where catalog_name = $1
+        returning 1 as "must_exist";
+        "#,
+        catalog_name,
+        image_parts.as_ref().map(|p| &p.0),
+        image_parts.as_ref().map(|p| &p.1),
+        pub_id as Id,
+        &reads_from as &Option<Vec<&str>>,
+        draft_spec as &Json<Box<RawValue>>,
+        &writes_to as &Option<Vec<&str>>,
+    )
+    .fetch_one(&mut *txn)
+    .await
+    .context("update live_specs")?;
+
+    sqlx::query!(
+        r#"
+        insert into live_spec_flows (source_id, target_id, flow_type)
+            select live_specs.id, $1, $2::catalog_spec_type
+            from unnest($3::text[]) as n join live_specs on catalog_name = n
+        union
+            select $1, live_specs.id, $2
+            from unnest($4::text[]) as n join live_specs on catalog_name = n;
+        "#,
+        *live_spec_id as Id,
+        draft_type as &CatalogType,
+        reads_from as Option<Vec<&str>>,
+        writes_to as Option<Vec<&str>>,
+    )
+    .execute(&mut *txn)
+    .await
+    .context("insert live_spec_flow edges")?;
+
+    Ok(())
+}
+
+fn extract_spec_metadata<'a>(
+    catalog: &'a models::Catalog,
+    spec_row: &'a SpecRow,
+) -> (
+    Option<Vec<&'a str>>,
+    Option<Vec<&'a str>>,
+    Option<(String, String)>,
+) {
+    let SpecRow {
+        user_capability: _,
+        spec_capabilities: _,
+        catalog_name,
+        draft_spec,
+        draft_spec_id: _,
+        draft_type,
+        expect_pub_id: _,
+        last_pub_id: _,
+        live_spec: _,
+        live_spec_id: _,
+        live_type: _,
+    } = spec_row;
+
+    if draft_spec.get() == "null" {
+        // Spec is being deleted.
+        return (None, None, None);
+    }
+
+    let mut reads_from = Vec::new();
+    let mut writes_to = Vec::new();
     let mut image_parts = None;
 
     match *draft_type {
@@ -480,52 +687,20 @@ pub async fn apply_updates_for_row(
             if let models::CaptureEndpoint::Connector(config) = &capture.endpoint {
                 image_parts = Some(split_tag(&config.image));
             }
-            let targets: Vec<String> = capture
-                .bindings
-                .iter()
-                .map(|b| b.target.to_string())
-                .sorted()
-                .unique()
-                .collect();
-
-            sqlx::query!(
-                r#"
-                insert into live_spec_flows (source_id, target_id, flow_type)
-                select $1, live_specs.id, 'capture'
-                from unnest($2::text[]) as n join live_specs on catalog_name = n;
-                "#,
-                *live_spec_id as Id,
-                &targets as &Vec<String>,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("insert capture edges")?;
+            for binding in &capture.bindings {
+                writes_to.push(binding.target.as_ref());
+            }
+            writes_to.reserve(1);
         }
         CatalogType::Collection => {
             let key = models::Collection::new(catalog_name);
             let collection = catalog.collections.get(&key).unwrap();
 
             if let Some(derivation) = &collection.derivation {
-                let sources: Vec<String> = derivation
-                    .transform
-                    .iter()
-                    .map(|(_, tdef)| tdef.source.name.to_string())
-                    .sorted()
-                    .unique()
-                    .collect();
-
-                sqlx::query!(
-                    r#"
-                    insert into live_spec_flows (source_id, target_id, flow_type)
-                    select live_specs.id, $1, 'collection'
-                    from unnest($2::text[]) as n join live_specs on catalog_name = n;
-                    "#,
-                    *live_spec_id as Id,
-                    &sources as &Vec<String>,
-                )
-                .execute(&mut *txn)
-                .await
-                .context("insert derivation edges")?;
+                for (_, tdef) in &derivation.transform {
+                    reads_from.push(tdef.source.name.as_ref());
+                }
+                reads_from.reserve(1);
             }
         }
         CatalogType::Materialization => {
@@ -536,87 +711,44 @@ pub async fn apply_updates_for_row(
             if let models::MaterializationEndpoint::Connector(config) = &materialization.endpoint {
                 image_parts = Some(split_tag(&config.image));
             }
-            let sources: Vec<String> = materialization
-                .bindings
-                .iter()
-                .map(|b| b.source.to_string())
-                .sorted()
-                .unique()
-                .collect();
-
-            sqlx::query!(
-                r#"
-                insert into live_spec_flows (source_id, target_id, flow_type)
-                select live_specs.id, $1, 'materialization'
-                from unnest($2::text[]) as n join live_specs on catalog_name = n;
-                "#,
-                *live_spec_id as Id,
-                &sources as &Vec<String>,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("insert materialization edges")?;
+            for binding in &materialization.bindings {
+                reads_from.push(binding.source.as_ref());
+            }
+            reads_from.reserve(1);
         }
         CatalogType::Test => {
             let key = models::Test::new(catalog_name);
             let steps = catalog.tests.get(&key).unwrap();
 
-            let (mut reads_from, mut writes_to) = (Vec::new(), Vec::new());
             for step in steps {
                 match step {
-                    models::TestStep::Ingest(ingest) => {
-                        writes_to.push(ingest.collection.to_string())
-                    }
-                    models::TestStep::Verify(verify) => {
-                        reads_from.push(verify.collection.to_string())
-                    }
+                    models::TestStep::Ingest(ingest) => writes_to.push(ingest.collection.as_ref()),
+                    models::TestStep::Verify(verify) => reads_from.push(verify.collection.as_ref()),
                 }
             }
-            for v in [&mut reads_from, &mut writes_to] {
-                v.sort();
-                v.dedup();
-            }
-
-            sqlx::query!(
-                r#"
-                insert into live_spec_flows (source_id, target_id, flow_type)
-                    select live_specs.id, $1, 'test'::catalog_spec_type
-                    from unnest($2::text[]) as n join live_specs on catalog_name = n
-                union
-                    select $1, live_specs.id, 'test'
-                    from unnest($3::text[]) as n join live_specs on catalog_name = n;
-                "#,
-                *live_spec_id as Id,
-                &reads_from as &Vec<String>,
-                &writes_to as &Vec<String>,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("insert test edges")?;
+            writes_to.reserve(1);
+            reads_from.reserve(1);
         }
     }
 
-    sqlx::query!(
-        r#"update live_specs set
-            connector_image_name = $2,
-            connector_image_tag = $3,
-            last_pub_id = $4,
-            spec = $5,
-            updated_at = clock_timestamp()
-        where catalog_name = $1
-        returning 1 as "must_exist";
-        "#,
-        catalog_name,
-        image_parts.as_ref().map(|p| &p.0),
-        image_parts.as_ref().map(|p| &p.1),
-        pub_id as Id,
-        draft_spec as &Json<Box<RawValue>>,
-    )
-    .fetch_one(&mut *txn)
-    .await
-    .context("update live_specs")?;
+    for v in [&mut reads_from, &mut writes_to] {
+        v.sort();
+        v.dedup();
+    }
 
-    Ok(())
+    (
+        if reads_from.capacity() != 0 {
+            Some(reads_from)
+        } else {
+            None
+        },
+        if writes_to.capacity() != 0 {
+            Some(writes_to)
+        } else {
+            None
+        },
+        image_parts,
+    )
 }
 
 fn split_tag(image_full: &str) -> (String, String) {
