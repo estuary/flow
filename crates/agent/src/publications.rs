@@ -161,7 +161,8 @@ impl PublishHandler {
             .await
             .context("creating savepoint")?;
 
-        let spec_rows = specs::resolve_specifications(row.draft_id, row.pub_id, txn).await?;
+        let spec_rows =
+            specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
         let mut draft_catalog = models::Catalog::default();
@@ -206,15 +207,9 @@ impl PublishHandler {
         }
 
         for spec_row in &spec_rows {
-            specs::apply_updates_for_row(
-                row.pub_id,
-                row.draft_id,
-                &draft_catalog,
-                spec_row,
-                &mut *txn,
-            )
-            .await
-            .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
+            specs::apply_updates_for_row(row.pub_id, &draft_catalog, spec_row, &mut *txn)
+                .await
+                .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
         let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;

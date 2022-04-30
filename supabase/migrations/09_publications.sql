@@ -91,6 +91,13 @@ create table live_specs (
   spec         json not null,
   last_pub_id  flowid references publications(id) not null,
 
+  -- reads_from and writes_to is the list of collections read
+  -- or written by a task, or is null if not applicable to this
+  -- specification type.
+  -- These adjacencies are also indexed within `live_spec_flows`.
+  reads_from text[],
+  writes_to  text[],
+
   -- Image name and tag are extracted to make it easier
   -- to determine specs which are out of date w.r.t. the latest
   -- connector tag.
@@ -121,7 +128,10 @@ comment on column live_specs.spec is
   'Serialized catalog specification';
 comment on column live_specs.last_pub_id is
   'Last publication ID which updated this live specification';
-
+comment on column live_specs.reads_from is
+  'Collections which are read by this specification';
+comment on column live_specs.writes_to is
+  'Collections which are written to by this specification';
 comment on column live_specs.connector_image_name is
   'OCI (Docker) connector image name used by this specification';
 comment on column live_specs.connector_image_tag is

@@ -51,9 +51,11 @@ create index idx_draft_errors_draft_id on draft_errors(draft_id);
 
 -- Draft specifications which the user is working on.
 create table draft_specs (
+  like internal._model including all,
+
   draft_id      flowid not null references drafts(id) on delete cascade,
   catalog_name  catalog_name not null,
-  primary key (draft_id, catalog_name),
+  unique (draft_id, catalog_name),
 
   expect_pub_id   flowid default null,
   spec            json not null,
@@ -61,12 +63,9 @@ create table draft_specs (
 );
 alter table draft_specs enable row level security;
 
-create policy "Users access their draft specs with admin'd catalog names"
+create policy "Users access their draft specs"
   on draft_specs as permissive
-  using (draft_id in (select id from drafts))
-  with check (
-    draft_id in (select id from drafts) and auth_catalog(catalog_name, 'admin')
-  );
+  using (draft_id in (select id from drafts));
 grant all on draft_specs to authenticated;
 
 comment on table draft_specs is
@@ -75,16 +74,6 @@ comment on column draft_specs.draft_id is
   'Draft which this specification belongs to';
 comment on column draft_specs.catalog_name is
   'Catalog name of this specification';
-comment on column draft_specs.spec_type is
-  'Type of this draft catalog specification';
-comment on column draft_specs.spec is '
-Spec is a serialized catalog specification. Its schema depends on its spec_type:
-either CollectionDef, CaptureDef, MaterializationDef, DerivationDef,
-or an array of TestStep from the Flow catalog schema.
-
-Spec may also be the JSON `null` value, in which case the specification will be
-deleted when this draft is published.
-';
 comment on column draft_specs.expect_pub_id is '
 Draft specifications may be drawn from a current live specification,
 and in this case it''s recommended that expect_pub_id is also set to the
@@ -102,3 +91,13 @@ made by the first user.
 
 When NULL, expect_pub_id has no effect.
 ';
+comment on column draft_specs.spec is '
+Spec is a serialized catalog specification. Its schema depends on its spec_type:
+either CollectionDef, CaptureDef, MaterializationDef, DerivationDef,
+or an array of TestStep from the Flow catalog schema.
+
+Spec may also be the JSON `null` value, in which case the specification will be
+deleted when this draft is published.
+';
+comment on column draft_specs.spec_type is
+  'Type of this draft catalog specification';

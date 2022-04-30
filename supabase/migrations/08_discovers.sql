@@ -11,12 +11,9 @@ create table discovers (
 alter table discovers enable row level security;
 alter publication supabase_realtime add table discovers;
 
-create policy "Users access their discovers with admin'd capture names"
+create policy "Users access their discovers"
   on discovers as permissive
-  using (draft_id in (select id from drafts))
-  with check (
-    draft_id in (select id from drafts) and auth_catalog(capture_name, 'admin')
-  );
+  using (draft_id in (select id from drafts));
 
 grant select on discovers to authenticated;
 grant insert (capture_name, connector_tag_id, draft_id, endpoint_config)
