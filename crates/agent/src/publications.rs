@@ -51,10 +51,11 @@ impl PublishHandler {
 #[derive(Debug)]
 struct Row {
     created_at: DateTime<Utc>,
+    detail: Option<String>,
     draft_id: Id,
     dry_run: bool,
-    pub_id: Id,
     logs_token: Uuid,
+    pub_id: Id,
     updated_at: DateTime<Utc>,
     user_id: Uuid,
 }
@@ -68,12 +69,13 @@ impl Handler for PublishHandler {
             Row,
             r#"select
                 created_at,
-                id as "pub_id: Id",
-                logs_token,
-                updated_at,
+                detail,
                 draft_id as "draft_id: Id",
-                user_id,
-                dry_run
+                dry_run,
+                logs_token,
+                id as "pub_id: Id",
+                updated_at,
+                user_id
             from publications where job_status->>'type' = 'queued'
             order by id asc
             limit 1
@@ -171,11 +173,8 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut live_catalog,
             spec_rows.iter().filter_map(|r| {
-                if r.live_spec.0.get() == "null" {
-                    None
-                } else {
-                    Some((r.live_type, r.catalog_name.as_str(), r.live_spec.0.as_ref()))
-                }
+                r.live_type
+                    .map(|t| (t, r.catalog_name.as_str(), r.live_spec.0.as_ref()))
             }),
         );
         if !errors.is_empty() {
@@ -185,15 +184,8 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut draft_catalog,
             spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.0.get() == "null" {
-                    None
-                } else {
-                    Some((
-                        r.draft_type,
-                        r.catalog_name.as_str(),
-                        r.draft_spec.0.as_ref(),
-                    ))
-                }
+                r.draft_type
+                    .map(|t| (t, r.catalog_name.as_str(), r.draft_spec.0.as_ref()))
             }),
         );
         if !errors.is_empty() {
@@ -201,15 +193,22 @@ impl PublishHandler {
         }
 
         let errors =
-            specs::validate_transition(row.pub_id, &live_catalog, &draft_catalog, &spec_rows);
+            specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows);
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
         for spec_row in &spec_rows {
-            specs::apply_updates_for_row(row.pub_id, &draft_catalog, spec_row, &mut *txn)
-                .await
-                .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
+            specs::apply_updates_for_row(
+                &draft_catalog,
+                row.detail.as_ref(),
+                row.pub_id,
+                spec_row,
+                row.user_id,
+                &mut *txn,
+            )
+            .await
+            .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
         let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;

@@ -152,7 +152,7 @@ $$ language sql stable security definer;
 create function auth_roles()
 returns table (role_prefix catalog_prefix, capability grant_capability) as $$
   select role_prefix, capability from internal.user_roles(auth_uid())
-$$ language sql stable;
+$$ language sql stable security definer;
 comment on function auth_roles is
   'auth_roles returns all roles and associated capabilities of the user';
 
