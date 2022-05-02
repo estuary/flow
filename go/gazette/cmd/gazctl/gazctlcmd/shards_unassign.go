@@ -3,6 +3,7 @@ package gazctlcmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -30,11 +31,14 @@ list' command for more details about label selectors.
 func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 	startup(ShardsCfg.BaseConfig)
 
+	var ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var listResp = listShards(cmd.Selector)
 	if listResp.Status != pc.Status_OK {
 		return fmt.Errorf("unexpected listShard status: %v", listResp.Status.String())
 	}
-	var ctx = context.Background()
+
 	var client = pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx))
 
 	unassignResp, err := client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
