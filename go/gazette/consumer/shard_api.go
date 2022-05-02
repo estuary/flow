@@ -234,7 +234,9 @@ func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (
 	etcdResp, err := srv.Etcd.Txn(ctx).If(cmp...).Then(ops...).Commit()
 	if err != nil {
 		return resp, fmt.Errorf("executing etcd transaction: %w", err)
-	} else if etcdResp.Succeeded {
+	} else if !etcdResp.Succeeded {
+		resp.Status = pc.Status_ETCD_TRANSACTION_FAILED
+	} else if len(ops) != 0 {
 		// If we made changes, delay responding until we have read our own Etcd write.
 		err = state.KS.WaitForRevision(ctx, etcdResp.Header.Revision)
 	}
