@@ -21,6 +21,7 @@ insert into role_grants (subject_role, object_role, capability) values
   ('bobCo/', 'ops/bobCo/', 'read'),
   ('bobCo/', 'testing/', 'admin'),
   ('examples/', 'examples/', 'write'),
+  ('examples/', 'ops/examples/', 'read'),
   ('testing/', 'testing/', 'write')
 ;
 

@@ -1,5 +1,8 @@
 
--- publications are operations that publish a draft.
+-- publications are operations that test (if dry_run) or test and then publish
+-- a draft. We retain publication rows for a limited period of time,
+-- but continue to use their unique IDs within the longer-lived audit log
+-- of published specifications.
 create table publications (
   like internal._model_async including all,
 
@@ -31,52 +34,6 @@ comment on column publications.draft_id is
 comment on column publications.dry_run is
   'A dry-run publication will test and verify a draft, but doesn''t publish into live specifications';
 
--- Published specifications which record the changes
--- made to specs over time, and power reverts.
-create table publication_specs (
-  pub_id flowid references publications(id) not null,
-  catalog_name  catalog_name not null,
-  primary key (catalog_name, pub_id),
-
-  spec_type catalog_spec_type not null,
-  -- spec_min_patch is a minimal delta of what actually changed,
-  -- determined at time of publication by diffing the "before"
-  -- and "after" document.
-  spec_before json not null,
-  -- spec_rev_patch is like spec_fwd_patch but in reverse.
-  -- A revert of a publication can be initialized by creating
-  -- a draft having all of its publication_specs.spec_rev_patch
-  spec_after  json not null
-);
-alter table draft_specs enable row level security;
-
-create policy "Users must be read-authorized to the specification catalog name"
-  on publication_specs as permissive for select
-  using (auth_catalog(catalog_name, 'read'));
-grant select on publication_specs to authenticated;
-
-
-comment on table publication_specs is '
-For each publication, publication_specs details the set of catalog specifications
-that changed and their "before" and "after" versions.
-';
-comment on column publication_specs.pub_id is
-  'Publication which published this specification';
-comment on column publication_specs.catalog_name is
-  'Catalog name of this specification';
-comment on column publication_specs.spec_type is
-  'Type of this published catalog specification';
-comment on column publication_specs.spec_before is '
-Former catalog specification which was replaced by this publication.
-If the publication created this specification, this will be
-the JSON `null` value.
-';
-comment on column publication_specs.spec_before is '
-Catalog specification which was published by this publication.
-If the publication deleted this specification, this will be
-the JSON `null` value.
-';
-
 
 -- Live (current) specifications of the catalog.
 create table live_specs (
@@ -84,25 +41,18 @@ create table live_specs (
 
   -- catalog_name is the conceptual primary key, but we use flowid as
   -- the literal primary key for consistency and join performance.
-  catalog_name  catalog_name not null,
-
-  -- `spec` is the models::${spec_type}Def specification which corresponds to `spec_type`.
-  spec_type    catalog_spec_type not null,
-  spec         json not null,
-  last_pub_id  flowid references publications(id) not null,
-
-  -- reads_from and writes_to is the list of collections read
-  -- or written by a task, or is null if not applicable to this
-  -- specification type.
-  -- These adjacencies are also indexed within `live_spec_flows`.
-  reads_from text[],
-  writes_to  text[],
-
-  -- Image name and tag are extracted to make it easier
-  -- to determine specs which are out of date w.r.t. the latest
-  -- connector tag.
+  catalog_name          catalog_name not null,
   connector_image_name  text,
-  connector_image_tag   text
+  connector_image_tag   text,
+  last_pub_id           flowid not null,
+  reads_from            text[],
+  spec                  json not null,
+  spec_type             catalog_spec_type,
+  writes_to             text[],
+
+  constraint "spec and spec_type must be consistent" check (
+    (spec::text = 'null') = (spec_type is null)
+  )
 );
 alter table live_specs enable row level security;
 
@@ -122,20 +72,26 @@ comment on table live_specs is
   'Live (in other words, current) catalog specifications of the platform';
 comment on column live_specs.catalog_name is
   'Catalog name of this specification';
-comment on column live_specs.spec_type is
-  'Type of this catalog specification';
-comment on column live_specs.spec is
-  'Serialized catalog specification';
-comment on column live_specs.last_pub_id is
-  'Last publication ID which updated this live specification';
-comment on column live_specs.reads_from is
-  'Collections which are read by this specification';
-comment on column live_specs.writes_to is
-  'Collections which are written to by this specification';
 comment on column live_specs.connector_image_name is
   'OCI (Docker) connector image name used by this specification';
 comment on column live_specs.connector_image_tag is
   'OCI (Docker) connector image tag used by this specification';
+comment on column live_specs.last_pub_id is
+  'Last publication ID which updated this specification';
+comment on column live_specs.reads_from is '
+List of collections read by this catalog task specification,
+or NULL if not applicable to this specification type.
+These adjacencies are also indexed within `live_spec_flows`.
+';
+comment on column live_specs.spec is
+  'Serialized catalog specification, or JSON "null" if this specification is deleted';
+comment on column live_specs.spec_type is
+  'Type of this catalog specification, or NULL if this specification is deleted';
+comment on column live_specs.writes_to is '
+List of collections written by this catalog task specification,
+or NULL if not applicable to this specification type.
+These adjacencies are also indexed within `live_spec_flows`.
+';
 
 
 -- Data-flows between live specifications.
@@ -165,6 +121,49 @@ comment on column live_spec_flows.source_id is
   'Specification from which data originates';
 comment on column live_spec_flows.target_id is
   'Specification to which data flows';
+
+
+-- Published specifications which record the changes made to specs over time.
+create table publication_specs (
+  live_spec_id  flowid references live_specs(id) not null,
+  pub_id        flowid not null,
+  primary key   (live_spec_id, pub_id),
+
+  detail        text,
+  published_at  timestamptz not null default now(),
+  spec          json not null,
+  spec_type     catalog_spec_type,
+  user_id       uuid references auth.users(id) not null default auth.uid(),
+
+  constraint "spec and spec_type must be consistent" check (
+    (spec::text = 'null') = (spec_type is null)
+  )
+);
+alter table draft_specs enable row level security;
+
+create policy "Users must be read-authorized to the specification catalog name"
+  on publication_specs as permissive for select
+  using (live_spec_id in (select id from live_specs));
+grant select on publication_specs to authenticated;
+
+
+comment on table publication_specs is '
+publication_specs details the publication history of the `live_specs` catalog.
+Each change to a live specification is recorded into `publication_specs`.
+';
+comment on column publication_specs.live_spec_id is
+  'Live catalog specification which was published';
+comment on column publication_specs.pub_id is
+  'Publication ID which published to the catalog specification';
+comment on column publication_specs.spec_type is
+  'Type of the published catalog specification';
+comment on column publication_specs.spec is '
+Catalog specification which was published by this publication.
+If the publication deleted this specification, this will be
+the JSON `null` value.
+';
+comment on column publication_specs.user_id is
+  'User who performed this publication.';
 
 
 create view draft_specs_ext as

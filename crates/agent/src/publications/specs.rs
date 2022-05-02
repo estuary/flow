@@ -45,7 +45,7 @@ pub struct SpecRow {
     pub draft_spec_id: Id,
     // Spec type of this draft.
     // We validate and require that this equals `live_type`.
-    pub draft_type: CatalogType,
+    pub draft_type: Option<CatalogType>,
     // Optional expected value for `last_pub_id` of the live spec.
     // A special all-zero value means "this should be a creation".
     pub expect_pub_id: Option<Id>,
@@ -57,7 +57,7 @@ pub struct SpecRow {
     // ID of the live specification.
     pub live_spec_id: Id,
     // Spec type of the live specification.
-    pub live_type: CatalogType,
+    pub live_type: Option<CatalogType>,
     // Capabilities of the specification with respect to other roles.
     pub spec_capabilities: Json<Vec<RoleGrant>>,
     // User's capability to the specification `catalog_name`.
@@ -82,17 +82,13 @@ pub async fn resolve_specifications(
     // means a concurrent transaction may have committed a new row to live_specs
     // which technically isn't serializable with this transaction...
     // but we don't much care. Postgres will silently skip it under
-    // "on conflict .. do nothing" semantics, and we'll next lock the new row.
+    // "on conflict .. do nothing" semantics, and we'll lock the new row next.
     //
     // See: https://www.postgresql.org/docs/14/transaction-iso.html#XACT-READ-COMMITTED
     let rows = sqlx::query!(
         r#"
-        insert into live_specs(catalog_name, spec_type, spec, last_pub_id) (
-            select
-                catalog_name,
-                spec_type,
-                'null',
-                $2
+        insert into live_specs(catalog_name, spec, spec_type, last_pub_id) (
+            select catalog_name, 'null', null, $2
             from draft_specs
             where draft_specs.draft_id = $1
             for update of draft_specs
@@ -164,7 +160,7 @@ pub async fn resolve_specifications(
             row.last_pub_id = pub_id;
             row.live_spec = Json(RawValue::from_string("null".to_string()).unwrap());
             row.live_spec_id = row.draft_spec_id;
-            row.live_type = row.draft_type;
+            row.live_type = None;
             row.spec_capabilities = Json(Vec::new());
         }
     }
@@ -225,9 +221,11 @@ pub async fn expanded_specifications(
         select
             id as "live_spec_id: Id",
             catalog_name,
-            spec_type as "live_type: CatalogType",
+            spec_type as "live_type!: CatalogType",
             spec as "live_spec: Json<Box<RawValue>>"
         from live_specs natural join expanded
+        -- Strip deleted specs which are still reach-able through a dataflow edge.
+        where spec_type is not null
         -- Strip specs which are already part of the seed set.
         group by id having not bool_or(seed);
         "#,
@@ -317,21 +315,21 @@ pub fn extend_catalog<'a>(
 }
 
 pub fn validate_transition(
-    pub_id: Id,
-    live: &models::Catalog,
     draft: &models::Catalog,
+    live: &models::Catalog,
+    pub_id: Id,
     spec_rows: &[SpecRow],
 ) -> Vec<Error> {
     let mut errors = Vec::new();
 
     for spec_row @ SpecRow {
         catalog_name,
-        draft_spec,
+        draft_spec: _,
         draft_spec_id: _,
         draft_type,
         expect_pub_id,
         last_pub_id,
-        live_spec,
+        live_spec: _,
         live_spec_id: _,
         live_type,
         spec_capabilities,
@@ -385,21 +383,15 @@ pub fn validate_transition(
             }
         }
 
-        if draft_type != live_type {
+        // If neither `live_type` nor `draft_type` is deleted, then they must agree.
+        if matches!((live_type, draft_type), (Some(live_type), Some(draft_type)) if live_type != draft_type)
+        {
             errors.push(Error {
                 catalog_name: catalog_name.clone(),
                 detail: format!(
-                    "Draft has an incompatible {draft_type:?} vs current {live_type:?}"
-                ),
-                ..Default::default()
-            });
-        }
-
-        if draft_spec.get() == "null" && live_spec.get() == "null" {
-            errors.push(Error {
-                catalog_name: catalog_name.clone(),
-                detail: format!(
-                    "Draft marks this specification for deletion, but it doesn't exist"
+                    "Draft has an incompatible {draft_type:?} vs current {live_type:?}",
+                    draft_type = draft_type.as_ref().unwrap(),
+                    live_type = live_type.as_ref().unwrap(),
                 ),
                 ..Default::default()
             });
@@ -494,9 +486,11 @@ pub fn validate_transition(
 }
 
 pub async fn apply_updates_for_row(
-    pub_id: Id,
     catalog: &models::Catalog,
+    detail: Option<&String>,
+    pub_id: Id,
     spec_row: &SpecRow,
+    user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
     let SpecRow {
@@ -506,7 +500,7 @@ pub async fn apply_updates_for_row(
         draft_type,
         expect_pub_id: _,
         last_pub_id: _,
-        live_spec,
+        live_spec: _,
         live_spec_id,
         live_type,
         spec_capabilities: _,
@@ -525,7 +519,7 @@ pub async fn apply_updates_for_row(
 
     // Clear out data-flow edges that we'll replace.
     match live_type {
-        CatalogType::Capture => {
+        Some(CatalogType::Capture) => {
             sqlx::query!(
                 "delete from live_spec_flows where source_id = $1 and flow_type = 'capture'",
                 *live_spec_id as Id,
@@ -534,7 +528,7 @@ pub async fn apply_updates_for_row(
             .await
             .context("delete stale capture edges")?;
         }
-        CatalogType::Collection => {
+        Some(CatalogType::Collection) => {
             sqlx::query!(
                 "delete from live_spec_flows where target_id = $1 and flow_type = 'collection'",
                 *live_spec_id as Id,
@@ -543,7 +537,7 @@ pub async fn apply_updates_for_row(
             .await
             .context("delete stale derivation edges")?;
         }
-        CatalogType::Materialization => {
+        Some(CatalogType::Materialization) => {
             sqlx::query!(
                 "delete from live_spec_flows where target_id = $1 and flow_type = 'materialization'",
                 *live_spec_id as Id,
@@ -552,7 +546,7 @@ pub async fn apply_updates_for_row(
             .await
             .context("delete stale materialization edges")?;
         }
-        CatalogType::Test => {
+        Some(CatalogType::Test) => {
             sqlx::query!(
                 "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'",
                 *live_spec_id as Id,
@@ -561,44 +555,35 @@ pub async fn apply_updates_for_row(
             .await
             .context("delete stale test edges")?;
         }
+        None => {} // No-op.
     }
 
     sqlx::query!(
         r#"insert into publication_specs (
+            live_spec_id,
             pub_id,
-            catalog_name,
+            detail,
+            published_at,
+            spec,
             spec_type,
-            spec_before,
-            spec_after
-        ) values ($1, $2, $3, $4, $5);
+            user_id
+        ) values ($1, $2, $3, DEFAULT, $4, $5, $6);
         "#,
+        *live_spec_id as Id,
         pub_id as Id,
-        &catalog_name as &str,
-        draft_type as &CatalogType,
-        live_spec as &Json<Box<RawValue>>,
+        detail as Option<&String>,
         draft_spec as &Json<Box<RawValue>>,
+        draft_type as &Option<CatalogType>,
+        user_id as Uuid,
     )
     .execute(&mut *txn)
     .await
     .context("insert into publication_specs")?;
 
-    if draft_spec.get() == "null" {
-        // Draft is a deletion of a live spec.
-        sqlx::query!(
-            r#"delete from live_specs where id = $1
-                returning 1 as "must_exist";
-            "#,
-            *live_spec_id as Id,
-        )
-        .fetch_one(&mut *txn)
-        .await
-        .context("delete from live_specs")?;
-
-        return Ok(());
-    }
-
-    // Draft is an update of a live spec. The insertion case is also an update:
-    // we previously created a live_specs rows for the draft in order to lock it.
+    // Draft is an update of a live spec. The semantic insertion and deletion
+    // cases are also an update: we previously created a `live_specs` rows for
+    // the draft `catalog_name` in order to lock it. If the draft is a deletion,
+    // that's marked as a DB NULL `spec_type` with a JSON "null" `spec`.
 
     let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
 
@@ -610,8 +595,9 @@ pub async fn apply_updates_for_row(
             last_pub_id = $4,
             reads_from = $5,
             spec = $6,
+            spec_type = $7,
             updated_at = clock_timestamp(),
-            writes_to = $7
+            writes_to = $8
         where catalog_name = $1
         returning 1 as "must_exist";
         "#,
@@ -621,6 +607,7 @@ pub async fn apply_updates_for_row(
         pub_id as Id,
         &reads_from as &Option<Vec<&str>>,
         draft_spec as &Json<Box<RawValue>>,
+        draft_type as &Option<CatalogType>,
         &writes_to as &Option<Vec<&str>>,
     )
     .fetch_one(&mut *txn)
@@ -637,7 +624,7 @@ pub async fn apply_updates_for_row(
             from unnest($4::text[]) as n join live_specs on catalog_name = n;
         "#,
         *live_spec_id as Id,
-        draft_type as &CatalogType,
+        draft_type as &Option<CatalogType>,
         reads_from as Option<Vec<&str>>,
         writes_to as Option<Vec<&str>>,
     )
@@ -660,7 +647,7 @@ fn extract_spec_metadata<'a>(
         user_capability: _,
         spec_capabilities: _,
         catalog_name,
-        draft_spec,
+        draft_spec: _,
         draft_spec_id: _,
         draft_type,
         expect_pub_id: _,
@@ -670,17 +657,12 @@ fn extract_spec_metadata<'a>(
         live_type: _,
     } = spec_row;
 
-    if draft_spec.get() == "null" {
-        // Spec is being deleted.
-        return (None, None, None);
-    }
-
     let mut reads_from = Vec::new();
     let mut writes_to = Vec::new();
     let mut image_parts = None;
 
     match *draft_type {
-        CatalogType::Capture => {
+        Some(CatalogType::Capture) => {
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
 
@@ -692,7 +674,7 @@ fn extract_spec_metadata<'a>(
             }
             writes_to.reserve(1);
         }
-        CatalogType::Collection => {
+        Some(CatalogType::Collection) => {
             let key = models::Collection::new(catalog_name);
             let collection = catalog.collections.get(&key).unwrap();
 
@@ -703,7 +685,7 @@ fn extract_spec_metadata<'a>(
                 reads_from.reserve(1);
             }
         }
-        CatalogType::Materialization => {
+        Some(CatalogType::Materialization) => {
             let key = models::Materialization::new(catalog_name);
             let materialization = catalog.materializations.get(&key).unwrap();
 
@@ -716,7 +698,7 @@ fn extract_spec_metadata<'a>(
             }
             reads_from.reserve(1);
         }
-        CatalogType::Test => {
+        Some(CatalogType::Test) => {
             let key = models::Test::new(catalog_name);
             let steps = catalog.tests.get(&key).unwrap();
 
@@ -729,6 +711,7 @@ fn extract_spec_metadata<'a>(
             writes_to.reserve(1);
             reads_from.reserve(1);
         }
+        None => {} // No-op.
     }
 
     for v in [&mut reads_from, &mut writes_to] {

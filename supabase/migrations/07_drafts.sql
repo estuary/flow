@@ -59,7 +59,11 @@ create table draft_specs (
 
   expect_pub_id   flowid default null,
   spec            json not null,
-  spec_type       catalog_spec_type not null
+  spec_type       catalog_spec_type,
+
+  constraint "spec and spec_type must be consistent" check (
+    (spec::text = 'null') = (spec_type is null)
+  )
 );
 alter table draft_specs enable row level security;
 
@@ -96,8 +100,8 @@ Spec is a serialized catalog specification. Its schema depends on its spec_type:
 either CollectionDef, CaptureDef, MaterializationDef, DerivationDef,
 or an array of TestStep from the Flow catalog schema.
 
-Spec may also be the JSON `null` value, in which case the specification will be
-deleted when this draft is published.
+Spec may also be the JSON "null" value, in which case `spec_type` must be NULL
+and the specification will be deleted when this draft is published.
 ';
 comment on column draft_specs.spec_type is
   'Type of this draft catalog specification';
