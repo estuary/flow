@@ -100,6 +100,12 @@ macro_rules! string_reference_types {
             }
         }
 
+        impl Into<String> for $Wrapper {
+            fn into(self) -> String {
+                self.0
+            }
+        }
+
         impl Validate for $Wrapper {
             fn validate(&self) -> Result<(), ValidationErrors> {
                 let s = self.0.as_ref();
