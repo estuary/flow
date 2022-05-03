@@ -1,0 +1,95 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "config-encryption",
+    "description": "Encrypts Flow endpoint configurations",
+    "contact": {
+      "name": "Estuary developers",
+      "email": "contact@estuary.dev"
+    },
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/encrypt-config": {
+      "post": {
+        "tags": [
+          "encrypt::handler"
+        ],
+        "summary": "Encrypt a subset of the values in a `config` json object.",
+        "description": "Encrypt a subset of the values in a `config` json object.\n",
+        "operationId": "handle_encrypt_req",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EncryptReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Sucessfully encrypted secret values",
+            "content": {
+              "application/yaml": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptedConfig"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptedConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request was invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "integer"},
+          "error": {"type": "string"}
+        }
+      },
+      "EncryptReq": {
+        "type": "object",
+        "required": [
+          "schema",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "schema": {
+            "type": "object"
+          }
+        },
+        "description": "A request to encrypt a subset of values in `config`. The values to be encrypted are derived from"
+      },
+      "EncryptedConfig": {
+        "type": "object"
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+type: object
+properties:
+  supa_secret:
+    secret: true
+    type: string
+  supda_dupa_secret:
+    airbyte_secret: true
+    type: integer
+  not_secret:
+    type: string
+
