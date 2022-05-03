@@ -48,11 +48,13 @@ impl Format {
     }
 }
 
-pub fn router() -> axum::Router {
-    axum::Router::new().route(
-        "/v1/encrypt-config",
-        axum::routing::post(handle_encrypt_req),
-    )
+pub fn router(sops_args: SopsArgs) -> axum::Router {
+    axum::Router::new()
+        .route(
+            "/v1/encrypt-config",
+            axum::routing::post(handle_encrypt_req),
+        )
+        .layer(Extension(Arc::new(sops_args)))
 }
 
 /// Type of a successful encrypt-config response
