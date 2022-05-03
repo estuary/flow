@@ -8,6 +8,7 @@ use crate::interceptors::{
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
 };
+use flow_cli_common::LogArgs;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -59,6 +60,7 @@ pub async fn run_flow_materialize_connector(
 pub async fn run_airbyte_source_connector(
     op: &FlowCaptureOperation,
     entrypoint: Vec<String>,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     let mut airbyte_interceptor = AirbyteSourceInterceptor::new();
 
@@ -66,7 +68,7 @@ pub async fn run_airbyte_source_connector(
     let args = airbyte_interceptor.adapt_command_args(op, args)?;
 
     let (mut child, child_stdin, child_stdout) =
-        parse_child(invoke_connector_delayed(entrypoint, args).await?)?;
+        parse_child(invoke_connector_delayed(entrypoint, args, log_args)?)?;
 
     let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
         op,
