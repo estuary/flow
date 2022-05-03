@@ -173,8 +173,13 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut live_catalog,
             spec_rows.iter().filter_map(|r| {
-                r.live_type
-                    .map(|t| (t, r.catalog_name.as_str(), r.live_spec.0.as_ref()))
+                r.live_type.map(|t| {
+                    (
+                        t,
+                        r.catalog_name.as_str(),
+                        r.live_spec.as_ref().unwrap().0.as_ref(),
+                    )
+                })
             }),
         );
         if !errors.is_empty() {
@@ -184,8 +189,13 @@ impl PublishHandler {
         let errors = specs::extend_catalog(
             &mut draft_catalog,
             spec_rows.iter().filter_map(|r| {
-                r.draft_type
-                    .map(|t| (t, r.catalog_name.as_str(), r.draft_spec.0.as_ref()))
+                r.draft_type.map(|t| {
+                    (
+                        t,
+                        r.catalog_name.as_str(),
+                        r.draft_spec.as_ref().unwrap().0.as_ref(),
+                    )
+                })
             }),
         );
         if !errors.is_empty() {

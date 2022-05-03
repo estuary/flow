@@ -40,7 +40,7 @@ pub struct SpecRow {
     // Name of the specification.
     pub catalog_name: String,
     // Specification which will be applied by this draft.
-    pub draft_spec: Json<Box<RawValue>>,
+    pub draft_spec: Option<Json<Box<RawValue>>>,
     // ID of the draft specification.
     pub draft_spec_id: Id,
     // Spec type of this draft.
@@ -53,7 +53,7 @@ pub struct SpecRow {
     // If the spec is being created, this is the current publication ID.
     pub last_pub_id: Id,
     // Current live specification which will be replaced by this draft.
-    pub live_spec: Json<Box<RawValue>>,
+    pub live_spec: Option<Json<Box<RawValue>>>,
     // ID of the live specification.
     pub live_spec_id: Id,
     // Spec type of the live specification.
@@ -87,8 +87,8 @@ pub async fn resolve_specifications(
     // See: https://www.postgresql.org/docs/14/transaction-iso.html#XACT-READ-COMMITTED
     let rows = sqlx::query!(
         r#"
-        insert into live_specs(catalog_name, spec, spec_type, last_pub_id) (
-            select catalog_name, 'null', null, $2
+        insert into live_specs(catalog_name, last_pub_id) (
+            select catalog_name, $2
             from draft_specs
             where draft_specs.draft_id = $1
             for update of draft_specs
@@ -158,7 +158,7 @@ pub async fn resolve_specifications(
     for row in &mut spec_rows {
         if row.user_capability.is_none() {
             row.last_pub_id = pub_id;
-            row.live_spec = Json(RawValue::from_string("null".to_string()).unwrap());
+            row.live_spec = None;
             row.live_spec_id = row.draft_spec_id;
             row.live_type = None;
             row.spec_capabilities = Json(Vec::new());
@@ -221,11 +221,11 @@ pub async fn expanded_specifications(
         select
             id as "live_spec_id: Id",
             catalog_name,
-            spec_type as "live_type!: CatalogType",
-            spec as "live_spec: Json<Box<RawValue>>"
+            spec as "live_spec!: Json<Box<RawValue>>",
+            spec_type as "live_type!: CatalogType"
         from live_specs natural join expanded
         -- Strip deleted specs which are still reach-able through a dataflow edge.
-        where spec_type is not null
+        where spec is not null
         -- Strip specs which are already part of the seed set.
         group by id having not bool_or(seed);
         "#,
@@ -572,7 +572,7 @@ pub async fn apply_updates_for_row(
         *live_spec_id as Id,
         pub_id as Id,
         detail as Option<&String>,
-        draft_spec as &Json<Box<RawValue>>,
+        draft_spec as &Option<Json<Box<RawValue>>>,
         draft_type as &Option<CatalogType>,
         user_id as Uuid,
     )
@@ -583,7 +583,7 @@ pub async fn apply_updates_for_row(
     // Draft is an update of a live spec. The semantic insertion and deletion
     // cases are also an update: we previously created a `live_specs` rows for
     // the draft `catalog_name` in order to lock it. If the draft is a deletion,
-    // that's marked as a DB NULL `spec_type` with a JSON "null" `spec`.
+    // that's marked as a DB NULL of `spec` and `spec_type`.
 
     let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
 
@@ -606,7 +606,7 @@ pub async fn apply_updates_for_row(
         image_parts.as_ref().map(|p| &p.1),
         pub_id as Id,
         &reads_from as &Option<Vec<&str>>,
-        draft_spec as &Json<Box<RawValue>>,
+        draft_spec as &Option<Json<Box<RawValue>>>,
         draft_type as &Option<CatalogType>,
         &writes_to as &Option<Vec<&str>>,
     )
