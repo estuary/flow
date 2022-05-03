@@ -718,6 +718,7 @@ dependencies = [
  "doc",
  "flow_cli_common",
  "futures",
+ "hyper",
  "json",
  "metrics",
  "metrics-exporter-prometheus",
