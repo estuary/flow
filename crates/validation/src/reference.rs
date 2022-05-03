@@ -17,9 +17,7 @@ where
     if let Some(entity) = entities.iter().find(|t| entity_fn(t).0 == ref_name) {
         let ref_scope = entity_fn(entity).1;
 
-        if ref_scope.scheme() == "foreign" {
-            // Foreign scopes are never imported.
-        } else if !tables::Import::path_exists(imports, this_scope, ref_scope) {
+        if !tables::Import::path_exists(imports, this_scope, ref_scope) {
             Error::MissingImport {
                 this_thing: this_thing.to_string(),
                 ref_entity,

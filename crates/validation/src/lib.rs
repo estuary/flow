@@ -11,7 +11,7 @@ mod reference;
 mod schema;
 mod storage_mapping;
 mod test_step;
-use errors::Error;
+pub use errors::Error;
 
 /// Drivers is a delegated trait -- provided to validate -- through which runtime
 /// driver validation RPCs are dispatched.
