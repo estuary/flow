@@ -1,0 +1,36 @@
+[package]
+name = "config-encryption"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "flow-config-encryption"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "*"
+async-trait = "*"
+axum = { version = "0.5.3", features = ["headers", "multipart"] }
+axum-macros = "0.2.0"
+bytes = "*"
+chrono = { version = "*", features = ["serde"] }
+clap = { version = "3", features = ["derive", "env"] }
+futures = "0.3"
+flow_cli_common = {path = "../flow_cli_common"}
+doc = {path = "../doc"}
+json = {path = "../json"}
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+serde_yaml = "0.8"
+thiserror = "1.0.30"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.3", features = ["cors", "trace", "tracing"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "*", features = ["serde"] }
+mime = "0.3"
+metrics = "0.18"
+metrics-exporter-prometheus = "0.9"
+
+[dev-dependencies]
+tower = "*"
