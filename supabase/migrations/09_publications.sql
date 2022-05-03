@@ -46,12 +46,12 @@ create table live_specs (
   connector_image_tag   text,
   last_pub_id           flowid not null,
   reads_from            text[],
-  spec                  json not null,
+  spec                  json,
   spec_type             catalog_spec_type,
   writes_to             text[],
 
   constraint "spec and spec_type must be consistent" check (
-    (spec::text = 'null') = (spec_type is null)
+    json_typeof(spec) is distinct from 'null' and (spec is null) = (spec_type is null)
   )
 );
 alter table live_specs enable row level security;
@@ -84,7 +84,7 @@ or NULL if not applicable to this specification type.
 These adjacencies are also indexed within `live_spec_flows`.
 ';
 comment on column live_specs.spec is
-  'Serialized catalog specification, or JSON "null" if this specification is deleted';
+  'Serialized catalog specification, or NULL if this specification is deleted';
 comment on column live_specs.spec_type is
   'Type of this catalog specification, or NULL if this specification is deleted';
 comment on column live_specs.writes_to is '
@@ -131,12 +131,12 @@ create table publication_specs (
 
   detail        text,
   published_at  timestamptz not null default now(),
-  spec          json not null,
+  spec          json,
   spec_type     catalog_spec_type,
   user_id       uuid references auth.users(id) not null default auth.uid(),
 
   constraint "spec and spec_type must be consistent" check (
-    (spec::text = 'null') = (spec_type is null)
+    json_typeof(spec) is distinct from 'null' and (spec is null) = (spec_type is null)
   )
 );
 alter table draft_specs enable row level security;
@@ -156,11 +156,10 @@ comment on column publication_specs.live_spec_id is
 comment on column publication_specs.pub_id is
   'Publication ID which published to the catalog specification';
 comment on column publication_specs.spec_type is
-  'Type of the published catalog specification';
+  'Type of the published catalog specification, or NULL if this was a deletion';
 comment on column publication_specs.spec is '
-Catalog specification which was published by this publication.
-If the publication deleted this specification, this will be
-the JSON `null` value.
+Catalog specification which was published by this publication,
+or NULL if this was a deletion.
 ';
 comment on column publication_specs.user_id is
   'User who performed this publication.';

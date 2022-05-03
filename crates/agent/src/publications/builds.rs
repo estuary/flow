@@ -277,7 +277,7 @@ pub async fn deploy_build(
                 spec_rows
                     .iter()
                     .filter_map(|r| {
-                        if r.draft_spec.get() == "null" {
+                        if r.draft_spec.is_none() {
                             None
                         } else {
                             Some(format!("--name={}", r.catalog_name))
@@ -316,7 +316,7 @@ pub async fn deploy_build(
             .arg("--network")
             .arg(connector_network)
             .args(spec_rows.iter().filter_map(|r| {
-                if r.draft_spec.get() == "null" {
+                if r.live_spec.is_some() && r.draft_spec.is_none() {
                     Some(format!("--name={}", r.catalog_name))
                 } else {
                     None
