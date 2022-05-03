@@ -1,5 +1,6 @@
 use crate::errors::Error;
 
+use flow_cli_common::LogArgs;
 use serde::{Deserialize, Serialize};
 use std::process::{ExitStatus, Stdio};
 use tempfile::NamedTempFile;
@@ -55,9 +56,10 @@ pub struct CommandConfig {
 // start the real connector after reading a "READY" string from Stdin. Two actions are involved,
 // The caller of `invoke_connector_delayed` is responsible of sending "READY" to the Stdin of the returned Child process,
 // before sending anything else.
-pub async fn invoke_connector_delayed(
+pub fn invoke_connector_delayed(
     entrypoint: String,
     args: Vec<String>,
+    log_args: LogArgs,
 ) -> Result<Child, Error> {
     tracing::info!("invoke delayed connector {}, {:?}", entrypoint, args);
 
@@ -84,7 +86,12 @@ pub async fn invoke_connector_delayed(
         Stdio::piped(),
         Stdio::inherit(),
         bouncer_process_entrypoint,
-        &vec!["delayed-execute".to_string(), config_file_path.to_string()],
+        &vec![
+            "--log.level".to_string(),
+            log_args.level,
+            "delayed-execute".to_string(),
+            config_file_path.to_string(),
+        ],
     )
 }
 
