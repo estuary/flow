@@ -163,11 +163,11 @@ pub struct Log {
 impl Log {
     pub fn log(&self) {
         match self.level {
-            LogLevel::Trace => tracing::trace!(?self.message),
-            LogLevel::Debug => tracing::debug!(?self.message),
-            LogLevel::Info => tracing::info!(?self.message),
-            LogLevel::Warn => tracing::warn!(?self.message),
-            LogLevel::Error | LogLevel::Fatal => tracing::error!(?self.message),
+            LogLevel::Trace => tracing::trace!("{}", self.message),
+            LogLevel::Debug => tracing::debug!("{}", self.message),
+            LogLevel::Info => tracing::info!("{}", self.message),
+            LogLevel::Warn => tracing::warn!("{}", self.message),
+            LogLevel::Error | LogLevel::Fatal => tracing::error!("{}", self.message),
         }
     }
 }
