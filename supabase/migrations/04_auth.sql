@@ -86,12 +86,6 @@ create table user_grants (
 );
 alter table user_grants enable row level security;
 
-create policy "Users can access their role grants"
-  on user_grants as permissive for select
-  using (user_id = auth.uid());
-
-grant select on user_grants to authenticated;
-
 comment on table user_grants is
   'Roles and capabilities that the user has been granted';
 comment on column user_grants.user_id is
@@ -168,16 +162,34 @@ comment on function auth_catalog is
   'auth_catalog returns true if the user has at least `min_cap` capability to the desired catalog `name_or_prefix`';
 
 
-create policy "Users select grants they recieve or admin the object"
+-- Policy permissions for user_grants.
+create policy "Users select user grants they admin or are the subject"
+  on user_grants as permissive for select
+  using (auth_catalog(object_role, 'admin') or user_id = auth.uid());
+create policy "Users insert user grants they admin"
+  on user_grants as permissive for insert
+  with check (auth_catalog(object_role, 'admin'));
+create policy "Users update user grants they admin"
+  on user_grants as permissive for update
+  using (auth_catalog(object_role, 'admin'));
+create policy "Users delete user grants they admin or are the subject"
+  on user_grants as permissive for delete
+  using (auth_catalog(object_role, 'admin') or user_id = auth.uid());
+
+grant all on user_grants to authenticated;
+
+
+-- Policy permissions for role_grants.
+create policy "Users select role grants they recieve or admin the object"
   on role_grants as permissive for select
   using (auth_catalog(object_role, 'admin') or auth_catalog(subject_role, 'x_00'));
-create policy "Users insert grants where they admin the object"
+create policy "Users insert role grants where they admin the object"
   on role_grants as permissive for insert
   with check (auth_catalog(object_role, 'admin'));
-create policy "Users update grants where they admin the object"
+create policy "Users update role grants where they admin the object"
   on role_grants as permissive for update
   using (auth_catalog(object_role, 'admin'));
-create policy "Users delete grants where they admin the object or subject"
+create policy "Users delete role grants where they admin the object or subject"
   on role_grants as permissive for delete
   using (auth_catalog(object_role, 'admin') or auth_catalog(subject_role, 'admin'));
 

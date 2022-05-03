@@ -164,21 +164,3 @@ the JSON `null` value.
 ';
 comment on column publication_specs.user_id is
   'User who performed this publication.';
-
-
-create view draft_specs_ext as
-select
-  draft_specs.catalog_name,
-  draft_specs.draft_id,
-  draft_specs.expect_pub_id,
-  draft_specs.spec as draft_spec,
-  draft_specs.spec_type as draft_spec_type,
-  live_specs.last_pub_id,
-  live_specs.spec as live_spec,
-  live_specs.spec_type as live_spec_type
-from draft_specs
-left outer join live_specs
-  on draft_specs.catalog_name = live_specs.catalog_name
-;
-
-grant select on draft_specs_ext to authenticated;
