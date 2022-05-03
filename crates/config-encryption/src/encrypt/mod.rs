@@ -1,4 +1,6 @@
 pub mod handler;
+#[cfg(test)]
+mod test;
 
 use std::process::{Output, Stdio};
 use std::sync::Arc;

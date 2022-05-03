@@ -11,7 +11,6 @@ use axum::{
 use clap::Parser;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use std::future::ready;
-use std::sync::Arc;
 use std::time::Instant;
 use tower_http::cors;
 use tower_http::trace::TraceLayer;
@@ -37,7 +36,7 @@ pub struct Args {
 }
 
 /// Arguments to be passed to sops whenever documents are encrypted.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, clap::Args, Clone)]
 pub struct SopsArgs {
     /// The fully qualified name of the GCP KMS key to use for encryption, e.g. projects/<your-project>/locations/<your-region>/keyRings/<your-keyring>/cryptoKeys/<your-key-name>
     #[clap(long, env)]
@@ -60,8 +59,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/v1", get(|| async { axum::Json(openapi_spec_json) }))
         .route("/metrics", get(move || ready(recorder_handle.render())))
-        .merge(encrypt::handler::router())
-        .layer(Extension(Arc::new(args.sops)))
+        .merge(encrypt::handler::router(args.sops.clone()))
         .layer(
             cors::CorsLayer::new()
                 .allow_origin(cors::Any)
