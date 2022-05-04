@@ -1,9 +1,8 @@
 use super::{logs, Handler, Id};
 
+use agent_sql::publications::Row;
 use anyhow::Context;
-use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::types::{Json, Uuid};
 use tracing::info;
 
 mod builds;
@@ -47,44 +46,12 @@ impl PublishHandler {
     }
 }
 
-// Row is the dequeued task shape of a draft build & test operation.
-#[derive(Debug)]
-struct Row {
-    created_at: DateTime<Utc>,
-    detail: Option<String>,
-    draft_id: Id,
-    dry_run: bool,
-    logs_token: Uuid,
-    pub_id: Id,
-    updated_at: DateTime<Utc>,
-    user_id: Uuid,
-}
-
 #[async_trait::async_trait]
 impl Handler for PublishHandler {
     async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match sqlx::query_as!(
-            Row,
-            r#"select
-                created_at,
-                detail,
-                draft_id as "draft_id: Id",
-                dry_run,
-                logs_token,
-                id as "pub_id: Id",
-                updated_at,
-                user_id
-            from publications where job_status->>'type' = 'queued'
-            order by id asc
-            limit 1
-            for update of publications skip locked;
-            "#
-        )
-        .fetch_optional(&mut txn)
-        .await?
-        {
+        let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
             None => return Ok(std::time::Duration::from_secs(5)),
             Some(row) => row,
         };
@@ -98,33 +65,13 @@ impl Handler for PublishHandler {
         let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
-        sqlx::query!(
-            r#"update publications set
-                    job_status = $2,
-                    updated_at = clock_timestamp()
-                where id = $1
-                returning 1 as "must_exist";
-            "#,
-            id as Id,
-            Json(&status) as Json<&JobStatus>,
-        )
-        .fetch_one(&mut txn)
-        .await?;
-
+        agent_sql::publications::resolve(id, &status, &mut txn).await?;
         txn.commit().await?;
 
         // As a separate transaction, delete the draft if it has no draft_specs.
         // The user could have raced an insertion of a new spec.
         if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
-            sqlx::query!(
-                r#"
-                delete from drafts where id = $1 and not exists
-                    (select 1 from draft_specs where draft_id = $1)
-                "#,
-                delete_draft_id as Id,
-            )
-            .execute(pg_pool)
-            .await?;
+            agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
         Ok(std::time::Duration::ZERO)
@@ -149,17 +96,12 @@ impl PublishHandler {
         );
 
         // Remove draft errors from a previous publication attempt.
-        sqlx::query!(
-            "delete from draft_errors where draft_id = $1",
-            row.draft_id as Id
-        )
-        .execute(&mut *txn)
-        .await
-        .context("clearing old errors")?;
+        agent_sql::publications::delete_draft_errors(row.draft_id, txn)
+            .await
+            .context("clearing old errors")?;
 
         // Create a savepoint "noop" we can roll back to.
-        sqlx::query!("savepoint noop;")
-            .execute(&mut *txn)
+        agent_sql::publications::savepoint_noop(txn)
             .await
             .context("creating savepoint")?;
 
@@ -296,8 +238,7 @@ impl PublishHandler {
         }
 
         if row.dry_run {
-            sqlx::query!("rollback transaction to noop;")
-                .execute(&mut *txn)
+            agent_sql::publications::rollback_noop(txn)
                 .await
                 .context("rolling back to savepoint")?;
 
@@ -330,8 +271,7 @@ async fn stop_with_errors(
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<(Id, JobStatus)> {
-    sqlx::query!("rollback transaction to noop;")
-        .execute(&mut *txn)
+    agent_sql::publications::rollback_noop(txn)
         .await
         .context("rolling back to savepoint")?;
 

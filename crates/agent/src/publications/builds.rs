@@ -1,7 +1,7 @@
-use super::specs::{ExpandedRow, SpecRow};
 use super::Error;
 use crate::{jobs, logs, Id};
 
+use agent_sql::publications::{ExpandedRow, SpecRow};
 use anyhow::Context;
 use sqlx::types::Uuid;
 use std::io::Write;

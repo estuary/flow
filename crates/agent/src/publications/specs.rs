@@ -1,68 +1,12 @@
 use super::Error;
 use crate::Id;
 
+use agent_sql::publications::{Capability, CatalogType, ExpandedRow, SpecRow};
 use anyhow::Context;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::{Json, Uuid};
 use std::collections::BTreeMap;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "catalog_spec_type")]
-#[sqlx(rename_all = "lowercase")]
-pub enum CatalogType {
-    Capture,
-    Collection,
-    Materialization,
-    Test,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "grant_capability")]
-#[sqlx(rename_all = "lowercase")]
-#[serde(rename_all = "camelCase")]
-pub enum Capability {
-    Read,
-    Write,
-    Admin,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RoleGrant {
-    pub subject_role: String,
-    pub object_role: String,
-    pub capability: Capability,
-}
-
-#[derive(Debug)]
-pub struct SpecRow {
-    // Name of the specification.
-    pub catalog_name: String,
-    // Specification which will be applied by this draft.
-    pub draft_spec: Option<Json<Box<RawValue>>>,
-    // ID of the draft specification.
-    pub draft_spec_id: Id,
-    // Spec type of this draft.
-    // We validate and require that this equals `live_type`.
-    pub draft_type: Option<CatalogType>,
-    // Optional expected value for `last_pub_id` of the live spec.
-    // A special all-zero value means "this should be a creation".
-    pub expect_pub_id: Option<Id>,
-    // Last publication ID of the live spec.
-    // If the spec is being created, this is the current publication ID.
-    pub last_pub_id: Id,
-    // Current live specification which will be replaced by this draft.
-    pub live_spec: Option<Json<Box<RawValue>>>,
-    // ID of the live specification.
-    pub live_spec_id: Id,
-    // Spec type of the live specification.
-    pub live_type: Option<CatalogType>,
-    // Capabilities of the specification with respect to other roles.
-    pub spec_capabilities: Json<Vec<RoleGrant>>,
-    // User's capability to the specification `catalog_name`.
-    pub user_capability: Option<Capability>,
-}
 
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
@@ -85,23 +29,11 @@ pub async fn resolve_specifications(
     // "on conflict .. do nothing" semantics, and we'll lock the new row next.
     //
     // See: https://www.postgresql.org/docs/14/transaction-iso.html#XACT-READ-COMMITTED
-    let rows = sqlx::query!(
-        r#"
-        insert into live_specs(catalog_name, last_pub_id) (
-            select catalog_name, $2
-            from draft_specs
-            where draft_specs.draft_id = $1
-            for update of draft_specs
-        ) on conflict (catalog_name) do nothing
-        "#,
-        draft_id as Id,
-        pub_id as Id,
-    )
-    .execute(&mut *txn)
-    .await
-    .context("inserting new live_specs")?;
+    let rows = agent_sql::publications::insert_new_live_specs(draft_id, pub_id, txn)
+        .await
+        .context("inserting new live_specs")?;
 
-    tracing::debug!(rows = %rows.rows_affected(), "inserted new live_specs");
+    tracing::debug!(rows, "inserted new live_specs");
 
     // Fetch all of the draft's patches, along with their (now locked) live specifications.
     // This query is where we determine "before" and "after" states for each specification,
@@ -116,41 +48,9 @@ pub async fn resolve_specifications(
     // of what's "in" this publication, and what's not. Anything we don't pick up here will
     // be left behind as a draft_spec, and this is the reason we don't delete the draft
     // itself within this transaction.
-    let mut spec_rows = sqlx::query_as!(
-        SpecRow,
-        r#"
-        select
-            draft_specs.catalog_name,
-            draft_specs.expect_pub_id as "expect_pub_id: Id",
-            draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
-            draft_specs.id as "draft_spec_id: Id",
-            draft_specs.spec_type as "draft_type: CatalogType",
-            live_specs.last_pub_id as "last_pub_id: Id",
-            live_specs.spec as "live_spec: Json<Box<RawValue>>",
-            live_specs.id as "live_spec_id: Id",
-            live_specs.spec_type as "live_type: CatalogType",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(draft_specs.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
-            (
-                select max(capability) from internal.user_roles($2) r
-                where starts_with(draft_specs.catalog_name, r.role_prefix)
-            ) as "user_capability: Capability"
-        from draft_specs
-        join live_specs
-            on draft_specs.catalog_name = live_specs.catalog_name
-        where draft_specs.draft_id = $1
-        for update of draft_specs, live_specs;
-        "#,
-        draft_id as Id,
-        user_id,
-    )
-    .fetch_all(&mut *txn)
-    .await
-    .context("selecting joined draft & live specs")?;
+    let mut spec_rows = agent_sql::publications::resolve_spec_rows(draft_id, user_id, txn)
+        .await
+        .context("selecting joined draft & live specs")?;
 
     // The query may return live specifications that the user is not
     // authorized to know anything about. Tweak such rows to appear
@@ -166,19 +66,6 @@ pub async fn resolve_specifications(
     }
 
     Ok(spec_rows)
-}
-
-#[derive(Debug)]
-pub struct ExpandedRow {
-    // Name of the specification.
-    pub catalog_name: String,
-    // Current live specification of this expansion.
-    // It won't be changed by this publication.
-    pub live_spec: Json<Box<RawValue>>,
-    // ID of the expanded live specification.
-    pub live_spec_id: Id,
-    // Spec type of the live specification.
-    pub live_type: CatalogType,
 }
 
 // expanded_specifications returns additional specifications which should be
@@ -200,40 +87,9 @@ pub async fn expanded_specifications(
         })
         .collect();
 
-    let expanded_rows = sqlx::query_as!(
-        ExpandedRow,
-        r#"
-        -- Perform a graph traversal which expands the seed set of
-        -- specifications. Directly-adjacent captures and materializations
-        -- are resolved, as is the full connected component of tests and
-        -- derivations.
-        with recursive expanded(id, seed) as (
-            select id, true from unnest($1::flowid[]) as id
-          union
-            select
-                case when expanded.id = e.source_id then e.target_id else e.source_id end,
-                false
-            from expanded join live_spec_flows as e
-            on expanded.id = e.source_id or expanded.id = e.target_id
-            where expanded.seed or e.flow_type in ('collection', 'test')
-        )
-        -- Join the expanded IDs with live_specs.
-        select
-            id as "live_spec_id: Id",
-            catalog_name,
-            spec as "live_spec!: Json<Box<RawValue>>",
-            spec_type as "live_type!: CatalogType"
-        from live_specs natural join expanded
-        -- Strip deleted specs which are still reach-able through a dataflow edge.
-        where spec is not null
-        -- Strip specs which are already part of the seed set.
-        group by id having not bool_or(seed);
-        "#,
-        seed_ids as Vec<Id>,
-    )
-    .fetch_all(&mut *txn)
-    .await
-    .context("selecting expanded specs")?;
+    let expanded_rows = agent_sql::publications::resolve_expanded_rows(seed_ids, txn)
+        .await
+        .context("selecting expanded specs")?;
 
     Ok(expanded_rows)
 }
@@ -244,18 +100,12 @@ pub async fn insert_errors(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
     for err in errors {
-        sqlx::query!(
-            r#"insert into draft_errors (
-              draft_id,
-              scope,
-              detail
-            ) values ($1, $2, $3)
-            "#,
-            draft_id as Id,
+        agent_sql::publications::insert_error(
+            draft_id,
             err.scope.unwrap_or(err.catalog_name),
             err.detail,
+            txn,
         )
-        .execute(&mut *txn)
         .await
         .context("inserting error")?;
     }
@@ -509,74 +359,29 @@ pub async fn apply_updates_for_row(
 
     assert!(matches!(user_capability, Some(Capability::Admin)));
 
-    sqlx::query!(
-        r#"delete from draft_specs where id = $1 returning 1 as "must_exist";"#,
-        *draft_spec_id as Id,
-    )
-    .fetch_one(&mut *txn)
-    .await
-    .context("delete from draft_specs")?;
+    agent_sql::publications::delete_draft_spec(*draft_spec_id, txn)
+        .await
+        .context("delete from draft_specs")?;
 
     // Clear out data-flow edges that we'll replace.
     match live_type {
-        Some(CatalogType::Capture) => {
-            sqlx::query!(
-                "delete from live_spec_flows where source_id = $1 and flow_type = 'capture'",
-                *live_spec_id as Id,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("delete stale capture edges")?;
-        }
-        Some(CatalogType::Collection) => {
-            sqlx::query!(
-                "delete from live_spec_flows where target_id = $1 and flow_type = 'collection'",
-                *live_spec_id as Id,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("delete stale derivation edges")?;
-        }
-        Some(CatalogType::Materialization) => {
-            sqlx::query!(
-                "delete from live_spec_flows where target_id = $1 and flow_type = 'materialization'",
-                *live_spec_id as Id,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("delete stale materialization edges")?;
-        }
-        Some(CatalogType::Test) => {
-            sqlx::query!(
-                "delete from live_spec_flows where (source_id = $1 or target_id = $1) and flow_type = 'test'",
-                *live_spec_id as Id,
-            )
-            .execute(&mut *txn)
-            .await
-            .context("delete stale test edges")?;
+        Some(live_type) => {
+            agent_sql::publications::delete_stale_flow(*live_spec_id, *live_type, txn)
+                .await
+                .with_context(|| format!("delete stale {live_type:?} edges"))?;
         }
         None => {} // No-op.
     }
 
-    sqlx::query!(
-        r#"insert into publication_specs (
-            live_spec_id,
-            pub_id,
-            detail,
-            published_at,
-            spec,
-            spec_type,
-            user_id
-        ) values ($1, $2, $3, DEFAULT, $4, $5, $6);
-        "#,
-        *live_spec_id as Id,
-        pub_id as Id,
-        detail as Option<&String>,
-        draft_spec as &Option<Json<Box<RawValue>>>,
-        draft_type as &Option<CatalogType>,
-        user_id as Uuid,
+    agent_sql::publications::insert_publication_spec(
+        *live_spec_id,
+        pub_id,
+        detail,
+        draft_spec,
+        draft_type,
+        user_id,
+        txn,
     )
-    .execute(&mut *txn)
     .await
     .context("insert into publication_specs")?;
 
@@ -587,48 +392,27 @@ pub async fn apply_updates_for_row(
 
     let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
 
-    sqlx::query!(
-        r#"
-        update live_specs set
-            connector_image_name = $2,
-            connector_image_tag = $3,
-            last_pub_id = $4,
-            reads_from = $5,
-            spec = $6,
-            spec_type = $7,
-            updated_at = clock_timestamp(),
-            writes_to = $8
-        where catalog_name = $1
-        returning 1 as "must_exist";
-        "#,
+    agent_sql::publications::update_live_spec(
         catalog_name,
         image_parts.as_ref().map(|p| &p.0),
         image_parts.as_ref().map(|p| &p.1),
-        pub_id as Id,
-        &reads_from as &Option<Vec<&str>>,
-        draft_spec as &Option<Json<Box<RawValue>>>,
-        draft_type as &Option<CatalogType>,
-        &writes_to as &Option<Vec<&str>>,
+        pub_id,
+        &reads_from,
+        draft_spec,
+        draft_type,
+        &writes_to,
+        txn,
     )
-    .fetch_one(&mut *txn)
     .await
     .context("update live_specs")?;
 
-    sqlx::query!(
-        r#"
-        insert into live_spec_flows (source_id, target_id, flow_type)
-            select live_specs.id, $1, $2::catalog_spec_type
-            from unnest($3::text[]) as n join live_specs on catalog_name = n
-        union
-            select $1, live_specs.id, $2
-            from unnest($4::text[]) as n join live_specs on catalog_name = n;
-        "#,
-        *live_spec_id as Id,
-        draft_type as &Option<CatalogType>,
-        reads_from as Option<Vec<&str>>,
-        writes_to as Option<Vec<&str>>,
+    agent_sql::publications::insert_live_spec_flows(
+        *live_spec_id,
+        draft_type,
+        reads_from,
+        writes_to,
+        txn,
     )
-    .execute(&mut *txn)
     .await
     .context("insert live_spec_flow edges")?;
 

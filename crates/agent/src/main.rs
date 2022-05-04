@@ -24,6 +24,20 @@ struct Args {
         default_value = "file:///var/tmp/"
     )]
     builds_root: url::Url,
+    /// URL of the data-plane Gazette broker.
+    #[clap(
+        long = "broker-address",
+        env = "BROKER_ADDRESS",
+        default_value = "http://localhost:8080"
+    )]
+    _broker_address: url::Url,
+    /// URL of the data-plane Flow consumer.
+    #[clap(
+        long = "consumer-address",
+        env = "CONSUMER_ADDRESS",
+        default_value = "http://localhost:9000"
+    )]
+    _consumer_address: url::Url,
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "host")]
     connector_network: String,
