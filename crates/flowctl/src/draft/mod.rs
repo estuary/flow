@@ -195,7 +195,7 @@ async fn do_list(cfg: &config::Config) -> anyhow::Result<()> {
     #[derive(Deserialize)]
     struct Row {
         created_at: crate::Timestamp,
-        detail: String,
+        detail: Option<String>,
         id: String,
         num_specs: u32,
         updated_at: crate::Timestamp,
@@ -220,7 +220,7 @@ async fn do_list(cfg: &config::Config) -> anyhow::Result<()> {
             format!("{}", row.num_specs),
             row.created_at.to_string(),
             row.updated_at.to_string(),
-            row.detail,
+            row.detail.unwrap_or_default(),
         ]);
     }
     println!("{table}");
