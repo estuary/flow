@@ -30,7 +30,7 @@ fn body_with_config(config: &str) -> Body {
 }
 
 #[tokio::test]
-async fn config_is_encrypted() {
+async fn json_config_is_encrypted() {
     let _ = tracing_subscriber::fmt().try_init();
     let app = router(sops_args());
     let resp = app
