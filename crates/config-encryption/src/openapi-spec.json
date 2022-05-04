@@ -1,95 +1,152 @@
 {
-  "openapi": "3.0.3",
-  "info": {
-    "title": "config-encryption",
-    "description": "Encrypts Flow endpoint configurations",
-    "contact": {
-      "name": "Estuary developers",
-      "email": "contact@estuary.dev"
-    },
-    "license": {
-      "name": ""
-    },
-    "version": "0.1.0"
-  },
-  "paths": {
-    "/v1/encrypt-config": {
-      "post": {
-        "tags": [
-          "encrypt::handler"
-        ],
-        "summary": "Encrypt a subset of the values in a `config` json object.",
-        "description": "Encrypt a subset of the values in a `config` json object.\n",
-        "operationId": "handle_encrypt_req",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EncryptReq"
-              }
-            }
-          },
-          "required": true
+    "openapi": "3.0.3",
+    "info": {
+        "title": "config-encryption",
+        "description": "Encrypts Flow endpoint configurations",
+        "contact": {
+            "name": "Estuary developers",
+            "email": "contact@estuary.dev"
         },
-        "responses": {
-          "200": {
-            "description": "Sucessfully encrypted secret values",
-            "content": {
-              "application/yaml": {
-                "schema": {
-                  "$ref": "#/components/schemas/EncryptedConfig"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EncryptedConfig"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Request was invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
+        "license": {
+            "name": ""
         },
-        "deprecated": false
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Error": {
-        "type": "object",
-        "properties": {
-          "status": {"type": "integer"},
-          "error": {"type": "string"}
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/v1/encrypt-config": {
+            "post": {
+                "tags": [
+                    "encrypt::handler"
+                ],
+                "summary": "Encrypt a subset of the values in a `config` json object.",
+                "description": "Encrypt a subset of the values in a `config` json object.\n",
+                "operationId": "handle_encrypt_req",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EncryptReq"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Sucessfully encrypted secret values",
+                        "content": {
+                            "application/yaml": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EncryptedConfig"
+                                }
+                            },
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EncryptedConfig"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Request was invalid",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "deprecated": false
+            }
         }
-      },
-      "EncryptReq": {
-        "type": "object",
-        "required": [
-          "schema",
-          "config"
-        ],
-        "properties": {
-          "config": {
-            "type": "object"
-          },
-          "schema": {
-            "type": "object"
-          }
-        },
-        "description": "A request to encrypt a subset of values in `config`. The values to be encrypted are derived from"
-      },
-      "EncryptedConfig": {
-        "type": "object"
-      }
+    },
+    "components": {
+        "schemas": {
+            "Error": {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "description": "A short, machine readable name of the error type",
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "A human readable description of what went wrong",
+                        "type": "string"
+                    },
+                    "details": {
+                        "description": "If the error is FailedValidation, then this will be the JSON output from the validator",
+                        "type": "object",
+                        "properties": {
+                            "document": {
+                                "type": "object",
+                                "description": "The original config document JSON"
+                            },
+                            "basic_output": {
+                                "$ref": "#/components/schemas/ValidationErrorOutput"
+                            }
+                        }
+                    }
+                },
+                "required": ["error", "description"]
+            },
+            "EncryptReq": {
+                "type": "object",
+                "required": [
+                    "schema",
+                    "config"
+                ],
+                "properties": {
+                    "config": {
+                        "type": "object"
+                    },
+                    "schema": {
+                        "type": "object"
+                    }
+                },
+                "description": "A request to encrypt a subset of values in `config`. The values to be encrypted are derived from"
+            },
+            "EncryptedConfig": {
+                "type": "object"
+            },
+            "ValidationErrorOutput": {
+                "properties": {
+                    "valid": { "enum": [false] },
+                    "keywordLocation": {
+                        "type": "string",
+                        "format": "json-pointer"
+                    },
+                    "absoluteKeywordLocation": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "instanceLocation": {
+                        "type": "string",
+                        "format": "json-pointer"
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "errors": {
+                        "$ref": "#/components/schemas/ValidationErrorOutput"
+                    }
+                },
+                "required": [ "valid", "keywordLocation", "instanceLocation" ],
+                "anyOf": [
+                    {
+                        "required": [ "error" ]
+                    },
+                    {
+                        "required": [ "errors" ]
+                    }
+                ]
+            },
+            "ValidationErrorArray": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/ValidationErrorOutput" }
+            }
+        }
     }
-  }
 }
+
