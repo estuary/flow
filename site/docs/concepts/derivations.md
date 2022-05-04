@@ -566,15 +566,15 @@ into a derivation register keyed on the account.
 ### Creating TypeScript modules
 
 To create a new TypeScript module for the lambdas of your derivation,
-you can use `flowctl check` to generate it.
+you can use `flowctl typescript generate` to generate it.
 In the derivation specification, choose the name for the new module and
-run `flowctl check`.
+run `flowctl typescript generate`.
 Flow creates a module with the name you specified, stubs of the required interfaces,
 and TypeScript types that match your schemas.
 Update the module with your lambda function bodies,
 and proceed to test and deploy your catalog.
 
-Using the example below, `flowctl check --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
+Using the example below, `flowctl typescript generate --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
 
 <Tabs>
 <TabItem value="acmeBank.flow.yaml" default>

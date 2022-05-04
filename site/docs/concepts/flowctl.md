@@ -84,7 +84,7 @@ You may want to commit them as part of a GitOps-managed project, but this isn't 
 Whenever you define a derivation that uses a [lambda](./derivations.md#lambdas),
 you must define the lambda in an accompanying TypeScript module, and reference that module
 in the derivation's definition. To facilitate this,
-you can generate a stub of the module using `flowctl check`
+you can generate a stub of the module using `flowctl typescript generate`
 and simply write the function bodies.
 [Learn more about this workflow.](./derivations.md#creating-typescript-modules)
 
