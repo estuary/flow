@@ -49,8 +49,10 @@ pub async fn do_generate(
 ) -> anyhow::Result<()> {
     let source_path = std::fs::canonicalize(source_path)
         .context(format!("finding {source_path:?} in the local filesystem"))?;
-    let package_dir = source_path.parent().unwrap().to_owned();
     let source_url = url::Url::from_file_path(&source_path).unwrap();
+
+    let package_dir = source_path.parent().unwrap().to_owned();
+    let package_url = url::Url::from_file_path(&package_dir).unwrap();
 
     // Load all catalog sources.
     let loader = sources::Loader::new(tables::Sources::default(), crate::Fetcher {});
@@ -61,11 +63,40 @@ pub async fn do_generate(
             flow::ContentType::Catalog,
         )
         .await;
-    let t = loader.into_tables();
+
+    let tables::Sources {
+        collections,
+        derivations,
+        errors,
+        imports,
+        npm_dependencies,
+        resources,
+        transforms,
+        ..
+    } = loader.into_tables();
+
+    // When generating TypeScript, users may reference TypeScript modules under
+    // their Flow catalog root file that don't (yet) exist. Squelch these errors.
+    // generate_npm_package() will produce a stub implementation that we'll write out.
+    let errors = errors
+        .into_iter()
+        .filter(
+            |err| match (err.scope.fragment(), err.error.downcast_ref()) {
+                (Some(frag), Some(sources::LoadError::Fetch { uri, .. }))
+                    if frag.ends_with("typescript/module")
+                        && uri.starts_with(package_url.as_str()) =>
+                {
+                    println!("Generating implementation stub for {uri}");
+                    false
+                }
+                _ => true,
+            },
+        )
+        .collect::<Vec<_>>();
 
     // Bail if errors occurred while resolving sources.
-    if !t.errors.is_empty() {
-        for tables::Error { scope, error } in t.errors.iter() {
+    if !errors.is_empty() {
+        for tables::Error { scope, error } in errors.iter() {
             tracing::error!(%scope, ?error);
         }
         anyhow::bail!("errors while loading catalog sources");
@@ -73,18 +104,18 @@ pub async fn do_generate(
 
     let files = assemble::generate_npm_package(
         &package_dir,
-        &t.collections,
-        &t.derivations,
-        &t.imports,
-        &t.npm_dependencies,
-        &t.resources,
-        &t.transforms,
+        &collections,
+        &derivations,
+        &imports,
+        &npm_dependencies,
+        &resources,
+        &transforms,
     )
     .context("generating TypeScript package")?;
 
     let files_len = files.len();
     assemble::write_npm_package(&package_dir, files)?;
 
-    println!("Wrote {files_len} TypeScript project files under {source_url}.");
+    println!("Wrote {files_len} TypeScript project files under {package_url}.");
     Ok(())
 }
