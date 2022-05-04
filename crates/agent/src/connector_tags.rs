@@ -1,10 +1,9 @@
 use super::{jobs, logs, Handler, Id};
 
+use agent_sql::connector_tags::Row;
 use anyhow::Context;
-use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
 use tracing::info;
 
 /// JobStatus is the possible outcomes of a handled connector tag.
@@ -35,46 +34,12 @@ impl TagHandler {
     }
 }
 
-// Row is the dequeued task shape of a tag connector operation.
-#[derive(Debug)]
-struct Row {
-    connector_id: Id,
-    created_at: DateTime<Utc>,
-    external_url: String,
-    image_name: String,
-    image_tag: String,
-    logs_token: Uuid,
-    tag_id: Id,
-    updated_at: DateTime<Utc>,
-}
-
 #[async_trait::async_trait]
 impl Handler for TagHandler {
     async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match sqlx::query_as!(
-            Row,
-            r#"select
-                c.id as "connector_id: Id",
-                c.external_url,
-                c.image_name,
-                t.created_at,
-                t.id as "tag_id: Id",
-                t.image_tag,
-                t.logs_token,
-                t.updated_at
-            from connector_tags as t
-            join connectors as c on c.id = t.connector_id
-            where t.job_status->>'type' = 'queued'
-            order by t.id asc
-            limit 1
-            for update of t skip locked;
-            "#
-        )
-        .fetch_optional(&mut txn)
-        .await?
-        {
+        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn).await? {
             None => return Ok(std::time::Duration::from_secs(5)),
             Some(row) => row,
         };
@@ -82,19 +47,7 @@ impl Handler for TagHandler {
         let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
-        sqlx::query_unchecked!(
-            r#"update connector_tags set
-                job_status = $2,
-                updated_at = clock_timestamp()
-            where id = $1
-            returning 1 as "must_exist";
-            "#,
-            id,
-            Json(status),
-        )
-        .fetch_one(&mut txn)
-        .await?;
-
+        agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
         Ok(std::time::Duration::ZERO)
@@ -152,12 +105,13 @@ impl TagHandler {
             return Ok((row.tag_id, JobStatus::SpecFailed));
         }
 
-        let fetch_open_graph = tokio::process::Command::new(format!("{}/fetch-open-graph", &self.bindir))
-            .kill_on_drop(true)
-            .arg("-url")
-            .arg(&row.external_url)
-            .output()
-            .await?;
+        let fetch_open_graph =
+            tokio::process::Command::new(format!("{}/fetch-open-graph", &self.bindir))
+                .kill_on_drop(true)
+                .arg("-url")
+                .arg(&row.external_url)
+                .output()
+                .await?;
 
         if !fetch_open_graph.status.success() {
             return Ok((
@@ -170,18 +124,8 @@ impl TagHandler {
         let open_graph_raw: Box<RawValue> = serde_json::from_slice(&fetch_open_graph.stdout)
             .context("parsing open graph response")?;
 
-        sqlx::query_unchecked!(
-            r#"update connectors set
-                open_graph_raw = $2,
-                updated_at = clock_timestamp()
-            where id = $1
-            returning 1 as "must_exist";
-            "#,
-            row.connector_id,
-            Json(open_graph_raw) as Json<Box<RawValue>>,
-        )
-        .fetch_one(&mut *txn)
-        .await?;
+        agent_sql::connector_tags::update_open_graph_raw(row.connector_id, open_graph_raw, txn)
+            .await?;
 
         /// Spec is the output shape of the `flowctl api spec` command.
         #[derive(Deserialize)]
@@ -201,22 +145,14 @@ impl TagHandler {
             resource_spec_schema,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
-        sqlx::query_unchecked!(
-            r#"update connector_tags set
-                documentation_url = $2,
-                endpoint_spec_schema = $3,
-                protocol = $4,
-                resource_spec_schema = $5
-            where id = $1
-            returning 1 as "must_exist";
-            "#,
+        agent_sql::connector_tags::update_tag_fields(
             row.tag_id,
             documentation_url,
-            Json(endpoint_spec_schema) as Json<Box<RawValue>>,
+            endpoint_spec_schema,
             protocol,
-            Json(resource_spec_schema) as Json<Box<RawValue>>,
+            resource_spec_schema,
+            txn,
         )
-        .fetch_one(&mut *txn)
         .await?;
 
         return Ok((row.tag_id, JobStatus::Success));

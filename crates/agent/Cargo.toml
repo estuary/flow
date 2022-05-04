@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent-sql = { path = "../agent-sql" }
 models = { git = "https://github.com/estuary/flow", branch = "master" }
 tables = { git = "https://github.com/estuary/flow", branch = "master", features = ["persist"] }
 
@@ -17,6 +18,7 @@ chrono = { version = "0.4" }
 clap = { version = "*", features = ["derive", "env"] }
 futures = "*"
 itertools = "*"
+reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
 rusqlite = "*"
 scopeguard = "*"
 serde = { version = "*", features = ["derive"] }

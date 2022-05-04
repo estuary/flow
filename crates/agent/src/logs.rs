@@ -113,8 +113,8 @@ pub async fn serve_sink(
         // Dispatch the vector of lines to the table.
         let r = sqlx::query(
             r#"
-            INSERT INTO internal.log_lines (token, stream, log_line)
-            SELECT * FROM UNNEST($1, $2, $3)
+            insert into internal.log_lines (token, stream, log_line)
+            select * from unnest($1, $2, $3)
             "#,
         )
         .bind(&tokens)

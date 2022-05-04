@@ -1,12 +1,7 @@
 use super::Error;
 
+use agent_sql::publications::StorageRow;
 use anyhow::Context;
-
-#[derive(Debug)]
-pub struct StorageRow {
-    pub catalog_prefix: String,
-    pub spec: serde_json::Value,
-}
 
 // inject_mappings identifies all storage mappings which may relate to the
 // provided set of catalog names, and adds each to the models::Catalog.
@@ -17,25 +12,9 @@ pub async fn inject_mappings(
 ) -> anyhow::Result<Vec<Error>> {
     let names: Vec<&str> = names.collect();
 
-    let mappings: Vec<StorageRow> = sqlx::query_as!(
-        StorageRow,
-        r#"
-        select
-            m.catalog_prefix,
-            m.spec
-        from storage_mappings m,
-        lateral unnest($1::text[]) as n
-        where starts_with(n, m.catalog_prefix)
-           or starts_with('recovery/' || n, m.catalog_prefix)
-           -- TODO(johnny): hack until we better-integrate ops collections.
-           or m.catalog_prefix = 'ops/'
-        group by m.id;
-        "#,
-        names as Vec<&str>,
-    )
-    .fetch_all(&mut *txn)
-    .await
-    .context("selecting storage mappings")?;
+    let mappings = agent_sql::publications::resolve_storage_mappings(names, txn)
+        .await
+        .context("selecting storage mappings")?;
 
     let mut errors = Vec::new();
 

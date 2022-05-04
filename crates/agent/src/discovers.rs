@@ -1,10 +1,9 @@
 use super::{jobs, logs, Handler, Id};
 
+use agent_sql::discover::Row;
 use anyhow::Context;
-use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
 use std::collections::BTreeMap;
 use tracing::{debug, info};
 
@@ -37,61 +36,12 @@ impl DiscoverHandler {
     }
 }
 
-// Row is the dequeued task shape of a discover operation.
-#[derive(Debug)]
-struct Row {
-    capture_name: String,
-    connector_tag_id: Id,
-    connector_tag_job_success: bool,
-    created_at: DateTime<Utc>,
-    draft_id: Id,
-    endpoint_config: Json<Box<RawValue>>,
-    id: Id,
-    image_name: String,
-    image_tag: String,
-    logs_token: Uuid,
-    protocol: String,
-    updated_at: DateTime<Utc>,
-    user_id: Uuid,
-}
-
 #[async_trait::async_trait]
 impl Handler for DiscoverHandler {
     async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match sqlx::query_as!(
-            Row,
-            // TODO(johnny): If we stored `docker inspect` output within connector_tags,
-            // we could pull a resolved digest directly from it?
-            // Better: have `flowctl api spec` run it internally and surface the digest?
-            r#"select
-                discovers.capture_name,
-                discovers.connector_tag_id as "connector_tag_id: Id",
-                connector_tags.job_status->>'type' = 'success' as "connector_tag_job_success!",
-                discovers.created_at,
-                discovers.draft_id as "draft_id: Id",
-                discovers.endpoint_config as "endpoint_config: Json<Box<RawValue>>",
-                discovers.id as "id: Id",
-                connectors.image_name,
-                connector_tags.image_tag,
-                discovers.logs_token,
-                connector_tags.protocol as "protocol!",
-                discovers.updated_at,
-                drafts.user_id
-            from discovers
-            join drafts on discovers.draft_id = drafts.id
-            join connector_tags on discovers.connector_tag_id = connector_tags.id
-            join connectors on connectors.id = connector_tags.connector_id
-            where discovers.job_status->>'type' = 'queued' and connector_tags.job_status->>'type' != 'queued'
-            order by discovers.id asc
-            limit 1
-            for update of discovers skip locked;
-            "#
-        )
-        .fetch_optional(&mut txn)
-        .await?
-        {
+        let row: Row = match agent_sql::discover::dequeue(&mut txn).await? {
             None => return Ok(std::time::Duration::from_secs(5)),
             Some(row) => row,
         };
@@ -99,19 +49,7 @@ impl Handler for DiscoverHandler {
         let (id, status) = self.process(row, &mut txn).await?;
         info!(%id, ?status, "finished");
 
-        sqlx::query_unchecked!(
-            r#"update discovers set
-                    job_status = $2,
-                    updated_at = clock_timestamp()
-                where id = $1
-                returning 1 as "must_exist";
-                "#,
-            id,
-            sqlx::types::Json(status),
-        )
-        .fetch_one(&mut txn)
-        .await?;
-
+        agent_sql::discover::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
         Ok(std::time::Duration::ZERO)
@@ -217,54 +155,13 @@ async fn insert_draft_specs(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     for (capture, spec) in captures {
-        sqlx::query!(
-            r#"insert into draft_specs(
-                draft_id,
-                catalog_name,
-                spec_type,
-                spec
-            ) values ($1, $2, 'capture', $3)
-            on conflict (draft_id, catalog_name) do update set
-                spec_type = 'capture',
-                spec = $3
-            returning 1 as "must_exist";
-            "#,
-            draft_id as Id,
-            capture.as_str() as &str,
-            Json(spec) as Json<models::CaptureDef>,
-        )
-        .fetch_one(&mut *txn)
-        .await?;
+        agent_sql::discover::upsert_spec(draft_id, capture.as_str(), spec, "capture", txn).await?;
     }
     for (collection, spec) in collections {
-        sqlx::query!(
-            r#"insert into draft_specs(
-                draft_id,
-                catalog_name,
-                spec_type,
-                spec
-            ) values ($1, $2, 'collection', $3)
-            on conflict (draft_id, catalog_name) do update set
-                spec_type = 'collection',
-                spec = $3
-            returning 1 as "must_exist";
-            "#,
-            draft_id as Id,
-            collection.as_str() as &str,
-            Json(spec) as Json<models::CollectionDef>,
-        )
-        .fetch_one(&mut *txn)
-        .await?;
+        agent_sql::discover::upsert_spec(draft_id, collection.as_str(), spec, "collection", txn)
+            .await?;
     }
-
-    sqlx::query_unchecked!(
-        r#"update drafts set updated_at = clock_timestamp() where id = $1
-            returning 1 as "must_exist";"#,
-        draft_id as Id,
-    )
-    .fetch_one(&mut *txn)
-    .await?;
-
+    agent_sql::discover::touch_draft(draft_id, txn).await?;
     Ok(())
 }
 

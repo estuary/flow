@@ -6,6 +6,7 @@ version = 3
 name = "agent"
 version = "0.1.0"
 dependencies = [
+ "agent-sql",
  "anyhow",
  "async-trait",
  "base64",
@@ -16,6 +17,7 @@ dependencies = [
  "insta",
  "itertools",
  "models",
+ "reqwest",
  "rusqlite",
  "scopeguard",
  "serde",
@@ -29,6 +31,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "agent-sql"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
 ]
 
 [[package]]
