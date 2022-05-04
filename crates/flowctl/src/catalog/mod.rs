@@ -153,7 +153,7 @@ async fn do_history(cfg: &config::Config, History { name }: &History) -> anyhow:
     #[derive(Deserialize)]
     struct Row {
         catalog_name: String,
-        detail: String,
+        detail: Option<String>,
         last_pub_id: String,
         pub_id: String,
         published_at: crate::Timestamp,
@@ -202,7 +202,7 @@ async fn do_history(cfg: &config::Config, History { name }: &History) -> anyhow:
             },
             row.published_at.to_string(),
             crate::format_user(row.user_email, row.user_full_name, row.user_id),
-            row.detail,
+            row.detail.unwrap_or_default(),
         ]);
     }
     println!("{table}");
