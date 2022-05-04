@@ -1,7 +1,8 @@
 use super::Error;
 use crate::Id;
 
-use agent_sql::publications::{Capability, CatalogType, ExpandedRow, SpecRow};
+use agent_sql::publications::{ExpandedRow, SpecRow};
+use agent_sql::{Capability, CatalogType};
 use anyhow::Context;
 use itertools::Itertools;
 use serde_json::value::RawValue;
