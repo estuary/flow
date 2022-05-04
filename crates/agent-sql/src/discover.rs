@@ -1,4 +1,4 @@
-use super::Id;
+use super::{CatalogType, Id};
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -83,7 +83,7 @@ pub async fn upsert_spec<S>(
     draft_id: Id,
     catalog_name: &str,
     spec: S,
-    spec_type: &str,
+    spec_type: CatalogType,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()>
 where
@@ -104,7 +104,7 @@ where
         draft_id as Id,
         catalog_name as &str,
         Json(spec) as Json<S>,
-        spec_type as &str,
+        spec_type as CatalogType,
     )
     .fetch_one(&mut *txn)
     .await?;

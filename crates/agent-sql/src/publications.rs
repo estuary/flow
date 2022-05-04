@@ -1,4 +1,4 @@
-use super::Id;
+use super::{Capability, CatalogType, Id};
 
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -125,26 +125,6 @@ pub async fn insert_new_live_specs(
     .await?;
 
     Ok(rows.rows_affected())
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "catalog_spec_type")]
-#[sqlx(rename_all = "lowercase")]
-pub enum CatalogType {
-    Capture,
-    Collection,
-    Materialization,
-    Test,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "grant_capability")]
-#[sqlx(rename_all = "lowercase")]
-#[serde(rename_all = "camelCase")]
-pub enum Capability {
-    Read,
-    Write,
-    Admin,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

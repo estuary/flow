@@ -1,6 +1,7 @@
 use super::{jobs, logs, Handler, Id};
 
 use agent_sql::discover::Row;
+use agent_sql::CatalogType;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -155,11 +156,24 @@ async fn insert_draft_specs(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     for (capture, spec) in captures {
-        agent_sql::discover::upsert_spec(draft_id, capture.as_str(), spec, "capture", txn).await?;
+        agent_sql::discover::upsert_spec(
+            draft_id,
+            capture.as_str(),
+            spec,
+            CatalogType::Capture,
+            txn,
+        )
+        .await?;
     }
     for (collection, spec) in collections {
-        agent_sql::discover::upsert_spec(draft_id, collection.as_str(), spec, "collection", txn)
-            .await?;
+        agent_sql::discover::upsert_spec(
+            draft_id,
+            collection.as_str(),
+            spec,
+            CatalogType::Collection,
+            txn,
+        )
+        .await?;
     }
     agent_sql::discover::touch_draft(draft_id, txn).await?;
     Ok(())
