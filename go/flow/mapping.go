@@ -152,6 +152,12 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			// Did we lose because the journal already exists ?
 			if kvs := applyResponse.Responses[0].GetResponseRange().Kvs; len(kvs) != 0 {
 				readThrough = kvs[0].ModRevision // Read through its last update.
+
+				log.WithFields(log.Fields{
+					"attempt":     attempt,
+					"journal":     applySpec.Name,
+					"readThrough": readThrough,
+				}).Info("lost race to create partition")
 			} else {
 				// The shard spec that granted us authority to create partitions was removed.
 				return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name,
