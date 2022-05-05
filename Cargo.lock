@@ -81,7 +81,7 @@ checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
 [[package]]
 name = "assemble"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "bytes",
  "doc",
@@ -534,7 +534,7 @@ dependencies = [
 [[package]]
 name = "doc"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "fancy-regex",
  "itertools",
@@ -1123,7 +1123,7 @@ dependencies = [
 [[package]]
 name = "json"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "bitvec",
  "fancy-regex",
@@ -1140,7 +1140,7 @@ dependencies = [
 [[package]]
 name = "labels"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 
 [[package]]
 name = "lazy_static"
@@ -1264,7 +1264,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "caseless",
  "doc",
@@ -1357,9 +1357,9 @@ dependencies = [
 
 [[package]]
 name = "num_threads"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aba1801fb138d8e85e11d0fc70baf4fe1cdfffda7c6cd34a854905df588e5ed0"
+checksum = "2819ce041d2ee131036f4fc9d6ae7ae125a3a40e97ba64d04fe799ad9dabbb44"
 dependencies = [
  "libc",
 ]
@@ -1378,9 +1378,9 @@ checksum = "2839e79665f131bdb5782e51f2c6c9599c133c6098982a54c794358bf432529c"
 
 [[package]]
 name = "openssl"
-version = "0.10.39"
+version = "0.10.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28f3916d46d9d813a62d7b7d2724d7b14785ac999fb623d990ee4603f9122742"
+checksum = "fb81a6430ac911acb25fe5ac8f1d2af1b4ea8a4fdfda0f1ee4292af2e2d8eb0e"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -1686,9 +1686,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a07b0857a71a8cb765763950499cae2413c3f9cede1133478c43600d9e146890"
+checksum = "4c9e8715f12cd0fed93db938fdca5d5c65694fd662c30ee75a09ab156f445f51"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -1742,12 +1742,12 @@ dependencies = [
 [[package]]
 name = "proto-build"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 
 [[package]]
 name = "proto-flow"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "bytes",
  "pbjson",
@@ -1763,7 +1763,7 @@ dependencies = [
 [[package]]
 name = "proto-gazette"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "bytes",
  "pbjson",
@@ -2192,7 +2192,7 @@ dependencies = [
 [[package]]
 name = "sources"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "anyhow",
  "assemble",
@@ -2380,7 +2380,7 @@ dependencies = [
 [[package]]
 name = "tables"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2686,7 +2686,7 @@ checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 [[package]]
 name = "typescript"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "doc",
  "json",
@@ -2772,7 +2772,7 @@ dependencies = [
 [[package]]
 name = "validation"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#a3cfb5cccd73df00ed1ae046d6e1a96cefeea986"
+source = "git+https://github.com/estuary/flow?branch=master#e9f611add273e968f441daba098b99c581f71603"
 dependencies = [
  "anyhow",
  "assemble",
