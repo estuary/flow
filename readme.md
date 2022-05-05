@@ -195,3 +195,34 @@ Create a draft and publish specifications into your `temp-data-plane`
 ~/flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 ~/flowctl draft publish
 ```
+
+## Production Migrations
+
+This area is a work-in-progress -- it's Johnny's evolving opinion which we may disregard or change:
+
+The desired practice is that we maintain the "ideal" schema in [supabase/migrations/](supabase/migrations/). We keep a single representation of tables and views as we _wish_ them to be, even if that's not as they are.
+
+Then we _converge_ the production database towards this desired state by diffing it and identifying migrations to run. Tooling can help us identify incremental changes that must be made to the production database.
+
+This practice stands in contrast with the practice of keeping additive-only migrations with `ALTER TABLE` statements. We may do this as a short-term measure while developing a migration strategy, but it's an ephemeral migration script which is removed once applied.
+
+The rationale is that migrations are a point-in-time action that, once taken, doesn't need to be revisited. However **every** developer is regularly consulting SQL schema, so it's important to optimize for human readers rather than the particular database order that things happened to be historically applied in.
+
+Example of using pgadmin to obtain a schema diff:
+```console
+docker run \
+  --network supabase_network_animated-carnival \
+  --rm -it supabase/pgadmin-schema-diff:cli-0.0.4 \
+  --schema public \
+  postgresql://postgres:postgres@supabase_db_animated-carnival:5432/postgres \
+  postgresql://postgres:${DB_SECRET}@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+```
+
+We use schemas `public` and `internal`, so both should be compared. **Do not** run this script directly. Read it, understand it, make sure it's sensible, and then run it. The production secret can be found in the sops-encrypted file `supabase/secret.yaml`.
+
+Migrations should be applied via:
+```console
+psql postgresql://postgres:${DB_SECRET}@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+```
+
+**Do not** use the Supabase UI for applying migrations as they run as a different user from `postgres`, which changes the owner and confuses the heck out of pgdiff.
