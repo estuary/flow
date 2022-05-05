@@ -1,0 +1,197 @@
+
+# Flow Control-Plane
+
+The Flow control-plane orchestrates the Flow data-plane, controlling the specifications which are running in the data-plane, their activations, deletions, and so on. It provides APIs through which users can draft changes to specifications, holistically test their drafts, publish them as live specifications into the data-plane, monitor their execution, and understand the history of specification changes over time.
+
+## Architecture
+
+The control-plane consists of the following components:
+
+### Supabase
+
+Supabase is itself an opinionated bundling of Postgres, [PostgREST](https://postgrest.org/en/stable/) for REST APIs, the GoTrue authentication service, and of other useful open-source components. [Consult the Supabase architecture](https://supabase.com/docs/architecture).
+
+Supabase powers all elements of our public-facing API and powers authentication (AuthN), authorization (AuthZ), and user-driven manipulation of the control-plane database.
+
+Much of the control-plane business logic lives in SQL schemas under [supabase/migrations/](supabase/migrations/) of this repo, and wherever possible the various constraints and checks of the platform are encoded into and enforced by these SQL schemas.
+
+Not everything can be done in SQL. More complex interactions, validations, and requests for privileged actions are represented as asynchronous operations within our schema. The user initiates an operation through an API request which records the desired operation in the DB. A control-plane "agent" then executes the operation on the user's behalf, and communicates the operation status and results through the database.
+
+### Flow UI & CLI
+
+Flow's user-interface is a single-page React application hosted at [dashboard.estuary.dev](https://dashboard.estuary.dev). It's repository is [github.com/estuary/ui](https://github.com/estuary/ui). The UI uses the Supabase APIs.
+
+We also develop a full featured command-line interface client `flowctl`, which lives under [crates/flowctl/](crates/flowctl/) of this repo. Currently it must be built from its Rust source. Release binaries for various platforms are a TODO.
+
+### Control-plane Agent
+
+The agent is a non-user-facing component which lives under [crates/agent/](crates/agent/) of this repo.  Its role is to find and execute all operations which are queued in various tables of our API.
+
+Today this includes:
+
+* Fetching connector details, such as open-graph metadata and endpoint / resource JSON-schemas.
+* Running connector discovery operations to produce proposed catalog specifications.
+* Publishing catalog drafts by testing and then activating them into the data-plane.
+
+The agent is not very opinionated about where it runs and is architected for multiple instances running in parallel. Async operations in the database can be thought of as a task queue. Agents use ["select ... for update skip locked"](https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE) locking clauses in their queries to dequeue operations to execute within scoped transactions. This allows parallel agent instances to coordinate the assignment of operations between themselves, while also allowing for retries if an agent crashes (Postgres automatically releases any locks held by its transaction on session termination).
+
+#### Flow Binaries
+
+Many of the agents functions involve building, testing, activating, and deleting specifications into ephemeral data-planes or the production data-plane. The agent must also run connectors as part of verifications. It therefore expects an installation of Flow to be available and will shell out to its various binaries as needed.
+
+Also required: [gsutil](https://cloud.google.com/storage/docs/gsutil), [sops](https://github.com/mozilla/sops), and [jq](https://stedolan.github.io/jq/).
+
+
+## Local Development Guide
+
+### Dependencies
+
+You'll need:
+
+* An installation of the [Supabase CLI](https://github.com/supabase/cli/releases). Grab the latest release (currently 0.25):
+
+```console
+wget https://github.com/supabase/cli/releases/download/v0.25.0/supabase_0.25.0_linux_amd64.deb
+sudo dpkg -i supabase_0.25.0_linux_amd64.deb
+supabase -v
+```
+
+* A local checkout of [github.com/estuary/flow](github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
+
+* A local checkout of [github.com/estuary/ui](github.com/estuary/ui).
+
+* A local checkout of this repository.
+
+### Start Supabase:
+
+Run within your checkout of this repository (for example, ~/estuary/animated-carnival):
+```console
+supabase start
+```
+
+`supabase` configures itself from the [supabase/](supabase/) repo directory and loads schema migrations, extensions, and seed data sets. When `supabase start` finishes you have a full-fledged control plane API.
+
+You can reset your DB into a pristine state:
+
+```console
+supabase db reset
+```
+Or, nuke it from orbit:
+```console
+supabase stop && supabase start
+```
+
+(Optional) run SQL tests if you're making schema changes.
+```console
+./supabase/run_sql_tests.sh
+```
+
+Supabase opens the following ports:
+
+* 5431 is the PostgREST API.
+* 5432 is the Postgres database.
+* 5433 is the [Supabase UI](http://localhost:5433).
+* 5434 is the email testing server (not used right now).
+
+Directly access your postgres database:
+
+```console
+psql postgres://postgres:postgres@localhost:5432/postgres
+```
+
+### Start `temp-data-plane`:
+
+Suppose that `${BIN_DIR}` is the `make package` binaries under `.build/package/bin` of your Flow checkout.
+You start a `temp-data-plane` which runs a local instance of `etcd`, a `gazette` broker, and the Flow Gazette consumer:
+
+```console
+~/estuary/flow/.build/package/bin/flowctl-go temp-data-plane --log.level warn
+```
+
+A `temp-data-plane` runs the same components and offers identical APIs to a production data plane with one key difference: unlike a production data-plane, `temp-data-plane` is ephemeral and will not persist fragment data to cloud storage regardless of [JournalSpec](https://gazette.readthedocs.io/en/latest/brokers-journalspecs.html) configuration. When you stop `temp-data-plane` it discards all journal and shard specifications and fragment data. Starting a new `temp-data-plane` is then akin to bringing up a brand new, empty cluster.
+
+### Start the `agent`:
+
+Again from within your checkout of this repo:
+
+```console
+RUST_LOG=info cargo run -p agent -- --bin-dir ~/estuary/flow/.build/package/bin/
+```
+
+`agent` requires several arguments. Consult `--help`:
+```console
+cargo run -p agent -- --help
+```
+Typically the defaults are directly useable for local development.
+
+### Connectors
+
+On startup, you'll see the agent start fetching images for a handful of
+connector tags that are in the DB's seed schema.
+
+Add all production connectors via:
+
+```console
+psql postgres://postgres:postgres@localhost:5432/postgres -f ./scripts/seed_connectors.sql
+```
+
+We're attempting to keep this file up-to-date with the production DB,
+so if you spot drift please update it. Be aware this can pull down a lot of
+docker images as the agent works through the connector backlog. You may want
+to manually add only the connectors you're actively working with.
+
+
+### Running the UI:
+
+In your UI repo checkout you'll currently need to tweak `~/estuary/ui/.env`.
+Look for sections that say "Uncomment me for local development" and "Comment me", and follow the directions.
+
+`npm install` is required on first run or after a git pull:
+```console
+npm install
+```
+
+Then you can start a local instance of the UI as:
+```console
+npm start
+```
+
+The UI will open a browser and navigate to your dashboard at [http://localhost:3000](http://localhost:3000).
+Your installation is seeded with three existing users:
+
+* alice@example.com
+* bob@example.com
+* carol@example.com
+
+All have the password `password`. You can also "Sign Up" as a new user through email.
+It doesn't actually send an email and will immediately log you in as that user.
+
+### Use the `flowctl` CLI:
+
+Get running with the `flowctl` CLI:
+
+```console
+# Build the CLI and symlink for use from any directory:
+cargo build --release -p flowctl
+ln -s ~/estuary/animated-carnival/target/release/flowctl ~/flowctl
+```
+Or run it through `cargo`:
+```console
+cargo run --release -p flowctl -- --help
+```
+
+Authenticate as "bob@example.com" with your local control-plane API:
+```console
+~/flowctl auth develop
+```
+Or, grab an access token from the Admin page and pass it in:
+```console
+~/flowctl auth develop --token your-access-token
+```
+
+Create a draft and publish specifications into your `temp-data-plane`
+```console
+~/flowctl draft create
+~/flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
+~/flowctl draft publish
+```
