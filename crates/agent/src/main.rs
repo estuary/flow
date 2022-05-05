@@ -35,7 +35,7 @@ struct Args {
     #[clap(long = "connector-network", default_value = "host")]
     connector_network: String,
     /// Path to binaries like `flowctl`.
-    #[clap(long = "bin-dir")]
+    #[clap(long = "bin-dir", env = "BIN_DIR")]
     bindir: String,
 }
 

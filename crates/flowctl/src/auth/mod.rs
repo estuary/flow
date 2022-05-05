@@ -20,7 +20,7 @@ pub enum Command {
     ///
     /// This is intended for developers who are running local instances
     /// of the Flow control and data-planes.
-    Develop,
+    Develop(Develop),
     /// Work with authorization roles and grants.
     ///
     /// Roles are prefixes of the Flow catalog namespace.
@@ -47,17 +47,24 @@ pub struct Token {
     token: String,
 }
 
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Develop {
+    #[clap(long)]
+    token: Option<String>,
+}
+
 impl Auth {
     pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::Token(Token { token }) => {
                 cfg.api = Some(config::API::managed(token.clone()));
-                tracing::info!("configured access token");
+                println!("Configured access token.");
                 Ok(())
             }
-            Command::Develop => {
-                cfg.api = Some(config::API::development());
-                tracing::info!("configured for local development");
+            Command::Develop(Develop { token }) => {
+                cfg.api = Some(config::API::development(token.clone()));
+                println!("Configured for local development.");
                 Ok(())
             }
             Command::Roles(roles) => roles.run(cfg).await,
