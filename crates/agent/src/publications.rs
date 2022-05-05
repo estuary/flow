@@ -29,19 +29,30 @@ pub enum JobStatus {
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
 pub struct PublishHandler {
-    connector_network: String,
     bindir: String,
+    broker_address: url::Url,
+    builds_root: url::Url,
+    connector_network: String,
+    consumer_address: url::Url,
     logs_tx: logs::Tx,
-    root: url::Url,
 }
 
 impl PublishHandler {
-    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx, root: &url::Url) -> Self {
+    pub fn new(
+        bindir: &str,
+        broker_address: &url::Url,
+        builds_root: &url::Url,
+        connector_network: &str,
+        consumer_address: &url::Url,
+        logs_tx: &logs::Tx,
+    ) -> Self {
         Self {
-            connector_network: connector_network.to_string(),
             bindir: bindir.to_string(),
+            broker_address: broker_address.clone(),
+            builds_root: builds_root.clone(),
+            connector_network: connector_network.to_string(),
+            consumer_address: consumer_address.clone(),
             logs_tx: logs_tx.clone(),
-            root: root.clone(),
         }
     }
 }
@@ -193,7 +204,7 @@ impl PublishHandler {
         let tmpdir = tmpdir.path();
 
         let errors = builds::build_catalog(
-            &self.root,
+            &self.builds_root,
             &draft_catalog,
             &self.connector_network,
             &self.bindir,
@@ -246,13 +257,15 @@ impl PublishHandler {
         }
 
         let errors = builds::deploy_build(
-            &spec_rows,
-            &expanded_rows,
-            &self.connector_network,
             &self.bindir,
+            &self.broker_address,
+            &self.connector_network,
+            &self.consumer_address,
+            &expanded_rows,
             row.logs_token,
             &self.logs_tx,
             row.pub_id,
+            &spec_rows,
         )
         .await
         .context("deploying build")?;

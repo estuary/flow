@@ -123,7 +123,7 @@ pub async fn serve_sink(
         .execute(held_conn.as_deref_mut().unwrap())
         .await?;
 
-        debug!(rows = ?r.rows_affected(), "inserted logs");
+        trace!(rows = ?r.rows_affected(), "inserted logs");
 
         tokens.clear();
         streams.clear();
