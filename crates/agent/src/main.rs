@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use futures::{FutureExt, TryFutureExt};
-use tracing::info;
+use serde::Deserialize;
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Parser, Debug)]
@@ -17,27 +17,20 @@ struct Args {
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DATABASE_CA")]
     database_ca: Option<String>,
-    /// URL of the builds root.
-    #[clap(
-        long = "builds-root",
-        env = "BUILDS_ROOT",
-        default_value = "file:///var/tmp/"
-    )]
-    builds_root: url::Url,
     /// URL of the data-plane Gazette broker.
     #[clap(
         long = "broker-address",
         env = "BROKER_ADDRESS",
         default_value = "http://localhost:8080"
     )]
-    _broker_address: url::Url,
+    broker_address: url::Url,
     /// URL of the data-plane Flow consumer.
     #[clap(
         long = "consumer-address",
         env = "CONSUMER_ADDRESS",
         default_value = "http://localhost:9000"
     )]
-    _consumer_address: url::Url,
+    consumer_address: url::Url,
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "host")]
     connector_network: String,
@@ -49,7 +42,13 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
-    info!(?args, "started!");
+    tracing::info!(?args, "started!");
+
+    let bindir = std::fs::canonicalize(args.bindir)
+        .context("canonicalize --bin-dir")?
+        .into_os_string()
+        .into_string()
+        .expect("os path must be utf8");
 
     // Use reasonable defaults for printing structured logs to stderr.
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
@@ -78,6 +77,11 @@ async fn main() -> Result<(), anyhow::Error> {
         .await
         .context("connecting to database")?;
 
+    let builds_root = resolve_builds_root(&args.consumer_address)
+        .await
+        .context("resolving builds root")?;
+    tracing::info!(%builds_root, "resolved builds root");
+
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
@@ -85,19 +89,21 @@ async fn main() -> Result<(), anyhow::Error> {
     let serve_fut = agent::serve(
         vec![
             Box::new(agent::PublishHandler::new(
+                &bindir,
+                &args.broker_address,
+                &builds_root,
                 &args.connector_network,
-                &args.bindir,
+                &args.consumer_address,
                 &logs_tx,
-                &args.builds_root,
             )),
             Box::new(agent::TagHandler::new(
                 &args.connector_network,
-                &args.bindir,
+                &bindir,
                 &logs_tx,
             )),
             Box::new(agent::DiscoverHandler::new(
                 &args.connector_network,
-                &args.bindir,
+                &bindir,
                 &logs_tx,
             )),
         ],
@@ -109,4 +115,25 @@ async fn main() -> Result<(), anyhow::Error> {
     let ((), ()) = tokio::try_join!(serve_fut, logs_sink.map_err(Into::into))?;
 
     Ok(())
+}
+
+async fn resolve_builds_root(consumer: &url::Url) -> anyhow::Result<url::Url> {
+    #[derive(Deserialize)]
+    struct Response {
+        cmdline: Vec<String>,
+    }
+    let Response { cmdline } = reqwest::get(consumer.join("/debug/vars")?)
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    tracing::debug!(?cmdline, "fetched Flow consumer cmdline");
+
+    for window in cmdline.windows(2) {
+        if window[0] == "--flow.builds-root" {
+            return Ok(url::Url::parse(&window[1]).context("parsing builds-root")?);
+        }
+    }
+    anyhow::bail!("didn't find --flow.builds-root flag")
 }

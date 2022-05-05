@@ -2,7 +2,9 @@ use super::Error;
 use crate::{jobs, logs, Id};
 
 use agent_sql::publications::{ExpandedRow, SpecRow};
+use agent_sql::CatalogType;
 use anyhow::Context;
+use itertools::Itertools;
 use sqlx::types::Uuid;
 use std::io::Write;
 use std::path;
@@ -247,51 +249,61 @@ pub async fn test_catalog(
 }
 
 pub async fn deploy_build(
-    spec_rows: &[SpecRow],
-    expanded_rows: &[ExpandedRow],
-    connector_network: &str,
     bindir: &str,
+    broker_address: &url::Url,
+    connector_network: &str,
+    consumer_address: &url::Url,
+    expanded_rows: &[ExpandedRow],
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
+    spec_rows: &[SpecRow],
 ) -> anyhow::Result<Vec<Error>> {
     let mut errors = Vec::new();
 
-    let build_id = format!("{pub_id}");
+    let spec_rows = spec_rows
+        .iter()
+        // Filter specs which are under the special no-op prefix.
+        // TODO(johnny): Remove when no longer used for UI testing.
+        .filter(|r| !r.catalog_name.starts_with("no-op/"))
+        // Filter specs which are tests, or are deletions of already-deleted specs.
+        .filter(|r| match (r.live_type, r.draft_type) {
+            (None, None) => false, // Before and after are both deleted.
+            (Some(CatalogType::Test), _) | (_, Some(CatalogType::Test)) => false,
+            _ => true,
+        });
+
+    // Activate non-deleted drafts plus all non-test expanded specifications.
+    let activate_names = spec_rows
+        .clone()
+        .filter(|r| r.draft_type.is_some())
+        .map(|r| format!("--name={}", r.catalog_name))
+        .chain(
+            expanded_rows
+                .iter()
+                .filter(|r| !r.catalog_name.starts_with("no-op/"))
+                .filter(|r| !matches!(r.live_type, CatalogType::Test))
+                .map(|r| format!("--name={}", r.catalog_name)),
+        );
 
     let job = jobs::run(
         "activate",
-        &logs_tx,
+        logs_tx,
         logs_token,
-        tokio::process::Command::new("echo")
-            .arg(format!("{bindir}/flowctl-go"))
+        tokio::process::Command::new(format!("{bindir}/flowctl-go"))
             .arg("api")
             .arg("activate")
+            .arg("--broker.address")
+            .arg(broker_address.as_str())
             .arg("--build-id")
-            .arg(&build_id)
+            .arg(format!("{pub_id}"))
+            .arg("--consumer.address")
+            .arg(consumer_address.as_str())
             .arg("--network")
             .arg(connector_network)
-            .args(
-                // Activate drafts which are not deleted,
-                // plus all expanded specifications of the build.
-                spec_rows
-                    .iter()
-                    .filter_map(|r| {
-                        if r.draft_spec.is_none() {
-                            None
-                        } else {
-                            Some(format!("--name={}", r.catalog_name))
-                        }
-                    })
-                    .chain(
-                        expanded_rows
-                            .iter()
-                            .map(|r| format!("--name={}", r.catalog_name)),
-                    ),
-            )
+            .args(activate_names)
             .arg("--log.level=info")
-            .arg("--log.format=color")
-            .arg("--help"), // TODO make this a no-op for now.
+            .arg("--log.format=color"),
     )
     .await
     .context("starting activation")?;
@@ -303,38 +315,84 @@ pub async fn deploy_build(
         });
     }
 
-    let job = jobs::run(
-        "delete",
-        &logs_tx,
-        logs_token,
-        tokio::process::Command::new("echo")
-            .arg(format!("{bindir}/flowctl-go"))
-            .arg("api")
-            .arg("delete")
-            .arg("--build-id")
-            .arg(&build_id)
-            .arg("--network")
-            .arg(connector_network)
-            .args(spec_rows.iter().filter_map(|r| {
-                if r.live_spec.is_some() && r.draft_spec.is_none() {
-                    Some(format!("--name={}", r.catalog_name))
-                } else {
-                    None
-                }
-            }))
-            .arg("--log.level=info")
-            .arg("--log.format=color")
-            .arg("--help"), // TODO make this a no-op for now.
-    )
-    .await
-    .context("starting deletions")?;
+    // Delete drafts which are deleted, grouped on their `last_pub_id`
+    // under which they're deleted. Note that `api delete` requires that
+    // we give the correct --build-id of the running specification or
+    // it won't do anything.
 
-    if !job.success() {
-        errors.push(Error {
-            detail: "one or more deletions failed".to_string(),
-            ..Default::default()
-        });
+    let delete_groups = spec_rows
+        .filter(|r| r.draft_type.is_none())
+        .map(|r| (r.last_pub_id, format!("--name={}", r.catalog_name)))
+        .sorted()
+        .group_by(|(last_pub_id, _)| *last_pub_id)
+        .into_iter()
+        .map(|(last_pub_id, delete_names)| {
+            (
+                last_pub_id,
+                delete_names.map(|(_, name)| name).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for (last_pub_id, delete_names) in delete_groups {
+        let job = jobs::run(
+            "delete",
+            logs_tx,
+            logs_token,
+            tokio::process::Command::new(format!("{bindir}/flowctl-go"))
+                .arg("api")
+                .arg("delete")
+                .arg("--broker.address")
+                .arg(broker_address.as_str())
+                .arg("--build-id")
+                .arg(format!("{last_pub_id}"))
+                .arg("--consumer.address")
+                .arg(consumer_address.as_str())
+                .arg("--network")
+                .arg(connector_network)
+                .args(delete_names)
+                .arg("--log.level=info")
+                .arg("--log.format=color"),
+        )
+        .await
+        .context("starting deletions")?;
+
+        if !job.success() {
+            errors.push(Error {
+                detail: "one or more deletions failed".to_string(),
+                ..Default::default()
+            });
+        }
     }
 
     Ok(errors)
 }
+
+/*
+5y/o Abby walks in while Johnny's working in this code, he types / she reads:
+Abigail!!!!
+
+Your name is Abby. Kadabby. Bobaddy. Fi Fi Momaddy Abby.
+
+Hey hey! Hey! Hey! Hey!
+
+I love you!! Let's play together. Oh it's fun. I said "oh it's fun".
+We are laughing! Together! I was scared of the audio book.
+What was the book about?
+It was dragons love tacos part 2.
+
+Oh and was there a fire alarm in the audio book? Yes.
+
+Is that what was scary ?  You still remember it.
+
+I know you're not kidding my love.
+
+I think it's time to get back in bed.
+You need your rest and sleep.
+Otherwise you'll be soooo sleepy tomorrow!
+
+Good job!
+You're an amazing reader.
+
+Okay kiddo, I'll walk you back to bed. Let's do it!
+*/
