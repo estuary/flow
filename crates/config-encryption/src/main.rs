@@ -1,7 +1,7 @@
 mod encrypt;
 
 use axum::{
-    extract::{Extension, MatchedPath},
+    extract::MatchedPath,
     http::Request,
     middleware::{self, Next},
     response::IntoResponse,
@@ -10,6 +10,7 @@ use axum::{
 };
 use clap::Parser;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+#[allow(unused)]
 use std::future::ready;
 use std::time::Instant;
 use tower_http::cors;
@@ -55,10 +56,13 @@ async fn main() -> anyhow::Result<()> {
 
     let openapi_spec_json = serde_json::from_str::<Box<serde_json::value::RawValue>>(OPENAPI_SPEC)?;
 
-    let recorder_handle = setup_metrics_recorder();
+    // We're currently runnning this in CloudRun, which doesn't support scraping this endpoint
+    // anyway. It's commented out so that we don't need to hide the service behide a load balancer
+    // in order to prevent outside access to `/metrics`.
+    //let recorder_handle = setup_metrics_recorder();
     let app = Router::new()
         .route("/v1", get(|| async { axum::Json(openapi_spec_json) }))
-        .route("/metrics", get(move || ready(recorder_handle.render())))
+        //.route("/metrics", get(move || ready(recorder_handle.render())))
         .merge(encrypt::handler::router(args.sops.clone()))
         .layer(
             cors::CorsLayer::new()
@@ -76,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn setup_metrics_recorder() -> PrometheusHandle {
     const EXPONENTIAL_SECONDS: &[f64] = &[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
 

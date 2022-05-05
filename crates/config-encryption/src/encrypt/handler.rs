@@ -296,6 +296,7 @@ where
                 let Json(encrypt_req) = req.extract::<Json<EncryptReq>>().await?;
                 Ok(encrypt_req)
             }
+            // We _could_ support yaml here, but I just don't see a reason to.
             (_, _) => Err(Error::InvalidContentType),
         }
     }
