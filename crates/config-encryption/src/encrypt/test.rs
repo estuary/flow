@@ -1,4 +1,4 @@
-use crate::encrypt::handler::{router, EncryptReq, EncryptedConfig, Error};
+use crate::encrypt::handler::router;
 use axum::{
     body::Body,
     http::{self, Request, StatusCode},

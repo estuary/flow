@@ -13,11 +13,11 @@ use json::validator::{FullContext, Outcome, Validator};
 
 use crate::SopsArgs;
 
-use handler::{EncryptReq, EncryptedConfig, Error, Format, RedactDebug};
+use handler::{EncryptReq, EncryptedConfig, Error, Format, Secret};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct ValidPlainConfig {
-    plain_json: serde_json::Value,
+    plain_json: Secret<serde_json::Value>,
     encrypt_ptrs: Vec<String>,
 }
 
@@ -36,13 +36,13 @@ fn validate(req: EncryptReq) -> Result<ValidPlainConfig, Error> {
     let mut validator = Validator::<'_, Annotation, FullContext>::new(&index);
     validator.prepare(&schema_url)?;
     // Deserialization cannot fail.
-    ::json::de::walk(&config, &mut validator).unwrap();
+    ::json::de::walk(&config.0, &mut validator).unwrap();
 
     if validator.invalid() {
         // Just return the validation in the response, without logging the errors, since the errors
         // themselves may contain sensitive data.
-        return Err(Error::FailedValidation(RedactDebug(FailedValidation {
-            document: config,
+        return Err(Error::FailedValidation(Secret(FailedValidation {
+            document: config.0,
             basic_output: ::json::validator::build_basic_output(validator.outcomes()),
         })));
     }
@@ -66,7 +66,7 @@ fn validate(req: EncryptReq) -> Result<ValidPlainConfig, Error> {
 }
 
 struct PreparedPlainConfig {
-    plain_json: serde_json::Value,
+    plain_json: Secret<serde_json::Value>,
 }
 
 fn add_encrypted_suffixes(
@@ -78,7 +78,7 @@ fn add_encrypted_suffixes(
         encrypt_ptrs,
     } = conf;
     for ptr in encrypt_ptrs {
-        add_suffix_to_location(&mut plain_json, &ptr, suffix)?;
+        add_suffix_to_location(&mut plain_json.0, &ptr, suffix)?;
     }
     Ok(PreparedPlainConfig { plain_json })
 }
@@ -119,7 +119,7 @@ fn run_sops_blocking(
         .spawn()?;
 
     serde_json::to_writer(child.stdin.take().unwrap(), &plain_config.plain_json)?;
-    drop_plain_config(plain_config.plain_json);
+    drop_plain_config(plain_config.plain_json.0);
 
     let Output {
         status,
