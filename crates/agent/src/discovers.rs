@@ -189,15 +189,17 @@ fn swizzle_response_to_catalog(
     image_tag: &str,
     response: &[u8],
 ) -> Result<models::Catalog, serde_json::Error> {
-    // Split the capture name into a suffix after the final '/',
-    // and a prefix of everything before that final '/'.
-    // The prefix is used to namespace associated collections of the capture.
-    let (capture_prefix, capture_suffix) = capture_name
-        .rsplit_once("/")
-        .expect("database constraints ensure catalog name has at least one '/'");
+    // Prefix under which all specifications of the capture will live.
+    // Formally a catalog name must end without "/", but leave this flexible
+    // as we may want to migrate it to a catalog prefix.
+    let capture_prefix = if capture_name.ends_with("/") {
+        capture_name.to_string()
+    } else {
+        format!("{capture_name}/")
+    };
 
     // Extract the docker image suffix after the final '/', or the image if there is no '/'.
-    // The image suffix is used to name associated resources of the capture, like configuration.
+    // The image suffix is used to name the capture.
     let image_suffix = match image_name.rsplit_once("/") {
         Some((_, s)) => s,
         None => &image_name,
@@ -205,7 +207,7 @@ fn swizzle_response_to_catalog(
     let image_composed = format!("{image_name}{image_tag}");
 
     let response: serde_json::Value = serde_json::from_slice(response)?;
-    debug!(%capture_prefix, %capture_suffix, %image_composed, %image_suffix, %response, "converting response");
+    debug!(%capture_prefix, %image_composed, %image_suffix, %response, "converting response");
 
     // Response is the expected shape of a discover response.
     #[derive(Deserialize)]
@@ -239,7 +241,7 @@ fn swizzle_response_to_catalog(
         key_ptrs,
     } in response.bindings
     {
-        let collection = models::Collection::new(format!("{capture_prefix}/{recommended_name}"));
+        let collection = models::Collection::new(format!("{capture_prefix}{recommended_name}"));
 
         bindings.push(models::CaptureBinding {
             resource,
@@ -260,7 +262,7 @@ fn swizzle_response_to_catalog(
     let mut catalog = models::Catalog::default();
     catalog.collections = collections;
     catalog.captures.insert(
-        models::Capture::new(capture_name),
+        models::Capture::new(format!("{capture_prefix}{image_suffix}")),
         models::CaptureDef {
             bindings,
             endpoint: models::CaptureEndpoint::Connector(models::ConnectorConfig {
@@ -273,4 +275,59 @@ fn swizzle_response_to_catalog(
     );
 
     Ok(catalog)
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_response_swizzling() {
+        let response = serde_json::json!({
+            "bindings": [
+                {
+                    "recommendedName": "greetings",
+                    "resourceSpec": {
+                        "stream": "greetings",
+                        "syncMode": "incremental"
+                    },
+                    "documentSchema": {
+                        "type": "object",
+                        "properties": {
+                            "count": { "type": "integer" },
+                            "message": { "type": "string" }
+                        },
+                        "required": [ "count", "message" ]
+                    },
+                    "keyPtrs": [ "/count" ]
+                },
+                {
+                    "recommendedName": "frogs",
+                    "resourceSpec": {
+                        "stream": "greetings",
+                        "syncMode": "incremental"
+                    },
+                    "documentSchema": {
+                        "type": "object",
+                        "properties": {
+                            "croak": { "type": "string" }
+                        },
+                        "required": [ "croak" ]
+                    },
+                    "keyPtrs": [ "/croak" ]
+                }
+            ]
+        })
+        .to_string();
+
+        let catalog = super::swizzle_response_to_catalog(
+            "path/to/capture",
+            &serde_json::value::RawValue::from_string("{\"some\":\"config\"}".to_string()).unwrap(),
+            "ghcr.io/foo/bar/source-potato",
+            ":v1.2.3",
+            response.as_bytes(),
+        )
+        .unwrap();
+
+        insta::assert_json_snapshot!(catalog);
+    }
 }
