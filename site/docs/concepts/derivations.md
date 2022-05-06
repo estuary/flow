@@ -602,7 +602,11 @@ import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeB
 
 // Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
 export class Derivation implements IDerivation {
-    fromTransfersPublish(source: FromTransfersSource, _register: Register, _previous: Register): Document[] {
+     fromTransfersPublish(
+        _source: FromTransfersSource,
+        _register: Register,
+        _previous: Register,
+    ): Document[] {
         throw new Error("Not implemented");
     }
 }
