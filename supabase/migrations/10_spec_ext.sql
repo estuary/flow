@@ -79,13 +79,20 @@ comment on view combined_grants_ext is
 create view live_specs_ext as
 select
   l.*,
+  c.external_url as connector_external_url,
+  c.id as connector_id,
+  c.open_graph as connector_open_graph,
+  t.id as connector_tag_id,
+  t.documentation_url as connector_tag_documentation_url,
   p.detail as last_pub_detail,
   p.user_id as last_pub_user_id,
   u.avatar_url as last_pub_user_avatar_url,
   u.email as last_pub_user_email,
   u.full_name as last_pub_user_full_name
 from live_specs l
-left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id,
+left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
+left outer join connectors c on c.image_name = l.connector_image_name
+left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag,
 lateral view_user_profile(p.user_id) u
 ;
 alter view live_specs_ext owner to authenticated;

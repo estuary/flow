@@ -85,6 +85,7 @@ create table connector_tags (
   image_tag             text not null,
   protocol              text,     -- Job output.
   resource_spec_schema  json_obj, -- Job output.
+  unique(connector_id, image_tag),
   --
   constraint "image_tag must start with : (as in :latest) or @sha256:<hash>"
     check (image_tag like ':%' or image_tag like '@sha256:')
@@ -114,7 +115,6 @@ comment on column connector_tags.resource_spec_schema is
 -- authenticated may select all connector_tags without restrictions.
 grant select on table connector_tags to authenticated;
 
-create index idx_connector_tags_connector_id on connector_tags(connector_id);
 create unique index idx_connector_tags_id_where_queued on connector_tags(id)
   where job_status->>'type' = 'queued';
 

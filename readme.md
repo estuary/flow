@@ -218,6 +218,16 @@ docker run \
   postgresql://postgres:${DB_SECRET}@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
 ```
 
+Note that pgAdmin 4's schema-diff currently produces extra REVOKE/GRANT migrations for tables that appear only due to different orderings of access privileges within the postgres catalog. See issue https://redmine.postgresql.org/issues/6737. These are annoying but can be ignored: even if you apply them they come back due to a presumed Supabase maintenance action. Example:
+
+```
+REVOKE ALL ON TABLE public.draft_errors FROM authenticated;
+REVOKE ALL ON TABLE public.draft_errors FROM service_role;
+GRANT SELECT, DELETE ON TABLE public.draft_errors TO authenticated;
+
+GRANT ALL ON TABLE public.draft_errors TO service_role;
+```
+
 We use schemas `public` and `internal`, so both should be compared. **Do not** run this script directly. Read it, understand it, make sure it's sensible, and then run it. The production secret can be found in the sops-encrypted file `supabase/secret.yaml`.
 
 Migrations should be applied via:
