@@ -1,5 +1,6 @@
 -- TODO(johnny): These views are particularly experimental and are likely to change.
 
+/*
 -- View which identifies live specifications that are missing
 -- a required write authorization to a referant.
 create view internal.missing_write_auth as
@@ -49,3 +50,4 @@ union all
 select sub_id, sub_name, sub_type, obj_id, obj_name, obj_type, false
 from internal.missing_read_auth
 ;
+*/
