@@ -10,6 +10,9 @@ impl Id {
     pub fn is_zero(&self) -> bool {
         self.0 == [0u8; 8]
     }
+    pub fn new(b: [u8; 8]) -> Self {
+        Self(b)
+    }
 }
 
 impl std::fmt::Display for Id {

@@ -224,31 +224,54 @@ pub async fn resolve_expanded_rows(
     sqlx::query_as!(
         ExpandedRow,
         r#"
-        -- Perform a graph traversal which expands the seed set of
-        -- specifications. Directly-adjacent captures and materializations
-        -- are resolved, as is the full connected component of tests and
-        -- derivations.
-        with recursive expanded(id, seed) as (
-            select id, true from unnest($1::flowid[]) as id
+        with recursive
+        seeds(id) as (
+            select id from unnest($1::flowid[]) as id
+        ),
+        -- Expand seed collections to derivations that _directly_ source from them.
+        -- This pass is non-recursive.
+        pass_one_a(id) as (
+            select e.target_id
+            from seeds s join live_spec_flows e
+            on s.id = e.source_id and e.flow_type = 'collection'
+        ),
+        -- Expand seed collections, captures, and materializations through
+        -- edges that connect captures and materializations to their bound
+        -- collections:
+        --   * A seed capture expands to all bound collections.
+        --   * A seed materialization expands to all bound collections.
+        --   * A seed collection expands to captures or materializations which bind it,
+        --      and from there to all of its other bound collections.
+        pass_one_b(id) as (
+            select id from seeds
           union
-            select
-                case when expanded.id = e.source_id then e.target_id else e.source_id end,
-                false
-            from expanded join live_spec_flows as e
-            on expanded.id = e.source_id or expanded.id = e.target_id
-            where expanded.seed or e.flow_type in ('collection', 'test')
+            select case when p.id = e.source_id then e.target_id else e.source_id end
+            from pass_one_b as p join live_spec_flows as e
+            on p.id = e.source_id or p.id = e.target_id
+            where e.flow_type in ('capture', 'materialization')
+        ),
+        -- Second pass recursively walks backwards along data-flow edges to
+        -- expand derivations and tests:
+        --   * A derivation is expanded to its sources.
+        --   * A collection or derivation is expanded to tests which write (ingest) into it.
+        --   * A test is expanded to collections or derivations it reads (verifies).
+        pass_two(id) as (
+            (select id from pass_one_a union select id from pass_one_b)
+          union
+            select e.source_id
+            from pass_two as p join live_spec_flows as e
+            on p.id = e.target_id and e.flow_type in ('collection', 'test')
         )
         -- Join the expanded IDs with live_specs.
         select
-            id as "live_spec_id: Id",
-            catalog_name,
-            spec as "live_spec!: Json<Box<RawValue>>",
-            spec_type as "live_type!: CatalogType"
-        from live_specs natural join expanded
-        -- Strip deleted specs which are still reach-able through a dataflow edge.
-        where spec is not null
-        -- Strip specs which are already part of the seed set.
-        group by id having not bool_or(seed);
+            l.id as "live_spec_id!: Id",
+            l.catalog_name as "catalog_name!",
+            l.spec as "live_spec!: Json<Box<RawValue>>",
+            l.spec_type as "live_type!: CatalogType"
+        from live_specs l join pass_two p on l.id = p.id
+        -- Strip deleted specs which are still reach-able through a dataflow edge,
+        -- and strip rows already part of the seed set.
+        where l.spec is not null and l.id not in (select id from seeds)
         "#,
         seed_ids as Vec<Id>,
     )
