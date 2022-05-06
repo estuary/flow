@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -109,8 +109,8 @@ pub enum Error {
     #[error("multipart error: {0}")]
     MultipartError(#[from] multipart::MultipartError),
     // Used only for multipart requests. Json requests will use axum's JsonRejection
-    #[error("failed to deserialize '{0}': {1}")]
-    YamlError(&'static str, RedactDebug<serde_yaml::Error>),
+    #[error("failed to deserialize '{0}'")]
+    YamlError(&'static str, Secret<serde_yaml::Error>),
     #[error("unexpected multipart field with name: '{0:?}'")]
     UnexpectedMultipartField(Option<String>),
     #[error("duplicate request part: '{0}'")]
@@ -123,7 +123,7 @@ pub enum Error {
     #[error("failed to index json schema: {0}")]
     SchemaIndex(#[from] ::json::schema::index::Error),
     #[error("config failed schema validation")]
-    FailedValidation(RedactDebug<::doc::FailedValidation>),
+    FailedValidation(Secret<::doc::FailedValidation>),
     #[error("the location '{0}' is cannot be encrypted because {1}")]
     InvalidSecretLocation(String, &'static str),
     #[error("missing Content-Type header")]
@@ -227,21 +227,31 @@ fn handle_error(
     (status, axum::Json(error))
 }
 
-/// Wraps a type in order to override its Debug impl with a "redacted" string, while allowing Display
-/// to function as normal. This is a bit of extra caution to prevent validation errors from being
-/// logged on the server side.
-pub struct RedactDebug<T>(pub T);
-impl<T> Debug for RedactDebug<T> {
+/// Wraps a type in order to override its Debug impl with a "redacted" string, and to identify
+/// input that may contain sensitive secrets. This is a bit of extra caution to prevent JSON values
+/// and validation errors from being logged on the server side. Note that this wrapper is _not_
+/// able to zero memory for wrapped values when dropped.
+pub struct Secret<T>(pub T);
+impl<T> Debug for Secret<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("<redacted>")
     }
 }
-impl<T> Display for RedactDebug<T>
-where
-    T: Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+impl<'a, T: serde::de::DeserializeOwned> serde::Deserialize<'a> for Secret<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let val = T::deserialize(deserializer)?;
+        Ok(Secret(val))
+    }
+}
+impl<T: serde::Serialize> Serialize for Secret<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
     }
 }
 
@@ -263,7 +273,7 @@ pub struct EncryptReq {
     pub schema: Value,
     /// The plain text configuration to encrypt. This must validate against the provided JSON
     /// schema. If provided in YAML format, then all comments will be stripped.
-    pub config: Value,
+    pub config: Secret<Value>,
 }
 
 #[async_trait::async_trait]
@@ -327,7 +337,7 @@ impl EncryptReq {
         match (schema, config) {
             (Some(s), Some(c)) => Ok(EncryptReq {
                 schema: s,
-                config: c,
+                config: Secret(c),
             }),
             (Some(_), None) => Err(Error::MissingFields(&[CONFIG_FIELD])),
             (None, Some(_)) => Err(Error::MissingFields(&[SCHEMA_FIELD])),
@@ -342,8 +352,8 @@ async fn parse_field<T: serde::de::DeserializeOwned>(
     field: multipart::Field<'_>,
 ) -> Result<(), Error> {
     let bytes = field.bytes().await?;
-    let t = serde_yaml::from_slice(bytes.as_ref())
-        .map_err(|e| Error::YamlError(name, RedactDebug(e)))?;
+    let t =
+        serde_yaml::from_slice(bytes.as_ref()).map_err(|e| Error::YamlError(name, Secret(e)))?;
     if dest.is_some() {
         return Err(Error::DuplicateMultipartField(name));
     }
