@@ -1,6 +1,6 @@
-import { IDerivation, Document, Register, FromTransferRecipientSource, FromTransferSenderSource } from 'flow/acmeBank/flagged-transfers';
+import { IDerivation, Document, Register, FromTransferRecipientSource, FromTransferSenderSource } from 'flow/examples/acmeBank/flagged-transfers';
 
-// Implementation for derivation flagged-transfers.flow.yaml#/collections/acmeBank~1flagged-transfers/derivation.
+// Implementation for derivation flagged-transfers.flow.yaml#/collections/examples~1acmeBank~1flagged-transfers/derivation.
 export class Derivation implements IDerivation {
     fromTransferRecipientUpdate(
         source: FromTransferRecipientSource,

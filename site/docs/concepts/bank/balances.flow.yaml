@@ -2,7 +2,7 @@ import:
   - transfers.flow.yaml
 
 collections:
-  acmeBank/balances:
+  examples/acmeBank/balances:
     schema:
       type: object
       required: [user]
@@ -20,6 +20,6 @@ collections:
       transform:
         fromTransfers:
           source:
-            name: acmeBank/transfers
+            name: examples/acmeBank/transfers
           publish:
             lambda: typescript

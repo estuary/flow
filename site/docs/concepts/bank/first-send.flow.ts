@@ -1,6 +1,6 @@
-import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/first-send';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/examples/acmeBank/first-send';
 
-// Implementation for derivation first-send.flow.yaml#/collections/acmeBank~1first-send/derivation.
+// Implementation for derivation first-send.flow.yaml#/collections/examples~1acmeBank~1first-send/derivation.
 export class Derivation implements IDerivation {
     fromTransfersUpdate(
         _source: FromTransfersSource,
@@ -12,7 +12,7 @@ export class Derivation implements IDerivation {
         _register: Register,
         previous: Register,
     ): Document[] {
-        // If the register was previously false, than this is the first
+         // If the register was previously false, than this is the first
         // transfer for this account pair.
         if (!previous) {
             return [source];
@@ -20,4 +20,3 @@ export class Derivation implements IDerivation {
         return []; // Not the first transfer.
     }
 }
-

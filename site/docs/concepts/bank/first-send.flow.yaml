@@ -2,7 +2,7 @@ import:
   - transfers.flow.yaml
 
 collections:
-  acmeBank/first-send:
+  examples/acmeBank/first-send:
     schema: transfers.schema.yaml
     key: [/id]
 
@@ -19,7 +19,7 @@ collections:
       transform:
         fromTransfers:
           source:
-            name: acmeBank/transfers
+            name: examples/acmeBank/transfers
           # Shuffle so that each account pair
           # is allocated its own register.
           shuffle:

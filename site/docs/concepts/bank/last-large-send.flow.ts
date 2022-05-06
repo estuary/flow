@@ -1,6 +1,6 @@
-import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/last-large-send';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/examples/acmeBank/last-large-send';
 
-// Implementation for derivation last-large-send.flow.yaml#/collections/acmeBank~1last-large-send/derivation.
+// Implementation for derivation last-large-send.flow.yaml#/collections/examples~1acmeBank~1last-large-send/derivation.
 export class Derivation implements IDerivation {
     fromTransfersPublish(
         source: FromTransfersSource,

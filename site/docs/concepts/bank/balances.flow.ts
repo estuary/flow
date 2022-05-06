@@ -1,6 +1,6 @@
-import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/examples/acmeBank/balances';
 
-// Implementation for derivation balances.flow.yaml#/collections/acmeBank~1balances/derivation.
+// Implementation for derivation balances.flow.yaml#/collections/examples~1acmeBank~1balances/derivation.
 export class Derivation implements IDerivation {
     fromTransfersPublish(
         source: FromTransfersSource,

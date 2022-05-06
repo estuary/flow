@@ -1,0 +1,10 @@
+{
+  "files": [
+    "../flow_generated/flow/main.ts",
+    "../flow_generated/flow/routes.ts",
+    "../flow_generated/flow/server.ts",
+    "../flow_generated/types/acmeBank/transfers.d.ts",
+    "../flow_generated/types/examples/acmeBank/last-large-send.d.ts",
+    "../last-large-send.flow.ts"
+  ]
+}
