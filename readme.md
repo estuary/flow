@@ -110,6 +110,15 @@ You start a `temp-data-plane` which runs a local instance of `etcd`, a `gazette`
 
 A `temp-data-plane` runs the same components and offers identical APIs to a production data plane with one key difference: unlike a production data-plane, `temp-data-plane` is ephemeral and will not persist fragment data to cloud storage regardless of [JournalSpec](https://gazette.readthedocs.io/en/latest/brokers-journalspecs.html) configuration. When you stop `temp-data-plane` it discards all journal and shard specifications and fragment data. Starting a new `temp-data-plane` is then akin to bringing up a brand new, empty cluster.
 
+### Build `fetch-open-graph`:
+
+Build the fetch-open-graph helper to the same location where the flow binaries live. This is the same path that will be provided to the agent using `--bin--dir` argument:
+
+```console
+cd fetch-open-graph/
+go build -o ~/estuary/flow/.build/package/bin/
+```
+
 ### Start the `agent`:
 
 Again from within your checkout of this repo:
