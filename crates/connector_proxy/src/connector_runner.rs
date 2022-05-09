@@ -120,8 +120,14 @@ async fn streaming_all(
     });
 
     let (a, b) = tokio::try_join!(request_stream_copy, response_stream_copy)?;
+    let req_stream_bytes = a?;
+    let resp_stream_bytes = b?;
 
-    tracing::info!(req_stream = a?, resp_stream = b?, "Done streaming");
+    tracing::info!(
+        req_stream = req_stream_bytes,
+        resp_stream = resp_stream_bytes,
+        message = "Done streaming"
+    );
     Ok(())
 }
 
@@ -138,12 +144,6 @@ mod test {
         input: Vec<T>,
     ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
         Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)))
-    }
-
-    fn create_cycled_stream<T: std::clone::Clone>(
-        input: Vec<T>,
-    ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
-        Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)).cycle())
     }
 
     #[tokio::test]

@@ -135,7 +135,7 @@ func Run(
 
 	args = append([]string{
 		fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
-		fmt.Sprintf("--log.level=%s", logger.Level().String()),
+		fmt.Sprintf("--log.level=%s", ops.LogrusToFlowLevel(logger.Level()).String()),
 		protocol.proxyCommand(),
 	}, args...)
 
