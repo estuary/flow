@@ -19,21 +19,55 @@ use url::Url;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
-#[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(title = "SSH Tunnel", description = "Connect to your system through an SSH server that acts as a bastion host for your network.")]
 pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]
     pub ssh_endpoint: String,
     /// User name to connect to the remote SSH server.
     pub user: String,
     /// Private key to connect to the remote SSH server.
+    #[schemars(schema_with = "private_key_schema")]
     pub private_key: String,
     /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
     pub forward_host: String,
     /// Port of the remote destination.
+    #[schemars(schema_with = "forward_port_schema")]
     pub forward_port: u16,
     /// Local port to start the SSH tunnel.
+    #[schemars(schema_with = "local_port_schema")]
     pub local_port: u16,
+}
+
+fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "title": "SSH Private Key",
+        "description": "The private key for connecting to the remote SSH server",
+        "type": "string",
+        // This annotation is interpreted by the UI to render this as a multiline input.
+        "multiline": true,
+    }))
+    .unwrap()
+}
+
+
+fn forward_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    port_schema("Forward Port", "The port number that the data source is listening on")
+}
+
+fn local_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    port_schema("Local Port", "The local port number to use for the tunnel, which should match the port that's used in your base connector configuration")
+}
+
+fn port_schema(title: &str, description: &str) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "title": title,
+        "description": description,
+        "type": "integer",
+        "minimum": 1_i32,
+        "maximum": 65536_i32
+    }))
+    .unwrap()
 }
 
 pub struct SshForwarding {
