@@ -41,6 +41,12 @@ Many of the agents functions involve building, testing, activating, and deleting
 
 Also required: [gsutil](https://cloud.google.com/storage/docs/gsutil), [sops](https://github.com/mozilla/sops), and [jq](https://stedolan.github.io/jq/).
 
+### Data Plane Gateway
+
+The [Data Plane Gateway](https://github.com/estuary/data-plane-gateway) serves a few endpoints which give access to Gazette RPCs. Notably, this allows querying for Shard status and directly reading Journals. This is used by the UI to check the status of a Shard.
+
+The Control Plane issues access tokens via the `gateway_auth_token` function which grants users access to selected catalog prefixes.
+
 
 ## Local Development Guide
 
@@ -57,9 +63,8 @@ supabase -v
 ```
 
 * A local checkout of [github.com/estuary/flow](github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
-
+* A local checkout of [github.com/estuary/data-plane-gateway](github.com/estuary/data-plane-gateway).
 * A local checkout of [github.com/estuary/ui](github.com/estuary/ui).
-
 * A local checkout of this repository.
 
 ### Start Supabase:
@@ -109,6 +114,25 @@ You start a `temp-data-plane` which runs a local instance of `etcd`, a `gazette`
 ```
 
 A `temp-data-plane` runs the same components and offers identical APIs to a production data plane with one key difference: unlike a production data-plane, `temp-data-plane` is ephemeral and will not persist fragment data to cloud storage regardless of [JournalSpec](https://gazette.readthedocs.io/en/latest/brokers-journalspecs.html) configuration. When you stop `temp-data-plane` it discards all journal and shard specifications and fragment data. Starting a new `temp-data-plane` is then akin to bringing up a brand new, empty cluster.
+
+### Start the `data-plane-gateway`:
+
+Build the `data-plane-gateway` binary:
+
+```console
+cd data-plane-gateway/
+go install .
+```
+
+_Note: It is not necessary to install all the protoc tooling or run `make`. Those are only necessary for modifying the generated code within the gateway._
+
+Start the gateway:
+
+```console
+data-plane-gateway
+```
+
+_Note: The gateway allows for configuring the port, the Flow service ports, the signing secret, and the CORS settings. The defaults should work out of the box._
 
 ### Build `fetch-open-graph`:
 
