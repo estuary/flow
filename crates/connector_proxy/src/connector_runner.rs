@@ -8,7 +8,12 @@ use crate::interceptors::{
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
 };
+use crate::libs::protobuf::{decode_message, encode_message};
 use flow_cli_common::LogArgs;
+use futures::channel::oneshot;
+use futures::{stream, StreamExt};
+use protocol::capture::PullResponse;
+use protocol::flow::DriverCheckpoint;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -75,14 +80,68 @@ pub async fn run_airbyte_source_connector(
         NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
     )?;
 
-    let adapted_response_stream = NetworkTunnelCaptureInterceptor::adapt_response_stream(
-        op,
-        airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?,
-    )?;
+    let res_stream =
+        airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?;
+
+    // Keep track of whether we did send a Driver Checkpoint as the final message of the response stream
+    // See the comment of the block below for why this is necessary
+    let (tp_sender, tp_receiver) = oneshot::channel::<bool>();
+    let res_stream = if *op == FlowCaptureOperation::Pull {
+        Box::pin(stream::try_unfold(
+            (false, res_stream, tp_sender),
+            |(transaction_pending, mut stream, sender)| async move {
+                let (message, raw) = match stream.next().await {
+                    Some(bytes) => {
+                        let bytes = bytes?;
+                        let mut buf = &bytes[..];
+                        let msg = decode_message::<PullResponse, _>(&mut buf)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        (msg, bytes)
+                    }
+                    None => {
+                        sender.send(transaction_pending).unwrap();
+                        return Ok(None);
+                    }
+                };
+
+                Ok(Some((raw, (!message.checkpoint.is_some(), stream, sender))))
+            },
+        ))
+    } else {
+        res_stream
+    };
+
+    let adapted_response_stream =
+        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, res_stream)?;
 
     streaming_all(child_stdin, adapted_request_stream, adapted_response_stream).await?;
 
-    check_exit_status("airbyte source connector:", child.wait().await)
+    let exit_status = check_exit_status("airbyte source connector:", child.wait().await);
+
+    // There are some Airbyte connectors that write records, and exit successfully, without ever writing
+    // a state (checkpoint). In those cases, we want to provide a default empty checkpoint. It's important that
+    // this only happens if the connector exit successfully, otherwise we risk double-writing data.
+    if exit_status.is_ok() && *op == FlowCaptureOperation::Pull {
+        // the received value (transaction_pending) is true if the connector writes output messages and exits _without_ writing
+        // a final state checkpoint.
+        if tp_receiver.await.unwrap() {
+            // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
+            // of the next invocation will be "full refresh".
+            tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
+            let mut resp = PullResponse::default();
+            resp.checkpoint = Some(DriverCheckpoint {
+                driver_checkpoint_json: Vec::new(),
+                rfc7396_merge_patch: false,
+            });
+            let encoded_response = &encode_message(&resp)?;
+            let mut buf = &encoded_response[..];
+            copy(&mut buf, &mut tokio::io::stdout()).await?;
+        }
+    }
+
+    exit_status
 }
 
 fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), Error> {
@@ -136,7 +195,8 @@ mod test {
     use std::pin::Pin;
 
     use bytes::Bytes;
-    use futures::{stream, StreamExt, TryStream};
+    use flow_cli_common::LogLevel;
+    use futures::{stream, TryStream};
 
     use super::*;
 
