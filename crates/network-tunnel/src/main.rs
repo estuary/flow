@@ -4,7 +4,7 @@ pub mod networktunnel;
 pub mod sshforwarding;
 
 use errors::Error;
-use flow_cli_common::{init_logging, LogArgs, LogFormat};
+use flow_cli_common::{init_logging, LogArgs, LogFormat, LogLevel};
 use std::io::{self};
 
 use interface::NetworkTunnelConfig;
@@ -12,7 +12,7 @@ use interface::NetworkTunnelConfig;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     init_logging(&LogArgs {
-        level: "info".to_string(),
+        level: LogLevel::Info,
         format: Some(LogFormat::Json),
     });
     if let Err(err) = run().await.as_ref() {

@@ -7,13 +7,37 @@ pub struct LogArgs {
     /// The log verbosity. Can be one of trace|debug|info|warn|error|off
     #[clap(
         long = "log.level",
-        default_value = "warn",
+        default_value_t = LogLevel::Warn,
         group = "logging",
+        ignore_case(true),
+        arg_enum,
         global = true
     )]
-    pub level: String,
+    pub level: LogLevel,
     #[clap(long = "log.format", arg_enum, group = "logging", global = true)]
     pub format: Option<LogFormat>,
+}
+
+#[derive(Debug, clap::ArgEnum, Clone, Copy)]
+pub enum LogLevel {
+    Tracing,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl ToString for LogLevel {
+    fn to_string(&self) -> String {
+        match self {
+            LogLevel::Tracing => "tracing",
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        }
+        .to_string()
+    }
 }
 
 /// The format for logs.
@@ -43,7 +67,7 @@ fn default_log_format() -> LogFormat {
 pub fn init_logging(args: &LogArgs) {
     let builder = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
-        .with_env_filter(&args.level)
+        .with_env_filter(&args.level.to_string())
         .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         // Using CLOSE span events seems like the best balance between helpfulness and verbosity.
         // Any Spans that are created will only be logged once they're done with (i.e. once a
