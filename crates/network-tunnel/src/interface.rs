@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(
+    title = "Network Tunneling",
+    description = "Connect to systems on a private network using tunneling."
+)]
 pub enum NetworkTunnelConfig {
     SshForwarding(SshForwardingConfig),
 }
