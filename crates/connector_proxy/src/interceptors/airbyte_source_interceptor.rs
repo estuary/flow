@@ -275,25 +275,12 @@ impl AirbyteSourceInterceptor {
         let airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
 
         Box::pin(stream::try_unfold(
-            (false, stream_to_binding, airbyte_message_stream),
-            |(transaction_pending, stb, mut stream)| async move {
+            (stream_to_binding, airbyte_message_stream),
+            |(stb, mut stream)| async move {
                 let message = match stream.next().await {
                     Some(m) => m?,
                     None => {
-                        // transaction_pending is true if the connector writes output messages and exits _without_ writing
-                        // a final state checkpoint.
-                        if transaction_pending {
-                            // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
-                            // of the next invocation will be "full refresh".
-                            let mut resp = PullResponse::default();
-                            resp.checkpoint = Some(DriverCheckpoint {
-                                driver_checkpoint_json: Vec::new(),
-                                rfc7396_merge_patch: false,
-                            });
-                            return Ok(Some((encode_message(&resp)?, (false, stb, stream))));
-                        } else {
-                            return Ok(None);
-                        }
+                        return Ok(None);
                     }
                 };
 
@@ -307,7 +294,7 @@ impl AirbyteSourceInterceptor {
                         },
                     });
 
-                    Ok(Some((encode_message(&resp)?, (false, stb, stream))))
+                    Ok(Some((encode_message(&resp)?, (stb, stream))))
                 } else if let Some(record) = message.record {
                     let stream_to_binding = stb.lock().await;
                     let binding =
@@ -328,7 +315,7 @@ impl AirbyteSourceInterceptor {
                         }],
                     });
                     drop(stream_to_binding);
-                    Ok(Some((encode_message(&resp)?, (true, stb, stream))))
+                    Ok(Some((encode_message(&resp)?, (stb, stream))))
                 } else {
                     raise_err("unexpected pull response.")
                 }
