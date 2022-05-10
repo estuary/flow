@@ -14,6 +14,7 @@ use futures::channel::oneshot;
 use futures::{stream, StreamExt};
 use protocol::capture::PullResponse;
 use protocol::flow::DriverCheckpoint;
+use serde_json::json;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -94,6 +95,8 @@ pub async fn run_airbyte_source_connector(
                     Some(bytes) => {
                         let bytes = bytes?;
                         let mut buf = &bytes[..];
+                        // This is infallible because we must encode a PullResponse in response to
+                        // a PullRequest. See airbyte_source_interceptor.adapt_pull_response_stream
                         let msg = decode_message::<PullResponse, _>(&mut buf)
                             .await
                             .unwrap()
@@ -132,8 +135,8 @@ pub async fn run_airbyte_source_connector(
             tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
             let mut resp = PullResponse::default();
             resp.checkpoint = Some(DriverCheckpoint {
-                driver_checkpoint_json: Vec::new(),
-                rfc7396_merge_patch: false,
+                driver_checkpoint_json: serde_json::to_vec(&json!({})).unwrap(),
+                rfc7396_merge_patch: true,
             });
             let encoded_response = &encode_message(&resp)?;
             let mut buf = &encoded_response[..];
