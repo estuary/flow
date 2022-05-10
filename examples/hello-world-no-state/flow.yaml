@@ -1,0 +1,39 @@
+collections:
+  examples/greetings-no-state:
+    schema:
+      properties:
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+        - count
+        - message
+      type: object
+    key: [/count]
+
+captures:
+  examples/source-hello-world-no-state:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-hello-world:8926a3f
+        config:
+          # Number of greeting documents to produce
+          # [integer] (required)
+          greetings: 100
+          skip_state: true
+    bindings:
+      - resource:
+          stream: greetings
+          syncMode: incremental
+        target: examples/greetings-no-state
+
+materializations:
+  examples/hello-world-no-state/views:
+    endpoint:
+      sqlite:
+        path: ../examples.db?_journal=WAL
+    bindings:
+      - resource:
+          table: greetings_no_State
+        source: examples/greetings-no-state
