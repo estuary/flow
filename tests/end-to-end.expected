@@ -99,6 +99,107 @@ greetings:
 97|Hello #97
 98|Hello #98
 99|Hello #99
+greetings_no_state:
+0|Hello #0
+1|Hello #1
+2|Hello #2
+3|Hello #3
+4|Hello #4
+5|Hello #5
+6|Hello #6
+7|Hello #7
+8|Hello #8
+9|Hello #9
+10|Hello #10
+11|Hello #11
+12|Hello #12
+13|Hello #13
+14|Hello #14
+15|Hello #15
+16|Hello #16
+17|Hello #17
+18|Hello #18
+19|Hello #19
+20|Hello #20
+21|Hello #21
+22|Hello #22
+23|Hello #23
+24|Hello #24
+25|Hello #25
+26|Hello #26
+27|Hello #27
+28|Hello #28
+29|Hello #29
+30|Hello #30
+31|Hello #31
+32|Hello #32
+33|Hello #33
+34|Hello #34
+35|Hello #35
+36|Hello #36
+37|Hello #37
+38|Hello #38
+39|Hello #39
+40|Hello #40
+41|Hello #41
+42|Hello #42
+43|Hello #43
+44|Hello #44
+45|Hello #45
+46|Hello #46
+47|Hello #47
+48|Hello #48
+49|Hello #49
+50|Hello #50
+51|Hello #51
+52|Hello #52
+53|Hello #53
+54|Hello #54
+55|Hello #55
+56|Hello #56
+57|Hello #57
+58|Hello #58
+59|Hello #59
+60|Hello #60
+61|Hello #61
+62|Hello #62
+63|Hello #63
+64|Hello #64
+65|Hello #65
+66|Hello #66
+67|Hello #67
+68|Hello #68
+69|Hello #69
+70|Hello #70
+71|Hello #71
+72|Hello #72
+73|Hello #73
+74|Hello #74
+75|Hello #75
+76|Hello #76
+77|Hello #77
+78|Hello #78
+79|Hello #79
+80|Hello #80
+81|Hello #81
+82|Hello #82
+83|Hello #83
+84|Hello #84
+85|Hello #85
+86|Hello #86
+87|Hello #87
+88|Hello #88
+89|Hello #89
+90|Hello #90
+91|Hello #91
+92|Hello #92
+93|Hello #93
+94|Hello #94
+95|Hello #95
+96|Hello #96
+97|Hello #97
+98|Hello #98
+99|Hello #99
 citi_stations:
 152|Warren St & Church St|11|
 267|Broadway & W 36 St|2|
@@ -617,19 +718,129 @@ examples/citi-bike/rides-and-relocations
 examples/citi-bike/rides-from-s3
 examples/citi-bike/stations
 examples/citi-bike/views
+examples/hello-world-no-state/views
 examples/hello-world/views
 examples/source-hello-world
+examples/source-hello-world-no-state
+no_state_driver_checkpoint_flush:
+examples/source-hello-world-no-state|warn|connector exited without writing a final state checkpoint, flushing the driver checkpoint.
 flow_stats:
 capture|examples/citi-bike/rides-from-s3
 capture|examples/source-hello-world
+capture|examples/source-hello-world-no-state
 derivation|examples/citi-bike/last-seen
 derivation|examples/citi-bike/rides-and-relocations
 derivation|examples/citi-bike/stations
 materialization|examples/citi-bike/views
+materialization|examples/hello-world-no-state/views
 materialization|examples/hello-world/views
 flow_stats (greetings docsTotal):
 100|100
 greetings from psql:
+message,count
+Hello #0,0
+Hello #1,1
+Hello #2,2
+Hello #3,3
+Hello #4,4
+Hello #5,5
+Hello #6,6
+Hello #7,7
+Hello #8,8
+Hello #9,9
+Hello #10,10
+Hello #11,11
+Hello #12,12
+Hello #13,13
+Hello #14,14
+Hello #15,15
+Hello #16,16
+Hello #17,17
+Hello #18,18
+Hello #19,19
+Hello #20,20
+Hello #21,21
+Hello #22,22
+Hello #23,23
+Hello #24,24
+Hello #25,25
+Hello #26,26
+Hello #27,27
+Hello #28,28
+Hello #29,29
+Hello #30,30
+Hello #31,31
+Hello #32,32
+Hello #33,33
+Hello #34,34
+Hello #35,35
+Hello #36,36
+Hello #37,37
+Hello #38,38
+Hello #39,39
+Hello #40,40
+Hello #41,41
+Hello #42,42
+Hello #43,43
+Hello #44,44
+Hello #45,45
+Hello #46,46
+Hello #47,47
+Hello #48,48
+Hello #49,49
+Hello #50,50
+Hello #51,51
+Hello #52,52
+Hello #53,53
+Hello #54,54
+Hello #55,55
+Hello #56,56
+Hello #57,57
+Hello #58,58
+Hello #59,59
+Hello #60,60
+Hello #61,61
+Hello #62,62
+Hello #63,63
+Hello #64,64
+Hello #65,65
+Hello #66,66
+Hello #67,67
+Hello #68,68
+Hello #69,69
+Hello #70,70
+Hello #71,71
+Hello #72,72
+Hello #73,73
+Hello #74,74
+Hello #75,75
+Hello #76,76
+Hello #77,77
+Hello #78,78
+Hello #79,79
+Hello #80,80
+Hello #81,81
+Hello #82,82
+Hello #83,83
+Hello #84,84
+Hello #85,85
+Hello #86,86
+Hello #87,87
+Hello #88,88
+Hello #89,89
+Hello #90,90
+Hello #91,91
+Hello #92,92
+Hello #93,93
+Hello #94,94
+Hello #95,95
+Hello #96,96
+Hello #97,97
+Hello #98,98
+Hello #99,99
+flow_stats (greetings-no-state docsTotal):
+100|100
+greetings_no_state from psql:
 message,count
 Hello #0,0
 Hello #1,1
