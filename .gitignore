@@ -6,6 +6,7 @@ target/
 # Outputs from catalog build & test that we don't version.
 /dist
 /node_modules
+examples.db*
 
 # Ordinarily one *would* version package-lock.json.
 # In our case, though, we want early warning if dependencies of the
