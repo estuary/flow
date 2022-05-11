@@ -103,9 +103,9 @@ pub fn spawn(
     cmd: &mut tokio::process::Command,
 ) -> Result<tokio::process::Child, Error> {
     cmd
-        // Pass through PATH, but remove all other environment variables.
+        // Pass through PATH and any docker-related variables, but remove all other environment variables.
         .env_clear()
-        .envs(std::env::vars().filter(|&(ref k, _)| k == "PATH"))
+        .envs(std::env::vars().filter(|&(ref k, _)| k == "PATH" || k.contains("DOCKER")))
         .kill_on_drop(true)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
