@@ -688,6 +688,7 @@ impl Shape {
                     // here as new annotations are added.
                     Annotation::Secret(b) => shape.secret = Some(*b),
                     Annotation::Multiline(_) => {}
+                    Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
                     Annotation::X(_) => {}
                 },
