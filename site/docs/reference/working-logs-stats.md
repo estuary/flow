@@ -9,9 +9,19 @@ Access to statistics is still a work in progress. For now, this documentation de
 
 ## Accessing logs
 
-You can access logs by materializing them to an external endpoint, or from the command line.
+You can access logs in the web application, by materializing them to an external endpoint, or from the command line.
+
+### Accessing logs in the web application
+
+The Flow web application displays logs for each running catalog task.
+Navigate to the **Captures** and **Materializations** tabs and select the task of interest.
 
 ### Accessing logs from the command line
+
+:::info Beta
+The `flowctl logs` subcommand is currently under construction.
+Contact [Estuary Support](mailto:support@estuary.dev) for more information.
+:::
 
 The `flowctl logs` subcommand allows you to print logs from the command line.
 This method allows more flexibility and is ideal for debugging.

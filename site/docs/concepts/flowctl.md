@@ -3,30 +3,40 @@ sidebar_position: 5
 ---
 # flowctl
 
-The `flowctl` command-line interface is used to test, develop, and deploy Flow catalogs.
-It is the only Flow binary that you need to work with,
+There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
+With flowctl, you can work on drafts and active catalogs created in the webapp with a
+higher degree of control.
+You can also authenticate Flow users and roles and generate Typescript modules to customize [derivations](derivations.md).
+
+flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
 
-`flowctl` includes a number of important sub-commands, including:
+## Installation
 
-* `discover` auto-creates a catalog specification given a connector and endpoint configuration.
-  It’s an assisted way to configure an endpoint capture and scaffold a Flow project.
+:::info Beta
+Simplified installation is coming soon.
 
-  [Learn more about `flowctl discover`](connectors.md#flowctl-discover)
-
-* `temp-data-plane` starts a local, ephemeral Flow data plane.
-  It runs a complete deployment of the Flow runtime,
-  but shrunk down to your local machine instead of a data center.
-
-* `deploy` builds from catalog sources and deploys into a Flow data plane.
-  It's typically used to deploy to a temporary data plane for local development.
-
-* `test` builds from catalog sources and runs all of your catalog tests.
-
-:::tip
-Additional `flowctl` commands are available for advanced users and development workflows.
-To read a list of all current commands and details in the CLI, run  `flowctl --help`.
+For now, you can [contact Estuary support](mailto:support@estuary.dev) for access.
 :::
+
+## flowctl subcommands
+
+flowctl includes several top-level subcommands representing different functional areas. Each of these include multiple nested subcommands.
+Important top-level flowctl subcommands are described below.
+
+* `auth` allows you to authenticate your development session in your local development environment.
+It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
+
+* `catalog` allows you to work with your organization's current active catalog. You can investigate the current deployment,
+ or add its specification to a **draft**, where you can develop it further.
+
+* `draft` allows you to work with draft catalog specifications. You can create, test, develop locally, and then **publish**, or deploy, them.
+
+You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
+
+* `flowctl --help` lists top-level flowctl subcommands
+
+* `flowctl catalog --help` lists subcommands of `catalog`
 
 ## Build directory
 

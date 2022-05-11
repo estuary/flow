@@ -43,8 +43,26 @@ Furthermore, implementing a Docker-based community specification brings other im
 
 ## Using connectors
 
-Connectors are packaged as [Open Container](https://opencontainers.org/) (Docker) images,
-and can be discovered, tagged, and pulled using
+Most — if not all — of your data flows will use at least one connector.
+Connector configuration is an important aspect of catalog configuration, and when you deploy a catalog, you're also deploying all the connectors it uses.
+
+You can interact with connectors using either the Flow web application or the flowctl CLI.
+
+### Flow web application
+
+The Flow web application is designed to assist you with connector configuration and deployment.
+It's a completely no-code experience, but it's compatible with Flow's command line tools, discussed below.
+
+When you add a capture or materialization in the Flow web app, choose the desired endpoint from the **Connector** drop-down menu.
+
+The required fields for the connector appear below the drop-down. When you fill in the fields and click **Test Config**,
+Flow automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.
+From there, you can refine the configuration, save, and publish the resulting **catalog**.
+
+### GitOps and flowctl
+
+From a technical perspective, connectors are packaged as [Open Container](https://opencontainers.org/) (Docker) images,
+and can be tagged, and pulled using
 [Docker Hub](https://hub.docker.com/),
 [GitHub Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
 or any other public image registry provider.
@@ -58,9 +76,12 @@ To interface with a connector, the Flow runtime needs to know:
 
 3. Resource configuration such as a specific database table to capture, which is also specific to the connector.
 
-
 To integrate a connector within your dataflow,
-you define all three components within your catalog specification:
+You define all three components within your catalog specification.
+
+The web application is intended to generate the catalog specification YAML file.
+From there, you can use [flowctl](./flowctl.md) to refine it in your local environment.
+It's also possible to manually write your catalog YAML files, but this isn't the recommended workflow.
 
 ```yaml
 materializations:
@@ -68,6 +89,7 @@ materializations:
     endpoint:
       connector:
         # 1: Provide the image that implements your endpoint connector.
+        # The `dev` tag uses the most recent version (the web app chooses this tag automatically)
         image: ghcr.io/estuary/materialize-postgres:dev
         # 2: Provide endpoint configuration that the connector requires.
         config:
@@ -97,207 +119,7 @@ materializations:
           table: customers
 ```
 
-In some cases, you may be comfortable writing out the required configuration of your connector.
-Often, you don't know what configuration a connector requires ahead of time,
-or you may simply prefer a more guided workflow.
-
-For this reason, connectors offer APIs that specify the configuration they may require,
-or the resources they may have available.
-Flow uses these APIs to offer guided workflows for easy configuration and usage of connectors.
-
-The different processes you can use to implement connectors are each described below in general terms.
-Configuration details for each connector are described on their individual pages.
-
-:::info
-Estuary is implementing better UI-driven workflows to easily
-configure and use connectors, expected by Q2 2022.
-The support offered today is rudimentary.
-:::
-
-
-### `flowctl discover`
-
-The [`flowctl`](./flowctl.md) command-line tool offers a rudimentary guided workflow
-for creating a connector instance through the `discover` sub-command
-
-`discover` generates a catalog source file. It includes the capture specification
-as well as recommended **collections**, which are bound to each captured resource of the endpoint.
-This makes the `discover` workflow a quick way to start setting up a new data flow.
-
-:::info Limitation
-`flowctl discover` can fully scaffold catalog captures.
-You can also use `flowctl discover`
-to create stub configuration files for materialization connectors,
-but the remainder of the materialization must be written manually.
-:::
-
-#### Step 1: Generate a configuration file stub
-
-In your terminal, run:
-```console
-$ flowctl discover --image ghcr.io/estuary/${connector_name}:dev --prefix acmeCo/anvils
-
-Creating a connector configuration stub at /workspaces/flow/acmeCo/anvils/source-postgres.config.yaml.
-Edit and update this file, and then run this command again.
-```
-
-This command takes a connector Docker `--image`
-and creates a configuration file stub,
-which by default is written to the `--prefix` subdirectory of your current directory
-— in this case `./acmeCo/anvils/source-postgres.config.yaml`.
-
-:::tip
-A list of connector images can be found [here](../reference/Connectors/capture-connectors/README.md).
-:::
-
-#### Step 2: Update your stubbed configuration file
-
-Open and edit the generated config file.
-It is pre-populated with configuration required by the connector,
-their default values, and descriptive comments:
-
-```yaml
-database: postgres
-# Logical database name to capture from.
-# [string] (required)
-
-host: ""
-# Host name of the database to connect to.
-# [string] (required)
-
-password: ""
-# User password configured within the database.
-# [string] (required)
-
-port: 5432
-# Host port of the database to connect to.
-# [integer] (required)
-```
-
-#### Step 3: Discover resources from your endpoint
-
-Run the same command
-to use your configuration file
-to complete the discovery workflow.
-Flow creates (or overwrites) a catalog source file within your directory,
-which includes a capture definition with one or more bindings,
-definitions of collections to support each binding,
-and associated collection schemas:
-
-```console
-$ flowctl discover --image ghcr.io/estuary/${connector_name}:dev --prefix acmeCo/anvils
-
-Created a Flow catalog at /workspaces/flow/acmeCo/anvils/source-postgres.flow.yaml
-with discovered collections and capture bindings.
-```
-
-The generated `${connector_name}.flow.yaml` is the source file for your capture.
-It will include a capture definition with one or more bindings,
-and the collection(s) created to contain documents from each bound endpoint resource.
-The capture and all collections are named using your chosen `--prefix`:
-
-<Tabs>
-<TabItem value="File Listing">
-
-```console
-$ find acmeCo/
-acmeCo/
-acmeCo/anvils
-acmeCo/anvils/source-postgres.flow.yaml
-acmeCo/anvils/source-postgres.config.yaml
-acmeCo/anvils/my_table.schema.yaml
-acmeCo/anvils/my_other_table.schema.yaml
-```
-
-</TabItem>
-<TabItem value="source-postgres.flow.yaml">
-
-```yaml
-collections:
-  acmeCo/anvils/my_table:
-    schema: my_table.schema.yaml
-    key: [/the/primary, /key]
-  acmeCo/anvils/my_other_table:
-    schema: my_other_table.schema.yaml
-    key: [/other/key]
-captures:
-  acmeCo/anvils/source-postgres:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-postgres:dev
-        config: source-postgres.config.yaml
-    bindings:
-      - resource:
-          namespace: public
-          stream: my_table
-          syncMode: incremental
-        target: acmeCo/anvils/my_table
-      - resource:
-          namespace: public
-          stream: my_other_table
-          syncMode: incremental
-        target: acmeCo/anvils/my_other_table
-```
-
-</TabItem>
-</Tabs>
-
-You can repeat this step any number of times,
-to re-generate and update your catalog sources
-so that they reflect the endpoint's current resources.
-
-#### Step 4: Inspect and trim your catalog
-
-If you notice an undesired resources from the endpoint was included in the catalog spec,
-you can remove its binding and corresponding collection to remove it from your catalog.
-
-### Editing with `flowctl check`
-
-You can directly write your capture or materialization in a catalog source file,
-and use `flowctl check` to provide a fast feedback loop to determine what configuration
-may be missing or incorrect.
-
-This is the current supported path for creating materializations.
-Typically, you will have already have a catalog spec with a capture and collections using `discover`.
-Now, you're simply adding a materialization to complete the dataflow.
-
-1. Find your [materialization connector](../reference/Connectors/materialization-connectors/README.md)
-   and use the provided code sample as a template.
-2. Fill in the required values and other values, if desired.
-3. Add as many additional bindings as you need.
-   As with captures, each collection in your catalog must have an individual binding
-   to be connected to the endpoint system.
-4. Run `flowctl check` to verify that the connector can reach the endpoint system,
-   and that all configuration is correct.
-
-:::tip
-Flow integrates with VS Code and other editors to offer auto-complete within catalog source files,
-which makes it easier to write and structure your files.
-:::
-
-### Config Manager
-
-This method is for Beta clients using Flow as a managed service.
-
-The Estuary Config Manager acts and feels like a simple user interface. In practice,
-it's a secure way to collect the configurations details for your use case, so that
-Estuary engineers can create and start your dataflow.
-
-To use it, simply select your desired connector from the drop-down menu and fill out the required fields.
-
-### Flow UI
-
-:::info Beta
-Flow UI is still undergoing development and will be available, with detailed
-documentation, in Q2 2022.
-:::
-
-The Flow user interface is an alternative to the GitOps workflow,
-but both provide the same results and can be used interchangeably to work with the same Flow catalog.
-
-In the UI, you select the connector you want to use and populate the fields that appear.
-
-## Configuration
+#### Configuration
 
 Connectors interface with external systems and universally require endpoint configuration,
 such as a database hostname or account credentials,
@@ -483,12 +305,6 @@ provides a means for Flow to access the port indirectly through an SSH server.
 
 To set up and configure the SSH server, see the [guide](../../guides/connect-network/).
 
-:::info Beta
-Currently, Flow supports SSH tunneling for all [materialization connectors](../reference/Connectors/materialization-connectors/README.md).
-Tunneling is only supported on certain capture connectors; consult the [appropriate capture connector's documentation](../reference/Connectors/capture-connectors/README.md) to check if it is supported.
-The SSH configurations for captures and materializations are somewhat different.
-Estuary plans to support SSH tunneling on all connectors in the future using the same configuration.
-:::
 
 After verifying that the connector is supported, you can add the configuration to the capture or materialization
 definition to enable SSH tunneling.
