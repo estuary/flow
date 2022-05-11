@@ -77,7 +77,9 @@ pub async fn build_catalog(
     // Persist the build.
     let dest_url = builds_root.join(&pub_id.to_string())?;
 
-    let job = jobs::run(
+    // The gsutil job needs to access the GOOGLE_APPLICATION_CREDENTIALS environment variable, so
+    // we cannot use `jobs::run` here.
+    let job = jobs::run_without_removing_env(
         "persist",
         &logs_tx,
         logs_token,

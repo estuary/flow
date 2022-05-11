@@ -35,10 +35,26 @@ impl Error {
     }
 }
 
-// run spawns the provided Command, capturing its stdout and stderr
-// into the provided logs_tx identified by |logs_token|.
+/// run spawns the provided Command, capturing its stdout and stderr
+/// into the provided logs_tx identified by |logs_token|. It clears the environment variables of
+/// the child process, leaving only `PATH` and `DOCKER_*` variables.
 #[tracing::instrument(err, skip(logs_tx, cmd))]
 pub async fn run(
+    name: &str,
+    logs_tx: &logs::Tx,
+    logs_token: Uuid,
+    cmd: &mut tokio::process::Command,
+) -> Result<std::process::ExitStatus, Error> {
+    // Pass through PATH and any docker-related variables, but remove all other environment variables.
+    cmd.env_clear()
+        .envs(std::env::vars().filter(|&(ref k, _)| k == "PATH" || k.contains("DOCKER")));
+
+    run_without_removing_env(name, logs_tx, logs_token, cmd).await
+}
+
+/// Does the same thing as `run`, but doesn't modify the environment given in `cmd`.
+#[tracing::instrument(err, skip(logs_tx, cmd))]
+pub async fn run_without_removing_env(
     name: &str,
     logs_tx: &logs::Tx,
     logs_token: Uuid,
@@ -98,15 +114,8 @@ where
 }
 
 /// spawn a command with the provided job name, returning its created Child.
-pub fn spawn(
-    name: &str,
-    cmd: &mut tokio::process::Command,
-) -> Result<tokio::process::Child, Error> {
-    cmd
-        // Pass through PATH and any docker-related variables, but remove all other environment variables.
-        .env_clear()
-        .envs(std::env::vars().filter(|&(ref k, _)| k == "PATH" || k.contains("DOCKER")))
-        .kill_on_drop(true)
+fn spawn(name: &str, cmd: &mut tokio::process::Command) -> Result<tokio::process::Child, Error> {
+    cmd.kill_on_drop(true)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
