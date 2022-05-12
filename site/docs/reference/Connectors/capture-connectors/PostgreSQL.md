@@ -1,3 +1,6 @@
+---
+sidebar_position: 12
+---
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
 [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest connector image. You can also follow the link in your browser to see past image versions.
@@ -72,7 +75,9 @@ ALTER SYSTEM SET wal_level = logical;
 
 ## Configuration
 
-There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the PostgreSQL source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the PostgreSQL source connector.
+
 
 ### Properties
 
