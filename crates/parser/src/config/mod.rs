@@ -319,6 +319,10 @@ impl schemars::JsonSchema for ErrorThreshold {
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[schemars(
+    title = "Parser Configuration",
+    description = "Configures how files are parsed"
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ParseConfig {
     /// format forces the use of the given parser and disables automatic format detection. If
