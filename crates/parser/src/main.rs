@@ -117,6 +117,12 @@ fn do_spec() {
     } else {
         unreachable!("schema should always have metadata");
     }
+    // Add the "advanced" annotation to the schema, so that the configuration UI will collaps this
+    // by default.
+    schema
+        .schema
+        .extensions
+        .insert("advanced".to_string(), true.into());
     serde_json::to_writer_pretty(io::stdout(), &schema).or_bail("failed to write schema");
 }
 
