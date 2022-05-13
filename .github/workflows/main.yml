@@ -15,6 +15,9 @@ env:
 jobs:
   flowctl:
     runs-on: ubuntu-20.04
+    concurrency: 
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - uses: actions/checkout@v2
