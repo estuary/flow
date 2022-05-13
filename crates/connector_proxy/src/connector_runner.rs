@@ -198,7 +198,6 @@ mod test {
     use std::pin::Pin;
 
     use bytes::Bytes;
-    use flow_cli_common::LogLevel;
     use futures::{stream, TryStream};
 
     use super::*;
