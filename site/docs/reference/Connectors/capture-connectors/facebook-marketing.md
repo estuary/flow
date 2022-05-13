@@ -101,7 +101,7 @@ are a subset of breakdowns that must be specified separately.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Stream | Resource of your Facebook Marketing account from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. | string | Required |
 
 ### Sample
 
@@ -116,19 +116,64 @@ captures:
             business_id: 000000000000000
             start_date: 2022-03-01T00:00:00Z
             custom_insights:
-              name: my-custom-insight
-              fields: [
-                ad_id,
-                account_currency
-              ]
-              breakdowns: [device_platform]
-              action_breakdowns: [action_type]
-              start_date: 2022-03-01T00:00:00Z
+              - name: my-custom-insight
+                 fields: [ad_id, account_currency]
+                 breakdowns: [device_platform]
+                 action_breakdowns: [action_type]
+                 start_date: 2022-03-01T00:00:00Z
     bindings:
       - resource:
-          stream: my_ad_name
-           syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+          stream: ad_account
+          syncMode: incremental
+        target: ${TENANT}/ad_account
+      - resource:
+          stream: ad_sets
+          syncMode: incremental
+        target: ${TENANT}/ad_sets
+      - resource:
+          stream: ads_insights
+          syncMode: incremental
+        target: ${TENANT}/ads_insights
+      - resource:
+          stream: ads_insights_age_and_gender
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_age_and_gender
+      - resource:
+          stream: ads_insights_country
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_country
+      - resource:
+          stream: ads_insights_region
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_region
+      - resource:
+          stream: ads_insights_dma
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_dma
+      - resource:
+          stream: ads_insights_platform_and_device
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_platform_and_device
+      - resource:
+          stream: ads_insights_action_type
+          syncMode: incremental
+        target: ${TENANT}/ads_insights_action_type
+      - resource:
+          stream: campaigns
+          syncMode: incremental
+        target: ${TENANT}/campaigns
+      - resource:
+          stream: activities
+          syncMode: incremental
+        target: ${TENANT}/activities
+      - resource:
+          stream: ads
+          syncMode: incremental
+        target: ${TENANT}/ads
+      - resource:
+          stream: ad_creatives
+          syncMode: full_refresh
+        target: ${TENANT}/ad_creatives
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)

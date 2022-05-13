@@ -50,9 +50,9 @@ The following properties reflect the API Key authentication method.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/credentials` | Authentication  | Authentication Type and Details | object |  |
-| `/credentials/auth_type` | Authentication Type | Authentication type. Set to `apikey`.  | string |  |
-| `/credentials/apikey` | API Key | Your Mailchimp API key | string | |
+| **`/credentials`** | Authentication  | Authentication Type and Details | object | Required |
+| **`/credentials/auth_type`** | Authentication Type | Authentication type. Set to `apikey`.  | string | Required |
+| **`/credentials/apikey`** | API Key | Your Mailchimp API key | string | Required |
 
 #### Bindings
 

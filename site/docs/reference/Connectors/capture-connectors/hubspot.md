@@ -14,7 +14,9 @@ but keep in mind that the two versions may be significantly different.
 
 ## Supported data resources
 
-The following data resources are supported:
+By default, each resource associated with your Hubspot account is mapped to a Flow collection through a separate binding.
+
+The following data resources are supported for all subscription levels:
 
 * [Campaigns](https://developers.hubspot.com/docs/methods/email/get_campaign_data)
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
@@ -30,11 +32,9 @@ The following data resources are supported:
 * [Engagements Meetings](https://developers.hubspot.com/docs/api/crm/meetings)
 * [Engagements Notes](https://developers.hubspot.com/docs/api/crm/notes)
 * [Engagements Tasks](https://developers.hubspot.com/docs/api/crm/tasks)
-* [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
 * [Forms](https://developers.hubspot.com/docs/api/marketing/forms)
 * [Form Submissions](https://legacydocs.hubspot.com/docs/methods/forms/get-submissions-for-a-form)
 * [Line Items](https://developers.hubspot.com/docs/api/crm/line-items)
-* [Marketing Emails](https://legacydocs.hubspot.com/docs/methods/cms_email/get-all-marketing-email-statistics)
 * [Owners](https://developers.hubspot.com/docs/methods/owners/get_owners)
 * [Products](https://developers.hubspot.com/docs/api/crm/products)
 * [Property History](https://legacydocs.hubspot.com/docs/methods/contacts/get_contacts)
@@ -42,9 +42,12 @@ The following data resources are supported:
 * [Subscription Changes](https://developers.hubspot.com/docs/methods/email/get_subscriptions_timeline)
 * [Tickets](https://developers.hubspot.com/docs/api/crm/tickets)
 * [Ticket Pipelines](https://developers.hubspot.com/docs/api/crm/pipelines)
-* [Workflows](https://legacydocs.hubspot.com/docs/methods/workflows/v3/get_workflows)
 
-By default, each resource associated with your Hubspot account is mapped to a Flow collection through a separate binding.
+The following data resources are supported for pro accounts (set **Subscription type** to `pro` in the [configuration](#endpoint)):
+
+* [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
+* [Marketing Emails](https://legacydocs.hubspot.com/docs/methods/cms_email/get-all-marketing-email-statistics)
+* [Workflows](https://legacydocs.hubspot.com/docs/methods/workflows/v3/get_workflows)
 
 ## Prerequisites
 
@@ -86,6 +89,7 @@ The following properties reflect the API Key authentication method.
 | **`/credentials/credentials_title`** | Credentials set | Type of credentials. Set to `API Key Credentials` | string | Required |
 | **`/credentials/api_key`** | API Key | Your Hubspot API key | string | Required |
 | **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
+| `/subscription_type` | Your HubSpot account subscription type | Some streams are only available to certain subscription packages, we use this information to select which streams to pull data from. | string | `"starter"` |
 
 #### Bindings
 

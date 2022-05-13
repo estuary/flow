@@ -78,7 +78,7 @@ The following properties reflect the Service Account Key authentication method.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Sheet | Each sheet in your Google Sheets document. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| **`/syncMode`** | Sync mode | Connection method. Always set to `full_refresh`. | string | Required |
 
 ### Sample
 
@@ -96,7 +96,7 @@ captures:
     bindings:
       - resource:
           stream: Sheet1
-           syncMode: incremental
+           syncMode: full_refresh
         target: ${TENANT}/${COLLECTION_NAME}
 ```
 
