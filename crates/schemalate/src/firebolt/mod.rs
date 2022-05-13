@@ -3,6 +3,7 @@ pub mod firebolt_projections;
 pub mod firebolt_queries;
 pub mod firebolt_schema_builder;
 pub mod firebolt_types;
+pub mod reserved_words;
 
 use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
