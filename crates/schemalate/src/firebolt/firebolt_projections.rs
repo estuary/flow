@@ -9,6 +9,8 @@ use regex::Regex;
 
 use crate::firebolt::errors::BindingConstraintError;
 
+use super::reserved_words::RESERVED_WORDS;
+
 lazy_static! {
     static ref VALID_FIELD_REGEX: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap();
 }
@@ -114,6 +116,11 @@ pub fn validate_new_projection(
                             "Firebolt requires that field names must match the regex {}.",
                             VALID_FIELD_REGEX.as_str()
                         ),
+                    }
+                } else if RESERVED_WORDS.contains(&projection.field.to_lowercase()) {
+                    Constraint {
+                        r#type: constraint::Type::FieldForbidden.into(),
+                        reason: "This field name is a reserved word in Firebolt.".to_string(),
                     }
                 } else {
                     let types = types::Set::from_iter(infer.types.iter());
@@ -473,7 +480,7 @@ mod tests {
 
         check_validate_new_projection(
             Projection {
-                field: "boolean".to_string(),
+                field: "boolfield".to_string(),
                 ptr: "boolean".to_string(),
                 inference: Some(Inference {
                     types: vec!["boolean".to_string()],
@@ -489,7 +496,7 @@ mod tests {
 
         check_validate_new_projection(
             Projection {
-                field: "int".to_string(),
+                field: "intfield".to_string(),
                 ptr: "int".to_string(),
                 inference: Some(Inference {
                     types: vec!["integer".to_string()],
@@ -521,7 +528,7 @@ mod tests {
 
         check_validate_new_projection(
             Projection {
-                field: "string".to_string(),
+                field: "stringfield".to_string(),
                 ptr: "string".to_string(),
                 inference: Some(Inference {
                     types: vec!["string".to_string()],
@@ -537,7 +544,7 @@ mod tests {
 
         check_validate_new_projection(
             Projection {
-                field: "obj".to_string(),
+                field: "object".to_string(),
                 ptr: "obj".to_string(),
                 inference: Some(Inference {
                     types: vec!["object".to_string()],
@@ -569,7 +576,7 @@ mod tests {
 
         check_validate_new_projection(
             Projection {
-                field: "null".to_string(),
+                field: "nullfield".to_string(),
                 ptr: "null".to_string(),
                 inference: Some(Inference {
                     types: vec!["null".to_string()],
@@ -625,6 +632,21 @@ mod tests {
             Constraint {
                 r#type: constraint::Type::FieldForbidden.into(),
                 reason: "Firebolt requires that field names must match the regex ^[a-zA-Z_][a-zA-Z0-9_]*$.".to_string(),
+            },
+        );
+
+        check_validate_new_projection(
+            Projection {
+                field: "date".to_string(),
+                ptr: "date".to_string(),
+                inference: Some(Inference {
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            Constraint {
+                r#type: constraint::Type::FieldForbidden.into(),
+                reason: "This field name is a reserved word in Firebolt.".to_string(),
             },
         );
     }
