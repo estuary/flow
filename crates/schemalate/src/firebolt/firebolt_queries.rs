@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::firebolt::firebolt_types::TableType;
 
-use super::firebolt_types::Table;
+use super::firebolt_types::{column_quote, Table};
 
 #[derive(Debug, PartialEq)]
 pub struct CreateTable<'a> {
@@ -24,13 +24,14 @@ impl<'a> Display for CreateTable<'a> {
 
         // External tables do not have indices
         let indices = if self.table.r#type != TableType::External {
-            let keys: Vec<&str> = self
+            let keys: Vec<String> = self
                 .table
                 .schema
                 .columns
                 .iter()
                 .filter(|col| col.is_key)
                 .map(|col| col.key.as_str())
+                .map(column_quote)
                 .collect();
 
             if keys.len() > 0 {
@@ -81,7 +82,8 @@ impl<'a> Display for InsertFromTable<'a> {
             .schema
             .columns
             .iter()
-            .map(|c| &c.key)
+            .map(|c| c.key.as_str())
+            .map(column_quote)
             .join(",");
 
         write!(
@@ -114,7 +116,7 @@ mod tests {
                                 is_key: true,
                             },
                             Column {
-                                key: "int".to_string(),
+                                key: "Int".to_string(),
                                 r#type: FireboltType::Int,
                                 nullable: true,
                                 is_key: false,
@@ -127,7 +129,7 @@ mod tests {
                 extra: ""
             }
             .to_string(),
-            "CREATE FACT TABLE IF NOT EXISTS test_table (str TEXT,int INT NULL) PRIMARY INDEX str ;"
+            "CREATE FACT TABLE IF NOT EXISTS test_table (str TEXT,\"Int\" INT NULL) PRIMARY INDEX str ;"
         );
 
         assert_eq!(
@@ -143,7 +145,7 @@ mod tests {
                                 is_key: true,
                             },
                             Column {
-                                key: "int".to_string(),
+                                key: "Int".to_string(),
                                 r#type: FireboltType::Int,
                                 nullable: true,
                                 is_key: true,
@@ -156,7 +158,7 @@ mod tests {
                 extra: ""
             }
             .to_string(),
-            "CREATE DIMENSION TABLE  test_table (str TEXT,int INT NULL) PRIMARY INDEX str,int ;"
+            "CREATE DIMENSION TABLE  test_table (str TEXT,\"Int\" INT NULL) PRIMARY INDEX str,\"Int\" ;"
         );
 
         assert_eq!(
@@ -169,6 +171,11 @@ mod tests {
                             r#type: FireboltType::Text,
                             nullable: false,
                             is_key: true,
+                        }, Column {
+                            key: "Int".to_string(),
+                            r#type: FireboltType::Int,
+                            nullable: false,
+                            is_key: true,
                         }]
                     },
                     r#type: TableType::External,
@@ -177,7 +184,7 @@ mod tests {
                 extra: "CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = ''"
             }
             .to_string(),
-            "CREATE EXTERNAL TABLE  test_table (str TEXT)  CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = '';"
+            "CREATE EXTERNAL TABLE  test_table (str TEXT,\"Int\" INT)  CREDENTIALS = ( AWS_KEY_ID = '' AWS_SECRET_KEY = '' ) URL = '' OBJECT_PATTERN = '';"
         );
     }
 
@@ -211,7 +218,7 @@ mod tests {
                                 is_key: true,
                             },
                             Column {
-                                key: "int".to_string(),
+                                key: "Int".to_string(),
                                 r#type: FireboltType::Int,
                                 nullable: true,
                                 is_key: false,
@@ -223,7 +230,7 @@ mod tests {
                 source_name: "source_test"
             }
             .to_string(),
-            "INSERT INTO destination_test (str,int) SELECT str,int FROM source_test WHERE source_file_name IN (?) AND ((SELECT count(*) FROM destination_test WHERE source_file_name IN (?)) < 1);"
+            "INSERT INTO destination_test (str,\"Int\") SELECT str,\"Int\" FROM source_test WHERE source_file_name IN (?) AND ((SELECT count(*) FROM destination_test WHERE source_file_name IN (?)) < 1);"
         );
     }
 }
