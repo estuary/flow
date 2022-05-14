@@ -46,8 +46,9 @@ pub async fn run(
     cmd: &mut tokio::process::Command,
 ) -> Result<std::process::ExitStatus, Error> {
     // Pass through PATH and any docker-related variables, but remove all other environment variables.
-    cmd.env_clear()
-        .envs(std::env::vars().filter(|&(ref k, _)| k == "PATH" || k.contains("DOCKER")));
+    cmd.env_clear().envs(std::env::vars().filter(|&(ref k, _)| {
+        k == "PATH" || k.contains("DOCKER") || k == "GOOGLE_APPLICATION_CREDENTIALS"
+    }));
 
     run_without_removing_env(name, logs_tx, logs_token, cmd).await
 }
