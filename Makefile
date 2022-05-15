@@ -115,7 +115,7 @@ ${PKGDIR}/bin/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${PKGDIR}/bin/sops:
-	go install go.mozilla.org/sops/v3/cmd/sops@v3.7.1
+	go install go.mozilla.org/sops/v3/cmd/sops@v3.7.3
 	cp $(shell go env GOPATH)/bin/sops $@
 
 ########################################################################
