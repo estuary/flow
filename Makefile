@@ -153,10 +153,6 @@ ${RUST_MUSL_BIN}/flow-network-tunnel:
 ${RUST_MUSL_BIN}/flow-connector-proxy:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
 
-.PHONY: ${RUST_MUSL_BIN}/flow-config-encryption
-${RUST_MUSL_BIN}/flow-config-encryption:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p config-encryption
-
 
 ########################################################################
 # Final output packaging:
@@ -172,8 +168,7 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schemalate \
 	${PKGDIR}/bin/flow-network-tunnel \
-	${PKGDIR}/bin/flow-connector-proxy \
-	${PKGDIR}/bin/flow-config-encryption
+	${PKGDIR}/bin/flow-connector-proxy
 
 .PHONY: rust-binaries
 rust-binaries: $(RUST_TARGETS)
@@ -202,8 +197,6 @@ ${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGD
 	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
-${PKGDIR}/bin/flow-config-encryption: ${RUST_MUSL_BIN}/flow-config-encryption | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-config-encryption $@
 
 ##########################################################################
 # Make targets used by CI:
