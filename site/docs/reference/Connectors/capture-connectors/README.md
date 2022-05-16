@@ -17,9 +17,27 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/source-kafka:dev
+* Exchange Rates API
+  * [Configuration](./exchange-rates.md)
+  * Package - ghcr.io/estuary/airbyte-source-exchange-rates:dev
+* Facebook Marketing
+  * [Configuration](./facebook-marketing.md)
+  * Package - ghcr.io/estuary/airbyte-source-facebook-marketing:dev
+* Google Analytics
+  * [Configuration](./google-analytics.md)
+  * Package - ghcr.io/estuary/airbyte-source-google-analytics-v4:dev
 * Google Cloud Storage
   * [Configuration](./gcs.md)
   * Package — ghcr.io/estuary/source-gcs:dev
+* Google Sheets
+  * [Configuration](./google-sheets.md)
+  * Package - ghcr.io/estuary/airbyte-source-google-sheets:dev
+* Hubspot
+  * [Configuration](./hubspot.md)
+  * Package - ghcr.io/estuary/airbyte-source-hubspot:dev
+* Mailchimp
+  * [Configuration](./mailchimp.md)
+  * Package - ghcr.io/estuary/airbyte-source-mailchimp:dev
 * MySQL
   * [Configuration](./MySQL.md)
   * Package - ghcr.io/estuary/source-mysql:dev
