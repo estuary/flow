@@ -19,19 +19,45 @@ To use this connector, you'll need:
     project with which the BigQuery destination dataset is associated
     * [`roles/storage.objectAdmin`](https://cloud.google.com/storage/docs/access-control/iam-roles#standard-roles)
     on the GCS bucket created above
+
+    See [Setup](#setup) for detailed steps to set up your service account.
 * At least one Flow collection
+
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
+
+### Setup
+
+To configure your service account, complete the following steps.
+
+1. Log into the Google Cloud console and [create a service account](https://cloud.google.com/docs/authentication/getting-started#creating_a_service_account).
+During account creation:
+   1. Grant the user access to the project.
+   2. Grant the user roles `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, and `roles/storage.objectAdmin`.
+   3. Click **Done**.
+
+2. Select the new service account from the list of service accounts. On the Keys tab, click **Add key** and create a new JSON key.
+
+   The key is automatically downloaded to your machine.
+
+3. In your terminal, base64-encode the JSON key:
+   ```console
+   base64 /path/to/key.json
+   ```
+   
+   You'll use the resulting string when you configure the connector.
+
 
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
 Use the below properties to configure a BigQuery materialization, which will direct one or more of your Flow collections to your desired tables within a BigQuery dataset.
 
-This configuration assumes a working knowledge of resource organization in BigQuery.
-You can find introductory documentation in the [BigQuery docs](https://cloud.google.com/bigquery/docs/resource-hierarchy).
+A BigQuery dataset is the top-level container within a project, and comprises multiple tables.
+You can think of a dataset as somewhat analogous to a schema in a relational database.
+For a complete introduction to resource organization in Bigquery, see the [BigQuery docs](https://cloud.google.com/bigquery/docs/resource-hierarchy).
 
 ### Properties
 
@@ -44,7 +70,7 @@ You can find introductory documentation in the [BigQuery docs](https://cloud.goo
 | **`/dataset`** | Dataset | Name of the target BigQuery dataset. | String | Required |
 | **`/region`** | Region | The GCS region. | String | Required |
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
-| **`/bucket_path`** | Bucket path | Base path within the GCS bucket. | String | Required |
+| **`/bucket_path`** | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | Required |
 | **`/credentials_json`** | Credentials JSON | Base64-encoded string of the full service account file. | Byte | Required |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
