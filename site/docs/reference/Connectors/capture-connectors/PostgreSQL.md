@@ -133,13 +133,6 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
 
-## Connecting to secure networks
-
-The PostgreSQL source connector [supports SSH tunneling](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-to allow Flow to connect to databases ports in secure networks.
-
-To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
-
 ## PostgreSQL on managed cloud platforms
 
 In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances on certain platforms.
