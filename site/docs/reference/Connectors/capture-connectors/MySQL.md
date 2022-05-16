@@ -1,3 +1,7 @@
+---
+sidebar_position: 11
+---
+
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
 :::caution
@@ -55,7 +59,8 @@ SET PERSIST binlog_expire_logs_seconds = 604800;
 ```
 
 ## Configuration
-There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the MySQL source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
