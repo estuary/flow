@@ -111,18 +111,6 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
 
-## Connecting to secure networks
-
-:::info beta
-SSH tunneling on the MySQL source connector is actively being worked on and will be fully supported soon.
-If you encounter issues with this feature, [contact Estuary support](mailto:support@estuary.dev).
-:::
-
-The MySQL source connector [supports SSH tunneling](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-to allow Flow to connect to databases ports in secure networks.
-
-To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
-
 ## MySQL on managed cloud platforms
 
 In addition to standard MySQL, this connector supports cloud-based MySQL instances on certain platforms.

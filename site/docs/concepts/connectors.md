@@ -479,79 +479,13 @@ In some cases, your source or destination endpoint may be within a secure networ
 to allow direct access to its port due to your organization's security policy.
 
 [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding,
-provides a means for Flow to access the port indirectly through an SSH server.
+provides a means for Flow to access the port indirectly through an SSH server. SSH tunneling is universally supported by Estuary's connectors.
 
 To set up and configure the SSH server, see the [guide](../../guides/connect-network/).
+Then, add the appropriate properties when you define the capture or materialization in the Flow web app,
+or add the `networkTunnel` stanza directly to the YAML, as shown below.
 
-:::info Beta
-Currently, Flow supports SSH tunneling for all [materialization connectors](../reference/Connectors/materialization-connectors/README.md).
-Tunneling is only supported on certain capture connectors; consult the [appropriate capture connector's documentation](../reference/Connectors/capture-connectors/README.md) to check if it is supported.
-The SSH configurations for captures and materializations are somewhat different.
-Estuary plans to support SSH tunneling on all connectors in the future using the same configuration.
-:::
-
-After verifying that the connector is supported, you can add the configuration to the capture or materialization
-definition to enable SSH tunneling.
-
-
-<Tabs>
-<TabItem value="Capture connectors" default>
-
-```yaml title="source-postgres-ssh-tunnel.flow.yaml"
-captures:
-  acmeCo/postgres-capture-ssh:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-postgres:dev
-        config:
-          # When using a proxy like SSH tunneling, set to localhost
-          host: localhost
-          # Specify an open port on your local machine to connect to the proxy.
-          port: 15432
-          database: flow
-          user: flow_user
-          password: secret
-          proxy:
-            proxyType: ssh_forwarding
-            sshForwarding:
-              # Port on the local machine from which you'll connect to the SSH server.
-              # If a port is specified elsewhere in the connector configuration, it must match.
-              localPort: 15432
-              # Port of the final endpoint to which you’ll connect via
-              # tunneling from the SSH server.
-              forwardPort: 5432
-              # Host or IP address of the final endpoint to which you’ll
-              # connect via tunneling from the SSH server
-              forwardHost: 127.0.0.1
-              # Location of the remote SSH server that supports tunneling.
-              # Formatted as ssh://hostname[:port].
-              sshEndpoint: ssh://198.21.98.1
-              # Username to connect to the SSH server.
-              user: sshUser
-              # Private key to connect to the SSH server, formatted as multiline plaintext.
-              # Use the YAML literal block style with the indentation indicator.
-              # See https://yaml-multiline.info/ for details.
-              privateKey: |2
-                -----BEGIN RSA PRIVATE KEY-----
-                MIICXAIBAAKBgQCJO7G6R+kv2MMS8Suw21sk2twHg8Vog0fjimEWJEwyAfFM/Toi
-                EJ6r5RTaSvN++/+MPWUll7sUdOOBZr6ErLKLHEt7uXxusAzOjMxFKZpEARMcjwHY
-                v/tN1A2OYU0qay1DOwknEE0i+/Bvf8lMS7VDjHmwRaBtRed/+iAQHf128QIDAQAB
-                AoGAGoOUBP+byAjDN8esv1DCPU6jsDf/Tf//RbEYrOR6bDb/3fYW4zn+zgtGih5t
-                CR268+dwwWCdXohu5DNrn8qV/Awk7hWp18mlcNyO0skT84zvippe+juQMK4hDQNi
-                ywp8mDvKQwpOuzw6wNEitcGDuACx5U/1JEGGmuIRGx2ST5kCQQDsstfWDcYqbdhr
-                5KemOPpu80OtBYzlgpN0iVP/6XW1e5FCRp2ofQKZYXVwu5txKIakjYRruUiiZTza
-                QeXRPbp3AkEAlGx6wMe1l9UtAAlkgCFYbuxM+eRD4Gg5qLYFpKNsoINXTnlfDry5
-                +1NkuyiQDjzOSPiLZ4Abpf+a+myjOuNL1wJBAOwkdM6aCVT1J9BkW5mrCLY+PgtV
-                GT80KTY/d6091fBMKhxL5SheJ4SsRYVFtguL2eA7S5xJSpyxkadRzR0Wj3sCQAvA
-                bxO2fE1SRqbbF4cBnOPjd9DNXwZ0miQejWHUwrQO0inXeExNaxhYKQCcnJNUAy1J
-                6JfAT/AbxeSQF3iBKK8CQAt5r/LLEM1/8ekGOvBh8MAQpWBW771QzHUN84SiUd/q
-                xR9mfItngPwYJ9d/pTO7u9ZUPHEoat8Ave4waB08DsI=
-                -----END RSA PRIVATE KEY-----
-        bindings: []
-```
-</TabItem>
-
-<TabItem value="Materialization connectors" default>
+#### Sample
 
 ```yaml title="materialize-postgres-ssh-tunnel.flow.yaml"
 materializations:
@@ -604,9 +538,6 @@ materializations:
                 -----END RSA PRIVATE KEY-----
         bindings: []
 ```
-
-</TabItem>
-</Tabs>
 
 ## Available connectors
 
