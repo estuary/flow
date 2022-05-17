@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"sort"
 	"testing"
@@ -122,6 +123,17 @@ func TestStoreInteractions(t *testing.T) {
 		func(f pb.Fragment) { panic("no fragments, not called") }))
 	require.NoError(t, List(ctx, fs, tstBar,
 		func(f pb.Fragment) { panic("not called") }))
+}
+
+func TestParseStoreArgsS3(t *testing.T) {
+	storeURL, _ := url.Parse("s3://bucket/prefix/?endpoint=https://s3.region.amazonaws.com&SSE=kms&SSEKMSKeyId=123")
+	var s3Cfg S3StoreConfig
+	parseStoreArgs(storeURL, &s3Cfg)
+	require.Equal(t, "bucket", storeURL.Host)
+	require.Equal(t, "prefix/", storeURL.Path[1:])
+	require.Equal(t, "https://s3.region.amazonaws.com", s3Cfg.Endpoint)
+	require.Equal(t, "kms", s3Cfg.SSE)
+	require.Equal(t, "123", s3Cfg.SSEKMSKeyId)
 }
 
 func readFrag(t *testing.T, f pb.Fragment) string {

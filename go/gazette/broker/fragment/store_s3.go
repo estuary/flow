@@ -41,6 +41,9 @@ type S3StoreConfig struct {
 	// SSE is the server-side encryption type to be applied (eg, "AES256").
 	// By default, encryption is not used.
 	SSE string
+	// SSEKMSKeyId specifies the ID for the AWS KMS symmetric customer managed key
+	// By default, not used.
+	SSEKMSKeyId string
 }
 
 type s3Backend struct {
@@ -127,6 +130,9 @@ func (s *s3Backend) Persist(ctx context.Context, ep *url.URL, spool Spool) error
 	}
 	if cfg.SSE != "" {
 		putObj.ServerSideEncryption = aws.String(cfg.SSE)
+	}
+	if cfg.SSEKMSKeyId != "" {
+		putObj.SSEKMSKeyId = aws.String(cfg.SSEKMSKeyId)
 	}
 	if spool.CompressionCodec == pb.CompressionCodec_GZIP_OFFLOAD_DECOMPRESSION {
 		putObj.ContentEncoding = aws.String("gzip")
