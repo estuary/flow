@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
-use tokio::signal::unix::{signal, SignalKind};
 
 use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 
@@ -107,17 +106,6 @@ async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-async fn sigterm_handler() {
-    let mut signal_stream = signal(SignalKind::terminate()).expect("failed creating signal.");
-
-    signal_stream
-        .recv()
-        .await
-        .expect("failed receiving os signals.");
-    tracing::info!("connector proxy stopped.");
-    std::process::exit(0);
-}
-
 async fn async_main(
     image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
@@ -162,9 +150,6 @@ async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    // Respond to OS sigterm signal.
-    tokio::task::spawn(async move { sigterm_handler().await });
-
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Materialize {
         return Err(Error::MismatchingRuntimeProtocol);
