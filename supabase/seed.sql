@@ -40,7 +40,7 @@ insert into user_grants (user_id, object_role, capability) values
 
 -- Also grant other namespaces commonly used while testing.
 insert into role_grants (subject_role, object_role, capability) values
-  ('acmeCo/', 'acmeCo/', 'write'),
+  ('aliceCo/', 'aliceCo/', 'write'),
   ('bobCo/', 'acmeCo/', 'admin'),
   ('bobCo/', 'examples/', 'admin'),
   ('bobCo/', 'ops/bobCo/', 'read'),
@@ -86,6 +86,7 @@ $$ language plpgsql;
 
 -- Create some storage mappings.
 insert into storage_mappings (catalog_prefix, spec) values
+  ('aliceCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
   ('acmeCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
   ('examples/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
   ('ops/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
