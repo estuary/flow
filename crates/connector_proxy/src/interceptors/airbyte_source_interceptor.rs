@@ -121,8 +121,10 @@ impl AirbyteSourceInterceptor {
                         .map(|k| JsonPointer::new(k).to_string())
                         .collect(),
                 };
+                let recommended_name = stream_to_recommended_name(&stream.name);
+
                 resp.bindings.push(discover_response::Binding {
-                    recommended_name: stream.name.clone(),
+                    recommended_name,
                     resource_spec_json: serde_json::to_string(&resource_spec)?,
                     key_ptrs: key_ptrs,
                     document_schema_json: stream.json_schema.to_string(),
@@ -414,5 +416,35 @@ impl AirbyteSourceInterceptor {
             }
             _ => Err(Error::UnexpectedOperation(op.to_string())),
         }
+    }
+}
+
+// stream names have no constraints.
+// Strip and sanitize them to be valid collection names.
+fn stream_to_recommended_name(stream: &str) -> String {
+    stream
+        .split('/')
+        .map(|chunk| {
+            chunk
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '.')
+                .collect()
+        })
+        .filter(|c: &String| !c.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+#[cfg(test)]
+mod test {
+    use super::stream_to_recommended_name;
+
+    #[test]
+    fn test_stream_to_recommended_name() {
+        assert_eq!(stream_to_recommended_name("Hello-World"), "Hello-World");
+        assert_eq!(
+            stream_to_recommended_name("/&foo!/B ar// b+i-n.g /"),
+            "foo/Bar/bi-n.g"
+        );
     }
 }

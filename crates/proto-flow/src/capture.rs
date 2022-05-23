@@ -46,7 +46,9 @@ pub mod discover_response {
     /// Bindings may be returned in any order.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
-        /// A recommended display name for this discovered binding.
+        /// The recommended name for this discovered binding,
+        /// which is appended to a catalog prefix of the proposed capture
+        /// to form the name of its recommended collection.
         #[prost(string, tag="1")]
         pub recommended_name: ::prost::alloc::string::String,
         /// JSON-encoded object which specifies the endpoint resource to be captured.
