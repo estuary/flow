@@ -9,9 +9,8 @@ You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To use this connector, you'll need a MySQL database setup with the following:
-* [`binlog_row_metadata`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_row_metadata)
-  system variable set to `FULL`.
-  - Note that this can be done on a dedicated replica even if the primary database has it set to `MINIMAL`.
+* [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
+  system variable set to `ROW` (the default value).
 * [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) of at at least seven days.
 If possible, it's recommended to keep the default setting of 2592000 seconds (30 days).
 * A watermarks table. The watermarks table is a small "scratch space"
@@ -44,11 +43,7 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
-3. Configure the binary log to record complete table metadata.
-```sql
-SET PERSIST binlog_row_metadata = 'FULL';
-```
-4. Configure the binary log to retain data for at least seven days, if previously set lower. If possible, it's recommended to use the default MySQL setting of 2592000 seconds (30 days).
+3. Configure the binary log to retain data for at least seven days, if previously set lower. If possible, it's recommended to use the default MySQL setting of 2592000 seconds (30 days).
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
@@ -178,8 +173,7 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 ### Google Cloud SQL
 
-Google Cloud SQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
-As a result, this connector can't be used directly for MySQL instance on Google Cloud.
+This connector should support capturing from MySQL on Google Cloud, however this may require Google Cloud-specific mechanisms for configuring permissions and/or binlog retention. We do not have verified setup instructions at this time.
 
 As an alternative, you can create a [read replica outside of Google cloud](https://cloud.google.com/sql/docs/mysql/replication#external-read-replicas).
 The replica can be treated as a standard MySQL instance.
@@ -190,9 +184,41 @@ The replica can be treated as a standard MySQL instance.
 
 ### Azure Database for MySQL
 
-Azure Database for MySQL doesn't currently support the setting `binlog_row_metadata: FULL`, which this connector requires.
-As a result, this connector can't be used for MySQL instance on Azure.
+This connector should support capturing from Azure Database for MySQL, however this may require Azure-specific mechanisms for configuring permissions and/or binlog retention. We do not have verified setup instructions at this time.
 
 Contact your account manager or [Estuary support](mailto:support@estuary.dev) for help using a third-party connector.
 Note that third party connectors will require you to [create a read replica](https://docs.microsoft.com/en-us/azure/mysql/howto-read-replicas-portal).
 
+## Troubleshooting Capture Errors
+
+The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
+
+### Unsupported Operations
+
+If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,etc} TABLE"` error, this indicates that such an operation has taken place impacting a table which is currently being captured.
+
+In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
+
+In the case of `ALTER TABLE` query we intend to support a limited subset of table alterations in the future, however this error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+
+### Data Manipulation Queries
+
+If your capture is failing with an `"unsupported DML query"` error, this means that an `INSERT`, `UPDATE`, `DELETE` or other data manipulation query is present in the MySQL binlog. This should generally not happen if `binlog_format = 'ROW'` as described in the [Prerequisites](#prerequisites) section.
+
+Resolving this error requires fixing the `binlog_format` system variable, and then either tearing down and recreating the entire capture so that it restarts at a later point in the binlog, or in the case of an `INSERT`/`DELETE` query it may suffice to remove the capture binding for the offending table and then re-add it.
+
+### Unhandled Queries
+
+If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
+
+In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to tear down and recreate the entire capture so that it restarts from a later point in the binlog.
+
+### Metadata Errors
+
+If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
+
+This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
+
+### Insufficient Binlog Retention
+
+If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time. This should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
