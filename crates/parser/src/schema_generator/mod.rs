@@ -98,8 +98,8 @@ mod test {
     use uuid::Uuid;
 
     macro_rules! enum_value {
-        ($value:expr, $pattern:pat => $extracted_value:expr) => {
-            match $value {
+        ($properties:expr, $value:expr, $pattern:pat => $extracted_value:expr) => {
+            match $properties.get($value).unwrap() {
                 $pattern => $extracted_value,
                 _ => panic!("Pattern doesn't match!"),
             }
@@ -151,8 +151,7 @@ mod test {
         let properties = &schema.root.schema.object.as_ref().unwrap().properties;
 
         {
-            let val =
-                enum_value!(properties.get("a_null_value").unwrap(), Schema::Object(so) => so);
+            let val = enum_value!(properties, "a_null_value", Schema::Object(so) => so);
             assert_eq!(
                 val.instance_type,
                 Some(SingleOrVec::Single(Box::new(InstanceType::Null)))
@@ -160,7 +159,7 @@ mod test {
         }
 
         {
-            let val = enum_value!(properties.get("boolean").unwrap(), Schema::Object(so) => so);
+            let val = enum_value!(properties, "boolean", Schema::Object(so) => so);
             assert_eq!(
                 val.instance_type,
                 Some(SingleOrVec::Single(Box::new(InstanceType::Boolean)))
@@ -168,7 +167,7 @@ mod test {
         }
 
         {
-            let val = enum_value!(properties.get("number").unwrap(), Schema::Object(so) => so);
+            let val = enum_value!(properties, "number", Schema::Object(so) => so);
             assert_eq!(
                 val.instance_type,
                 Some(SingleOrVec::Single(Box::new(InstanceType::Number)))
@@ -176,7 +175,7 @@ mod test {
         }
 
         {
-            let val = enum_value!(properties.get("string").unwrap(), Schema::Object(so) => so);
+            let val = enum_value!(properties, "string", Schema::Object(so) => so);
             assert_eq!(
                 val.instance_type,
                 Some(SingleOrVec::Single(Box::new(InstanceType::String)))
