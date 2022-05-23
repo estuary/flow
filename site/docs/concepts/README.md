@@ -91,7 +91,7 @@ Whether you use the web app or Git-managed specifications is up to you,
 and teams can switch back and forth depending on what's more familiar.
 
 :::note
-The Flow web application is currently in [private beta](go.estuary.dev/sign-up).
+The Flow web application is currently in [private beta](https://go.estuary.dev/sign-up).
 :::
 
 ***

@@ -25,7 +25,7 @@ and an open-source ecosystem of pluggable connectors for integrating your existi
 
 :::info Beta
 Flow is in private beta.
-To get started, read more about the beta program and set up a free discovery call with the Estuary team [here](go.estuary.dev/sign-up).
+To get started, read more about the beta program and set up a free discovery call with the Estuary team [here](https://go.estuary.dev/sign-up).
 :::
 
 **Wondering if Flow is right for you?**
