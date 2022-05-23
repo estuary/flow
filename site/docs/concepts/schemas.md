@@ -34,7 +34,7 @@ before they can impact your production data products.
 ### Generation
 
 When capturing data from an external system,
-Flow is often able to generate suitable JSON schemas on your behalf.
+Flow can usually generate suitable JSON schemas on your behalf.
 
 [Learn more about using connectors](connectors.md#using-connectors)
 
