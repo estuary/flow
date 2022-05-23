@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
@@ -87,6 +86,8 @@ Edit and update this file, and then run this command again.
 	}.execute(context.Background())
 	if err != nil {
 		return err
+	} else if err := discovered.Validate(); err != nil {
+		return err
 	}
 
 	type Collection struct {
@@ -115,7 +116,7 @@ Edit and update this file, and then run this command again.
 	capture.Endpoint.Spec.Config = configName
 
 	for _, b := range discovered.Bindings {
-		var collection = path.Join(cmd.Prefix, escape(b.RecommendedName))
+		var collection = path.Join(cmd.Prefix, b.RecommendedName.String())
 		var schemaName = fmt.Sprintf("%s.schema.yaml", b.RecommendedName)
 
 		var schema, resource interface{}
@@ -349,14 +350,4 @@ func buildStubNode(inference *pf.Inference) (*yaml.Node, error) {
 	}
 
 	return node, nil
-}
-
-func escape(s string) string {
-	var sb strings.Builder
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' || r == '_' || r == '/' {
-			sb.WriteRune(r)
-		}
-	}
-	return sb.String()
 }
