@@ -1,3 +1,9 @@
+:::tip
+Projections are an advanced concept of Flow.
+You can use Flow without knowing the details of projections,
+but this section may help you better understand how Flow works.
+:::
+
 # Projections
 
 Flow documents are arbitrary JSON, and may contain multiple levels of hierarchy and nesting.

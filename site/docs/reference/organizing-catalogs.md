@@ -1,9 +1,10 @@
 ---
-sidebar_position: 1
+sidebar_position: 4
 ---
 # Organizing a Flow catalog
 
-It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently. You may want to do so if:
+It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently.
+You can leverage this capability when you [run Flow from the command line](../concepts/flowctl.md). You may want to do so if:
 
 * You want to ensure shared collections remain easy to find
 * You use group data that's managed by different teams
@@ -113,9 +114,9 @@ endpoints:
       warehouse: acme_production
 ```
 
-When we want to test locally, we simply run `flowctl test dev.flow.yaml` and when we push to production we'll likely run `flowctl apply prod.flow.yaml`.
+When we test the draft locally, we'll work with dev.flow.yaml, but we'll publish prod.flow.yaml.
 
-From there, everything will continue to work because in our development environment we'll be binding collections to our local SQLite DB and in production we'll use Snowflake.
+Everything will continue to work because in our development environment we'll be binding collections to our local SQLite DB and in production we'll use Snowflake.
 
 #### Example: Cross-team collaboration
 
@@ -163,3 +164,5 @@ collection:
 Every Flow collection has a name, and that name _must_ be unique within a running Flow system. Flow collections should be thought of as existing within a global namespace. Keeping names globally unique makes it easy to import catalogs from other teams, or even other organizations, without having naming conflicts or ambiguities.
 
 For example, imagine your catalog for the inside sales team has a collection just named `customers`. If you later try to import a catalog from the outside sales team that also contains a `customers` collection, 💥 there's a collision. A better collection name would be `acme/inside-sales/customers`. This allows a catalog to include customer data from separate teams, and also separate organizations.
+
+[Learn more about the Flow namespace.](../concepts/README.md#namespace)
