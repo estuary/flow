@@ -1,10 +1,9 @@
 ---
 source: crates/derive/src/extract_api.rs
 expression: "(String::from_utf8_lossy(&arena), out)"
-
 ---
 (
-    "prefix\t\u{2}\u{0}\t\u{3}\u{5}\u{7}\u{6}\u{8}\u{11}2/��9j�\u{1e}\u{15}*\u{2}a-string\u{0}",
+    "prefix\t\u{2}\0\t\u{3}\u{5}\u{7}\u{6}\u{8}\u{11}2/��9j�\u{1e}\u{15}*\u{2}a-string\0",
     [
         Out {
             code: 999,
