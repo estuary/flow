@@ -11,15 +11,25 @@ The Flow web application is currently available to users in the Estuary [beta pr
 :::
 
 ## Prerequisites
+
 This guide assumes a basic understanding of Flow and its key concepts.
 Before you begin, it's recommended that you read
 the [high level concepts](../concepts/README.md) documentation.
 
 ## Introduction
 
-The simplest Flow **catalog** comprises three types of entities that define your data flow: a data **capture** from an external source, one or more **collections**, which store that data in a cloud-backed data lake, and a **materialization**, to push them to an external destination.
+In Estuary Flow, you create data flows to connect data **source** and **destination** systems.
+The set of specifications that defines a data flow is known as a **catalog**, and is made of several important entities.
 
-In the majority of cases, the capture and materialization each rely on a plug-in **connector**. Here, we'll walk through how to leverage various connectors, configure them, and deploy your catalog to create an active data flow.
+The simplest Flow catalog comprises three types of entities:
+
+* A data **capture**, which ingests data from an external source
+* One or more **collections**, which store that data in a cloud-backed data lake
+* A **materialization**, to push the data to an external destination
+
+Almost always, the capture and materialization each rely on a **connector**.
+A connector is a plug-in component that interfaces between Flow and whatever data system you need to connect to.
+Here, we'll walk through how to leverage various connectors, configure them, and deploy your catalog to create an active data flow.
 
 ## Create a capture
 
@@ -38,16 +48,24 @@ Append a unique capture name after the `/` to create the full name, for example 
 
 4. Use the **Connector** drop down to choose your desired data source.
 
-  The rest of the page populates with the properties required for that connector.
+  A form appears with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/capture-connectors/README.md).
 
 5. Fill out the required properties and click **Test Config**.
 
   Flow uses the provided information to initiate a connection to the source system.
-  It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. If there's an error, you'll be prompted to fix your configuration and test again.
+  It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. Each resource is mapped to a collection through a **binding**.
 
-6. Look over the generated capture definition and the schema of the resulting Flow **collection**.
-If you'd like, you can edit the YAML files directly.
+  If there's an error, you'll be prompted to fix your configuration and test again.
+
+6. Look over the generated capture definition and the schema of the resulting Flow **collection(s)**.
+
+  Flow generates catalog specifications as YAML files.
+  You can modify it by filling in new values in the form and clicking **Regenerate Catalog**,
+  or by editing the YAML files directly in the web application.
+  (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
+
+  It's not always necessary to review and edit the YAML — Flow will prevent the publication of invalid catalogs.
 
 7. Once you're satisfied with the configuration, click **Save and publish**. You'll see a notification when the capture publishes successfully.
 
@@ -75,3 +93,22 @@ The **New Materializations** page is pre-populated with the capture and collecti
 4. Look over the generated materialization definition and edit it, if you'd like.
 
 5. Click **Save and publish**. You'll see a notification when the full data flow publishes successfully.
+
+## What's next?
+
+Now that you've deployed your first data flow, you can explore more possibilities.
+
+* Read the [high level concepts](../concepts/README.md) to better understand how Flow works and what's possible.
+
+* Create more complex data flows by mixing and matching collections in your captures and materializations. For example:
+
+   * Materialize the same collection to multiple destinations.
+
+   * If a capture produces multiple collections, materialize each one to a different destination.
+
+   * Materialize collections that came from different sources to the same destination.
+
+* Advanced users can modify collection [schemas](../concepts/schemas.md), apply data [reductions](../concepts/schemas.md#reductions),
+or transform data with a [derivation](../concepts/derivations.md)
+(derivations are currently available using the [CLI](../concepts/flowctl.md),
+but support in the web application is coming soon.)

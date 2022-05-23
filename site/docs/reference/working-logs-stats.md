@@ -1,3 +1,6 @@
+---
+sidebar_position: 2
+---
 # Working with logs and statistics
 
 Your [`logs` and `stats` collections](../concepts/advanced/logs-stats.md)

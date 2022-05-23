@@ -6,7 +6,7 @@ description: Common pain points you might have, and how Flow addresses them.
 # Who should use Flow?
 
 Flow is a DataOps platform designed for all members of your data team. Its powerful command-line interface gives backend engineers data integration superpowers.
-At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute to and manage the same data pipelines using the web application.
+At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute to and manage the same data pipelines, or **data flows**, using the web application.
 
 If you answer "yes" to any of the following questions, Flow can help:
 
@@ -31,25 +31,28 @@ With Flow, you can build, test, and evolve pipelines that continuously capture, 
 
 To achieve comparable capabilities to Flow you would need:
 
-* A low-latency streaming system, such as AWS Kenesis
-* Data lake build-out, such as Kenesis Firehose to S3
+* A low-latency streaming system, such as AWS Kinesis
+* Data lake build-out, such as Kinesis Firehose to S3
 * Custom ETL application development, such as Spark, Flink, or AWS λ
 * Supplemental data stores for intermediate transformation states
 * ETL job management and execution, such as a self-hosting or Google Cloud Dataflow
 * Custom reconciliation of historical vs streaming datasets, including onerous backfills of new streaming applications from historical data
 
 Flow's declarative GitOps workflow is a dramatic simplification from this inherent complexity. It saves you time and costs, catches mistakes before they hit production, and keeps your data fresh across all the places you use it.
+The UI-forward web application takes usability to a new level,
+allowing more types of professionals to contribute to what would otherwise require a
+highly specialized set of technical skills.
 
 ### Efficient architecture
 
 Flow mixes a variety of architectural techniques to deliver great throughput, avoid latency, and minimize operating costs. These include:
 
-* Leveraging reductions to reduce the amount of data that must be ingested, stored, and processed, often dramatically
+* Leveraging [reductions](../concepts/schemas.md#reductions) to reduce the amount of data that must be ingested, stored, and processed, often dramatically
 * Executing transformations predominantly in-memory
 * Optimistic pipelining and vectorization of internal remote procedure calls (RPCs) and operations
 * A cloud-native design that optimizes for public cloud pricing models
 
-Flow also makes it easy to **materialize** focused data rollups as views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
+Flow also makes it easy to [**materialize**](../concepts/materialization.md) focused data rollups as views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
 
 ### Powerful transformations
 
@@ -70,4 +73,4 @@ Flow supports strong schematization, durable transactions with exactly-once sema
 
 The Flow runtime scales from a single process for local development up to a large Kubernetes cluster for high-volume production deployments. Processing tasks are quickly reassigned upon any machine failure for high availability.
 
-Each process can also be scaled independently, at any time, and without downtime. This is unique to Flow. Comparable systems require that an arbitrary data partitioning be decided upfront, a crucial performance knob that's awkward and expensive to change. Instead, Flow can repeatedly split a running task into two new tasks, each half the size, without stopping it or impacting its downstream uses.
+Each process can also be scaled independently, at any time, and without downtime. This is unique to Flow. Comparable systems require that an arbitrary data partitioning be decided upfront, a crucial performance knob that's awkward and expensive to change. Instead, Flow can repeatedly [split a running task](../concepts/advanced/shards.md) into two new tasks, each half the size, without stopping it or impacting its downstream uses.
