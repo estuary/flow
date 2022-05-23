@@ -53,8 +53,13 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
 			EndpointSpecJson: spec,
 		})
+	if err != nil {
+		return nil, err
+	} else if err = resp.Validate(); err != nil {
+		return nil, err
+	}
 
-	return resp, err
+	return resp, nil
 }
 
 func (cmd apiDiscover) Execute(_ []string) error {
