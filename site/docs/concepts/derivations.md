@@ -61,7 +61,7 @@ collections:
         # TypeScript module implementing this derivation.
         # Module is either a relative URL of a TypeScript module file (recommended),
         # or an inline representation of a TypeScript module.
-        module: acmeModule.flow.ts
+        module: acmeModule.ts
 
         # NPM package dependencies of the module
         # Version strings can take any form understood by NPM.
@@ -290,12 +290,19 @@ and their corresponding register documents.
 Every source document is mapped to a specific register document
 through its extracted [shuffle key](#shuffles).
 
-For example, when shuffling `acmeBank/transfers` on `[/sender]`,
-each account ("alice", "bob", or "carol")
-is allocated its own register.
-If you instead shuffle on `[/sender, /recipient]` then each
-_pair_ of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
+For example, when shuffling `acmeBank/transfers` on `[/sender]` or `[/recipient]`,
+each account ("alice", "bob", or "carol") is allocated its own register.
+You might use that register to track a current account balance
+given the received inflows and sent outflows of each account.
+
+If you instead shuffle on `[/sender, /recipient]`, each
+pair of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
 is allocated a register.
+
+Transformations of a derivation may have different shuffle keys,
+but the number of key components and their JSON types must agree.
+Two transformations could map on [/sender] and [/recipient],
+but not [/sender] and [/recipient, /sender].
 
 Registers are best suited for relatively small,
 fast-changing documents that are shared within and across
@@ -320,19 +327,29 @@ which subdivides its contents into two new databases
 
 ## Lambdas
 
-Lambdas are user-defined functions that are invoked by a derivation.
-In simple terms, lambdas are what give you the full power of MapReduce in derivations:
-while [reductions](./schemas.md#reductions) can be defined in collection schemas,
-and shuffles perform basic key-based mapping, lambdas allow you to perform more complex mapping.
+Lambdas are user-defined functions that are invoked by derivations.
+They accept documents as arguments
+and return transformed documents in response.
+Lambdas can be used to update registers, publish documents into a derived collection,
+or compute a non-trivial shuffle key of a document.
 
-Lambdas accept documents as arguments and return documents in response.
-They may update documents in registers or publish documents to the derived collection.
-For performance reasons, **update** and **publish** lambdas are implemented differently.
+:::info Beta
+The ability for lambdas to compute a document's shuffle key is coming soon.
+:::
 
-Flow currently supports TypeScript lambdas, which you define in an accompanying TypeScript module.
-The module must be added to the derivation's definition in the `typescript` stanza.
-See the [derivation specification](#specification) and [Creating TypeScript modules](#creating-typescript-modules)
-for more details.
+Flow supports TypeScript lambdas, which you define in an accompanying TypeScript module
+and reference in a derivation's `typescript` stanzas.
+See the [derivation specification](#specification) and [Creating TypeScript modules](#creating-typescript-modules) for more details on how to get started.
+TypeScript lambdas are "serverless"; Flow manages the execution and scaling of your Lambda on your behalf.
+
+Alternatively, Flow also supports [remote lambdas](#remote-lambdas), which invoke an HTTP endpoint you provide,
+such as an AWS Lambda or Google Cloud Run function.
+
+In terms of the MapReduce functional programming paradigm,
+Flow lambdas are mappers,
+which map documents into new user-defined shapes.
+Reductions are implemented by Flow
+using the [reduction annotations](./schemas.md#reduce-annotations) of your collection schemas.
 
 ### Publish lambdas
 
@@ -349,9 +366,9 @@ from each sender that was over $100:
 ```
 
 </TabItem>
-<TabItem value="last-large-send.flow.ts" default>
+<TabItem value="last-large-send.ts" default>
 
-```typescript file=./bank/last-large-send.flow.ts
+```typescript file=./bank/last-large-send.ts
 ```
 
 </TabItem>
@@ -407,9 +424,9 @@ for each user from all of the credit and debit amounts of their transfers:
 ```
 
 </TabItem>
-<TabItem value="balances.flow.ts" default>
+<TabItem value="balances.ts" default>
 
-```typescript file=./bank/balances.flow.ts
+```typescript file=./bank/balances.ts
 ```
 
 </TabItem>
@@ -440,9 +457,9 @@ to track whether this account pair has been seen before:
 ```
 
 </TabItem>
-<TabItem value="first-send.flow.ts" default>
+<TabItem value="first-send.ts" default>
 
-```typescript file=./bank/first-send.flow.ts
+```typescript file=./bank/first-send.ts
 ```
 
 </TabItem>
@@ -525,9 +542,9 @@ and whether the account was overdrawn:
 ```
 
 </TabItem>
-<TabItem value="flagged-transfers.flow.ts" default>
+<TabItem value="flagged-transfers.ts" default>
 
-```typescript file=./bank/flagged-transfers.flow.ts
+```typescript file=./bank/flagged-transfers.ts
 ```
 
 </TabItem>
@@ -574,7 +591,7 @@ and TypeScript types that match your schemas.
 Update the module with your lambda function bodies,
 and proceed to test and deploy your catalog.
 
-Using the example below, `flowctl typescript generate --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.flow.ts.
+Using the example below, `flowctl typescript generate --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.ts.
 
 <Tabs>
 <TabItem value="acmeBank.flow.yaml" default>
@@ -587,7 +604,7 @@ collections:
 
     derivation:
       typescript:
-        module: acmeBank.flow.ts
+        module: acmeBank.ts
       transform:
         fromTransfers:
           source: { name: acmeBank/transfers }
@@ -595,7 +612,7 @@ collections:
 ```
 
 </TabItem>
-<TabItem value="acmeBank.flow.ts (generated stub)" default>
+<TabItem value="acmeBank.ts (generated stub)" default>
 
 ```typescript
 import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
@@ -633,14 +650,14 @@ for working with times:
 ```yaml
 derivation:
   typescript:
-    module: first-send.flow.ts
+    module: first-send.ts
     npmDependencies:
       moment: "^2.24"
   transform: { ... }
 ```
 
 </TabItem>
-<TabItem value="catalog.flow.ts" default>
+<TabItem value="first-send.ts" default>
 
 ```typescript
 import * as moment from 'moment';
@@ -661,6 +678,13 @@ managed `package.json`.
 Flow organizes its generated TypeScript project structure
 for a seamless editing experience out of the box with VS Code
 and other common editors.
+
+### Remote lambdas
+
+A remote Lambda is one that you implement and host yourself as a web-accessible endpoint,
+typically via a service like [AWS Lambda](https://aws.amazon.com/lambda/) or [Google Cloud Run](https://cloud.google.com/run).
+Flow will invoke your remote Lambda as needed,
+POST-ing JSON documents to process and expecting JSON documents in the response.
 
 ## Processing order
 

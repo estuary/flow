@@ -8,7 +8,7 @@ collections:
 
     derivation:
       typescript:
-        module: last-large-send.flow.ts
+        module: last-large-send.ts
       transform:
         fromTransfers:
           source:

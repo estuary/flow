@@ -69,9 +69,8 @@ Except where noted, it's recommended that these outputs be committed within your
 
 ### TypeScript code generation
 
-TypeScript files are used in two major ways in your Flow catalog:
-As part of the overall catalog build, which is automatic,
-and to define lambdas for [derivations](./derivations.md), which requires your input.
+TypeScript files are used in the Flow catalog both as part of the automatic build process,
+and to define lambdas functions for [derivations](./derivations.md), which requires your input.
 
 As part of the catalog build process, Flow translates your
 [schemas](schemas.md)

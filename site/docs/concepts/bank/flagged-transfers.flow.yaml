@@ -27,7 +27,7 @@ collections:
         initial: 0
 
       typescript:
-        module: flagged-transfers.flow.ts
+        module: flagged-transfers.ts
 
       transform:
         fromTransferSender:

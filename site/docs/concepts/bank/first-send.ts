@@ -12,7 +12,7 @@ export class Derivation implements IDerivation {
         _register: Register,
         previous: Register,
     ): Document[] {
-         // If the register was previously false, than this is the first
+        // If the register was previously false, than this is the first
         // transfer for this account pair.
         if (!previous) {
             return [source];

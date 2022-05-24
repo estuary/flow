@@ -16,7 +16,7 @@ collections:
 
     derivation:
       typescript:
-        module: balances.flow.ts
+        module: balances.ts
       transform:
         fromTransfers:
           source:

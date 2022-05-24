@@ -14,7 +14,7 @@ collections:
         initial: false
 
       typescript:
-        module: first-send.flow.ts
+        module: first-send.ts
 
       transform:
         fromTransfers:
