@@ -16,6 +16,14 @@ You can access logs by materializing them to an external endpoint, or from the c
 
 ### Accessing logs from the command line
 
+:::caution Beta
+The `flowctl logs` subcommand is not currently available due to an ongoing overhaul of
+the `flowctl` binary. Command line support will be added back soon.
+Contact [Estuary Support](mailto:support@estuary.dev) for more information.
+
+For now, use a [materialization](#accessing-logs-by-materialization) to view logs.
+:::
+
 The `flowctl logs` subcommand allows you to print logs from the command line.
 This method allows more flexibility and is ideal for debugging.
 
