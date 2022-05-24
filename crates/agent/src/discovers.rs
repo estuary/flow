@@ -212,6 +212,7 @@ fn swizzle_response_to_catalog(
     // Response is the expected shape of a discover response.
     #[derive(Deserialize)]
     struct Response {
+        #[serde(default)]
         bindings: Vec<Binding>,
     }
     #[derive(Deserialize)]
