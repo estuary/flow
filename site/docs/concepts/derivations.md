@@ -18,6 +18,9 @@ transforming them into updates of the derived collection.
 In addition to their collection,
 derivations are defined by their **transformations** and **registers**.
 
+Complex transformations can be implemented with **lambdas**,
+functions defined in referenced TypeScript modules.
+
 ![](<derivations.svg>)
 
 ## Specification
@@ -50,6 +53,20 @@ collections:
         # Initial value taken by a register which has never been updated before.
         # Optional, default: null
         initial: 0
+
+      # TypeScript module that implements any lambda functions invoked by this derivation.
+      # Optional, type: object
+      typescript:
+
+        # TypeScript module implementing this derivation.
+        # Module is either a relative URL of a TypeScript module file (recommended),
+        # or an inline representation of a TypeScript module.
+        module: acmeModule.ts
+
+        # NPM package dependencies of the module
+        # Version strings can take any form understood by NPM.
+        # See https://docs.npmjs.com/files/package.json#dependencies
+        npmDependencies: {}
 
       # Transformations of the derivation,
       # specified as a map of named transformations.
@@ -258,7 +275,83 @@ However, one transformation _can_ shuffle on `[/sender]`
 while another shuffles on `[/recipient]`,
 as in the examples below.
 
-## Publish lambdas
+## Registers
+
+Registers are the internal _memory_ of a derivation.
+They are a building block that enable derivations to tackle advanced stateful
+streaming computations like multi-way joins, windowing, and transaction processing.
+As we've already seen, not all derivations require registers,
+but they are essential for a variety of important use cases.
+
+Each register is a document with a user-defined
+[schema](schemas.md).
+Registers are keyed, and every derivation maintains an index of keys
+and their corresponding register documents.
+Every source document is mapped to a specific register document
+through its extracted [shuffle key](#shuffles).
+
+For example, when shuffling `acmeBank/transfers` on `[/sender]` or `[/recipient]`,
+each account ("alice", "bob", or "carol") is allocated its own register.
+You might use that register to track a current account balance
+given the received inflows and sent outflows of each account.
+
+If you instead shuffle on `[/sender, /recipient]`, each
+pair of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
+is allocated a register.
+
+Transformations of a derivation may have different shuffle keys,
+but the number of key components and their JSON types must agree.
+Two transformations could map on [/sender] and [/recipient],
+but not [/sender] and [/recipient, /sender].
+
+Registers are best suited for relatively small,
+fast-changing documents that are shared within and across
+the transformations of a derivation.
+The number of registers indexed within a derivation may be very large,
+and if a register has never before been used,
+it starts with a user-defined initial value.
+From there, registers may be modified through an **update lambda**.
+
+:::info
+Under the hood, registers are backed by replicated,
+embedded RocksDB instances, which co-locate
+with the lambda execution contexts that Flow manages.
+As contexts are assigned and re-assigned,
+their register databases travel with them.
+
+If any single RocksDB instance becomes too large,
+Flow is able to perform an online **split**,
+which subdivides its contents into two new databases
+ — and paired execution contexts — which are re-assigned to other machines.
+:::
+
+## Lambdas
+
+Lambdas are user-defined functions that are invoked by derivations.
+They accept documents as arguments
+and return transformed documents in response.
+Lambdas can be used to update registers, publish documents into a derived collection,
+or compute a non-trivial shuffle key of a document.
+
+:::info Beta
+The ability for lambdas to compute a document's shuffle key is coming soon.
+:::
+
+Flow supports TypeScript lambdas, which you define in an accompanying TypeScript module
+and reference in a derivation's `typescript` stanzas.
+See the [derivation specification](#specification) and [Creating TypeScript modules](#creating-typescript-modules) for more details on how to get started.
+TypeScript lambdas are "serverless"; Flow manages the execution and scaling of your Lambda on your behalf.
+
+Alternatively, Flow also supports [remote lambdas](#remote-lambdas), which invoke an HTTP endpoint you provide,
+such as an AWS Lambda or Google Cloud Run function.
+
+In terms of the MapReduce functional programming paradigm,
+Flow lambdas are mappers,
+which map documents into new user-defined shapes.
+Reductions are implemented by Flow
+using the [reduction annotations](./schemas.md#reduce-annotations) of your collection schemas.
+
+### Publish lambdas
 
 A **publish** lambda publishes documents into the derived collection.
 
@@ -273,9 +366,9 @@ from each sender that was over $100:
 ```
 
 </TabItem>
-<TabItem value="last-large-send.flow.ts" default>
+<TabItem value="last-large-send.ts" default>
 
-```typescript file=./bank/last-large-send.flow.ts
+```typescript file=./bank/last-large-send.ts
 ```
 
 </TabItem>
@@ -292,7 +385,6 @@ which is implemented in an accompanying TypeScript module.
 The lambda is invoked as each source transfer document arrives.
 It is given the `source` document,
 and also includes the a `_register` and `_previous` register, which are not used here.
-[Registers](#registers) are discussed in depth below.
 The lambda outputs zero or more documents,
 each of which must conform to the derivation's schema.
 
@@ -302,14 +394,6 @@ If it were instead keyed on `/id`,
 then _all_ transfers with large amounts would be retained.
 In SQL terms, the collection key acts as a GROUP BY.
 
-:::tip
-Flow will initialize a TypeScript module for your lambdas if one doesn't exist,
-with stubs of the required interfaces
-and TypeScript types that match your schemas.
-You just write the function body.
-
-[Learn more about TypeScript generation](flowctl.md#typescript-generation)
-:::
 
 ***
 
@@ -340,9 +424,9 @@ for each user from all of the credit and debit amounts of their transfers:
 ```
 
 </TabItem>
-<TabItem value="balances.flow.ts" default>
+<TabItem value="balances.ts" default>
 
-```typescript file=./bank/balances.flow.ts
+```typescript file=./bank/balances.ts
 ```
 
 </TabItem>
@@ -354,50 +438,7 @@ for each user from all of the credit and debit amounts of their transfers:
 </TabItem>
 </Tabs>
 
-## Registers
-
-Registers are the internal _memory_ of a derivation.
-They are a building block that enable derivations to tackle advanced stateful
-streaming computations like multi-way joins, windowing, and transaction processing.
-As we've already seen, not all derivations require registers,
-but they are essential for a variety of important use cases.
-
-Each register is a document with a user-defined
-[schema](schemas.md).
-Registers are keyed, and every derivation maintains an index of keys
-and their corresponding register documents.
-Every source document is mapped to a specific register document
-through its extracted [shuffle key](#shuffles).
-
-For example, when shuffling `acmeBank/transfers` on `[/sender]`,
-each account ("alice", "bob", or "carol")
-is allocated its own register.
-If you instead shuffle on `[/sender, /recipient]` then each
-_pair_ of accounts ("alice -> bob", "alice -> carol", "bob -> carol")
-is allocated a register.
-
-Registers are best suited for relatively small,
-fast-changing documents that are shared within and across
-the transformations of a derivation.
-The number of registers indexed within a derivation may be very large,
-and if a register has never before been used,
-it starts with a user-defined initial value.
-From there, registers may be modified through an **update lambda**.
-
-:::info
-Under the hood, registers are backed by replicated,
-embedded RocksDB instances, which co-locate
-with the lambda execution contexts that Flow manages.
-As contexts are assigned and re-assigned,
-their register databases travel with them.
-
-If any single RocksDB instance becomes too large,
-Flow is able to perform an online **split**,
-which subdivides its contents into two new databases
- — and paired execution contexts — which are re-assigned to other machines.
-:::
-
-## Update lambdas
+### Update lambdas
 
 An **update** lambda transforms a source document
 into an update of the source document's register.
@@ -416,9 +457,9 @@ to track whether this account pair has been seen before:
 ```
 
 </TabItem>
-<TabItem value="first-send.flow.ts" default>
+<TabItem value="first-send.ts" default>
 
-```typescript file=./bank/first-send.flow.ts
+```typescript file=./bank/first-send.ts
 ```
 
 </TabItem>
@@ -501,9 +542,9 @@ and whether the account was overdrawn:
 ```
 
 </TabItem>
-<TabItem value="flagged-transfers.flow.ts" default>
+<TabItem value="flagged-transfers.ts" default>
 
-```typescript file=./bank/flagged-transfers.flow.ts
+```typescript file=./bank/flagged-transfers.ts
 ```
 
 </TabItem>
@@ -538,6 +579,112 @@ into a derivation register keyed on the account.
     Derivation->>Publish λ: publish({sender: alice, amount: 75, ...}, register = -25, previous = 50)?
     Publish λ-->>Derivation: return {sender: alice, amount: 75, balance: -25, overdrawn: true}
 `}/>
+
+### Creating TypeScript modules
+
+To create a new TypeScript module for the lambdas of your derivation,
+you can use `flowctl typescript generate` to generate it.
+In the derivation specification, choose the name for the new module and
+run `flowctl typescript generate`.
+Flow creates a module with the name you specified, stubs of the required interfaces,
+and TypeScript types that match your schemas.
+Update the module with your lambda function bodies,
+and proceed to test and deploy your catalog.
+
+Using the example below, `flowctl typescript generate --source=acmeBank.flow.yaml` will generate the stubbed-out acmeBank.ts.
+
+<Tabs>
+<TabItem value="acmeBank.flow.yaml" default>
+
+```yaml
+collections:
+  acmeBank/balances:
+    schema: balances.schema.yaml
+    key: [/account]
+
+    derivation:
+      typescript:
+        module: acmeBank.ts
+      transform:
+        fromTransfers:
+          source: { name: acmeBank/transfers }
+          publish: { lambda: typescript }
+```
+
+</TabItem>
+<TabItem value="acmeBank.ts (generated stub)" default>
+
+```typescript
+import { IDerivation, Document, Register, FromTransfersSource } from 'flow/acmeBank/balances';
+
+// Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
+export class Derivation implements IDerivation {
+     fromTransfersPublish(
+        _source: FromTransfersSource,
+        _register: Register,
+        _previous: Register,
+    ): Document[] {
+        throw new Error("Not implemented");
+    }
+}
+```
+
+</TabItem>
+</Tabs>
+
+
+[Learn more about TypeScript generation](flowctl.md#typescript-generation)
+
+### NPM dependencies
+
+Your TypeScript modules may depend on other
+[NPM packages](https://www.npmjs.com/),
+which can be be imported through the `npmDependencies`
+stanza of the [derivation spec](#specification).
+For example, [moment](https://momentjs.com/) is a common library
+for working with times:
+
+<Tabs>
+<TabItem value="catalog.flow.yaml" default>
+
+```yaml
+derivation:
+  typescript:
+    module: first-send.ts
+    npmDependencies:
+      moment: "^2.24"
+  transform: { ... }
+```
+
+</TabItem>
+<TabItem value="first-send.ts" default>
+
+```typescript
+import * as moment from 'moment';
+
+// ... use `moment` as per usual.
+```
+
+</TabItem>
+</Tabs>
+
+Use any version string understood by `package.json`,
+which can include local packages, GitHub repository commits, and more.
+See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
+
+During the catalog build process, Flow gathers NPM dependencies
+across all catalog source files and patches them into the catalog's
+managed `package.json`.
+Flow organizes its generated TypeScript project structure
+for a seamless editing experience out of the box with VS Code
+and other common editors.
+
+### Remote lambdas
+
+A remote Lambda is one that you implement and host yourself as a web-accessible endpoint,
+typically via a service like [AWS Lambda](https://aws.amazon.com/lambda/) or [Google Cloud Run](https://cloud.google.com/run).
+Flow will invoke your remote Lambda as needed,
+POST-ing JSON documents to process and expecting JSON documents in the response.
 
 ## Processing order
 

@@ -2,7 +2,7 @@ import:
   - transfers.flow.yaml
 
 collections:
-  acmeBank/flagged-transfers:
+  examples/acmeBank/flagged-transfers:
     schema:
       # Extend transfer schema with `balance` and `overdrawn` fields.
       $ref: transfers.schema.yaml
@@ -26,9 +26,12 @@ collections:
           reduce: { strategy: sum }
         initial: 0
 
+      typescript:
+        module: flagged-transfers.ts
+
       transform:
         fromTransferSender:
-          source: { name: acmeBank/transfers }
+          source: { name: examples/acmeBank/transfers }
           shuffle: { key: [/sender] }
           # Debit the sender's register balance.
           update: { lambda: typescript }
@@ -36,7 +39,7 @@ collections:
           publish: { lambda: typescript }
 
         fromTransferRecipient:
-          source: { name: acmeBank/transfers }
+          source: { name: examples/acmeBank/transfers }
           shuffle: { key: [/recipient] }
           # Credit the recipient's register balance.
           update: { lambda: typescript }

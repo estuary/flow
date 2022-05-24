@@ -2,9 +2,9 @@ import:
   - flagged-transfers.flow.yaml
 
 tests:
-  acmeBank/tests/flagged-transfers:
+  examples/acmeBank/tests/flagged-transfers:
     - ingest:
-        collection: acmeBank/transfers
+        collection: examples/acmeBank/transfers
         description: Initial deposits.
         documents:
           - { id: 1, sender: CREDIT, recipient: alice, amount: 100 }
@@ -12,14 +12,14 @@ tests:
           - { id: 3, sender: CREDIT, recipient: carol, amount: 100 }
 
     - ingest:
-        collection: acmeBank/transfers
+        collection: examples/acmeBank/transfers
         description: Transfers between users.
         documents:
           - { id: 4, sender: alice, recipient: bob, amount: 50 }
           - { id: 5, sender: bob, recipient: carol, amount: 75 }
 
     - ingest:
-        collection: acmeBank/transfers
+        collection: examples/acmeBank/transfers
         description: |
           Further transfers between users, with one being an overdraft.
         documents:
@@ -27,7 +27,7 @@ tests:
           - { id: 7, sender: carol, recipient: bob, amount: 175 }
 
     - verify:
-        collection: acmeBank/flagged-transfers
+        collection: examples/acmeBank/flagged-transfers
         description: |
           Expect transfer #6 was flagged as being overdrawn.
         partitions:
