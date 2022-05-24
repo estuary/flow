@@ -13,14 +13,14 @@ const config = {
   baseUrl: '/',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon-2.ico',
   organizationName: 'estuary',
   projectName: 'flow',
   trailingSlash: true,
 
   plugins: [
     [
-      require.resolve('docusaurus-lunr-search'), 
+      require.resolve('docusaurus-lunr-search'),
       {
         // @ts-ignore
         excludeRoutes: [
@@ -61,7 +61,7 @@ const config = {
         title: 'Estuary Flow',
         logo: {
           alt: 'Estuary Flow Logo',
-          src: 'img/EstuaryAnimated.gif',
+          src: 'img/estuary-new.png',
         },
         items: [
           {
