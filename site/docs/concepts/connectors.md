@@ -53,7 +53,7 @@ You can interact with connectors using either the Flow web application or the fl
 The Flow web application is designed to assist you with connector configuration and deployment.
 It's a completely no-code experience, but it's compatible with Flow's command line tools, discussed below.
 
-When you add a capture or materialization in the Flow web app, choose the desired endpoint from the **Connector** drop-down menu.
+When you add a capture or materialization in the Flow web app, choose the desired data system from the **Connector** drop-down menu.
 
 The required fields for the connector appear below the drop-down. When you fill in the fields and click **Test Config**,
 Flow automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.

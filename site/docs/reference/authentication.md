@@ -2,14 +2,14 @@
 sidebar_position: 1
 ---
 
-# Authenticating Flow
+# Authorizing users and authenticating with Flow
 
 Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
 are granted to Flow users through **roles**.
 
 Roles are granted in terms of **prefixes** within the Flow [namespace](../concepts/README.md#namespace).
-By default, each organization, or **tenant**, has a unique high-level prefix.
-For example, if you worked for Acme Co, your assigned tenant prefix would be `acmeCo/`.
+By default, each organization has a unique top-level prefix.
+For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
 You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.
 When you name a collection, you can customize the prefix, and roles can be configured at any prefix level.
 This allows you to flexibly control access to your Flow data.
@@ -34,10 +34,10 @@ For example, user X of Acme Co has admin access to the `acmeCo/` prefix, and use
 A third party has granted `acmeCo/` read access to shared data at `outside-org/acmeCo-share/`.
 User X automatically inherits read access to `outside-org/acmeCo-share/`, but user Y does not.
 
-## Default authentication settings
+## Default authorization settings
 
-When you first sign up to use Flow, your organization is provisioned a tenant prefix, and your username is granted admin access to the prefix.
-Your prefix is granted write access to itself and read access to its logs, which are stored in the global `ops/` prefix.
+When you first sign up to use Flow, your organization is provisioned a prefix, and your username is granted admin access to the prefix.
+Your prefix is granted write access to itself and read access to its logs, which are stored under a unique sub-prefix of the global `ops/` prefix.
 
 Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
 `acmeCo/`, in turn, has write access to `acmeCo/` and read access to `ops/acmeCo/`.
@@ -66,7 +66,7 @@ To authenticate a local development session using the CLI, do the following:
    flowctl auth token --token=<copied-token>
    ```
 
-The token will expire after a prolonged period of inactivity. Generate a new token using the web application and re-authenticate.
+The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
 
 ## Provisioning roles
 

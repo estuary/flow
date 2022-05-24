@@ -6,7 +6,7 @@ sidebar_position: 5
 There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
 With flowctl, you can work on drafts and active catalogs created in the webapp with a
 higher degree of control.
-You can also authenticate Flow users and roles and generate Typescript modules to customize [derivations](derivations.md).
+You can also authenticate Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md).
 
 flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
