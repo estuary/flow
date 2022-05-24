@@ -2,9 +2,9 @@ import:
   - balances.flow.yaml
 
 tests:
-  acmeBank/tests/balances:
+  examples/acmeBank/tests/balances:
     - ingest:
-        collection: acmeBank/transfers
+        collection: examples/acmeBank/transfers
         description: Initial deposits into user accounts.
         documents:
           - { id: 1, sender: CREDIT, recipient: alice, amount: 100 }
@@ -12,7 +12,7 @@ tests:
           - { id: 3, sender: CREDIT, recipient: carol, amount: 100 }
 
     - ingest:
-        collection: acmeBank/transfers
+        collection: examples/acmeBank/transfers
         description: Transfers between users, and a withdraw.
         documents:
           - { id: 4, sender: alice, recipient: bob, amount: 20 }
@@ -21,7 +21,7 @@ tests:
           - { id: 7, sender: bob, recipient: CREDIT, amount: 40 }
 
     - verify:
-        collection: acmeBank/balances
+        collection: examples/acmeBank/balances
         description: Verify expected balances.
         documents:
           - { user: CREDIT, balance: -260 }

@@ -47,13 +47,7 @@ Except where noted, it's recommended that these outputs be committed within your
 
 * `flow_generated/`: ♻
   Directory of generated files, including TypeScript classes and interfaces.
-  See [Typescript code generation](#typescript-code-generation).
-
-* `*.flow.ts`: ⚓
-  TypeScript modules that accompany your catalog source files.
-  A stub is generated for you if your catalog source uses a TypeScript lambda, and a module doesn't yet exist.
-  See [Typescript code generation](#typescript-code-generation) and
-  [learn how TypeScript modules are imported](import.md#typescript-modules).
+  See [TypeScript code generation](#typescript-code-generation).
 
 * `dist/`: ♻
   Holds JavaScript and source map files produced during TypeScript compilation.
@@ -85,6 +79,9 @@ Except where noted, it's recommended that these outputs be committed within your
 
 ### TypeScript code generation
 
+TypeScript files are used in the Flow catalog both as part of the automatic build process,
+and to define lambdas functions for [derivations](./derivations.md), which requires your input.
+
 As part of the catalog build process, Flow translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
@@ -93,61 +90,12 @@ and are frequently over-written by invocations of `flowctl`.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn't required.
 
-Flow also generates TypeScript module stubs for Flow catalog sources, which reference
-a TypeScript lambda, if that particular Flow catalog source doesn't yet have an accompanying TypeScript module.
-Generated stubs include implementations of the required TypeScript interfaces,
-with all method signatures filled out for you:
+Whenever you define a derivation that uses a [lambda](./derivations.md#lambdas),
+you must define the lambda in an accompanying TypeScript module, and reference that module
+in the derivation's definition. To facilitate this,
+you can generate a stub of the module using `flowctl typescript generate`
+and simply write the function bodies.
+[Learn more about this workflow.](./derivations.md#creating-typescript-modules)
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
-<Tabs>
-<TabItem value="acmeBank.flow.yaml" default>
-
-```yaml
-collections:
-  acmeBank/balances:
-    schema: balances.schema.yaml
-    key: [/account]
-
-    derivation:
-      transform:
-        fromTransfers:
-          source: { name: acmeBank/transfers }
-          publish: { lambda: typescript }
-```
-
-</TabItem>
-<TabItem value="acmeBank.flow.ts (generated stub)" default>
-
-```typescript
-import { collections, interfaces, registers } from 'flow/modules';
-
-// Implementation for derivation examples/acmeBank.flow.yaml#/collections/acmeBank~1balances/derivation.
-export class AcmeBankBalances implements interfaces.AcmeBankBalances {
-    fromTransfersPublish(
-        _source: collections.AcmeBankTransfers,
-        _register: registers.AcmeBankBalances,
-        _previous: registers.AcmeBankBalances,
-    ): collections.AcmeBankBalances[] {
-        throw new Error("Not implemented");
-    }
-}
-```
-
-</TabItem>
-</Tabs>
-
-If a TypeScript module exists, `flowctl` will never over-write it,
+If a TypeScript module exists, `flowctl` will never overwrite it,
 even if you update or expand your catalog sources such that the required interfaces have changed.
-
-:::tip
-
-If you make changes to a catalog source file `my.flow.yaml` that substantially
-change the required TypeScript interfaces, try re-naming an existing
-`my.flow.ts` to another name like `old.flow.ts`.
-
-Then run `flowctl check` to re-generate a new implementation stub,
-which will have correct interfaces and can be updated from the definitions of `old.flow.ts`.
-
-:::

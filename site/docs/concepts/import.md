@@ -5,7 +5,7 @@ sidebar_position: 6
 
 The YAML files that comprise a catalog specification may include an `import` section.
 This is what allows you to organize your catalog spec across multiple
-interlinked files, and in some cases, import other resources.
+interlinked files.
 When a catalog is deployed, the imported resources are treated as part of the file
 into which they are imported.
 
@@ -62,7 +62,7 @@ import:
    contentType: CATALOG
 ```
 
-Other permitted content types include `JSON_SCHEMA` and `TYPESCRIPT_MODULE`,
+Other permitted content types include `JSON_SCHEMA`,
 but these are not typically used and are needed only for advanced use cases.
 
 ## JSON Schema `$ref`
@@ -80,70 +80,15 @@ In this case, the schema must be referenced through its canonical URL,
 and then explicitly added to the `import` section
 with `JSON_SCHEMA` content type.
 
-## TypeScript modules
+## Importing derivation resources
 
-Certain entities in your catalog spec — typically derivations — may use
-TypeScript lambda definitions.
-These lambdas are conventionally defined in TypeScript modules
-that accompany the specific catalog spec file.
-Flow looks for and automatically imports TypeScript modules
-which live alongside a Flow catalog spec file.
+In many cases, [derivations](./derivations.md) in your catalog will need to import resources.
+Usually, these are Typescript modules that define the lambda functions of a transformation,
+and, in certain cases, the NPM dependencies of that Typescript module.
 
-Given a Flow catalog spec at `/path/to/my.flow.yaml`,
-Flow automatically imports the TypeScript module `/path/to/my.flow.ts`.
-This is conventionally the module which implements all TypeScript lambdas
-related to catalog entities defined in `my.flow.yaml`.
-You do not need to add `my.flow.ts` to the `import` stanza.
+These imports are specified in the derivation specification, _not_ in the import section of the catalog spec.
 
-However, Flow must know of all additional TypeScript modules that
-are part of the catalog.
-If other modules are needed, they must be added as a to the `import` section
-with `TYPESCRIPT_MODULE` content type.
-
-## NPM dependencies
-
-Your TypeScript modules may depend on other
-[NPM packages](https://www.npmjs.com/),
-which can be be imported through the `npmDependencies`
-stanza of a Flow catalog spec.
-For example, [moment](https://momentjs.com/) is a common library
-for working with times:
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
-<Tabs>
-<TabItem value="catalog.flow.yaml" default>
-
-```yaml
-npmDependencies:
-  moment: "^2.24"
-
-collections: { ... }
-```
-
-</TabItem>
-<TabItem value="catalog.flow.ts" default>
-
-```typescript
-import * as moment from 'moment';
-
-// ... use `moment` as per usual.
-```
-
-</TabItem>
-</Tabs>
-
-Use any version string understood by `package.json`,
-which can include local packages, GitHub repository commits, and more.
-See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
-
-During the catalog build process, Flow gathers NPM dependencies
-across all catalog source files and patches them into the catalog's
-managed `package.json`.
-Flow organizes its generated TypeScript project structure
-for a seamless editing experience out of the box with VS Code
-and other common editors.
+For more information, see [Derivation specification](./derivations.md#specification) and [creating TypeScript modules](./derivations.md#creating-typescript-modules).
 
 ## Import paths
 
