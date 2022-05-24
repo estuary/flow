@@ -353,6 +353,7 @@ Storage mappings define how Flow maps your various collections into your storage
 ## flowctl
 
 flowctl is Flow's command-line interface.
-It can be used to develop and test Flow catalogs, and to deploy them into a Flow runtime.
+With flowctl, developers can work directly on active catalogs and drafts created in the Flow webapp.
+They can develop locally, test more flexibly, and collaboratively refine catalogs.
 
 [Learn more about flowctl](flowctl.md)
