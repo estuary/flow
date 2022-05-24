@@ -1,3 +1,7 @@
+---
+sidebar_position: 11
+---
+
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
 :::caution
@@ -55,7 +59,8 @@ SET PERSIST binlog_expire_logs_seconds = 604800;
 ```
 
 ## Configuration
-There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the MySQL source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
@@ -105,18 +110,6 @@ captures:
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
-
-## Connecting to secure networks
-
-:::info beta
-SSH tunneling on the MySQL source connector is actively being worked on and will be fully supported soon.
-If you encounter issues with this feature, [contact Estuary support](mailto:support@estuary.dev).
-:::
-
-The MySQL source connector [supports SSH tunneling](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-to allow Flow to connect to databases ports in secure networks.
-
-To set up and configure your SSH server, see the [guide](../../../../guides/connect-network/).
 
 ## MySQL on managed cloud platforms
 

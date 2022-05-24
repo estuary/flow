@@ -30,7 +30,8 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 
 ## Configuration
 
-There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample below provide configuration details specific to the Amazon Kinesis source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Amazon Kinesis source connector.
 
 ### Properties
 

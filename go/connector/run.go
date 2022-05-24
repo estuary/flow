@@ -80,6 +80,12 @@ func Run(
 	var imageArgs = []string{
 		"docker",
 		"run",
+		// --init is needed in order to ensure that connector processes actually all stop when we
+		// send them a SIGTERM. Without this, the (potentially numerous) child processes within a
+		// container may never actually be stopped.
+		"--init",
+		// I'm honestly not sure why, but --interactive is required in order for (at least some)
+		// connectors to startup properly.
 		"--interactive",
 		"--rm",
 		// Tell docker not to persist any container stdout/stderr output.
@@ -135,7 +141,7 @@ func Run(
 
 	args = append([]string{
 		fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
-		fmt.Sprintf("--log.level=%s", logger.Level().String()),
+		fmt.Sprintf("--log.level=%s", ops.LogrusToFlowLevel(logger.Level()).String()),
 		protocol.proxyCommand(),
 	}, args...)
 
@@ -273,7 +279,13 @@ func runCommand(
 	// and wait for exit or for its shutdown timeout to elapse (10s default).
 	go func(signal func(os.Signal) error) {
 		<-ctx.Done()
-		_ = signal(syscall.SIGTERM)
+		logger.Log(logrus.DebugLevel, nil, "sending termination signal to connector")
+		if sigErr := signal(syscall.SIGTERM); sigErr != nil {
+			// I haven't seen any evidence that sending the signal ever fails for any other reason
+			// than the child has already exited. But this is here just to help track down any
+			// potential issues with cleaning up connector processes.
+			logger.Log(logrus.WarnLevel, logrus.Fields{"error": sigErr}, "failed to send signal to container process")
+		}
 	}(cmd.Process.Signal)
 
 	err = cmd.Wait()

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 7
 ---
 # Google Cloud Storage
 
@@ -18,7 +18,9 @@ To use this connector, either your GCS bucket must be public, or you must have a
 
 ## Configuration
 
-There are various ways to configure connectors. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about these methods. The values and YAML sample in this section provide configuration details specific to the GCS source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the GCS source connector.
+
 
 :::tip
 You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket

@@ -34,8 +34,8 @@ func (m *DiscoverResponse) Validate() error {
 }
 
 func (m *DiscoverResponse_Binding) Validate() error {
-	if m.RecommendedName == "" {
-		return pb.NewValidationError("missing RecommendedName")
+	if err := m.RecommendedName.Validate(); err != nil {
+		return pb.ExtendContext(err, "RecommendedName")
 	} else if len(m.DocumentSchemaJson) == 0 {
 		return pb.NewValidationError("missing DocumentSchemaJson")
 	} else if len(m.ResourceSpecJson) == 0 {

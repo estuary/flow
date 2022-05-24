@@ -1,22 +1,22 @@
 # Concepts
 
-Flow helps you define data pipelines that connect your data systems, APIs, and storage, and optionally transform data along the way.
-Pipelines are defined within a Flow [catalog](#catalogs) and deployed to a Flow runtime using the [flowctl](#flowctl) command-line interface.
+Flow helps you define data pipelines, known as **data flows**, that connect your data systems, APIs, and storage, and optionally transform data along the way.
+Data flows are defined in a Flow [catalog](#catalogs) and deployed using either the web application or the [flowctl](#flowctl) command-line interface.
 
-This page provides a high-level explanation of important concepts and terminology you'll need to understand as you begin working with Flow.
+This page provides a high-level explanation of concepts and terminology that will help you begin working with Flow and better understand its underlying mechanisms.
 These concepts are further discussed in more detail on dedicated pages of this section.
 
 ![](<at-a-glance.png>)
 
 ## Catalogs
 
-A **catalog** comprises all the components that describe how your data pipelines function and behave:
+A **catalog** comprises all the components that describe how your data flows function and behave:
 captures, collections, derivations, materializations, tests, and more. For example:
 
-* How to **capture** data from **endpoints** into **collections**
+* How to **capture** data from source systems into **collections**
 * The **schemas** of those collections, which Flow enforces
 * How to **derive** collections as transformations of other source collections
-* **Materializations** of collections into your endpoints
+* **Materializations** of collections into destination systems
 * Your **tests** of schema and derivation behaviors
 
 Together the captures, collections, derivations, and materializations of your catalog
@@ -39,20 +39,19 @@ import Mermaid from '@theme/Mermaid';
 
 ### Namespace
 
-All catalog entities, like collections, are identified by a **name**
+All catalog entities (captures, materializations, and collections) are identified by a **name**
 such as `acmeCo/teams/manufacturing/anvils`. Names have directory-like
 prefixes and every name within Flow is globally unique.
 
-Thus all catalog entities exist together in a single **namespace**,
-much like how all files in S3 are uniquely identified by their bucket and file name.
-
-:::note
-Prefixes of the namespace, like `acmeCo/teams/manufacturing/`,
-are the foundation for Flow's authorization model.
-
 If you've ever used database schemas to organize your tables and authorize access,
 you can think of name prefixes as being akin to database schemas with arbitrary nesting.
-:::
+
+All catalog entities exist together in a single **namespace**.
+As a Flow customer, you're provisioned the highest level **tenant** prefix for your organization.
+Further division of the namespace into prefixes is up to you.
+
+Prefixes of the namespace, like `acmeCo/teams/manufacturing/`,
+are the foundation for Flow's authorization model.
 
 ### Builds
 
@@ -73,10 +72,10 @@ possibly replacing an older build under which they had been running.
 
 A catalog build begins from a set of **catalog specifications**
 which define the behavior of your catalog:
-the entities it contains, like captures, collections, and derivations,
+the entities it contains, like captures, collections, and materializations,
 and their specific behaviors and configuration.
 
-You define catalog specifications using either Flow's interactive UI,
+You define catalog specifications using either the Flow web application,
 or by directly creating and editing YAML or JSON files which are typically managed
 in a Git repository using familiar developer workflows (often called "GitOps").
 
@@ -88,21 +87,22 @@ tooltips, and inline documentation.
 Depending on your catalog, you may also have TypeScript modules,
 JSON schemas, or test fixtures which are also managed in your Git repository.
 
-Whether you use the UI or Git-managed specifications is up to you,
+Whether you use the web app or Git-managed specifications is up to you,
 and teams can switch back and forth depending on what's more familiar.
 
 :::note
-Flow's UI is under rapid development and expected to be generally available by end of Q1 2022.
+The Flow web application is currently in [private beta](https://go.estuary.dev/sign-up).
 :::
 
 ***
 
 ## Collections
 
-**Collections** are a collection of documents having a common **key** and [schema](#schemas).
-They are the fundamental representation for datasets within Flow, much like a database table.
+**Collections** are the fundamental representation for datasets within Flow, akin to a database table.
+More technically, they're a collection of documents having a common **key** and [schema](#schemas).
 
-They are best described as a real-time data lake:
+Data in collections is not modelled as a table, however.
+Collections are best described as a real-time data lake:
 documents are stored as an organized layout of JSON files in your cloud storage bucket.
 If Flow needs to read historical data — say, as part of creating a new materialization —
 it does so by reading from your bucket.
@@ -121,15 +121,18 @@ and fault tolerance.
 Each shard has an associated **recovery log**, which is a journal into which
 internal checkpoint states are written.
 
+Journals and shards are advanced topics that may be beneficial for specialized engineering applications.
+
 [Learn more about journals](./advanced/journals.md)
 
 ***
 
 ## Captures
 
-A **capture** is a catalog task which connects to an endpoint
-and binds one or more of its resources to collections.
-As documents become available for any of the bindings,
+A **capture** is a Flow task that connects to a source endpoint system
+and binds one or more of its resources (tables, streams, etc) to Flow collections.
+Data continuously flows from each resource in the endpoint to its Flow collection;
+as new data become available at the source,
 Flow validates their schema and adds them to their bound collection.
 
 There are two categories of captures:
@@ -146,13 +149,13 @@ Push captures are under development.
 
 ## Materializations
 
-A **materialization** is a catalog task that connects to an endpoint
-and binds one or more collections to corresponding endpoint resources.
+A **materialization** is a catalog task that connects to an destination endpoint system
+and binds one or more collections to corresponding resources (tables, etc) in that system.
+Data continuously flows from each Flow collection into its corresponding resource in the endpoint.
 Materializations are the conceptual inverse of **captures.**
 
-As documents become available within bound collections, the materialization
-keeps endpoint resources, like database tables, up to date using precise,
-incremental updates.
+As new documents become available within bound collections, the materialization
+keeps endpoint resources up to date using precise, incremental updates.
 Like captures, materializations are powered by [connectors](#connectors).
 
 [Learn more about materializations](materialization.md)
@@ -255,9 +258,9 @@ as they become available.
 Collections, by way of comparison, are inert. They reflect data at rest, and are acted upon by
 catalog tasks:
 
-* A capture adds documents to a collection pulled from an endpoint.
-* A derivation updates a collection by applying transformations to other source collections.
-* A materialization reacts to changes of a collection to update an endpoint.
+* A capture adds documents to a collection pulled from a source endpoint.
+* A derivation updates a collection by applying transformations to other collections.
+* A materialization reacts to changes of a collection to update a destination endpoint.
 
 ### Task shards
 

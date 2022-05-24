@@ -3,8 +3,8 @@ sidebar_position: 1
 ---
 # Captures
 
-A **capture** is a catalog task which connects to an external data source, or endpoint
-and binds one or more of its resources, such as a database tables,
+A **capture** is a catalog task that connects to an external data source, or endpoint,
+and binds one or more of its resources, such as database tables,
 to Flow collections.
 As documents become available for any of the bindings,
 Flow validates their schema and adds them to their bound collection.
@@ -70,9 +70,10 @@ Flow also natively supports Airbyte source connectors.
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
 Flow runs the connector at regular intervals to capture updated documents.
 
-A list of third-party connectors can be found on the
-[Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
-You can use any item whose name begins with `source-`.
+Airbyte source connectors are independently reviewed and sometime updated for compatibility with Flow.
+Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes actively supported Airbyte connectors.
+A full list of Airbyte's connectors is available at [Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
+If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
 
 ### Discovery
 

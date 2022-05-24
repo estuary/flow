@@ -3,7 +3,7 @@ mod logging;
 
 use clap::AppSettings::NoAutoHelp;
 
-pub use logging::{init_logging, LogArgs, LogFormat};
+pub use logging::{init_logging, LogArgs, LogFormat, LogLevel};
 
 /// An arguments container that accepts all arguments verbatim. This is used by external
 /// subcommands to allow all their argument parsing to be handled by the external binary.

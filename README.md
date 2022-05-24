@@ -2,7 +2,7 @@
 [![Slack](https://img.shields.io/badge/slack-@gazette/dev-yellow.svg?logo=slack)](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) | **[Docs home](https://docs.estuary.dev/)** | **[Testing setup](https://docs.estuary.dev/getting-started/installation)** | **[Data platform comparison reference](https://docs.estuary.dev/overview/comparisons)** | **[Email list](https://www.estuary.dev/newsletter-signup/)**
 
 <p align="center">
-    <img src ="site/static/img/Estuary.png"
+    <img src ="site/static/img/estuary-new.png"
      width="250"/>
          </p>
 
@@ -27,7 +27,7 @@ With a Flow pipeline, you:
 
 ❗️ **Our UI-based web application is coming in Q2 of 2022**. Learn about the beta program [here](https://go.estuary.dev/sign-up). In future releases, we'll combine the CLI and UI into a unified platform. Flow is a tool meant to allow *all* data stakeholders to meaningfully collaborate: engineers, analysts, and everyone in between.❗️
 
-![Workflow Overview](site/docs/concepts/at-a-glance.png)
+![Workflow Overview](site/docs/concepts/at-a-glance-new.png)
 
 ## Documentation
 

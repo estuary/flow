@@ -16,6 +16,10 @@ pub enum Annotation {
     /// "multiline" annotation keyword marks fields that should have a multiline text input in the
     /// UI. This is from the airbyte spec.
     Multiline(bool),
+    /// Marks a location as being an advanced configuration section, which should be collapsed by
+    /// default. This annotation is intended to be applied only when the type is `object`, and it
+    /// applies to all of the objects properties.
+    Advanced(bool),
     /// "order" annotation keyword, indicates the desired presentation order of fields in the UI.
     /// This is from the airbyte spec.
     Order(i32),
@@ -36,7 +40,7 @@ impl schema::Annotation for Annotation {
 impl schema::build::AnnotationBuilder for Annotation {
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
-            "reduce" | "secret" | "airbyte_secret" | "multiline" | "order" => true,
+            "reduce" | "secret" | "airbyte_secret" | "multiline" | "advanced" | "order" => true,
             key if key.starts_with("x-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
@@ -65,6 +69,10 @@ impl schema::build::AnnotationBuilder for Annotation {
             "multiline" => match bool::deserialize(value) {
                 Err(e) => Err(AnnotationErr(Box::new(e))),
                 Ok(b) => Ok(Annotation::Multiline(b)),
+            },
+            "advanced" => match bool::deserialize(value) {
+                Err(e) => Err(AnnotationErr(Box::new(e))),
+                Ok(b) => Ok(Annotation::Advanced(b)),
             },
             key if key.starts_with("x-") => match serde_json::to_value(value) {
                 Ok(v) => Ok(Annotation::X(v)),
@@ -101,6 +109,20 @@ mod test {
     use url::Url;
 
     use crate::Annotation;
+
+    #[test]
+    fn build_with_advanced_annotation() {
+        let schema = json!({
+            "type": "object",
+            "advanced": true,
+            "properties": {
+                "advanced_foo": {"type": "integer"}
+            },
+        });
+
+        let curi = Url::parse("https://example/schema").unwrap();
+        build_schema::<Annotation>(curi.clone(), &schema).unwrap();
+    }
 
     #[test]
     fn test_x_fields() {

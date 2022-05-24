@@ -1,5 +1,6 @@
 import:
   - ../examples/hello-world/flow.yaml
+  - ../examples/hello-world-no-state/flow.yaml
   - ../examples/citi-bike/rides.flow.yaml
   - ../examples/citi-bike/views.flow.yaml
 
@@ -44,6 +45,9 @@ materializations:
       - resource:
           table: greetings
         source: examples/greetings
+      - resource:
+          table: greetings_no_state
+        source: examples/greetings-no-state
 
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }

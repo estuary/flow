@@ -168,7 +168,7 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schemalate \
 	${PKGDIR}/bin/flow-network-tunnel \
-	${PKGDIR}/bin/flow-connector-proxy \
+	${PKGDIR}/bin/flow-connector-proxy
 
 .PHONY: rust-binaries
 rust-binaries: $(RUST_TARGETS)
@@ -256,7 +256,7 @@ catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gaz
 	${PKGDIR}/bin/flowctl test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH="${PATH}:${PKGDIR}/bin" ./tests/run-end-to-end.sh
 
 flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go

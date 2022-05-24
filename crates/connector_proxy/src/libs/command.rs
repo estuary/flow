@@ -88,7 +88,7 @@ pub fn invoke_connector_delayed(
         bouncer_process_entrypoint,
         &vec![
             "--log.level".to_string(),
-            log_args.level,
+            log_args.level.to_string(),
             "delayed-execute".to_string(),
             config_file_path.to_string(),
         ],
