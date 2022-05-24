@@ -4,11 +4,9 @@ use doc::Schema as CompiledSchema;
 use futures::future::{FutureExt, LocalBoxFuture};
 use json::schema::{build::build_schema, Application, Keyword};
 use proto_flow::flow;
-use regex::Regex;
 use serde_json::value::RawValue;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::Write;
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -21,13 +19,13 @@ pub enum LoadError {
         #[source]
         detail: anyhow::Error,
     },
-    #[error(
-        "failed to parse configuration document (location {:?}) (https://go.estuary.dev/qpSUoq)", .0.location()
-    )]
-    ConfigParseErr(#[source] serde_yaml::Error),
-    #[error("failed to parse JSON document fixtures (https://go.estuary.dev/NGT3es)")]
+    #[error("failed to parse configuration document (https://go.estuary.dev/qpSUoq)")]
+    ConfigParseErr(#[source] serde_json::Error),
+    #[error("failed to parse document fixtures (https://go.estuary.dev/NGT3es)")]
     DocumentFixturesParseErr(#[source] serde_json::Error),
-    #[error("failed to parse YAML (location {:?})", .0.location())]
+    #[error("failed to parse document ({})", .0)]
+    JsonErr(#[from] serde_json::Error),
+    #[error("failed to parse document")]
     YAMLErr(#[from] serde_yaml::Error),
     #[error("failed to merge YAML alias nodes")]
     YAMLMergeErr(#[from] yaml_merge_keys::MergeKeyError),
@@ -79,78 +77,7 @@ impl<F: Fetcher> Loader<F> {
     }
 
     pub fn into_tables(self) -> tables::Sources {
-        let mut tables = self.tables.into_inner();
-
-        let tables::Sources {
-            captures,
-            materializations,
-            resources,
-            ..
-        } = &mut tables;
-
-        // At this point we know that no more fetches will complete.
-        // Re-write capture and materialization configurations to their inline form.
-
-        let to_inline = |endpoint_spec: &mut Box<RawValue>| {
-            let taken = serde_json::from_str(endpoint_spec.get())
-                .expect("endpoint spec must be a ConnectorConfig");
-
-            *endpoint_spec = RawValue::from_string("null".to_owned()).unwrap();
-
-            match taken {
-                // Map a URL ConnectorConfig to its inline form.
-                models::ConnectorConfig {
-                    image,
-                    config: models::Config::Url(resource_url),
-                } => resources
-                    // Note we've already reported a fetch or parsing error.
-                    .binary_search_by_key(&resource_url.as_str(), |r| r.resource.as_str())
-                    .ok()
-                    .and_then(|ind| resources.get(ind))
-                    .and_then(|r| {
-                        // transcode the YAML into a JSON RawValue to avoid re-ordering of elements
-                        // in the intermediary Value (which is a BTreeMap) since this could be a sops encrypted
-                        // configuration and the ordering of the elements must be preserved. See #303.
-                        let mut buf = Vec::new();
-                        let deserializer = serde_yaml::Deserializer::from_slice(&r.content);
-                        let mut serializer = serde_json::Serializer::new(&mut buf);
-
-                        serde_transcode::transcode(deserializer, &mut serializer).ok()?;
-
-                        serializer.into_inner().flush().ok()?;
-
-                        RawValue::from_string(String::from_utf8(buf).unwrap()).ok()
-                    })
-                    .and_then(|config| {
-                        RawValue::from_string(
-                            serde_json::to_string(&models::RawConnectorConfig { image, config })
-                                .unwrap(),
-                        )
-                        .ok()
-                    }),
-                // Pass through the ConnectorConfig as-is.
-                spec @ _ => RawValue::from_string(serde_json::to_string(&spec).unwrap()).ok(),
-            }
-            .map(|spec| *endpoint_spec = spec)
-        };
-
-        let taken = std::mem::take(captures);
-        captures.extend(taken.into_iter().map(|mut m| {
-            if m.endpoint_type == flow::EndpointType::AirbyteSource {
-                to_inline(&mut m.endpoint_spec);
-            }
-            m
-        }));
-
-        let taken = std::mem::take(materializations);
-        materializations.extend(taken.into_iter().map(|mut m| {
-            if m.endpoint_type == flow::EndpointType::FlowSink {
-                to_inline(&mut m.endpoint_spec);
-            }
-            m
-        }));
-
-        tables
+        self.tables.into_inner()
     }
 
     /// Load (or re-load) a resource of the given ContentType.
@@ -182,10 +109,10 @@ impl<F: Fetcher> Loader<F> {
         let content : Result<bytes::Bytes, anyhow::Error> = match inlined {
             // Resource has an inline definition of the expected content-type.
             Some(models::ResourceDef{content, content_type: expected_type}) if assemble::content_type(expected_type) == content_type => {
-                match content {
-                    models::ResourceContent::Base64Bytes(input) => base64::decode(input).context("base64-decode of inline resource failed").map(Into::into),
-                    models::ResourceContent::Object(obj) => Ok(serde_json::to_string(&obj)
-                        .expect("serializing object cannot fail").into()),
+                if content.get().chars().next().unwrap() == '"' {
+                    base64::decode(content.get()).context("base64-decode of inline resource failed").map(Into::into)
+                } else {
+                    Ok(content.get().as_bytes().to_owned().into())
                 }
             }
             // Resource has an inline definition of the _wrong_ type.
@@ -200,14 +127,6 @@ impl<F: Fetcher> Loader<F> {
             Ok(content) => {
                 self.load_resource_content(scope, resource, content, content_type)
                     .await
-            }
-            Err(err) if matches!(content_type, flow::ContentType::TypescriptModule) => {
-                // Not every catalog spec need have an accompanying TypescriptModule.
-                // We optimistically load them, but do not consider it an error if
-                // it doesn't exist. We'll do more handling of this condition within
-                // Typescript building, including surfacing compiler errors of missing
-                // files and potentially stubbing an implementation for the user.
-                tracing::debug!(?err, %resource, "did not fetch typescript module");
             }
             Err(err) => {
                 self.tables.borrow_mut().errors.insert_row(
@@ -232,46 +151,90 @@ impl<F: Fetcher> Loader<F> {
         content_type: flow::ContentType,
     ) -> LocalBoxFuture<'a, ()> {
         async move {
-            self.tables
-                .borrow_mut()
-                .resources
-                .insert_row(resource.clone(), content_type, &content);
             let scope = scope.push_resource(&resource);
 
-            match content_type {
-                flow::ContentType::Catalog => self.load_catalog(scope, content.as_ref()).await,
-                flow::ContentType::JsonSchema => {
-                    self.load_schema_document(scope, content.as_ref()).await
+            let content_dom = match self.load_resource_content_dom(scope, &content, content_type) {
+                Some(d) => d,
+                None => {
+                    return; // Cannot process further.
                 }
-
-                // Require that the config parses as a YAML or JSON object.
-                flow::ContentType::Config => self
-                    .fallible(
-                        scope,
-                        serde_yaml::from_slice(&content).map_err(|e| LoadError::ConfigParseErr(e)),
-                    )
-                    .map(|_dom: models::Object| ()),
-
-                // Require that the document fixtures parse as a JSON array of objects.
-                flow::ContentType::DocumentsFixture => self
-                    .fallible(
-                        scope,
-                        serde_json::from_slice::<Vec<models::Object>>(&content)
-                            .map_err(|e| LoadError::DocumentFixturesParseErr(e)),
-                    )
-                    .map(|_dom: Vec<models::Object>| ()),
-
-                _ => None,
             };
-            ()
+
+            match content_type {
+                flow::ContentType::Catalog => {
+                    self.load_catalog(scope, &content_dom).await;
+                }
+                flow::ContentType::JsonSchema => {
+                    self.load_schema_document(scope, &content_dom).await;
+                }
+                flow::ContentType::Config => {
+                    self.fallible(
+                        scope,
+                        serde_json::from_str::<models::Object>(content_dom.get())
+                            .map_err(|e| LoadError::ConfigParseErr(e)),
+                    );
+                }
+                flow::ContentType::DocumentsFixture => {
+                    self.fallible(
+                        scope,
+                        serde_json::from_str::<Vec<models::Object>>(content_dom.get())
+                            .map_err(|e| LoadError::DocumentFixturesParseErr(e)),
+                    );
+                }
+                _ => {}
+            };
+
+            self.tables.borrow_mut().resources.insert_row(
+                resource.clone(),
+                content_type,
+                content,
+                content_dom,
+            );
         }
         .boxed_local()
     }
 
-    async fn load_schema_document<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
-        let dom: serde_json::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
+    fn load_resource_content_dom<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        content: &[u8],
+        content_type: flow::ContentType,
+    ) -> Option<Box<RawValue>> {
+        use flow::ContentType as CT;
+
+        // These types are not documents and have a placeholder DOM.
+        if matches!(content_type, CT::NpmPackage | CT::TypescriptModule) {
+            return Some(RawValue::from_string("null".to_string()).unwrap());
+        }
+
+        let mut dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
+
+        // We support YAML merge keys in catalog documents (only).
         // We don't allow YAML aliases in schema documents as they're redundant
         // with JSON Schema's $ref mechanism.
+        if let flow::ContentType::Catalog = content_type {
+            dom = self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
+        }
+
+        // Our models embed serde_json::RawValue, which cannot be directly
+        // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
+        // because that could re-order elements along the way (Value is a BTreeMap),
+        // which could violate the message authentication code (MAC) of inlined and
+        // sops-encrypted documents. So, directly transcode into serialized JSON.
+        let mut buf = Vec::<u8>::new();
+        let mut serializer = serde_json::Serializer::new(&mut buf);
+        serde_transcode::transcode(dom, &mut serializer).expect("must transcode");
+
+        Some(RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap())
+    }
+
+    async fn load_schema_document<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        content_dom: &RawValue,
+    ) -> Option<()> {
+        let dom: serde_json::Value = serde_json::from_str(content_dom.get()).unwrap();
+
         let doc: CompiledSchema =
             self.fallible(scope, build_schema(scope.resource().clone(), &dom))?;
 
@@ -300,20 +263,6 @@ impl<F: Fetcher> Loader<F> {
         // Walk keywords, looking for named schemas and references we must resolve.
         for kw in &schema.kw {
             match kw {
-                Keyword::Anchor(anchor_uri) => {
-                    // Does this anchor meet our definition of a named schema?
-                    if let Some((_, anchor)) = anchor_uri
-                        .as_str()
-                        .split_once('#')
-                        .filter(|(_, s)| NAMED_SCHEMA_RE.is_match(s))
-                    {
-                        self.tables.borrow_mut().named_schemas.insert_row(
-                            scope.flatten(),
-                            anchor_uri,
-                            anchor.to_string(),
-                        );
-                    }
-                }
                 Keyword::Application(app, child) => {
                     // Does |app| map to an external URL that's not contained by this CompiledSchema?
                     let uri = match app {
@@ -371,7 +320,7 @@ impl<F: Fetcher> Loader<F> {
     ) -> Option<Url> {
         // If schema is a relative URL, then import it.
         if let models::Schema::Url(import) = schema {
-            let mut import = self.fallible(scope, scope.resource().join(import.as_ref()))?;
+            let mut import = self.fallible(scope, scope.resource().join(&import))?;
 
             // Temporarily strip schema fragment to import base document.
             let fragment = import.fragment().map(str::to_string);
@@ -383,10 +332,12 @@ impl<F: Fetcher> Loader<F> {
             import.set_fragment(fragment.as_deref());
             Some(import)
         } else {
-            Some(
-                self.load_synthetic_resource(scope, &schema, flow::ContentType::JsonSchema)
-                    .await,
-            )
+            // Schema is an object or bool.
+            let content = serde_json::to_vec(&schema).unwrap().into();
+            let import = self
+                .load_synthetic_resource(scope, content, flow::ContentType::JsonSchema)
+                .await;
+            Some(import)
         }
     }
 
@@ -402,21 +353,18 @@ impl<F: Fetcher> Loader<F> {
                 .await;
             Some(import)
         } else {
-            Some(
-                self.load_synthetic_resource(
-                    scope,
-                    &documents,
-                    flow::ContentType::DocumentsFixture,
-                )
-                .await,
-            )
+            let content = serde_json::to_vec(&documents).unwrap().into();
+            let import = self
+                .load_synthetic_resource(scope, content, flow::ContentType::DocumentsFixture)
+                .await;
+            Some(import)
         }
     }
 
-    async fn load_synthetic_resource<'s, Ser: serde::Serialize>(
+    async fn load_synthetic_resource<'s>(
         &'s self,
         scope: Scope<'s>,
-        resource: Ser,
+        content: bytes::Bytes,
         content_type: flow::ContentType,
     ) -> Url {
         // Create a synthetic resource URL by extending the parent scope with a `ptr` query parameter,
@@ -424,15 +372,8 @@ impl<F: Fetcher> Loader<F> {
         let mut import = scope.resource().clone();
         import.set_query(Some(&format!("ptr={}", scope.location.url_escaped())));
 
-        self.load_resource_content(
-            scope,
-            &import,
-            serde_json::to_vec(&resource)
-                .expect("resource must serialize")
-                .into(),
-            content_type,
-        )
-        .await;
+        self.load_resource_content(scope, &import, content, content_type)
+            .await;
 
         self.tables
             .borrow_mut()
@@ -467,23 +408,17 @@ impl<F: Fetcher> Loader<F> {
     }
 
     // Load a top-level catalog specification.
-    async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content: &[u8]) -> Option<()> {
-        let dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
-        // We allow and support YAML merge keys in catalog documents.
-        let dom: serde_yaml::Value =
-            self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
-
+    async fn load_catalog<'s>(&'s self, scope: Scope<'s>, content_dom: &RawValue) -> Option<()> {
         let models::Catalog {
             _schema,
             resources,
             import,
-            npm_dependencies,
             collections,
             materializations,
             captures,
             tests,
             storage_mappings,
-        } = self.fallible(scope, serde_yaml::from_value(dom))?;
+        } = self.fallible(scope, serde_json::from_str(content_dom.get()))?;
 
         // Collect inlined resources. These don't participate in loading until
         // we encounter an import of the resource.
@@ -494,19 +429,6 @@ impl<F: Fetcher> Loader<F> {
             ) {
                 self.inlined.borrow_mut().insert(url, resource);
             }
-        }
-
-        // Collect NPM dependencies.
-        for (package, version) in npm_dependencies {
-            let scope = scope
-                .push_prop("npmDependencies")
-                .push_prop(&package)
-                .flatten();
-
-            self.tables
-                .borrow_mut()
-                .npm_dependencies
-                .insert_row(scope, package, version);
         }
 
         // Collect storage mappings.
@@ -520,7 +442,7 @@ impl<F: Fetcher> Loader<F> {
             self.tables
                 .borrow_mut()
                 .storage_mappings
-                .insert_row(scope, prefix, stores, None /* Not foreign. */)
+                .insert_row(scope, prefix, stores)
         }
 
         // Task which loads all imports.
@@ -540,18 +462,6 @@ impl<F: Fetcher> Loader<F> {
         });
         let import = futures::future::join_all(import);
 
-        // Start a task which projects this catalog to a sibling TypeScript module,
-        // and then optimistically loads this optional resource.
-        let typescript_module = async move {
-            let mut module = scope.resource().clone();
-            let mut path = std::path::PathBuf::from(module.path());
-            path.set_extension("ts");
-
-            module.set_path(path.to_str().expect("should still be valid utf8"));
-            self.load_import(scope, &module, flow::ContentType::TypescriptModule)
-                .await;
-        };
-
         // Task which loads all collections.
         let collections = collections
             .into_iter()
@@ -567,40 +477,8 @@ impl<F: Fetcher> Loader<F> {
 
         // Task which loads all captures.
         let captures = captures.into_iter().map(|(name, capture)| async move {
-            let scope = scope.push_prop("captures");
-            let scope = scope.push_prop(&name);
-            let models::CaptureDef {
-                endpoint,
-                bindings,
-                interval,
-                shards,
-            } = capture;
-            let endpoint_type = assemble::capture_endpoint_type(&endpoint);
-
-            if let Some(endpoint_spec) = self.load_capture_endpoint(scope, endpoint).await {
-                self.tables.borrow_mut().captures.insert_row(
-                    scope.flatten(),
-                    &name,
-                    endpoint_type,
-                    endpoint_spec,
-                    interval.as_secs() as u32,
-                    shards,
-                );
-            }
-
-            for (index, binding) in bindings.into_iter().enumerate() {
-                let scope = scope.push_prop("bindings");
-                let scope = scope.push_item(index);
-                let models::CaptureBinding { resource, target } = binding;
-
-                self.tables.borrow_mut().capture_bindings.insert_row(
-                    scope.flatten(),
-                    &name,
-                    index as u32,
-                    serde_json::Value::Object(resource),
-                    target,
-                );
-            }
+            self.load_capture(scope.push_prop("captures").push_prop(&name), &name, capture)
+                .await;
         });
         let captures = futures::future::join_all(captures);
 
@@ -609,128 +487,24 @@ impl<F: Fetcher> Loader<F> {
             materializations
                 .into_iter()
                 .map(|(name, materialization)| async move {
-                    let scope = scope.push_prop("materializations");
-                    let scope = scope.push_prop(&name);
-                    let models::MaterializationDef {
-                        endpoint,
-                        bindings,
-                        shards,
-                    } = materialization;
-                    let endpoint_type = assemble::materialization_endpoint_type(&endpoint);
-
-                    if let Some(endpoint_spec) =
-                        self.load_materialization_endpoint(scope, endpoint).await
-                    {
-                        self.tables.borrow_mut().materializations.insert_row(
-                            scope.flatten(),
-                            &name,
-                            endpoint_type,
-                            endpoint_spec,
-                            shards,
-                        );
-                    }
-
-                    for (index, binding) in bindings.into_iter().enumerate() {
-                        let scope = scope.push_prop("bindings");
-                        let scope = scope.push_item(index);
-
-                        let models::MaterializationBinding {
-                            resource,
-                            source,
-                            partitions,
-                            fields:
-                                models::MaterializationFields {
-                                    include: fields_include,
-                                    exclude: fields_exclude,
-                                    recommended: fields_recommended,
-                                },
-                        } = binding;
-
-                        self.tables
-                            .borrow_mut()
-                            .materialization_bindings
-                            .insert_row(
-                                scope.flatten(),
-                                &name,
-                                index as u32,
-                                serde_json::Value::Object(resource),
-                                source,
-                                fields_exclude,
-                                fields_include,
-                                fields_recommended,
-                                partitions,
-                            );
-                    }
+                    self.load_materialization(
+                        scope.push_prop("materializations").push_prop(&name),
+                        &name,
+                        materialization,
+                    )
+                    .await;
                 });
         let materializations = futures::future::join_all(materializations);
 
         // Task which loads all tests.
-        let tests = tests.into_iter().map(|(test, step_specs)| async move {
-            let test = &test; // Capture shared reference, rather than the variable itself.
-            let scope = scope.push_prop("tests");
-            let scope = scope.push_prop(test);
-
-            // Task which loads all steps of this test.
-            let step_specs =
-                step_specs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(step_index, spec)| async move {
-                        let scope = scope.push_item(step_index);
-
-                        let (collection, documents, partitions, description, step_type) = match spec
-                        {
-                            models::TestStep::Ingest(models::TestStepIngest {
-                                collection,
-                                documents,
-                                description,
-                            }) => (
-                                collection,
-                                documents,
-                                None,
-                                description,
-                                flow::test_spec::step::Type::Ingest,
-                            ),
-
-                            models::TestStep::Verify(models::TestStepVerify {
-                                collection,
-                                documents,
-                                partitions,
-                                description,
-                            }) => (
-                                collection,
-                                documents,
-                                partitions,
-                                description,
-                                flow::test_spec::step::Type::Verify,
-                            ),
-                        };
-
-                        if let Some(documents) = self.load_test_documents(scope, documents).await {
-                            self.tables.borrow_mut().test_steps.insert_row(
-                                scope.flatten(),
-                                test.clone(),
-                                description,
-                                collection,
-                                documents,
-                                partitions,
-                                step_index as u32,
-                                step_type,
-                            );
-                        }
-                    });
-            futures::future::join_all(step_specs).await;
+        let tests = tests.into_iter().map(|(name, test)| async move {
+            self.load_test(scope.push_prop("tests").push_prop(&name), &name, test)
+                .await;
         });
         let tests = futures::future::join_all(tests);
 
-        let (_, _, _, _, _, _): (Vec<()>, (), Vec<()>, Vec<()>, Vec<()>, Vec<()>) = futures::join!(
-            import,
-            typescript_module,
-            collections,
-            captures,
-            materializations,
-            tests,
-        );
+        let (_, _, _, _, _): (Vec<()>, Vec<()>, Vec<()>, Vec<()>, Vec<()>) =
+            futures::join!(import, collections, captures, materializations, tests);
         Some(())
     }
 
@@ -738,33 +512,19 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         collection_name: &'s models::Collection,
-        collection: models::CollectionDef,
+        mut spec: models::CollectionDef,
     ) {
-        let models::CollectionDef {
-            schema,
-            key,
-            projections,
-            derivation,
-            journals,
-        } = collection;
+        let derivation = std::mem::take(&mut spec.derivation);
+        let projections = std::mem::take(&mut spec.projections);
+        let schema = std::mem::replace(&mut spec.schema, models::Schema::Bool(false));
 
         // Visit all collection projections.
-        for (field, projection) in projections.iter() {
-            let (location, partition) = match projection {
-                models::Projection::Pointer(location) => (location, false),
-                models::Projection::Extended {
-                    location,
-                    partition,
-                } => (location, *partition),
-            };
-
+        for (field, spec) in projections {
             self.tables.borrow_mut().projections.insert_row(
-                scope.push_prop("projections").push_prop(field).flatten(),
+                scope.push_prop("projections").push_prop(&field).flatten(),
                 collection_name,
                 field,
-                location,
-                partition,
-                true, // User-provided.
+                spec,
             );
         }
 
@@ -792,9 +552,8 @@ impl<F: Fetcher> Loader<F> {
             self.tables.borrow_mut().collections.insert_row(
                 scope.flatten(),
                 collection_name,
+                spec,
                 schema,
-                key,
-                journals,
             );
         }
     }
@@ -803,17 +562,22 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         derivation_name: &'s models::Collection,
-        derivation: models::Derivation,
+        mut spec: models::Derivation,
     ) {
-        let models::Derivation {
-            register:
-                models::Register {
-                    schema: register_schema,
-                    initial: register_initial,
-                },
-            transform,
-            shards,
-        } = derivation;
+        // Destructure |spec|, taking components which are loaded and normalized.
+        let transforms = std::mem::take(&mut spec.transform);
+        let register_schema =
+            std::mem::replace(&mut spec.register.schema, models::Schema::Bool(false));
+        let (typescript_module, npm_dependencies) = match &mut spec.typescript {
+            Some(models::TypescriptModule {
+                module,
+                npm_dependencies,
+            }) => (
+                Some(std::mem::take(module)),
+                std::mem::take(npm_dependencies),
+            ),
+            None => (None, BTreeMap::new()),
+        };
 
         // Task which loads & maps register schema => URL.
         let register_schema = async move {
@@ -824,27 +588,83 @@ impl<F: Fetcher> Loader<F> {
             .await
         };
 
-        // Task which loads each derivation transform.
-        let transforms = transform.into_iter().map(|(name, transform)| async move {
-            self.load_transform(
-                scope.push_prop("transform").push_prop(name.as_ref()),
-                &name,
-                derivation_name,
-                transform,
-            )
-            .await
-        });
-        let transforms = futures::future::join_all(transforms);
+        // Task which loads & maps typescript module => URL.
+        let typescript_module = async move {
+            let scope = scope.push_prop("typescript");
+            let scope = scope.push_prop("module");
 
-        let (register_schema, _): (_, Vec<()>) = futures::join!(register_schema, transforms);
+            let typescript_module = match typescript_module {
+                Some(m) => m,
+                None => {
+                    return None;
+                }
+            };
+
+            // If the module contains a newline, it's an inline module.
+            // Otherwise it's a relative URL to a TypeScript file.
+            if typescript_module.contains("\n") {
+                let content = typescript_module.into();
+                let import = self
+                    .load_synthetic_resource(scope, content, flow::ContentType::TypescriptModule)
+                    .await;
+                Some(import)
+            } else if let Some(import) =
+                self.fallible(scope, scope.resource().join(&typescript_module))
+            {
+                self.load_import(scope, &import, flow::ContentType::TypescriptModule)
+                    .await;
+                Some(import)
+            } else {
+                None // Failed to map to URL. We reported an error already.
+            }
+        };
+
+        // Tasks which load each derivation transform.
+        let transforms =
+            transforms
+                .into_iter()
+                .map(|(transform_name, transform_spec)| async move {
+                    self.load_transform(
+                        scope
+                            .push_prop("transform")
+                            .push_prop(transform_name.as_ref()),
+                        &transform_name,
+                        derivation_name,
+                        transform_spec,
+                    )
+                    .await
+                });
+
+        // Poll until register schema and all transforms are loaded.
+        let (register_schema, typescript_module, _): (_, _, Vec<()>) = futures::join!(
+            register_schema,
+            typescript_module,
+            futures::future::join_all(transforms)
+        );
+
+        // Load any NPM package depenencies of the derivation's TypeScript module (if present).
+        for (package, version) in npm_dependencies {
+            let scope = scope
+                .push_prop("typescript")
+                .push_prop("npmDependencies")
+                .push_prop(&package)
+                .flatten();
+
+            self.tables.borrow_mut().npm_dependencies.insert_row(
+                scope,
+                derivation_name,
+                package,
+                version,
+            );
+        }
 
         if let Some(register_schema) = register_schema {
             self.tables.borrow_mut().derivations.insert_row(
                 scope.flatten(),
                 derivation_name,
+                spec,
                 register_schema,
-                register_initial,
-                shards,
+                typescript_module,
             );
         }
     }
@@ -854,38 +674,10 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         transform_name: &'s models::Transform,
         derivation: &'s models::Collection,
-        transform: models::TransformDef,
+        mut spec: models::TransformDef,
     ) {
-        let models::TransformDef {
-            source:
-                models::TransformSource {
-                    name: source,
-                    schema: source_schema,
-                    partitions: source_partitions,
-                },
-            read_delay,
-            priority,
-            shuffle,
-            update,
-            publish,
-        } = transform;
-
-        let (shuffle_key, shuffle_lambda) = match shuffle {
-            Some(models::Shuffle::Key(key)) => (Some(key), None),
-            Some(models::Shuffle::Lambda(lambda)) => (None, Some(lambda)),
-            None => (None, None),
-        };
-        let update_lambda = match update {
-            Some(models::Update { lambda }) => Some(lambda),
-            None => None,
-        };
-        let publish_lambda = match publish {
-            Some(models::Publish { lambda }) => Some(lambda),
-            None => None,
-        };
-
         // Map optional source schema => URL.
-        let source_schema = match source_schema {
+        let source_schema = match std::mem::take(&mut spec.source.schema) {
             Some(url) => {
                 self.load_schema_reference(scope.push_prop("source").push_prop("schema"), url)
                     .await
@@ -896,92 +688,176 @@ impl<F: Fetcher> Loader<F> {
         self.tables.borrow_mut().transforms.insert_row(
             scope.flatten(),
             derivation,
-            priority,
-            publish_lambda,
-            read_delay.map(|d| d.as_secs() as u32),
-            shuffle_key,
-            shuffle_lambda,
-            source,
-            source_partitions,
-            source_schema,
             transform_name,
-            update_lambda,
+            spec,
+            source_schema,
         );
     }
 
-    async fn load_capture_endpoint<'s>(
+    async fn load_capture<'s>(
         &'s self,
         scope: Scope<'s>,
-        mut endpoint: models::CaptureEndpoint,
-    ) -> Option<Box<RawValue>> {
-        use models::CaptureEndpoint::*;
+        capture_name: &'s models::Capture,
+        mut spec: models::CaptureDef,
+    ) {
+        let bindings = std::mem::take(&mut spec.bindings);
 
-        // Map a URL reference into its absolute form, and load it.
-        if let Connector(models::ConnectorConfig {
-            image,
-            config: models::Config::Url(relative),
-        }) = endpoint
-        {
-            let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, flow::ContentType::Config)
-                .await;
+        let endpoint_config = match &mut spec.endpoint {
+            models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
+                let config =
+                    std::mem::replace(config, RawValue::from_string("null".to_string()).unwrap());
 
-            endpoint = Connector(models::ConnectorConfig {
-                image,
-                config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
-            });
+                self.load_config(
+                    scope
+                        .push_prop("endpoint")
+                        .push_prop("connector")
+                        .push_prop("config"),
+                    config,
+                )
+                .await
+            }
+            models::CaptureEndpoint::Ingest(_) => None,
+        };
+
+        for (index, binding_spec) in bindings.into_iter().enumerate() {
+            let scope = scope.push_prop("bindings");
+            let scope = scope.push_item(index);
+
+            self.tables.borrow_mut().capture_bindings.insert_row(
+                scope.flatten(),
+                capture_name,
+                index as u32,
+                binding_spec,
+            );
         }
 
-        match endpoint {
-            Connector(spec) => {
-                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
-            }
-            Ingest(spec) => {
-                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
-            }
-        }
+        self.tables.borrow_mut().captures.insert_row(
+            scope.flatten(),
+            capture_name,
+            spec,
+            endpoint_config,
+        );
     }
 
-    async fn load_materialization_endpoint<'s>(
+    async fn load_materialization<'s>(
         &'s self,
         scope: Scope<'s>,
-        mut endpoint: models::MaterializationEndpoint,
-    ) -> Option<Box<RawValue>> {
-        use models::MaterializationEndpoint::*;
+        materialization_name: &'s models::Materialization,
+        mut spec: models::MaterializationDef,
+    ) {
+        let bindings = std::mem::take(&mut spec.bindings);
 
-        // Map a URL reference into its absolute form, and ensure that it's loaded.
-        if let Connector(models::ConnectorConfig {
-            image,
-            config: models::Config::Url(relative),
-        }) = endpoint
-        {
-            let absolute = self.fallible(scope, scope.resource().join(&relative))?;
-            self.load_import(scope, &absolute, flow::ContentType::Config)
-                .await;
+        let endpoint_config = match &mut spec.endpoint {
+            models::MaterializationEndpoint::Connector(models::ConnectorConfig {
+                config, ..
+            }) => {
+                let config =
+                    std::mem::replace(config, RawValue::from_string("null".to_string()).unwrap());
 
-            endpoint = Connector(models::ConnectorConfig {
-                image,
-                config: models::Config::Url(models::RelativeUrl::new(absolute.to_string())),
-            });
-        }
-
-        match endpoint {
-            Connector(spec) => {
-                Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+                self.load_config(
+                    scope
+                        .push_prop("endpoint")
+                        .push_prop("connector")
+                        .push_prop("config"),
+                    config,
+                )
+                .await
             }
-            Sqlite(mut spec) => {
-                if spec.path.starts_with(":memory:") {
-                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
-                // Already absolute.
+            models::MaterializationEndpoint::Sqlite(sqlite) => {
+                if sqlite.path.starts_with(":memory:") {
+                    // Already absolute.
                 } else if let Some(path) =
-                    self.fallible(scope, scope.resource().join(spec.path.as_ref()))
+                    self.fallible(scope, scope.resource().join(sqlite.path.as_ref()))
                 {
                     // Resolve relative database path relative to current scope.
-                    spec.path = models::RelativeUrl::new(path.to_string());
-                    Some(RawValue::from_string(serde_json::to_string(&spec).unwrap()).unwrap())
+                    sqlite.path = models::RelativeUrl::new(path.to_string());
                 } else {
-                    None // We reported a join() error.
+                    // We reported a join() error.
                 }
+                None
+            }
+        };
+
+        for (index, binding_spec) in bindings.into_iter().enumerate() {
+            let scope = scope.push_prop("bindings");
+            let scope = scope.push_item(index);
+
+            self.tables
+                .borrow_mut()
+                .materialization_bindings
+                .insert_row(
+                    scope.flatten(),
+                    materialization_name,
+                    index as u32,
+                    binding_spec,
+                );
+        }
+
+        self.tables.borrow_mut().materializations.insert_row(
+            scope.flatten(),
+            materialization_name,
+            spec,
+            endpoint_config,
+        );
+    }
+
+    async fn load_test<'s>(
+        &'s self,
+        scope: Scope<'s>,
+        test_name: &'s models::Test,
+        specs: Vec<models::TestStep>,
+    ) {
+        // Task which loads all steps of this test.
+        let specs = specs
+            .into_iter()
+            .enumerate()
+            .map(|(step_index, mut spec)| async move {
+                let scope = scope.push_item(step_index);
+
+                let documents = match &mut spec {
+                    models::TestStep::Ingest(models::TestStepIngest { documents, .. }) => {
+                        std::mem::replace(documents, models::TestDocuments::Inline(Vec::new()))
+                    }
+                    models::TestStep::Verify(models::TestStepVerify { documents, .. }) => {
+                        std::mem::replace(documents, models::TestDocuments::Inline(Vec::new()))
+                    }
+                };
+
+                if let Some(documents) = self.load_test_documents(scope, documents).await {
+                    self.tables.borrow_mut().test_steps.insert_row(
+                        scope.flatten(),
+                        test_name.clone(),
+                        step_index as u32,
+                        spec,
+                        documents,
+                    );
+                }
+            });
+        futures::future::join_all(specs).await;
+    }
+
+    async fn load_config<'s>(&'s self, scope: Scope<'s>, config: Box<RawValue>) -> Option<Url> {
+        let config_parsed: models::Config = self.fallible(
+            scope,
+            serde_json::from_str(config.get()).map_err(|e| LoadError::JsonErr(e)),
+        )?;
+
+        match config_parsed {
+            // If config is a relative URL, then import it.
+            models::Config::Url(import) => {
+                let import = self.fallible(scope, scope.resource().join(&import))?;
+                self.load_import(scope, &import, flow::ContentType::Config)
+                    .await;
+
+                Some(import)
+            }
+            models::Config::Inline(_) => {
+                let content = serde_json::to_vec(&*config).unwrap().into();
+                let import = self
+                    .load_synthetic_resource(scope, content, flow::ContentType::Config)
+                    .await;
+
+                Some(import)
             }
         }
     }
@@ -1004,14 +880,4 @@ impl<F: Fetcher> Loader<F> {
             }
         }
     }
-}
-
-lazy_static::lazy_static! {
-    // The set of allowed characters in a schema `$anchor` is quite limited,
-    // by Sec 8.2.3.
-    //
-    // To identify named schemas, we further restrict to anchors which start
-    // with a capital letter and include only '_' as punctuation.
-    // See: https://json-schema.org/draft/2019-09/json-schema-core.html#anchor
-    static ref NAMED_SCHEMA_RE: Regex = Regex::new("^[A-Z][\\w_]+$").unwrap();
 }

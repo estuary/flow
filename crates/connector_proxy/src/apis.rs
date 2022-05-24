@@ -17,7 +17,7 @@ pub enum FlowRuntimeProtocol {
 
 // Flow Capture operations defined in
 // https://github.com/estuary/flow/blob/master/go/protocols/capture/capture.proto
-#[derive(Debug, strum_macros::Display, ArgEnum, Clone)]
+#[derive(Debug, strum_macros::Display, ArgEnum, PartialEq, Clone)]
 #[strum(serialize_all = "kebab_case")]
 pub enum FlowCaptureOperation {
     Spec,

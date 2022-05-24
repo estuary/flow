@@ -5,6 +5,18 @@ description: Get set up to run Flow for local development.
 
 # Setting up a development environment
 
+:::info
+The Flow runtime is available for non-commercial use under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL).
+
+This section of documentation is designed to get you acquainted with using Flow in a local development environment.
+It includes setup guidance and a quick but powerful tutorial.
+
+Should you choose to self-host Flow using a cloud provider of your choice, note that setup is _not_ covered in this documentation.
+Refer to the [GitHub repository](https://github.com/estuary/flow) or the [Estuary Slack](https://join.slack.com/t/estuary-dev/shared_invite/zt-86nal6yr-VPbv~YfZE9Q~6Zl~gmZdFQ).
+
+If you're using the Flow web application, see the [guide](../guides/create-dataflow.md) to get started.
+:::
+
 Flow includes a [**devcontainer**](https://code.visualstudio.com/docs/remote/containers), which provides a nice development experience using a self-contained Docker-based environment. This is an easy way to get a great development experience using Flow, with auto-completion and an ideal setup for your catalog. There are currently two ways to set this up: virtually, using GitHub Codespaces, and locally, using VS Code and Docker on your machine.
 
 ## Using GitHub Codespaces

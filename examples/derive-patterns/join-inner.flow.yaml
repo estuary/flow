@@ -26,6 +26,8 @@ collections:
           shuffle: { key: [/Key] }
           update: { lambda: typescript }
           publish: { lambda: typescript }
+      typescript:
+        module: join-inner.flow.ts
 
 tests:
   patterns/test/inner-join:

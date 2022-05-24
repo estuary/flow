@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 21
 expression: tables
 ---
 All {
@@ -507,8 +506,8 @@ All {
                         collection: Some(
                             CollectionSpec {
                                 collection: "testing/int-string.v2",
-                                schema_uri: "test://example/int-string.schema",
-                                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
+                                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://inlined/canonical/id\",\"$ref\":\"test://example/int-string.schema\"}",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -960,7 +959,6 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
         BuiltCollection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
@@ -1068,7 +1066,6 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
         BuiltCollection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
@@ -1076,7 +1073,7 @@ All {
             spec: CollectionSpec {
                 collection: "testing/int-halve",
                 schema_uri: "test://example/int-string-len.schema",
-                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1359,7 +1356,6 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
         BuiltCollection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
@@ -1517,7 +1513,6 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string,
@@ -1698,15 +1693,14 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
             spec: CollectionSpec {
                 collection: "testing/int-string.v2",
-                schema_uri: "test://example/int-string.schema",
-                schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
+                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://inlined/canonical/id\",\"$ref\":\"test://example/int-string.schema\"}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1856,7 +1850,6 @@ All {
                     },
                 ),
             },
-            foreign_build_id: NULL,
         },
     ],
     built_derivations: [
@@ -2186,7 +2179,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-halve",
                         schema_uri: "test://example/int-string-len.schema",
-                        schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                        schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                         key_ptrs: [
                             "/int",
                         ],
@@ -2522,7 +2515,7 @@ All {
                                 filter_r_clocks: false,
                                 read_delay_seconds: 0,
                                 priority: 0,
-                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                             },
                         ),
                         update_lambda: Some(
@@ -2572,7 +2565,7 @@ All {
                                 filter_r_clocks: true,
                                 read_delay_seconds: 0,
                                 priority: 0,
-                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                             },
                         ),
                         update_lambda: None,
@@ -3617,7 +3610,7 @@ All {
                             CollectionSpec {
                                 collection: "testing/int-halve",
                                 schema_uri: "test://example/int-string-len.schema",
-                                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/int-string-len.schema\",\"$ref\":\"test://example/int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -4066,6 +4059,7 @@ All {
     ],
     built_tests: [
         BuiltTest {
+            scope: test://example/int-string-tests#/tests/testing~1test/0,
             test: testing/test,
             spec: TestSpec {
                 test: "testing/test",
@@ -4137,107 +4131,198 @@ All {
             scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
             capture: testing/db-cdc,
             capture_index: 0,
-            resource_spec: {"namespace":"and namespace","stream":"other-stream"},
-            collection: testing/int-string,
+            spec: {
+              "resource": {
+                "namespace": "and namespace",
+                "stream": "other-stream"
+              },
+              "target": "testing/int-string"
+            },
         },
         CaptureBinding {
             scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
             capture: testing/s3-source,
             capture_index: 0,
-            resource_spec: {"stream":"a-stream"},
-            collection: testing/int-string,
+            spec: {
+              "resource": {
+                "stream": "a-stream"
+              },
+              "target": "testing/int-string"
+            },
         },
         CaptureBinding {
             scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
             capture: testing/s3-source,
             capture_index: 1,
-            resource_spec: {"stream":"v2-stream"},
-            collection: testing/int-string.v2,
+            spec: {
+              "resource": {
+                "stream": "v2-stream"
+              },
+              "target": "testing/int-string.v2"
+            },
         },
     ],
     captures: [
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             capture: testing/db-cdc,
-            endpoint_type: "AIRBYTE_SOURCE",
-            endpoint_spec: {"image":"database","config":{"host":"a.host.name","user":"a-user"}},
-            interval_seconds: 300,
-            shards: {"hotStandbys":1},
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "database",
+                  "config": null
+                }
+              },
+              "bindings": [],
+              "shards": {
+                "hotStandbys": 1
+              }
+            },
+            endpoint_config: test://example/cdc-config.yaml,
         },
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
-            endpoint_type: "AIRBYTE_SOURCE",
-            endpoint_spec: {"image":"s3","config":{"bucket":"a-bucket","prefix":"and-prefix"}},
-            interval_seconds: 600,
-            shards: {},
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": null
+                }
+              },
+              "bindings": [],
+              "interval": "10m"
+            },
+            endpoint_config: test://example/int-string-captures?ptr=/captures/testing~1s3-source/endpoint/connector/config,
         },
     ],
     collections: [
         Collection {
             scope: test://example/array-key#/collections/testing~1array-key,
             collection: testing/array-key,
+            spec: {
+              "schema": false,
+              "key": [
+                "/arr/0/aKey"
+              ]
+            },
             schema: test://example/array-key.schema,
-            key: ["/arr/0/aKey"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
             collection: testing/from-array-key,
+            spec: {
+              "schema": false,
+              "key": [
+                "/someKey"
+              ]
+            },
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
-            key: ["/someKey"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
             collection: testing/int-halve,
+            spec: {
+              "schema": false,
+              "key": [
+                "/int"
+              ],
+              "journals": {
+                "fragments": {
+                  "length": 11223344,
+                  "flushInterval": "15m"
+                }
+              }
+            },
             schema: test://example/int-string-len.schema,
-            key: ["/int"],
-            journals: {"fragments":{"length":11223344,"flushInterval":"15m"}},
         },
         Collection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
+            spec: {
+              "schema": false,
+              "key": [
+                "/int"
+              ]
+            },
             schema: test://example/int-string.schema,
-            key: ["/int"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string,
             collection: testing/int-string,
+            spec: {
+              "schema": false,
+              "key": [
+                "/int"
+              ]
+            },
             schema: test://example/int-string.schema,
-            key: ["/int"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
-            schema: test://example/int-string.schema,
-            key: ["/int"],
-            journals: {"fragments":{"compressionCodec":"ZSTANDARD"}},
+            spec: {
+              "schema": false,
+              "key": [
+                "/int"
+              ],
+              "journals": {
+                "fragments": {
+                  "compressionCodec": "ZSTANDARD"
+                }
+              }
+            },
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
         },
     ],
     derivations: [
         Derivation {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation,
             derivation: testing/from-array-key,
+            spec: {
+              "register": {
+                "schema": false,
+                "initial": null
+              },
+              "transform": {}
+            },
             register_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
-            register_initial: null,
-            shards: {},
+            typescript_module: NULL,
         },
         Derivation {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
             derivation: testing/int-halve,
+            spec: {
+              "register": {
+                "schema": false,
+                "initial": 42
+              },
+              "transform": {},
+              "typescript": {
+                "module": ""
+              },
+              "shards": {
+                "disable": true
+              }
+            },
             register_schema: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
-            register_initial: 42,
-            shards: {"disable":true},
+            typescript_module: test://example/int-halve.ts,
         },
         Derivation {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
             derivation: testing/int-reverse,
+            spec: {
+              "register": {
+                "schema": false,
+                "initial": null
+              },
+              "transform": {},
+              "typescript": {
+                "module": ""
+              }
+            },
             register_schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
-            register_initial: null,
-            shards: {},
+            typescript_module: test://example/int-reverse.ts,
         },
     ],
     errors: [],
@@ -4249,10 +4334,6 @@ All {
         Fetch {
             depth: 2,
             resource: test://example/array-key,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
         },
         Fetch {
             depth: 2,
@@ -4292,19 +4373,7 @@ All {
         },
         Fetch {
             depth: 3,
-            resource: test://example/array-key.ts,
-        },
-        Fetch {
-            depth: 3,
             resource: test://example/cdc-config.yaml,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/db-views.ts,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/from-array-key.ts,
         },
         Fetch {
             depth: 3,
@@ -4316,15 +4385,7 @@ All {
         },
         Fetch {
             depth: 3,
-            resource: test://example/int-string-captures.ts,
-        },
-        Fetch {
-            depth: 3,
             resource: test://example/int-string-len.schema,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/int-string-tests.ts,
         },
         Fetch {
             depth: 3,
@@ -4332,15 +4393,7 @@ All {
         },
         Fetch {
             depth: 3,
-            resource: test://example/int-string.ts,
-        },
-        Fetch {
-            depth: 3,
             resource: test://example/webhook-config.yaml,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/webhook-deliveries.ts,
         },
     ],
     imports: [
@@ -4350,19 +4403,9 @@ All {
             to_resource: test://example/array-key.schema,
         },
         Import {
-            scope: test://example/array-key,
-            from_resource: test://example/array-key,
-            to_resource: test://example/array-key.ts,
-        },
-        Import {
             scope: test://example/catalog.yaml#/import/7,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/array-key,
-        },
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
         },
         Import {
             scope: test://example/catalog.yaml#/import/5,
@@ -4405,9 +4448,9 @@ All {
             to_resource: test://example/webhook-deliveries,
         },
         Import {
-            scope: test://example/db-views,
+            scope: test://example/db-views#/materializations/testing~1db-views/endpoint/connector/config,
             from_resource: test://example/db-views,
-            to_resource: test://example/db-views.ts,
+            to_resource: test://example/db-views?ptr=/materializations/testing~1db-views/endpoint/connector/config,
         },
         Import {
             scope: test://example/db-views#/import/0,
@@ -4418,11 +4461,6 @@ All {
             scope: test://example/from-array-key#/import/0,
             from_resource: test://example/from-array-key,
             to_resource: test://example/array-key,
-        },
-        Import {
-            scope: test://example/from-array-key,
-            from_resource: test://example/from-array-key,
-            to_resource: test://example/from-array-key.ts,
         },
         Import {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/register/schema,
@@ -4445,7 +4483,7 @@ All {
             to_resource: test://example/array-key.schema,
         },
         Import {
-            scope: test://example/int-halve,
+            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/typescript/module,
             from_resource: test://example/int-halve,
             to_resource: test://example/int-halve.ts,
         },
@@ -4465,7 +4503,7 @@ All {
             to_resource: test://example/int-string-len.schema,
         },
         Import {
-            scope: test://example/int-reverse,
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/typescript/module,
             from_resource: test://example/int-reverse,
             to_resource: test://example/int-reverse.ts,
         },
@@ -4490,22 +4528,17 @@ All {
             to_resource: test://example/int-halve,
         },
         Import {
-            scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
-            from_resource: test://example/int-string,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
             scope: test://example/int-string#/collections/testing~1int-string/schema,
             from_resource: test://example/int-string,
             to_resource: test://example/int-string.schema,
         },
         Import {
-            scope: test://example/int-string,
+            scope: test://example/int-string#/collections/testing~1int-string.v2/schema,
             from_resource: test://example/int-string,
-            to_resource: test://example/int-string.ts,
+            to_resource: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
         },
         Import {
-            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc/endpoint/connector/config,
             from_resource: test://example/int-string-captures,
             to_resource: test://example/cdc-config.yaml,
         },
@@ -4515,9 +4548,9 @@ All {
             to_resource: test://example/int-string,
         },
         Import {
-            scope: test://example/int-string-captures,
+            scope: test://example/int-string-captures#/captures/testing~1s3-source/endpoint/connector/config,
             from_resource: test://example/int-string-captures,
-            to_resource: test://example/int-string-captures.ts,
+            to_resource: test://example/int-string-captures?ptr=/captures/testing~1s3-source/endpoint/connector/config,
         },
         Import {
             scope: test://example/int-string-len.schema#/properties/arr/additionalItems/$ref,
@@ -4535,11 +4568,6 @@ All {
             to_resource: test://example/int-string,
         },
         Import {
-            scope: test://example/int-string-tests,
-            from_resource: test://example/int-string-tests,
-            to_resource: test://example/int-string-tests.ts,
-        },
-        Import {
             scope: test://example/int-string-tests#/tests/testing~1test/0,
             from_resource: test://example/int-string-tests,
             to_resource: test://example/int-string-tests?ptr=/tests/testing~1test/0,
@@ -4548,6 +4576,11 @@ All {
             scope: test://example/int-string-tests#/tests/testing~1test/1,
             from_resource: test://example/int-string-tests,
             to_resource: test://example/int-string-tests?ptr=/tests/testing~1test/1,
+        },
+        Import {
+            scope: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema#/$ref,
+            from_resource: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            to_resource: test://example/int-string.schema,
         },
         Import {
             scope: test://example/webhook-deliveries#/import/1,
@@ -4560,14 +4593,9 @@ All {
             to_resource: test://example/int-string,
         },
         Import {
-            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/endpoint/connector/config,
             from_resource: test://example/webhook-deliveries,
             to_resource: test://example/webhook-config.yaml,
-        },
-        Import {
-            scope: test://example/webhook-deliveries,
-            from_resource: test://example/webhook-deliveries,
-            to_resource: test://example/webhook-deliveries.ts,
         },
     ],
     inferences: [
@@ -4926,22 +4954,6 @@ All {
             },
         },
         Inference {
-            schema: test://example/int-string-len.schema#Other,
-            location: ,
-            spec: Inference {
-                types: [
-                    "integer",
-                ],
-                deprecated_must_exist: true,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-                exists: Must,
-            },
-        },
-        Inference {
             schema: test://example/int-string.schema,
             location: ,
             spec: Inference {
@@ -5014,7 +5026,7 @@ All {
             },
         },
         Inference {
-            schema: test://example/int-string.schema#AnAnchor,
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
             location: ,
             spec: Inference {
                 types: [
@@ -5030,8 +5042,40 @@ All {
             },
         },
         Inference {
-            schema: test://example/int-string.schema#AnAnchor,
-            location: /one,
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            location: /bit,
+            spec: Inference {
+                types: [
+                    "boolean",
+                ],
+                deprecated_must_exist: true,
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            location: /int,
+            spec: Inference {
+                types: [
+                    "integer",
+                ],
+                deprecated_must_exist: true,
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            location: /str,
             spec: Inference {
                 types: [
                     "string",
@@ -5053,336 +5097,155 @@ All {
                 exists: Must,
             },
         },
-        Inference {
-            schema: test://example/int-string.schema#AnAnchor,
-            location: /two,
-            spec: Inference {
-                types: [
-                    "integer",
-                ],
-                deprecated_must_exist: false,
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-                exists: May,
-            },
-        },
     ],
     materialization_bindings: [
         MaterializationBinding {
             scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
             materialization: testing/db-views,
             materialization_index: 0,
-            resource_spec: {"table":"the_table"},
-            collection: testing/int-string,
-            fields_exclude: [],
-            fields_include: {},
-            fields_recommended: 1,
-            source_partitions: NULL,
+            spec: {
+              "resource": {
+                "table": "the_table"
+              },
+              "source": "testing/int-string",
+              "fields": {
+                "recommended": true
+              }
+            },
         },
         MaterializationBinding {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
             materialization: testing/webhook/deliveries,
             materialization_index: 0,
-            resource_spec: {"fixture":"one"},
-            collection: testing/int-string,
-            fields_exclude: ["bit"],
-            fields_include: {"str":{"pass":"through"}},
-            fields_recommended: 1,
-            source_partitions: {"include":{"bit":[true]},"exclude":{}},
+            spec: {
+              "resource": {
+                "fixture": "one"
+              },
+              "source": "testing/int-string",
+              "partitions": {
+                "include": {
+                  "bit": [
+                    true
+                  ]
+                },
+                "exclude": {}
+              },
+              "fields": {
+                "include": {
+                  "str": {
+                    "pass": "through"
+                  }
+                },
+                "exclude": [
+                  "bit"
+                ],
+                "recommended": true
+              }
+            },
         },
         MaterializationBinding {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
             materialization: testing/webhook/deliveries,
             materialization_index: 1,
-            resource_spec: {"fixture":"two"},
-            collection: testing/int-halve,
-            fields_exclude: [],
-            fields_include: {"Len":{}},
-            fields_recommended: 0,
-            source_partitions: NULL,
+            spec: {
+              "resource": {
+                "fixture": "two"
+              },
+              "source": "testing/int-halve",
+              "fields": {
+                "include": {
+                  "Len": {}
+                },
+                "recommended": false
+              }
+            },
         },
     ],
     materializations: [
         Materialization {
             scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
-            endpoint_type: "FLOW_SINK",
-            endpoint_spec: {"image":"database/image","config":{"foo":"bar"}},
-            shards: {"maxTxnDuration":"2m 3s","logLevel":"warn"},
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "database/image",
+                  "config": null
+                }
+              },
+              "bindings": [],
+              "shards": {
+                "maxTxnDuration": "2m 3s",
+                "logLevel": "warn"
+              }
+            },
+            endpoint_config: test://example/db-views?ptr=/materializations/testing~1db-views/endpoint/connector/config,
         },
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
-            endpoint_type: "FLOW_SINK",
-            endpoint_spec: {"image":"webhook/connector","config":{"address":"http://example/webhook"}},
-            shards: {},
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "webhook/connector",
+                  "config": null
+                }
+              },
+              "bindings": []
+            },
+            endpoint_config: test://example/webhook-config.yaml,
         },
     ],
     meta: [],
-    named_schemas: [
-        NamedSchema {
-            scope: test://example/int-string.schema#/$defs/anAnchor,
-            anchor: test://example/int-string.schema#AnAnchor,
-            anchor_name: AnAnchor,
-        },
-        NamedSchema {
-            scope: test://example/int-string-len.schema#/$defs/otherAnchor,
-            anchor: test://example/int-string-len.schema#Other,
-            anchor_name: Other,
+    npm_dependencies: [
+        NPMDependency {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/typescript/npmDependencies/package-one,
+            derivation: testing/int-reverse,
+            package: package-one,
+            version: v1.2.3,
         },
     ],
-    npm_dependencies: [],
     projections: [
         Projection {
             scope: test://example/array-key#/collections/testing~1array-key/projections/aKeyOne,
             collection: testing/array-key,
             field: aKeyOne,
-            location: /arr/1/aKey,
-            partition: 0,
-            user_provided: 1,
-        },
-        Projection {
-            scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
-            field: arr,
-            location: /arr,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
-            field: arr/0/aKey,
-            location: /arr/0/aKey,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
-            field: arr/1/aKey,
-            location: /arr/1/aKey,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
-            field: arr/3/aKey,
-            location: /arr/3/aKey,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key,
-            collection: testing/from-array-key,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key,
-            collection: testing/from-array-key,
-            field: someKey,
-            location: /someKey,
-            partition: 0,
-            user_provided: 0,
+            spec: "/arr/1/aKey",
         },
         Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,
             collection: testing/int-halve,
             field: Extra,
-            location: /extra,
-            partition: 0,
-            user_provided: 1,
+            spec: "/extra",
         },
         Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Len,
             collection: testing/int-halve,
             field: Len,
-            location: /len,
-            partition: 1,
-            user_provided: 1,
+            spec: {
+              "location": "/len",
+              "partition": true
+            },
         },
         Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Root,
             collection: testing/int-halve,
             field: Root,
-            location: ,
-            partition: 0,
-            user_provided: 1,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: arr,
-            location: /arr,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: bit,
-            location: /bit,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: extra,
-            location: /extra,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: len,
-            location: /len,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: bit,
-            location: /bit,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
+            spec: "",
         },
         Projection {
             scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
             collection: testing/int-string,
             field: Int,
-            location: /int,
-            partition: 0,
-            user_provided: 1,
+            spec: "/int",
         },
         Projection {
             scope: test://example/int-string#/collections/testing~1int-string/projections/bit,
             collection: testing/int-string,
             field: bit,
-            location: /bit,
-            partition: 1,
-            user_provided: 1,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: bit,
-            location: /bit,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: flow_document,
-            location: ,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: int,
-            location: /int,
-            partition: 0,
-            user_provided: 0,
-        },
-        Projection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
-            field: str,
-            location: /str,
-            partition: 0,
-            user_provided: 0,
+            spec: {
+              "location": "/bit",
+              "partition": true
+            },
         },
     ],
     resources: [
@@ -5390,127 +5253,191 @@ All {
             resource: test://example/array-key,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"testing/array-key":{"key":["/arr/0/aKey"],"projections":{"aKeyOne":"/arr/1/aKey"},"schema":"test://example/array-key.schema"}}},
         },
         Resource {
             resource: test://example/array-key.schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["test://example/int-string","test://example/int-reverse","test://example/int-halve","test://example/int-string-captures","test://example/webhook-deliveries","test://example/db-views","test://example/int-string-tests","test://example/array-key","test://example/from-array-key"],"storageMappings":{"not-matched/":{"stores":[{"bucket":"not-matched-bucket","provider":"AZURE"}]},"recovery/testing/":{"stores":[{"bucket":"recovery-bucket","prefix":"some/","provider":"GCS"}]},"testing/":{"stores":[{"bucket":"data-bucket","provider":"S3"}]}}},
         },
         Resource {
             resource: test://example/cdc-config.yaml,
             content_type: "CONFIG",
             content: ".. binary ..",
+            content_dom: {"host":"a.host.name","user":"a-user"},
         },
         Resource {
             resource: test://example/db-views,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["test://example/int-string"],"materializations":{"testing/db-views":{"bindings":[{"resource":{"table":"the_table"},"source":"testing/int-string"}],"endpoint":{"connector":{"config":{"foo":"bar"},"image":"database/image"}},"shards":{"logLevel":"warn","maxTxnDuration":"123s"}}}},
+        },
+        Resource {
+            resource: test://example/db-views?ptr=/materializations/testing~1db-views/endpoint/connector/config,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"foo":"bar"},
         },
         Resource {
             resource: test://example/from-array-key,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"testing/from-array-key":{"derivation":{"transform":{"withSourceSchema":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/2/aKey"]},"source":{"name":"testing/array-key","schema":{"$ref":"test://example/array-key.schema"}}},"withoutSourceSchema":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/3/aKey"]},"source":{"name":"testing/array-key"}}}},"key":["/someKey"],"schema":{"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"}}},"import":["test://example/array-key"]},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: true,
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$ref":"test://example/array-key.schema"},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
         },
         Resource {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"testing/int-halve":{"derivation":{"register":{"initial":42,"schema":{"type":"integer"}},"shards":{"disable":true},"transform":{"halveIntString":{"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-string","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}},"schema":"test://example/int-string-len.schema"},"update":{"lambda":{"remote":"https://an/api"}}},"halveSelf":{"publish":{"lambda":"typescript"},"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-halve"}}},"typescript":{"module":"int-halve.ts"}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":""},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
             content_type: "TYPESCRIPT_MODULE",
             content: ".. binary ..",
+            content_dom: null,
         },
         Resource {
             resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"type":"integer"},
         },
         Resource {
             resource: test://example/int-reverse,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"testing/int-reverse":{"derivation":{"transform":{"reverseIntString":{"publish":{"lambda":"typescript"},"source":{"name":"testing/int-string"}}},"typescript":{"module":"int-reverse.ts","npmDependencies":{"package-one":"v1.2.3"}}},"key":["/int"],"schema":"test://example/int-string.schema"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-reverse.ts,
             content_type: "TYPESCRIPT_MODULE",
             content: ".. binary ..",
+            content_dom: null,
         },
         Resource {
             resource: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: true,
         },
         Resource {
             resource: test://example/int-string,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
         },
         Resource {
             resource: test://example/int-string-captures,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
+        },
+        Resource {
+            resource: test://example/int-string-captures?ptr=/captures/testing~1s3-source/endpoint/connector/config,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"bucket":"a-bucket","prefix":"and-prefix"},
         },
         Resource {
             resource: test://example/int-string-len.schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
         },
         Resource {
             resource: test://example/int-string-tests,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["test://example/int-string"],"tests":{"testing/test":[{"ingest":{"collection":"testing/int-string","documents":[{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}]}},{"verify":{"collection":"testing/int-string","description":"expect stuff happens","documents":[{"str":"string A"},{"str":"string B"}],"partitions":{"include":{"bit":[true]}}}}]}},
         },
         Resource {
             resource: test://example/int-string-tests?ptr=/tests/testing~1test/0,
             content_type: "DOCUMENTS_FIXTURE",
             content: ".. binary ..",
+            content_dom: [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}],
         },
         Resource {
             resource: test://example/int-string-tests?ptr=/tests/testing~1test/1,
             content_type: "DOCUMENTS_FIXTURE",
             content: ".. binary ..",
+            content_dom: [{"str":"string A"},{"str":"string B"}],
         },
         Resource {
             resource: test://example/int-string.schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+        },
+        Resource {
+            resource: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
         },
         Resource {
             resource: test://example/webhook-config.yaml,
             content_type: "CONFIG",
             content: ".. binary ..",
+            content_dom: {"address":"http://example/webhook"},
         },
         Resource {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"partitions":{"include":{"bit":[true]}},"resource":{"fixture":"one"},"source":"testing/int-string"},{"fields":{"include":{"Len":{}},"recommended":false},"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/array-key.schema,
-            dom: {"properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
+            dom: {
+              "properties": {
+                "arr": {
+                  "items": {
+                    "properties": {
+                      "aKey": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "aKey"
+                    ],
+                    "type": "object"
+                  },
+                  "minItems": 5,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "arr"
+              ],
+              "type": "object"
+            },
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
@@ -5518,15 +5445,29 @@ All {
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            dom: {"$ref":"test://example/array-key.schema"},
+            dom: {
+              "$ref": "test://example/array-key.schema"
+            },
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
-            dom: {"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
+            dom: {
+              "properties": {
+                "someKey": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "someKey"
+              ],
+              "type": "object"
+            },
         },
         SchemaDoc {
             schema: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
-            dom: {"type":"integer"},
+            dom: {
+              "type": "integer"
+            },
         },
         SchemaDoc {
             schema: test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema,
@@ -5534,125 +5475,264 @@ All {
         },
         SchemaDoc {
             schema: test://example/int-string-len.schema,
-            dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$ref":"test://example/int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
+            dom: {
+              "$defs": {
+                "otherAnchor": {
+                  "$anchor": "Other",
+                  "type": "integer"
+                }
+              },
+              "$id": "test://example/canonical/int-string-len.schema",
+              "$ref": "../int-string.schema",
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "properties": {
+                "arr": {
+                  "additionalItems": {
+                    "$ref": "../int-string.schema#AnAnchor"
+                  },
+                  "type": "array"
+                },
+                "bit": {},
+                "int": {},
+                "len": {
+                  "type": "integer"
+                },
+                "str": {}
+              },
+              "required": [
+                "len"
+              ]
+            },
         },
         SchemaDoc {
             schema: test://example/int-string.schema,
-            dom: {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+            dom: {
+              "$defs": {
+                "anAnchor": {
+                  "$anchor": "AnAnchor",
+                  "properties": {
+                    "one": {
+                      "type": "string"
+                    },
+                    "two": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "one"
+                  ],
+                  "type": "object"
+                }
+              },
+              "properties": {
+                "bit": {
+                  "type": "boolean"
+                },
+                "int": {
+                  "type": "integer"
+                },
+                "str": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "int",
+                "str",
+                "bit"
+              ],
+              "type": "object"
+            },
+        },
+        SchemaDoc {
+            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            dom: {
+              "$id": "test://inlined/canonical/id",
+              "$ref": "test://example/int-string.schema"
+            },
         },
     ],
     storage_mappings: [
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
             prefix: not-matched/,
-            stores: [{"provider":"AZURE","bucket":"not-matched-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "AZURE",
+                "bucket": "not-matched-bucket",
+                "prefix": null
+              }
+            ],
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
             prefix: recovery/testing/,
-            stores: [{"provider":"GCS","bucket":"recovery-bucket","prefix":"some/"}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "GCS",
+                "bucket": "recovery-bucket",
+                "prefix": "some/"
+              }
+            ],
         },
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/testing~1,
             prefix: testing/,
-            stores: [{"provider":"S3","bucket":"data-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "data-bucket",
+                "prefix": null
+              }
+            ],
         },
     ],
     test_steps: [
         TestStep {
             scope: test://example/int-string-tests#/tests/testing~1test/0,
             test: testing/test,
-            description: ,
-            collection: testing/int-string,
-            documents: test://example/int-string-tests?ptr=/tests/testing~1test/0,
-            partitions: NULL,
             step_index: 0,
-            step_type: "INGEST",
+            spec: {
+              "ingest": {
+                "collection": "testing/int-string",
+                "documents": []
+              }
+            },
+            documents: test://example/int-string-tests?ptr=/tests/testing~1test/0,
         },
         TestStep {
             scope: test://example/int-string-tests#/tests/testing~1test/1,
             test: testing/test,
-            description: expect stuff happens,
-            collection: testing/int-string,
-            documents: test://example/int-string-tests?ptr=/tests/testing~1test/1,
-            partitions: {"include":{"bit":[true]},"exclude":{}},
             step_index: 1,
-            step_type: "VERIFY",
+            spec: {
+              "verify": {
+                "description": "expect stuff happens",
+                "collection": "testing/int-string",
+                "documents": [],
+                "partitions": {
+                  "include": {
+                    "bit": [
+                      true
+                    ]
+                  },
+                  "exclude": {}
+                }
+              }
+            },
+            documents: test://example/int-string-tests?ptr=/tests/testing~1test/1,
         },
     ],
     transforms: [
         Transform {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withSourceSchema,
             derivation: testing/from-array-key,
-            priority: 0,
-            publish_lambda: {"remote":"https://an/api"},
-            read_delay_seconds: NULL,
-            shuffle_key: ["/arr/2/aKey"],
-            shuffle_lambda: NULL,
-            source_collection: testing/array-key,
-            source_partitions: NULL,
-            source_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
             transform: withSourceSchema,
-            update_lambda: NULL,
+            spec: {
+              "source": {
+                "name": "testing/array-key"
+              },
+              "shuffle": {
+                "key": [
+                  "/arr/2/aKey"
+                ]
+              },
+              "publish": {
+                "lambda": {
+                  "remote": "https://an/api"
+                }
+              }
+            },
+            source_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
         },
         Transform {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withoutSourceSchema,
             derivation: testing/from-array-key,
-            priority: 0,
-            publish_lambda: {"remote":"https://an/api"},
-            read_delay_seconds: NULL,
-            shuffle_key: ["/arr/3/aKey"],
-            shuffle_lambda: NULL,
-            source_collection: testing/array-key,
-            source_partitions: NULL,
-            source_schema: NULL,
             transform: withoutSourceSchema,
-            update_lambda: NULL,
+            spec: {
+              "source": {
+                "name": "testing/array-key"
+              },
+              "shuffle": {
+                "key": [
+                  "/arr/3/aKey"
+                ]
+              },
+              "publish": {
+                "lambda": {
+                  "remote": "https://an/api"
+                }
+              }
+            },
+            source_schema: NULL,
         },
         Transform {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
             derivation: testing/int-halve,
-            priority: 0,
-            publish_lambda: NULL,
-            read_delay_seconds: NULL,
-            shuffle_key: ["/len","/int"],
-            shuffle_lambda: NULL,
-            source_collection: testing/int-string,
-            source_partitions: {"include":{"bit":[true]},"exclude":{"bit":[false]}},
-            source_schema: test://example/int-string-len.schema,
             transform: halveIntString,
-            update_lambda: {"remote":"https://an/api"},
+            spec: {
+              "source": {
+                "name": "testing/int-string",
+                "partitions": {
+                  "include": {
+                    "bit": [
+                      true
+                    ]
+                  },
+                  "exclude": {
+                    "bit": [
+                      false
+                    ]
+                  }
+                }
+              },
+              "shuffle": {
+                "key": [
+                  "/len",
+                  "/int"
+                ]
+              },
+              "update": {
+                "lambda": {
+                  "remote": "https://an/api"
+                }
+              }
+            },
+            source_schema: test://example/int-string-len.schema,
         },
         Transform {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
             derivation: testing/int-halve,
-            priority: 0,
-            publish_lambda: "typescript",
-            read_delay_seconds: NULL,
-            shuffle_key: ["/len","/int"],
-            shuffle_lambda: NULL,
-            source_collection: testing/int-halve,
-            source_partitions: NULL,
-            source_schema: NULL,
             transform: halveSelf,
-            update_lambda: NULL,
+            spec: {
+              "source": {
+                "name": "testing/int-halve"
+              },
+              "shuffle": {
+                "key": [
+                  "/len",
+                  "/int"
+                ]
+              },
+              "publish": {
+                "lambda": "typescript"
+              }
+            },
+            source_schema: NULL,
         },
         Transform {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
             derivation: testing/int-reverse,
-            priority: 0,
-            publish_lambda: "typescript",
-            read_delay_seconds: NULL,
-            shuffle_key: NULL,
-            shuffle_lambda: NULL,
-            source_collection: testing/int-string,
-            source_partitions: NULL,
-            source_schema: NULL,
             transform: reverseIntString,
-            update_lambda: NULL,
+            spec: {
+              "source": {
+                "name": "testing/int-string"
+              },
+              "publish": {
+                "lambda": "typescript"
+              }
+            },
+            source_schema: NULL,
         },
     ],
 }

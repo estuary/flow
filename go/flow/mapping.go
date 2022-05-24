@@ -152,6 +152,12 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			// Did we lose because the journal already exists ?
 			if kvs := applyResponse.Responses[0].GetResponseRange().Kvs; len(kvs) != 0 {
 				readThrough = kvs[0].ModRevision // Read through its last update.
+
+				log.WithFields(log.Fields{
+					"attempt":     attempt,
+					"journal":     applySpec.Name,
+					"readThrough": readThrough,
+				}).Info("lost race to create partition")
 			} else {
 				// The shard spec that granted us authority to create partitions was removed.
 				return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name,
@@ -263,12 +269,18 @@ func (m Mappable) SetUUID(uuid message.UUID) {
 	copy(m.Doc[ind:ind+36], str[0:36])
 }
 
+// NewAcknowledgementMessage returns a new acknowledgement message for a journal of the given
+// collection.
+func NewAcknowledgementMessage(spec *pf.CollectionSpec) Mappable {
+	return Mappable{
+		Spec: spec,
+		Doc:  append(json.RawMessage(nil), spec.AckJsonTemplate...),
+	}
+}
+
 // NewAcknowledgement returns an Mappable of the acknowledgement template.
 func (m Mappable) NewAcknowledgement(pb.Journal) message.Message {
-	return Mappable{
-		Spec: m.Spec,
-		Doc:  append(json.RawMessage(nil), m.Spec.AckJsonTemplate...),
-	}
+	return NewAcknowledgementMessage(m.Spec)
 }
 
 // MarshalJSONTo copies the raw document json into the Writer.

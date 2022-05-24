@@ -3,6 +3,7 @@ package bindings
 // #include "../../crates/bindings/flow_bindings.h"
 import "C"
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 
@@ -12,11 +13,10 @@ import (
 
 // Extractor extracts UUIDs and packed field tuples from Documents.
 type Extractor struct {
-	svc         *service
-	uuids       []pf.UUIDParts
-	tuples      [][]byte
-	docs        int
-	pinnedIndex *SchemaIndex // Used from Rust.
+	svc    *service
+	uuids  []pf.UUIDParts
+	tuples [][]byte
+	docs   int
 }
 
 // NewExtractor returns an instance of the Extractor service.
@@ -26,11 +26,10 @@ func NewExtractor() (*Extractor, error) {
 		return nil, err
 	}
 	var extractor = &Extractor{
-		svc:         svc,
-		uuids:       make([]pf.UUIDParts, 32),
-		tuples:      make([][]byte, 32),
-		docs:        0,
-		pinnedIndex: nil,
+		svc:    svc,
+		uuids:  make([]pf.UUIDParts, 32),
+		tuples: make([][]byte, 32),
+		docs:   0,
 	}
 
 	// Destroy the held service on collection.
@@ -46,23 +45,15 @@ func NewExtractor() (*Extractor, error) {
 func (e *Extractor) Configure(
 	uuidPtr string,
 	fieldPtrs []string,
-	schemaURI string,
-	index *SchemaIndex,
+	schemaJSON json.RawMessage,
 ) error {
-
-	var schemaIndexMemptr uint64
-	if schemaURI != "" {
-		schemaIndexMemptr = index.indexMemPtr
-	}
-	e.pinnedIndex = index
 
 	e.svc.mustSendMessage(
 		uint32(pf.ExtractAPI_CONFIGURE),
 		&pf.ExtractAPI_Config{
-			UuidPtr:           uuidPtr,
-			SchemaUri:         schemaURI,
-			SchemaIndexMemptr: schemaIndexMemptr,
-			FieldPtrs:         fieldPtrs,
+			UuidPtr:    uuidPtr,
+			SchemaJson: schemaJSON,
+			FieldPtrs:  fieldPtrs,
 		})
 
 	return pollExpectNoOutput(e.svc)

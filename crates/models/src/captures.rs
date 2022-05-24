@@ -9,7 +9,7 @@ use std::time::Duration;
 /// from which data should be continuously captured, with a Flow collection into that captured
 /// data is ingested. Multiple Captures may be bound to a single collection, but only one
 /// capture may exist for a given endpoint and target.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CaptureDef {
     /// # Endpoint to capture from.
@@ -26,17 +26,24 @@ pub struct CaptureDef {
     /// For example, if the interval is five minutes, and an invocation of the
     /// capture finishes after two minutes, then the next invocation will be started
     /// after three additional minutes.
-    #[serde(default = "CaptureDef::default_interval", with = "humantime_serde")]
+    #[serde(
+        default = "CaptureDef::default_interval",
+        with = "humantime_serde",
+        skip_serializing_if = "CaptureDef::is_default_interval"
+    )]
     #[schemars(schema_with = "super::duration_schema")]
     pub interval: Duration,
     /// # Template for shards of this capture task.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
 }
 
 impl CaptureDef {
     pub fn default_interval() -> Duration {
         Duration::from_secs(300) // 5 minutes.
+    }
+    fn is_default_interval(interval: &Duration) -> bool {
+        *interval == Self::default_interval()
     }
 
     pub fn example() -> Self {
@@ -49,7 +56,7 @@ impl CaptureDef {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(example = "CaptureBinding::example")]
 pub struct CaptureBinding {
@@ -69,7 +76,7 @@ impl CaptureBinding {
 }
 
 /// An Endpoint connector used for Flow captures.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum CaptureEndpoint {
     /// # A Connector.
@@ -80,5 +87,5 @@ pub enum CaptureEndpoint {
 }
 
 /// Ingest source specification.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct IngestConfig {}

@@ -1,11 +1,11 @@
 ---
-source: src/config/mod.rs
+source: crates/parser/src/config/mod.rs
 expression: schema
-
 ---
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ParseConfig",
+  "title": "Parser Configuration",
+  "description": "Configures how files are parsed",
   "type": "object",
   "properties": {
     "addRecordOffset": {

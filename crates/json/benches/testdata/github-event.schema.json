@@ -161,7 +161,10 @@
               "example": "Found a bug"
             },
             "body": {
-              "type": "string",
+              "type": [
+                "string",
+                "null"
+              ],
               "example": "I'm having a problem with this."
             },
             "user": {
@@ -2744,7 +2747,6 @@
             "id",
             "node_id",
             "html_url",
-            "issue_url",
             "author_association",
             "user",
             "url",

@@ -213,7 +213,7 @@ macro_rules! json_sql_types {
         $(
         impl Column for $rust_type {
             fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = serde_json::to_string(&self).unwrap();
+                let s = serde_json::to_string_pretty(&self).unwrap();
                 f.write_str(&s)
             }
         }
@@ -346,6 +346,10 @@ macro_rules! tables {
         impl std::ops::Deref for $table {
             type Target = Vec<$row>;
             fn deref(&self) -> &Vec<$row> { &self.0 }
+        }
+
+        impl std::ops::DerefMut for $table {
+            fn deref_mut(&mut self) -> &mut Vec<$row> { &mut self.0 }
         }
 
         impl std::iter::FromIterator<$row> for $table {

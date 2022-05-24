@@ -1,6 +1,5 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
-assertion_line: 115
 expression: tables
 ---
 Sources {
@@ -10,27 +9,47 @@ Sources {
         Collection {
             scope: test://example/B.yaml#/collections/bar,
             collection: bar,
+            spec: {
+              "schema": false,
+              "key": [
+                "/ptr"
+              ]
+            },
             schema: test://example/subpath/wrong-content-type.yaml,
-            key: ["/ptr"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/B.yaml#/collections/baz,
             collection: baz,
+            spec: {
+              "schema": false,
+              "key": [
+                "/ptr"
+              ]
+            },
             schema: test://example/subpath/invalid-base64,
-            key: ["/ptr"],
-            journals: {"fragments":{}},
         },
         Collection {
             scope: test://example/B.yaml#/collections/foo,
             collection: foo,
+            spec: {
+              "schema": false,
+              "key": [
+                "/ptr"
+              ]
+            },
             schema: test://example/subpath/json-schema.yaml,
-            key: ["/ptr"],
-            journals: {"fragments":{}},
         },
     ],
     derivations: [],
     errors: [
+        Error {
+            scope: test://example/B.yaml#/import/0,
+            error: failed to fetch resource https://absolute/path/to/c.yaml
+            
+            Caused by:
+                0: base64-decode of inline resource failed
+                1: Invalid byte 34, offset 0.,
+        },
         Error {
             scope: test://example/B.yaml#/collections/bar/schema,
             error: failed to fetch resource test://example/subpath/wrong-content-type.yaml
@@ -44,7 +63,7 @@ Sources {
             
             Caused by:
                 0: base64-decode of inline resource failed
-                1: Encoded text cannot have a 6-bit remainder.,
+                1: Invalid byte 34, offset 0.,
         },
     ],
     fetches: [
@@ -57,16 +76,8 @@ Sources {
             resource: test://example/B.yaml,
         },
         Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
             depth: 3,
             resource: https://absolute/path/to/c.yaml,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/B.ts,
         },
         Fetch {
             depth: 3,
@@ -80,26 +91,12 @@ Sources {
             depth: 3,
             resource: test://example/subpath/wrong-content-type.yaml,
         },
-        Fetch {
-            depth: 4,
-            resource: https://absolute/path/to/c.ts,
-        },
     ],
     imports: [
-        Import {
-            scope: https://absolute/path/to/c.yaml,
-            from_resource: https://absolute/path/to/c.yaml,
-            to_resource: https://absolute/path/to/c.ts,
-        },
         Import {
             scope: test://example/B.yaml#/import/0,
             from_resource: test://example/B.yaml,
             to_resource: https://absolute/path/to/c.yaml,
-        },
-        Import {
-            scope: test://example/B.yaml,
-            from_resource: test://example/B.yaml,
-            to_resource: test://example/B.ts,
         },
         Import {
             scope: test://example/B.yaml#/collections/baz/schema,
@@ -121,63 +118,61 @@ Sources {
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/B.yaml,
         },
-        Import {
-            scope: test://example/catalog.yaml,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.ts,
-        },
     ],
     materialization_bindings: [],
     materializations: [],
-    named_schemas: [],
     npm_dependencies: [],
     projections: [],
     resources: [
         Resource {
-            resource: https://absolute/path/to/c.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-        },
-        Resource {
             resource: test://example/B.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"collections":{"bar":{"key":["/ptr"],"schema":"subpath/wrong-content-type.yaml"},"baz":{"key":["/ptr"],"schema":"subpath/invalid-base64"},"foo":{"key":["/ptr"],"schema":"subpath/json-schema.yaml"}},"import":["https://absolute/path/to/c.yaml"],"resources":{"https://absolute/path/to/c.yaml":{"content":"eyJzdG9yYWdlTWFwcGluZ3MiOnsiQy8iOnsic3RvcmVzIjpbeyJidWNrZXQiOiJhei1idWNrZXQiLCJwcm92aWRlciI6IkFaVVJFIn1dfX19","contentType":"CATALOG"}},"storageMappings":{"B/":{"stores":[{"bucket":"s3-bucket","provider":"S3"}]}}},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
+            content_dom: {"import":["B.yaml"],"resources":{"test://example/B.yaml":{"content":{"collections":{"bar":{"key":["/ptr"],"schema":"subpath/wrong-content-type.yaml"},"baz":{"key":["/ptr"],"schema":"subpath/invalid-base64"},"foo":{"key":["/ptr"],"schema":"subpath/json-schema.yaml"}},"import":["https://absolute/path/to/c.yaml"],"resources":{"https://absolute/path/to/c.yaml":{"content":"eyJzdG9yYWdlTWFwcGluZ3MiOnsiQy8iOnsic3RvcmVzIjpbeyJidWNrZXQiOiJhei1idWNrZXQiLCJwcm92aWRlciI6IkFaVVJFIn1dfX19","contentType":"CATALOG"}},"storageMappings":{"B/":{"stores":[{"bucket":"s3-bucket","provider":"S3"}]}}},"contentType":"CATALOG"},"test://example/subpath/invalid-base64":{"content":"this should be base64","contentType":"JSON_SCHEMA"},"test://example/subpath/json-schema.yaml":{"content":{"const":42},"contentType":"JSON_SCHEMA"},"test://example/subpath/wrong-content-type.yaml":{"content":{},"contentType":"CATALOG"}},"storageMappings":{"A/":{"stores":[{"bucket":"gcs-bucket","provider":"GCS"}]}}},
         },
         Resource {
             resource: test://example/subpath/json-schema.yaml,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
+            content_dom: {"const":42},
         },
     ],
     schema_docs: [
         SchemaDoc {
             schema: test://example/subpath/json-schema.yaml,
-            dom: {"const":42},
+            dom: {
+              "const": 42
+            },
         },
     ],
     storage_mappings: [
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/A~1,
             prefix: A/,
-            stores: [{"provider":"GCS","bucket":"gcs-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "GCS",
+                "bucket": "gcs-bucket",
+                "prefix": null
+              }
+            ],
         },
         StorageMapping {
             scope: test://example/B.yaml#/storageMappings/B~1,
             prefix: B/,
-            stores: [{"provider":"S3","bucket":"s3-bucket","prefix":null}],
-            foreign_build_id: NULL,
-        },
-        StorageMapping {
-            scope: https://absolute/path/to/c.yaml#/storageMappings/C~1,
-            prefix: C/,
-            stores: [{"provider":"AZURE","bucket":"az-bucket","prefix":null}],
-            foreign_build_id: NULL,
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "s3-bucket",
+                "prefix": null
+              }
+            ],
         },
     ],
     test_steps: [],

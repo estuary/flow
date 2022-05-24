@@ -17,17 +17,33 @@ which acts as a SQL interface between the JSON documents and the destination tab
 
 To use this connector, you'll need:
 
-* A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/working-with-engines.html)
+* A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/)
 * An S3 bucket where JSON documents will be stored prior to loading
+  * The bucket must be in a [supported AWS region](https://docs.firebolt.io/general-reference/available-regions.html) matching your Firebolt database.
+  * The bucket may be public, or may be accessible by an IAM user. To configure your IAM user, see the [steps below](#setup).
 * At least one Flow [collection](../../../concepts/collections.md)
-* You may need the AWS **access key** and **secret access key** for the user.
-See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials
 
 :::tip
  If you haven't yet captured your data from its external source,
  start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md).
  You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
+
+### Setup
+
+For non-public buckets, you'll need to configure access in AWS IAM.
+
+1. Follow the [Firebolt documentation](https://docs.firebolt.io/loading-data/configuring-aws-role-to-access-amazon-s3.html) to set up an IAM policy and role, and add it to the external table definition.
+
+2. Create a new [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html#id_users_create_console). During setup:
+
+   1. Choose **Programmatic** (access key) access. This ensures that an **access key ID** and **secret access key** are generated. You'll use these to configure the connector.
+
+   2. On the **Permissions** page, choose **Attach existing policies directly** and attach the policy you created in step 1.
+
+3. After creating the user, download the IAM credentials file.
+Take note of the **access key ID** and **secret access key** and use them  to configure the connector.
+See the [Amazon docs](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html) if you lose your credentials.
 
 ## Configuration
 

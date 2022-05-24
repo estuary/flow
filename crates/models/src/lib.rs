@@ -21,8 +21,10 @@ pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
-pub use config::{Config, ConnectorConfig, RawConnectorConfig};
-pub use derivations::{Derivation, Publish, Register, TransformDef, TransformSource, Update};
+pub use config::{Config, ConnectorConfig};
+pub use derivations::{
+    Derivation, Publish, Register, TransformDef, TransformSource, TypescriptModule, Update,
+};
 pub use journals::{
     BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageDef, Store,
 };
@@ -34,7 +36,7 @@ pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
     RelativeUrl, Test, Transform,
 };
-pub use resources::{ContentType, Import, ResourceContent, ResourceDef};
+pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use shuffles::{Lambda, PartitionSelector, Shuffle};

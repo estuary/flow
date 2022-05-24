@@ -27,15 +27,15 @@ pub fn setup_env_tracing() {
 /// go/flow/ops/forward_logs.go
 /// The logs will be formatted as JSON, with all fields flattened into the top level object. The
 /// timestamps will be formatted as RFC3339 with nanosecond precision.
-pub fn new_thread_local_subscriber<W>(flow_level_filter: i32, write: W) -> tracing::Dispatch
+pub fn new_thread_local_subscriber<W>(flow_level_filter: i32, make_writer: W) -> tracing::Dispatch
 where
-    W: tracing_subscriber::fmt::MakeWriter + Send + Sync + 'static,
+    W: for<'w> tracing_subscriber::fmt::MakeWriter<'w> + Send + Sync + 'static,
 {
     let level_filter = level_filter(flow_level_filter);
 
     let subs = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(level_filter)
-        .with_writer(write)
+        .with_writer(make_writer)
         .json()
         // Without this, many fields (including the message) would get nested inside of a `"fields"`
         // object, which just makes parsing more difficult.
@@ -101,7 +101,7 @@ impl Write for FileWriter {
         guard.write_vectored(bufs)
     }
 }
-impl tracing_subscriber::fmt::MakeWriter for FileWriter {
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for FileWriter {
     type Writer = Self;
 
     fn make_writer(&self) -> Self::Writer {
@@ -113,7 +113,7 @@ impl tracing_subscriber::fmt::MakeWriter for FileWriter {
 // bothered me and so I "fixed" it using this monstrosity.
 struct TimeFormatter;
 impl tracing_subscriber::fmt::time::FormatTime for TimeFormatter {
-    fn format_time(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
         use chrono::format::{Fixed, Item, Numeric::*, Pad::Zero};
         // We specify the format in this way so that we can avoid formatting into an intermediate
         // String.
@@ -185,7 +185,7 @@ pub mod test {
             Ok(())
         }
     }
-    impl tracing_subscriber::fmt::MakeWriter for TestWriter {
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TestWriter {
         type Writer = Self;
 
         fn make_writer(&self) -> Self::Writer {

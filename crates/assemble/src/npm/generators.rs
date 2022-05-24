@@ -1,236 +1,210 @@
-use super::camel_case;
-use super::interface::{Interface, Method, Module};
+use super::interface::Interface;
+use super::{build_mapper, camel_case, relative_path, relative_url};
 use itertools::Itertools;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path;
-use typescript::{ast::Context, Mapper};
+use typescript::ast::Context;
 
-pub fn anchors_ts(
+pub fn module_types(
     package_dir: &path::Path,
-    named_schemas: &[tables::NamedSchema],
-    mapper: &Mapper,
+    compiled: &[(url::Url, doc::Schema)],
+    imports: &[tables::Import],
+    collection: &tables::Collection,
+    interface: Option<&Interface>,
 ) -> String {
     let mut w = String::with_capacity(4096);
-    w.push_str(ANCHORS_HEADER);
 
-    for tables::NamedSchema {
-        scope: _,
-        anchor,
-        anchor_name,
-    } in named_schemas.iter().sorted_by_key(|n| &n.anchor_name)
-    {
-        let schema = Module::new(anchor, package_dir);
+    let doc_mapper = build_mapper(compiled, imports, &collection.schema, true);
 
-        writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
-        write!(w, "export type {} = ", anchor_name).unwrap();
-        mapper
-            .map(schema.absolute_url())
-            .render(&mut Context::new_without_anchors(&mut w));
-        write!(w, ";\n").unwrap();
-    }
-
-    w
-}
-
-pub fn collections_ts(
-    package_dir: &path::Path,
-    collections: &[tables::Collection],
-    mapper: &Mapper,
-) -> String {
-    let mut w = String::with_capacity(4096);
-    w.push_str(SCHEMAS_HEADER);
-
-    for tables::Collection {
-        collection,
-        schema,
-        scope,
-        ..
-    } in collections.iter().sorted_by_key(|c| &c.collection)
-    {
-        let schema = Module::new(schema, package_dir);
-        let scope = Module::new(scope, package_dir);
-
-        writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
-        writeln!(w, "// Referenced as schema of {}.", scope.relative_url()).unwrap();
-
-        write!(w, "export type {} = ", camel_case(&collection, true)).unwrap();
-        mapper
-            .map(schema.absolute_url())
-            .render(&mut Context::new(&mut w));
-        write!(w, ";\n").unwrap();
-    }
-
-    w
-}
-
-pub fn registers_ts(
-    package_dir: &path::Path,
-    derivations: &[tables::Derivation],
-    mapper: &Mapper,
-) -> String {
-    let mut w = String::with_capacity(4096);
-    w.push_str(SCHEMAS_HEADER);
-
-    for tables::Derivation {
-        scope,
-        derivation,
-        register_schema: schema,
-        ..
-    } in derivations.iter().sorted_by_key(|d| &d.derivation)
-    {
-        let schema = Module::new(schema, package_dir);
-        let scope = Module::new(scope, package_dir);
-
-        writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
-        writeln!(
-            w,
-            "// Referenced as register_schema of {}.",
-            scope.relative_url()
-        )
-        .unwrap();
-
-        write!(w, "export type {} = ", camel_case(&derivation, true)).unwrap();
-        mapper
-            .map(schema.absolute_url())
-            .render(&mut Context::new(&mut w));
-        write!(w, ";\n").unwrap();
-    }
-
-    w
-}
-
-pub fn transforms_ts(
-    package_dir: &path::Path,
-    interfaces: &[Interface<'_>],
-    mapper: &Mapper,
-) -> String {
-    let mut w = String::with_capacity(4096);
-    w.push_str(SCHEMAS_HEADER);
-
-    // Collect transforms having TypeScript methods and using alternate source schemas.
-    // These are the transforms for which we must generate source schemas.
-    // Such transforms may have multiple methods, so index to de-duplicate.
-    let mut transforms_with_source_schemas = BTreeMap::new();
-
-    for iface in interfaces.iter() {
-        for Method { transform, .. } in iface.methods.iter() {
-            if transform.source_schema.is_some() {
-                transforms_with_source_schemas
-                    .insert((&transform.derivation, &transform.transform), transform);
-            }
-        }
-    }
-
-    for (
-        _,
-        tables::Transform {
-            source_schema,
-            scope,
-            derivation,
-            transform,
-            ..
-        },
-    ) in transforms_with_source_schemas.into_iter()
-    {
-        let schema = Module::new(source_schema.as_ref().unwrap(), package_dir);
-        let scope = Module::new(scope, package_dir);
-
-        writeln!(w, "\n// Generated from {}.", schema.relative_url()).unwrap();
-        writeln!(
-            w,
-            "// Referenced as source schema of transform {}.",
-            scope.relative_url()
-        )
-        .unwrap();
-
-        write!(
-            w,
-            "export type {}{}Source = ",
-            camel_case(derivation, true),
-            camel_case(transform, false),
-        )
-        .unwrap();
-        mapper
-            .map(schema.absolute_url())
-            .render(&mut Context::new(&mut w));
-        write!(w, ";\n").unwrap();
-    }
-
-    w
-}
-
-pub fn interfaces_ts(package_dir: &path::Path, interfaces: &[Interface<'_>]) -> String {
-    let mut w = String::with_capacity(4096);
-    w.push_str(INTERFACES_HEADER);
-
-    for Interface {
-        derivation: tables::Derivation {
-            derivation, scope, ..
-        },
-        module,
-        methods,
-    } in interfaces.iter()
-    {
-        let scope = Module::new(scope, package_dir);
-
+    // Generate named anchor types contained within the collection schema.
+    for (anchor_url, anchor_name) in doc_mapper.top_level.iter() {
         write!(
             w,
             r#"
-// Generated from derivation {scope}.
-// Required to be implemented by {module}.
-export interface {name} {{
-"#,
-            module = module.relative_url(),
-            name = camel_case(derivation, true),
-            scope = scope.relative_url(),
+// Generated from $anchor schema {anchor_url}."
+export type {anchor_name} = "#,
+            anchor_url = relative_url(anchor_url, package_dir),
         )
         .unwrap();
 
-        for method in methods {
-            let signature = method.signature(false).into_iter().join("\n    ");
-            writeln!(w, "    {};", signature).unwrap();
-        }
-        w.push_str("}\n");
+        doc_mapper
+            .map(anchor_url)
+            .render(&mut Context::new_without_anchors(&mut w));
+        write!(w, ";\n\n").unwrap();
     }
+
+    // Generate the Document type as the collection schema.
+    write!(
+        w,
+        r#"
+// Generated from collection schema {schema}.
+// Referenced from {scope}.
+export type Document = "#,
+        schema = relative_url(&collection.schema, package_dir),
+        scope = relative_url(&collection.scope, package_dir),
+    )
+    .unwrap();
+
+    doc_mapper
+        .map(&collection.schema)
+        .render(&mut Context::new_without_anchors(&mut w));
+    write!(w, ";\n\n").unwrap();
+
+    let Interface {
+        derivation,
+        methods,
+        typescript_module,
+        transforms,
+        ..
+    } = match interface {
+        None => {
+            // This collection has no mapped derivation interface, and we're all done.
+            return w;
+        }
+        Some(i) => i,
+    };
+
+    // Generate the Register type from the derivation register schema.
+    let reg_mapper = build_mapper(compiled, imports, &derivation.register_schema, false);
+    write!(
+        w,
+        r#"
+// Generated from derivation register schema {schema}.
+// Referenced from {scope}.
+export type Register = "#,
+        schema = relative_url(&derivation.register_schema, package_dir),
+        scope = relative_url(&derivation.scope, package_dir),
+    )
+    .unwrap();
+
+    reg_mapper
+        .map(&derivation.register_schema)
+        .render(&mut Context::new_without_anchors(&mut w));
+    write!(w, ";\n\n").unwrap();
+
+    // For each transform, export a ${transform}Source type of its source schema.
+    // This is either a re-export of another collection Document,
+    // or (if a source-schema is used) a generated type.
+    for tables::Transform {
+        source_schema,
+        scope,
+        transform,
+        spec:
+            models::TransformDef {
+                source:
+                    models::TransformSource {
+                        name: source_name, ..
+                    },
+                ..
+            },
+        ..
+    } in *transforms
+    {
+        let source_export = format!("{}Source", camel_case(transform, true));
+
+        if let Some(source_schema) = source_schema {
+            let source_mapper = build_mapper(compiled, imports, source_schema, false);
+
+            write!(
+                w,
+                r#"
+// Generated from transform {transform} source schema {schema}.
+// Referenced from {scope}.
+export type {source_export} = "#,
+                schema = relative_url(source_schema, package_dir),
+                scope = relative_url(scope, package_dir),
+                transform = transform.as_str(),
+            )
+            .unwrap();
+
+            source_mapper
+                .map(source_schema)
+                .render(&mut Context::new_without_anchors(&mut w));
+            write!(w, ";\n\n").unwrap();
+        } else if source_name == &derivation.derivation {
+            write!(
+                w,
+                r#"
+// Generated from self-referential transform {transform}.
+// Referenced from {scope}."
+export type {source_export} = Document;
+
+"#,
+                scope = relative_url(scope, package_dir),
+                transform = transform.as_str(),
+            )
+            .unwrap();
+        } else {
+            write!(
+                w,
+                r#"
+// Generated from transform {transform} as a re-export of collection {source}.
+// Referenced from {scope}."
+import {{ Document as {source_export} }} from "./{rel_path}";
+export {{ Document as {source_export} }} from "./{rel_path}";
+
+"#,
+                rel_path = relative_path(&collection.collection, source_name),
+                scope = relative_url(scope, package_dir),
+                source = source_name.as_str(),
+                transform = transform.as_str(),
+            )
+            .unwrap();
+        }
+    }
+
+    write!(
+        w,
+        r#"
+// Generated from derivation {scope}.
+// Required to be implemented by {module}.
+export interface IDerivation {{
+"#,
+        module = relative_url(typescript_module, package_dir),
+        scope = relative_url(&derivation.scope, package_dir),
+    )
+    .unwrap();
+
+    for method in methods {
+        let signature = method.signature(false).into_iter().join("\n    ");
+        writeln!(w, "    {};", signature).unwrap();
+    }
+    w.push_str("}\n");
 
     w
 }
 
-pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> String {
+pub fn routes_ts<'a>(
+    _package_dir: &path::Path,
+    interfaces: impl Iterator<Item = &'a Interface<'a>> + Clone,
+) -> String {
     let mut w = String::with_capacity(4096);
     w.push_str(ROUTES_HEADER);
 
     w.push_str("// Import derivation classes from their implementation modules.\n");
-    for (_, interfaces) in interfaces
-        .iter()
-        .sorted_by_key(|i| i.module.absolute_url())
-        .group_by(|i| i.module.absolute_url())
-        .into_iter()
-    {
-        let interfaces: Vec<&Interface<'_>> = interfaces.collect();
-
-        let import = interfaces[0].module.relative_path();
+    for interface in interfaces.clone() {
+        let import = &interface.module_import_path;
         // The ".ts" file suffix is implicit in TypeScript.
-        let import = import.strip_suffix(".ts").unwrap_or(&import);
+        let import = import.strip_suffix(".ts").unwrap_or(import);
 
-        writeln!(w, "import {{").unwrap();
-        for name in interfaces
-            .into_iter()
-            .map(|i| camel_case(&i.derivation.derivation, true))
-        {
-            writeln!(w, "    {},", name).unwrap();
-        }
-        writeln!(w, "}} from '../../{}';\n", import).unwrap();
-    }
-
-    w.push_str("// Build instances of each class, which will be bound to this module's router.\n");
-    for interface in interfaces {
         writeln!(
             w,
-            "const __{class}: interfaces.{class} = new {class}();",
-            class = camel_case(&interface.derivation.derivation, true)
+            "import {{ Derivation as {class} }} from '../../{import}';",
+            class = camel_case(&interface.derivation.derivation, false),
+        )
+        .unwrap();
+    }
+
+    w.push_str(
+        "\n// Build instances of each class, which will be bound to this module's router.\n",
+    );
+    for interface in interfaces.clone() {
+        writeln!(
+            w,
+            "const __{class}: {class} = new {class}();",
+            class = camel_case(&interface.derivation.derivation, false),
         )
         .unwrap();
     }
@@ -238,18 +212,18 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
     w.push_str("\n// Now build the router that's used for transformation lambda dispatch.\n");
     w.push_str("const routes: { [path: string]: Lambda | undefined } = {\n");
 
-    for interface in interfaces {
+    for interface in interfaces.clone() {
         let derivation: &str = &interface.derivation.derivation;
-        let class = camel_case(derivation, true);
+        let class = camel_case(derivation, false);
 
         for method in &interface.methods {
             writeln!(
                 w,
-                "    '/{group_name}/{type:?}': __{class}.{method}.bind(\n        __{class},\n    ) as Lambda,",
+                "    '/{group_name}/{mtype:?}': __{class}.{method}.bind(\n        __{class},\n    ) as Lambda,",
                 group_name = crate::transform_group_name(&method.transform),
-                type = method.type_,
+                mtype = method.type_,
                 class = class,
-                method = method.type_.method_name(&method.transform.transform),
+                method = method.method_name(),
             )
             .unwrap();
         }
@@ -259,74 +233,56 @@ pub fn routes_ts(_package_dir: &path::Path, interfaces: &[Interface<'_>]) -> Str
     w
 }
 
-pub fn stubs_ts(
+pub fn stubs_ts<'a>(
     package_dir: &path::Path,
-    interfaces: &[Interface<'_>],
+    interfaces: impl Iterator<Item = &'a Interface<'a>> + Clone,
 ) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
 
-    for (relative_path, interfaces) in interfaces
-        .iter()
-        .filter(|i| i.module.is_relative())
-        .sorted_by_key(|i| i.module.relative_path())
-        .group_by(|i| i.module.relative_path())
-        .into_iter()
+    for Interface {
+        derivation,
+        methods,
+        module_is_relative,
+        module_import_path,
+        transforms,
+        ..
+    } in interfaces
     {
-        // Collect into a vec so that we can iterate it twice
-        let interfaces = interfaces.collect_vec();
+        if !module_is_relative {
+            continue; // Skip stubs for non-relative modules.
+        }
         let mut w = String::with_capacity(4096);
 
-        // If any transform uses a source schema, then we must import the transforms module, since
-        // the function parameter will use it. We want to avoid importing it if it's not needed so
-        // that it doesn't trigger a linter error.
-        let uses_transform_source_schema = interfaces.iter().any(|iface| {
-            iface
-                .methods
-                .iter()
-                .any(|method| method.transform.source_schema.is_some())
-        });
-        let transforms_import = if uses_transform_source_schema {
-            ", transforms"
-        } else {
-            ""
-        };
+        let transform_sources = transforms
+            .iter()
+            .map(|transform| format!("{}Source", camel_case(&transform.transform, true)))
+            .join(", ");
 
-        let _ = writeln!(
+        writeln!(
             w,
-            "import {{ collections, interfaces, registers{} }} from 'flow/modules';",
-            transforms_import
-        );
+            "import {{ IDerivation, Document, Register, {transform_sources} }} from 'flow/{derivation}';",
+            derivation = derivation.derivation.as_str(),
+        )
+        .unwrap();
 
-        for Interface {
-            derivation: tables::Derivation {
-                derivation, scope, ..
-            },
-            module: _,
-            methods,
-        } in interfaces
-        {
-            let scope = Module::new(scope, package_dir);
-
-            write!(
-                w,
-                r#"
+        write!(
+            w,
+            r#"
 // Implementation for derivation {scope}.
-export class {name} implements interfaces.{name} {{
+export class Derivation implements IDerivation {{
 "#,
-                name = camel_case(derivation, true),
-                scope = scope.relative_url(),
-            )
-            .unwrap();
+            scope = relative_url(&derivation.scope, package_dir),
+        )
+        .unwrap();
 
-            for method in methods {
-                let signature = method.signature(true).into_iter().join("\n    ");
-                writeln!(w, "    {} {{", signature).unwrap();
-                w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
-            }
-            w.push_str("}\n");
+        for method in methods {
+            let signature = method.signature(true).into_iter().join("\n    ");
+            writeln!(w, "    {} {{", signature).unwrap();
+            w.push_str("        throw new Error(\"Not implemented\");\n    }\n");
         }
+        w.push_str("}\n");
 
-        out.insert(relative_path, w);
+        out.insert(module_import_path.clone(), w);
     }
     out
 }
@@ -346,35 +302,10 @@ where
     .unwrap()
 }
 
-const ANCHORS_HEADER: &str = r#"// Ensure module has at least one export, even if otherwise empty.
-export type __module = null;
-"#;
-
-const SCHEMAS_HEADER: &str = r#"import * as anchors from './anchors';
-
-// "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-export type __module = null;
-export type __anchors_module = anchors.__module;
-"#;
-
-const INTERFACES_HEADER: &str = r#"import * as collections from './collections';
-import * as registers from './registers';
-import * as transforms from './transforms';
-
-// "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-export type __module = null;
-export type __collections_module = collections.__module;
-export type __registers_module = registers.__module;
-export type __transforms_module = transforms.__module;
-"#;
-
-const ROUTES_HEADER: &str = r#"import * as interfaces from './interfaces';
-
+const ROUTES_HEADER: &str = r#"
 // Document is a relaxed signature for a Flow document of any kind.
 export type Document = unknown;
 // Lambda is a relaxed signature implemented by all Flow transformation lambdas.
 export type Lambda = (source: Document, register?: Document, previous?: Document) => Document[];
 
-// "Use" imported modules, even if they're empty, to satisfy compiler and linting.
-export type __interfaces_module = interfaces.__module;
 "#;

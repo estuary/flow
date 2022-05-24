@@ -87,12 +87,23 @@ impl Display for FireboltType {
         }
     }
 }
+
+// non-lower-case keys must be quoted.
+// see https://docs.firebolt.io/general-reference/identifier-requirements.html
+pub fn column_quote(s: &str) -> String {
+    if s == s.to_lowercase() {
+        s.to_string()
+    } else {
+        format!("\"{}\"", s)
+    }
+}
+
 impl Display for Column {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {}{}",
-            self.key,
+            column_quote(&self.key),
             self.r#type,
             if self.nullable { " NULL" } else { "" }
         )
@@ -166,11 +177,17 @@ mod tests {
                         r#type: FireboltType::Boolean,
                         nullable: false,
                         is_key: true,
+                    },
+                    Column {
+                        key: "Nonlowercase".to_string(),
+                        r#type: FireboltType::Boolean,
+                        nullable: false,
+                        is_key: true,
                     }
                 ],
             }
             .to_string(),
-            "str TEXT,int INT NULL,num DOUBLE,big BIGINT,float FLOAT,date DATE,timestamp TIMESTAMP,boolean BOOLEAN"
+            "str TEXT,int INT NULL,num DOUBLE,big BIGINT,float FLOAT,date DATE,timestamp TIMESTAMP,boolean BOOLEAN,\"Nonlowercase\" BOOLEAN"
         );
 
         assert_eq!(

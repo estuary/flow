@@ -106,12 +106,8 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	var build = f.Builds.Open(req.BuildId)
 	defer build.Close()
 
-	schemaIndex, err := build.SchemaIndex()
-	if err != nil {
-		return nil, fmt.Errorf("loading schema index: %w", err)
-	}
-
 	// Load the ingested collection.
+	var err error
 	var collection *pf.CollectionSpec
 	if err = build.Extract(func(db *sql.DB) error {
 		collection, err = catalog.LoadCollection(db, req.Collection.String())
@@ -129,9 +125,8 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 
 	if err := combiner.Configure(
 		collection.Collection.String(),
-		schemaIndex,
 		collection.Collection,
-		collection.SchemaUri,
+		collection.SchemaJson,
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		flow.PartitionPointers(collection),

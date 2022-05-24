@@ -12,10 +12,9 @@ fn test_scenario() {
         collections,
         derivations,
         errors,
-        named_schemas,
+        imports,
         npm_dependencies,
         resources,
-        schema_docs,
         transforms,
         ..
     } = sources::scenarios::evaluate_fixtures(Default::default(), &MODEL);
@@ -29,10 +28,9 @@ fn test_scenario() {
         &path::Path::new("/package"),
         &collections,
         &derivations,
-        &named_schemas,
+        &imports,
         &npm_dependencies,
         &resources,
-        &schema_docs,
         &transforms,
     )
     .unwrap();

@@ -1,3 +1,6 @@
+---
+sidebar_position: 2
+---
 # Working with logs and statistics
 
 Your [`logs` and `stats` collections](../concepts/advanced/logs-stats.md)
@@ -12,6 +15,14 @@ Access to statistics is still a work in progress. For now, this documentation de
 You can access logs by materializing them to an external endpoint, or from the command line.
 
 ### Accessing logs from the command line
+
+:::caution Beta
+The `flowctl logs` subcommand is not currently available due to an ongoing overhaul of
+the `flowctl` binary. Command line support will be added back soon.
+Contact [Estuary Support](mailto:support@estuary.dev) for more information.
+
+For now, use a [materialization](#accessing-logs-by-materialization) to view logs.
+:::
 
 The `flowctl logs` subcommand allows you to print logs from the command line.
 This method allows more flexibility and is ideal for debugging.

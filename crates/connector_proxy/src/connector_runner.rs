@@ -8,6 +8,13 @@ use crate::interceptors::{
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
 };
+use crate::libs::protobuf::{decode_message, encode_message};
+use flow_cli_common::LogArgs;
+use futures::channel::oneshot;
+use futures::{stream, StreamExt};
+use protocol::capture::PullResponse;
+use protocol::flow::DriverCheckpoint;
+use serde_json::json;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -59,6 +66,7 @@ pub async fn run_flow_materialize_connector(
 pub async fn run_airbyte_source_connector(
     op: &FlowCaptureOperation,
     entrypoint: Vec<String>,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     let mut airbyte_interceptor = AirbyteSourceInterceptor::new();
 
@@ -66,21 +74,77 @@ pub async fn run_airbyte_source_connector(
     let args = airbyte_interceptor.adapt_command_args(op, args)?;
 
     let (mut child, child_stdin, child_stdout) =
-        parse_child(invoke_connector_delayed(entrypoint, args).await?)?;
+        parse_child(invoke_connector_delayed(entrypoint, args, log_args)?)?;
 
     let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
         op,
         NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
     )?;
 
-    let adapted_response_stream = NetworkTunnelCaptureInterceptor::adapt_response_stream(
-        op,
-        airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?,
-    )?;
+    let res_stream =
+        airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?;
+
+    // Keep track of whether we did send a Driver Checkpoint as the final message of the response stream
+    // See the comment of the block below for why this is necessary
+    let (tp_sender, tp_receiver) = oneshot::channel::<bool>();
+    let res_stream = if *op == FlowCaptureOperation::Pull {
+        Box::pin(stream::try_unfold(
+            (false, res_stream, tp_sender),
+            |(transaction_pending, mut stream, sender)| async move {
+                let (message, raw) = match stream.next().await {
+                    Some(bytes) => {
+                        let bytes = bytes?;
+                        let mut buf = &bytes[..];
+                        // This is infallible because we must encode a PullResponse in response to
+                        // a PullRequest. See airbyte_source_interceptor.adapt_pull_response_stream
+                        let msg = decode_message::<PullResponse, _>(&mut buf)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        (msg, bytes)
+                    }
+                    None => {
+                        sender.send(transaction_pending).unwrap();
+                        return Ok(None);
+                    }
+                };
+
+                Ok(Some((raw, (!message.checkpoint.is_some(), stream, sender))))
+            },
+        ))
+    } else {
+        res_stream
+    };
+
+    let adapted_response_stream =
+        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, res_stream)?;
 
     streaming_all(child_stdin, adapted_request_stream, adapted_response_stream).await?;
 
-    check_exit_status("airbyte source connector:", child.wait().await)
+    let exit_status = check_exit_status("airbyte source connector:", child.wait().await);
+
+    // There are some Airbyte connectors that write records, and exit successfully, without ever writing
+    // a state (checkpoint). In those cases, we want to provide a default empty checkpoint. It's important that
+    // this only happens if the connector exit successfully, otherwise we risk double-writing data.
+    if exit_status.is_ok() && *op == FlowCaptureOperation::Pull {
+        // the received value (transaction_pending) is true if the connector writes output messages and exits _without_ writing
+        // a final state checkpoint.
+        if tp_receiver.await.unwrap() {
+            // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
+            // of the next invocation will be "full refresh".
+            tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
+            let mut resp = PullResponse::default();
+            resp.checkpoint = Some(DriverCheckpoint {
+                driver_checkpoint_json: serde_json::to_vec(&json!({})).unwrap(),
+                rfc7396_merge_patch: true,
+            });
+            let encoded_response = &encode_message(&resp)?;
+            let mut buf = &encoded_response[..];
+            copy(&mut buf, &mut tokio::io::stdout()).await?;
+        }
+    }
+
+    exit_status
 }
 
 fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), Error> {
@@ -118,8 +182,14 @@ async fn streaming_all(
     });
 
     let (a, b) = tokio::try_join!(request_stream_copy, response_stream_copy)?;
+    let req_stream_bytes = a?;
+    let resp_stream_bytes = b?;
 
-    tracing::info!(req_stream = a?, resp_stream = b?, "Done streaming");
+    tracing::info!(
+        req_stream = req_stream_bytes,
+        resp_stream = resp_stream_bytes,
+        message = "Done streaming"
+    );
     Ok(())
 }
 
@@ -128,7 +198,7 @@ mod test {
     use std::pin::Pin;
 
     use bytes::Bytes;
-    use futures::{stream, StreamExt, TryStream};
+    use futures::{stream, TryStream};
 
     use super::*;
 
@@ -136,12 +206,6 @@ mod test {
         input: Vec<T>,
     ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
         Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)))
-    }
-
-    fn create_cycled_stream<T: std::clone::Clone>(
-        input: Vec<T>,
-    ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
-        Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)).cycle())
     }
 
     #[tokio::test]

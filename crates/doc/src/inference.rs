@@ -688,6 +688,7 @@ impl Shape {
                     // here as new annotations are added.
                     Annotation::Secret(b) => shape.secret = Some(*b),
                     Annotation::Multiline(_) => {}
+                    Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
                     Annotation::X(_) => {}
                 },
@@ -811,7 +812,7 @@ impl Shape {
 
                     shape = Shape::intersect(shape, referent);
                 }
-                Keyword::Application(Application::AllOf { .. }, schema) => {
+                Keyword::Application(Application::AllOf { .. } | Application::Inline, schema) => {
                     shape = Shape::intersect(shape, Shape::infer_inner(schema, index, visited));
                 }
                 Keyword::Application(Application::OneOf { .. }, schema) => {
@@ -2569,6 +2570,24 @@ mod test {
                 ..Default::default()
             }
         );
+    }
+
+    #[test]
+    fn test_inline_required_is_transparent() {
+        let fill_to = json::schema::intern::MAX_TABLE_SIZE + 7;
+        let required: Vec<_> = (0..fill_to).map(|i| i.to_string()).collect();
+
+        let shape = shape_from(
+            &json!({
+                "required": required,
+                "properties": {
+                    "9": {"const": "value"} // Overlaps with `required`.
+                }
+            })
+            .to_string(),
+        );
+        assert_eq!(shape.object.properties.len(), fill_to);
+        assert!(shape.object.properties.iter().all(|p| p.is_required));
     }
 
     fn shape_from(case: &str) -> Shape {

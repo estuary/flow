@@ -23,6 +23,13 @@ impl Table {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.m.len()
+    }
+    pub fn remaining(&self) -> usize {
+        MAX_TABLE_SIZE - self.m.len()
+    }
+
     /// Intern a str into a corresponding Set having exactly one bit set.
     /// After the first intern of a str, all future interns will return
     /// the same Set value.
@@ -75,4 +82,4 @@ mod test {
     }
 }
 
-const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;
+pub const MAX_TABLE_SIZE: usize = std::mem::size_of::<Set>() * 8;

@@ -49,7 +49,6 @@ type Derive struct {
 	runningTasks int               // Number of trampoline tasks.
 	trampoline   *trampolineServer // Trampolined lambda invocations.
 	trampolineCh <-chan []byte     // Completed trampoline tasks.
-	pinnedIndex  *SchemaIndex      // Used from Rust.
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
@@ -95,7 +94,6 @@ func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops
 		runningTasks: 0,
 		trampoline:   nil,
 		trampolineCh: nil,
-		pinnedIndex:  nil,
 	}
 
 	runtime.SetFinalizer(derive, func(d *Derive) {
@@ -113,7 +111,6 @@ type gorocksdbEnv struct {
 // before a transaction is begun.
 func (d *Derive) Configure(
 	fqn string,
-	index *SchemaIndex,
 	derivation *pf.DerivationSpec,
 	typeScriptClient *http.Client,
 ) error {
@@ -132,12 +129,10 @@ func (d *Derive) Configure(
 		context.Background(),
 		newDeriveInvokeHandler(fqn, derivation, typeScriptClient),
 	)
-	d.pinnedIndex = index
 
 	d.svc.mustSendMessage(
 		uint32(pf.DeriveAPI_CONFIGURE),
 		&pf.DeriveAPI_Config{
-			SchemaIndexMemptr: index.indexMemPtr,
 			Derivation:        derivation,
 		})
 

@@ -7,7 +7,7 @@ use super::CompositeKey;
 
 /// A Shuffle specifies how a shuffling key is to be extracted from
 /// collection documents.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Shuffle::example")]
 pub enum Shuffle {
@@ -35,7 +35,7 @@ impl Shuffle {
 ///
 /// Remote lambdas may be called from many Flow tasks, and are up to the
 /// API provider to provision and scale.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Lambda::example_typescript")]
 #[schemars(example = "Lambda::example_remote")]
@@ -54,7 +54,7 @@ impl Lambda {
 }
 /// Partition selectors identify a desired subset of the
 /// available logical partitions of a collection.
-#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "PartitionSelector::example")]
 pub struct PartitionSelector {

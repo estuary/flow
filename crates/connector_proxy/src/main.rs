@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::BufReader;
 
 use clap::{ArgEnum, Parser, Subcommand};
-use tokio::signal::unix::{signal, SignalKind};
 
 use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 
@@ -99,31 +98,23 @@ async fn main() -> std::io::Result<()> {
     } = Args::parse();
     init_logging(&log_args);
 
-    let result = async_main(image_inspect_json_path, proxy_command).await;
+    let result = async_main(image_inspect_json_path, proxy_command, log_args).await;
     if let Err(err) = result.as_ref() {
-        tracing::error!(error = ?err, "connector proxy execution failed.");
+        tracing::error!(error = ?err, message = "connector proxy execution failed.");
         std::process::exit(1);
     }
     Ok(())
 }
 
-async fn sigterm_handler() {
-    let mut signal_stream = signal(SignalKind::terminate()).expect("failed creating signal.");
-
-    signal_stream
-        .recv()
-        .await
-        .expect("failed receiving os signals.");
-    tracing::info!("connector proxy stopped.");
-    std::process::exit(0);
-}
-
 async fn async_main(
     image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     match proxy_command {
-        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
+        ProxyCommand::ProxyFlowCapture(c) => {
+            proxy_flow_capture(c, image_inspect_json_path, log_args).await
+        }
         ProxyCommand::ProxyFlowMaterialize(m) => {
             proxy_flow_materialize(m, image_inspect_json_path).await
         }
@@ -134,6 +125,7 @@ async fn async_main(
 async fn proxy_flow_capture(
     c: ProxyFlowCapture,
     image_inspect_json_path: Option<String>,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Capture {
@@ -149,7 +141,7 @@ async fn proxy_flow_capture(
             run_flow_capture_connector(&c.operation, entrypoint).await
         }
         CaptureConnectorProtocol::Airbyte => {
-            run_airbyte_source_connector(&c.operation, entrypoint).await
+            run_airbyte_source_connector(&c.operation, entrypoint, log_args).await
         }
     }
 }
@@ -158,19 +150,14 @@ async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
-    // Respond to OS sigterm signal.
-    tokio::task::spawn(async move { sigterm_handler().await });
-
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Materialize {
         return Err(Error::MismatchingRuntimeProtocol);
     }
 
-    run_flow_materialize_connector(
-        &m.operation,
-        image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]),
-    )
-    .await
+    let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+
+    run_flow_materialize_connector(&m.operation, entrypoint).await
 }
 
 async fn delayed_execute(command_config_path: String) -> Result<(), Error> {

@@ -3,7 +3,7 @@ sidebar_position: 6
 ---
 # Imports
 
-Catalog spec files may include an `import` section.
+The YAML files that comprise a catalog specification may include an `import` section.
 This is what allows you to organize your catalog spec across multiple
 interlinked files.
 When a catalog is deployed, the imported resources are treated as part of the file
@@ -21,13 +21,13 @@ import:
   - https://example/path/flow.yaml # Uses the absolute url.
 ```
 
-The import rules flexible; a collection doesn’t have to do anything special
+The import rule is flexible; a collection doesn’t have to do anything special
 to be imported by another,
 and [`flowctl`](flowctl.md) can even directly build remote sources:
 
 ```bash
 # Test an example from the flow-template repository.
-$ flowctl test --source https://raw.githubusercontent.com/estuary/flow-template/main/word-counts.flow.yaml
+$ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-template/main/word-counts.flow.yaml
 ```
 
 ## Fetch behavior

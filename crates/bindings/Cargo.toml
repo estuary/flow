@@ -22,7 +22,7 @@ serde = "*"
 serde_json = {version = "*", features = ["raw_value"]}
 thiserror = "*"
 tracing = "*"
-tracing-subscriber = {version = "*", features = ["chrono"]}
+tracing-subscriber = {version = "*", features = ["env-filter", "json", "time"]}
 
 [build-dependencies]
 cbindgen = "*"

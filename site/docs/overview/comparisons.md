@@ -24,7 +24,7 @@ Because Flow combines many functionalities, it is related to multiple types of t
 
 Flow’s most apt comparison is to Apache Beam. You may use a variety of runners (processing engines) for your Beam deployment. One of the most popular, Google Cloud Dataflow, is a more robust redistribution under an additional SDK. Regardless of how you use Beam, there’s a lot of conceptual overlap with Flow. This makes Beam and Flow alternatives rather than complementary technologies, but there are key differences.
 
-Like Beam, Flow’s primary primitive is a collection. You build a processing graph (called a **pipeline** in Beam and a **catalog** in Flow) by relating multiple collections together through procedural transformations, or lambdas. As with Beam, Flow’s runtime performs automatic data shuffles and is designed to allow fully automatic scaling. Also like Beam, collections have associated schemas.
+Like Beam, Flow’s primary primitive is a **collection**. You build a processing graph (called a **pipeline** in Beam and a **catalog** in Flow) by relating multiple collections together through procedural transformations, or lambdas. As with Beam, Flow’s runtime performs automatic data shuffles and is designed to allow fully automatic scaling. Also like Beam, collections have associated schemas.
 
 Unlike Beam, Flow doesn’t distinguish between batch and streaming contexts. Flow unifies these paradigms under a single collection concept, allowing you to seamlessly work with both data types.
 
@@ -44,7 +44,7 @@ Generally, Flow users don't need to know or care much about Gazette and its arch
 
 Flow [collections](../concepts/collections.md) are somewhat similar to Kafka **streams**, but with some important differences. Collections always store JSON and must have an associated JSON schema. Collections also support automatic logical and physical partitioning. Each collection is backed by one or more journals, depending on the partitioning.
 
-Flow [tasks](../concepts/README.md#tasks) are most similar to Kafka **stream processors**, but are more opinionated. Tasks fall into one of three categories: captures, derivations, and materializations. Tasks may also have more than one process, which Flow calls **shards**, to allow for parallel processing. Tasks and shards are fully managed by Flow. This includes transactional state management and zero-downtime splitting of shards, which enables turnkey scaling.
+Flow [tasks](../concepts/README.md#tasks) are most similar to Kafka **stream processors**, but are more opinionated. Tasks fall into one of three categories: captures, derivations, and materializations. Tasks may also have more than one process, which Flow calls [**shards**](../concepts/advanced/shards.md), to allow for parallel processing. Tasks and shards are fully managed by Flow. This includes transactional state management and zero-downtime splitting of shards, which enables turnkey scaling.
 
 ## Spark
 
@@ -76,7 +76,7 @@ In Flow, you instead define a **capture** of data from the source, which runs co
 
 ## Fivetran, Airbyte, and other ELT solutions
 
-Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the worlds in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of
+Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the world in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of
 [**captures**](../../concepts/captures) (reads from sources),
 [**derivations**](../../concepts/derivations) (transforms), and
 [**materializations**](../../concepts/materialization) (writes to destinations).
@@ -88,13 +88,12 @@ Like Airbyte, Flow uses [connectors](../concepts/connectors.md) for interacting 
 Flow integrates the Airbyte specification,
 so all Airbyte source connectors can be used with Flow.
 For materializations, Flow uses its own protocol which is not compatible with the Airbyte spec.
-In either case the usage of connectors is pretty similar.
+In either case, the usage of connectors is pretty similar.
 
-In terms of technical capabilities, Flow can do everything that these tools can and more,
-but those tools are more mature while Flow is currently in private beta.
+In terms of technical capabilities, Flow can do everything that these tools can and more.
 Both Fivetran and Airbyte both currently have graphical interfaces that make them much easier for
-non-technical users to configure, while Flow's UI is under development.
-Currently, Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
+non-technical users to configure. Flow, too, is focused on empowering non-technical users through its web application.
+At the same time, it Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
 
 _* Some materialization endpoints can only make at-least-once guarantees._
 
@@ -115,7 +114,6 @@ productionize important insights as materialized views or by pushing to another 
 Put another way, Flow is a complete ELT platform, but you might choose to perform and manage more complex transformations in
 a separate, dedicated tool like dbt. While Flow and dbt don’t interact directly, both offer easy integration through your data warehouse.
 
-
 ## Materialize, Rockset, ksqlDB, and other real-time databases
 
 Modern real-time databases like Materialize, Rockset, and ksqlDB consume streams of data, oftentimes from Kafka brokers,
@@ -123,7 +121,10 @@ and can keep SQL views up to date in real time.
 
 These real-time databases have a lot of conceptual overlap with Flow. The biggest difference is that Flow can materialize this same type of incrementally updated view into any database, regardless of whether that database has real-time capabilities or not.&#x20;
 
-However, this doesn't mean that Flow should always _replace_ these systems in your stack. In fact, it can be optimal to use Flow to feed data into them. Doing so allows you to transactionally capture data from a variety of sources and transform it along the way. For further explanation, read the section below on OLAP databases.
+However, this doesn't mean that Flow should  _replace_ these systems in your stack. In fact, it can be optimal to use Flow to feed data into them.
+Flow adds real-time data capture and materialization options that many real-time databases don't support.
+Once data has arrived in the database, you have access to real-time SQL analysis and other analytical tools not native to Flow.
+For further explanation, read the section below on OLAP databases.
 
 ## Snowflake, BigQuery, and other OLAP databases
 

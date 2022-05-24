@@ -8,6 +8,8 @@ pub enum Error {
     DuplicateCanonicalURI(url::Url),
     #[error("duplicate anchor URI: '{0}'")]
     DuplicateAnchorURI(url::Url),
+    #[error("duplicate alias URI: '{0}'")]
+    DuplicateAliasURI(url::Url),
     #[error("schema $ref '{ruri}', referenced by '{curi}', was not found")]
     InvalidReference { ruri: url::Url, curi: url::Url },
     #[error("schema '{uri}' was not found")]
@@ -30,27 +32,45 @@ where
         Self(BTreeMap::new())
     }
 
+    // Index a schema and all sub-schemas by their canonical URIs.
     pub fn add(&mut self, schema: &'s Schema<A>) -> Result<(), Error> {
-        use Error::*;
-
         // Index this schema's canonical URI.
         if let Some(_) = self.0.insert(&schema.curi, schema) {
-            return Err(DuplicateCanonicalURI(schema.curi.clone()));
+            return Err(Error::DuplicateCanonicalURI(schema.curi.clone()));
         }
 
         for kw in &schema.kw {
             match kw {
+                // We skip Inline applications for indexing.
+                // They share the canonical URI of their parent, and we use them only
+                // for the `required` keywords which has no sub-schemas.
+                Keyword::Application(Application::Inline, _) => {}
                 // Recurse to index a subordinate schema application.
                 Keyword::Application(_, child) => self.add(child)?,
                 // Index an alternative, anchor-form canonical URI.
                 Keyword::Anchor(auri) => {
                     if let Some(_) = self.0.insert(auri, schema) {
-                        return Err(DuplicateAnchorURI(schema.curi.clone()));
+                        return Err(Error::DuplicateAnchorURI(schema.curi.clone()));
                     }
                 }
                 // No-ops.
                 Keyword::RecursiveAnchor | Keyword::Validation(_) | Keyword::Annotation(_) => (),
             }
+        }
+        Ok(())
+    }
+
+    // Add an alias URI for this single Schema.
+    // Both the alias URI and the Schema must be top-level (have no fragment).
+    // If the alias equals the Schema's canonical URI, this has no effect.
+    pub fn add_alias(&mut self, schema: &'s Schema<A>, alias: &'s url::Url) -> Result<(), Error> {
+        assert!(schema.curi.fragment().is_none());
+        assert!(alias.fragment().is_none());
+
+        if alias == &schema.curi {
+            // No-op.
+        } else if let Some(_) = self.0.insert(alias, schema) {
+            return Err(Error::DuplicateAliasURI(alias.clone()));
         }
         Ok(())
     }
@@ -121,6 +141,21 @@ where
     }
 }
 
+// We implement, rather than derive, Clone in order to avoid requiring
+// that Annotation also be Clone, which is not actually needed but is
+// a constraint produced by #[derive(Clone)].
+impl<'s, A> Clone for Index<'s, A>
+where
+    A: Annotation,
+{
+    fn clone(&self) -> Self {
+        Self {
+            fast: self.fast.clone(),
+            slow: self.slow.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{super::build::build_schema, super::CoreAnnotation, IndexBuilder};
@@ -140,7 +175,12 @@ mod test {
                 "three": {
                     "$id": "http://other",
                     "$anchor": "Three",
-                    "const": 3
+                    "properties": {
+                        "hello": {
+                            "$id": "http://yet-another",
+                            "const": 3,
+                        },
+                    },
                 },
                 "other": { "$ref": "http://other" },
             },
@@ -148,10 +188,13 @@ mod test {
         });
 
         let curi = url::Url::parse("http://example/schema").unwrap();
+        let alias = url::Url::parse("http://alias/schema").unwrap();
         let schema = build_schema::<CoreAnnotation>(curi.clone(), &schema).unwrap();
 
         let mut builder = IndexBuilder::new();
         builder.add(&schema).unwrap();
+        builder.add_alias(&schema, &alias).unwrap();
+        builder.add_alias(&schema, &schema.curi).unwrap(); // No-op.
         builder.verify_references().unwrap();
         let index = builder.into_index();
 
@@ -170,13 +213,15 @@ mod test {
                 .map(|(u, _)| u.as_str())
                 .collect::<Vec<_>>(),
             vec![
+                "http://alias/schema",
                 "http://example/schema",
                 "http://example/schema#/$defs/one",
                 "http://example/schema#/$defs/other",
                 "http://example/schema#/$defs/other/$ref",
                 "http://example/schema#/$defs/two",
                 "http://example/schema#/$ref",
-                "http://other/#Three"
+                "http://other/#Three",
+                "http://yet-another/"
             ]
         );
 

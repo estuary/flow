@@ -1,40 +1,22 @@
-use super::{Object, RelativeUrl};
+use super::RelativeUrl;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{from_value, json};
+use serde_json::value::RawValue;
 
 /// A Resource is content with an associated ContentType.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ResourceDef {
     /// # Content type of the Resource.
     pub content_type: ContentType,
     /// # Content of the Resource.
-    pub content: ResourceContent,
-}
-
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
-#[serde(untagged)]
-#[schemars(example = "Self::example_base64")]
-#[schemars(example = "Self::example_object")]
-pub enum ResourceContent {
-    #[schemars(schema_with = "base64_schema")]
-    Base64Bytes(String),
-    Object(Object),
-}
-
-impl ResourceContent {
-    fn example_base64() -> Self {
-        from_value(json!("aGVsbG8sIHdvcmxk")).unwrap()
-    }
-    fn example_object() -> Self {
-        from_value(json!({ "hello": "world"})).unwrap()
-    }
+    /// Contents are either a JSON object, or a base64-encoded string of resource bytes.
+    pub content: Box<RawValue>,
 }
 
 /// Import a referenced Resource into the catalog.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Import::example_url")]
 #[schemars(example = "Import::example_extended")]
@@ -92,21 +74,10 @@ pub enum ContentType {
     Config,
     /// Fixture of documents.
     DocumentsFixture,
-    /// Resource is a compiled NPM package.
-    #[schemars(skip)]
-    NpmPackage,
 }
 
 impl ContentType {
     pub fn example() -> Self {
         Self::Catalog
     }
-}
-
-fn base64_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    from_value(json!({
-        "type": "string",
-        "contentEncoding": "base64",
-    }))
-    .unwrap()
 }

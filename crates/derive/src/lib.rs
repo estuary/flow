@@ -1,15 +1,16 @@
+use anyhow::Context;
+use proto_flow::flow::DocsAndBytes;
+use serde::Serialize;
+
 pub mod combine_api;
 pub mod derive_api;
 pub mod extract_api;
-pub mod schema_api;
 
 pub mod combiner;
 mod pipeline;
 mod registers;
 
 pub use extract_api::extract_uuid_parts;
-use proto_flow::flow::DocsAndBytes;
-use serde::Serialize;
 
 /// A type that can accumulate statistics that can be periodically drained.
 /// This trait exists primarily to help with readability and consistency. It doesn't get used as a
@@ -94,16 +95,57 @@ where
     serializer.serialize_str(&s)
 }
 
+// ValidatorGuard encapsulates the compilation and indexing of a JSON schema,
+// tied to the lifetime of a Validator which references it. It allows the
+// Validator and Index to flexibily reference the built schema while making it
+// difficult to misuse, since the Validator lifetime is tied to the Index
+// and Schema.
+struct ValidatorGuard {
+    schema: Box<doc::Schema>,
+    _index: Box<doc::SchemaIndex<'static>>,
+    validator: doc::Validator<'static>,
+}
+
+impl ValidatorGuard {
+    fn new(schema: &str) -> Result<Self, anyhow::Error> {
+        // Bundled schemas carry their own $id so this isn't used in practice.
+        let curi = url::Url::parse("https://example").unwrap();
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema).context("decoding JSON-schema")?;
+        let schema: doc::Schema =
+            json::schema::build::build_schema(curi, &schema).context("building schema")?;
+
+        let schema = Box::new(schema);
+        let schema_static =
+            unsafe { std::mem::transmute::<&'_ doc::Schema, &'static doc::Schema>(&schema) };
+
+        let mut index = doc::SchemaIndexBuilder::new();
+        index.add(schema_static).context("adding schema to index")?;
+        index
+            .verify_references()
+            .context("verifying schema index references")?;
+
+        let index = Box::new(index.into_index());
+        let index_static = unsafe {
+            std::mem::transmute::<&'_ doc::SchemaIndex, &'static doc::SchemaIndex>(&index)
+        };
+
+        let validator = doc::Validator::new(index_static);
+
+        Ok(Self {
+            schema,
+            _index: index,
+            validator,
+        })
+    }
+}
+
 /// Common test utilities used by sub-modules.
 #[cfg(test)]
 pub mod test {
-    use doc;
-    use serde_json::json;
-    use url::Url;
-
     // Build a test schema fixture. Use gross Box::leak to coerce a 'static lifetime.
-    pub fn build_min_max_sum_schema() -> (&'static doc::SchemaIndex<'static>, Url) {
-        let schema = json!({
+    pub fn build_min_max_sum_schema() -> String {
+        let schema = serde_json::json!({
             "properties": {
                 "min": {
                     "type": "integer",
@@ -129,16 +171,6 @@ pub mod test {
                 }
             }
         });
-
-        let uri = Url::parse("https://example/schema").unwrap();
-        let scm: doc::Schema = json::schema::build::build_schema(uri.clone(), &schema).unwrap();
-        let scm = Box::leak(Box::new(scm));
-
-        let mut idx = doc::SchemaIndexBuilder::new();
-        idx.add(scm).unwrap();
-        idx.verify_references().unwrap();
-
-        let idx = Box::leak(Box::new(idx.into_index()));
-        (idx, uri)
+        schema.to_string()
     }
 }

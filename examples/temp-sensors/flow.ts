@@ -1,12 +1,8 @@
-import { collections, interfaces, registers } from 'flow/modules';
+import { IDerivation, Document, Register, FromReadingsSource, FromSensorsSource } from 'flow/temperature/averages';
 
 // Implementation for derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averages/derivation.
-export class TemperatureAverages implements interfaces.TemperatureAverages {
-    fromReadingsPublish(
-        source: collections.TemperatureReadings,
-        _register: registers.TemperatureAverages,
-        _previous: registers.TemperatureAverages,
-    ): collections.TemperatureAverages[] {
+export class Derivation implements IDerivation {
+    fromReadingsPublish(source: FromReadingsSource, _register: Register, _previous: Register): Document[] {
         // This will execute on every reading so by setting numReadings to 1 for a single document, we'll sum the number of documents correctly by using
         // reduction annotations. Reduction annotations will handle ensuring temps and other fields are correctly minimized, maximized, or summed.
         return [
@@ -20,11 +16,7 @@ export class TemperatureAverages implements interfaces.TemperatureAverages {
             },
         ];
     }
-    fromSensorsPublish(
-        source: collections.TemperatureSensors,
-        _register: registers.TemperatureAverages,
-        _previous: registers.TemperatureAverages,
-    ): collections.TemperatureAverages[] {
+    fromSensorsPublish(source: FromSensorsSource, _register: Register, _previous: Register): Document[] {
         return [{ sensor: source }];
     }
 }

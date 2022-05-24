@@ -1,6 +1,8 @@
 use super::combiner;
 use super::registers;
+use super::ValidatorGuard;
 use crate::{DocCounter, StatsAccumulator};
+use anyhow::Context;
 
 mod block;
 mod invocation;
@@ -14,7 +16,7 @@ use itertools::Itertools;
 use proto_flow::flow::{self, derive_api};
 use proto_gazette::{consumer, message_flags};
 use serde_json::Value;
-use std::task::{Context, Poll};
+use std::task;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -31,25 +33,6 @@ pub enum Error {
     #[error("failed to open registers RocksDB")]
     #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
-    #[error("invalid collection schema {:?}", .schema)]
-    CollectionSchema {
-        schema: String,
-        #[source]
-        #[serde(serialize_with = "crate::serialize_as_display")]
-        source: url::ParseError,
-    },
-    #[error("invalid register schema {:?}", .schema)]
-    RegisterSchema {
-        schema: String,
-        #[source]
-        #[serde(serialize_with = "crate::serialize_as_display")]
-        source: url::ParseError,
-    },
-    // TODO: Change these errors to use the JsonError so that they will include the original
-    // document json.
-    #[error("invalid register initial JSON")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
-    RegisterJson(#[source] serde_json::Error),
     #[error("failed to invoke update lambda")]
     #[serde(serialize_with = "crate::serialize_as_display")]
     UpdateInvocationError(#[source] anyhow::Error),
@@ -59,40 +42,46 @@ pub enum Error {
     #[error("failed to parse lambda invocation response")]
     #[serde(serialize_with = "crate::serialize_as_display")]
     LambdaParseError(#[source] serde_json::Error),
+    #[error(transparent)]
+    #[serde(serialize_with = "crate::serialize_as_display")]
+    Anyhow(#[from] anyhow::Error),
 }
 
 pub struct Pipeline {
-    // Collection being derived.
-    collection: flow::CollectionSpec,
-    // Transforms of the derivation.
-    transforms: Vec<flow::TransformSpec>,
-    // Schema against which registers must validate.
-    registers_schema: url::Url,
-    // Initial value of registers which have not yet been written.
-    registers_initial: Value,
-    // Models of update & publish Invocations for each transform. These are kept
-    // pristine, and cloned to produce working instances given to new Blocks.
-    updates_model: Vec<Invocation>,
-    publishes_model: Vec<Invocation>,
-    // Next Block currently being constructed.
-    next: Block,
-    // Trampoline used for lambda Invocations.
-    trampoline: cgo::Trampoline,
     // Invocation futures awaiting completion of "update" lambdas.
     await_update: FuturesOrdered<BlockInvoke>,
     // Invocation futures awaiting completion of "publish" lambdas.
     await_publish: FuturesOrdered<BlockInvoke>,
+    // Combiner of derived documents.
+    combiner: combiner::Combiner,
+    // Schema against which documents must validate.
+    document_schema_guard: ValidatorGuard,
+    // JSON pointer to the derived document UUID.
+    document_uuid_ptr: String,
+    // Next Block currently being constructed.
+    next: Block,
+    // Partitions to extract when draining the Combiner.
+    partitions: Vec<doc::Pointer>,
+    // Models of publish Invocations for each transform. These are kept
+    // pristine, and cloned to produce working instances given to new Blocks.
+    publishes_model: Vec<Invocation>,
+    // Initial value of registers which have not yet been written.
+    register_initial: Value,
+    // Schema against which registers must validate.
+    register_schema_guard: ValidatorGuard,
     // Registers updated by "update" lambdas.
     // Pipeline owns Registers, but it's pragmatically public due to
     // unrelated usages in derive_api (clearing registers & checkpoints).
     registers: registers::Registers,
-    // Combiner of derived documents.
-    combiner: combiner::Combiner,
-    // Partitions to extract when draining the Combiner.
-    partitions: Vec<doc::Pointer>,
-    // Validator for register validations.
-    validator: doc::Validator<'static>,
+    // Execution statistics of the Pipeline.
     stats: PipelineStats,
+    // Trampoline used for lambda Invocations.
+    trampoline: cgo::Trampoline,
+    // Transforms of the derivation.
+    transforms: Vec<flow::TransformSpec>,
+    // Models of update & publish Invocations for each transform. These are kept
+    // pristine, and cloned to produce working instances given to new Blocks.
+    updates_model: Vec<Invocation>,
 }
 
 /// Accumulates statistics about an individual transform within the pipeline.
@@ -144,33 +133,32 @@ impl Pipeline {
         registers: registers::Registers,
         block_id: usize,
     ) -> Result<Self, Error> {
-        let derive_api::Config {
-            derivation,
-            schema_index_memptr,
-            ..
-        } = cfg;
-
-        // Re-hydrate a &'static SchemaIndex from a provided memory address.
-        let schema_index_memptr = schema_index_memptr as usize;
-        let schema_index: &doc::SchemaIndex = unsafe { std::mem::transmute(schema_index_memptr) };
+        let derive_api::Config { derivation } = cfg;
 
         let flow::DerivationSpec {
             collection,
             transforms,
             register_initial_json,
-            register_schema_uri,
-            register_schema_json: _, // TODO(johnny): switch to use bundle.
+            register_schema_uri: _,
+            register_schema_json,
             shard_template: _,
             recovery_log_template: _,
         } = derivation.unwrap_or_default();
 
-        let collection = collection.unwrap_or_default();
+        let flow::CollectionSpec {
+            key_ptrs: document_key_ptrs,
+            projections,
+            schema_json: document_schema_json,
+            uuid_ptr: document_uuid_ptr,
+            ..
+        } = collection.unwrap_or_default();
 
         tracing::debug!(
-            ?collection,
-            ?register_initial_json,
-            ?register_schema_uri,
-            ?schema_index_memptr,
+            ?document_key_ptrs,
+            %document_schema_json,
+            %document_uuid_ptr,
+            %register_initial_json,
+            %register_schema_json,
             ?transforms,
             "building from config"
         );
@@ -189,15 +177,11 @@ impl Pipeline {
         let first_block = Block::new(block_id, &updates_model, &publishes_model);
 
         // Build Combiner.
-        let collection_schema =
-            url::Url::parse(&collection.schema_uri).map_err(|source| Error::CollectionSchema {
-                schema: collection.schema_uri.clone(),
-                source,
-            })?;
+        let document_schema_guard =
+            ValidatorGuard::new(&document_schema_json).context("parsing collection schema")?;
         let combiner = combiner::Combiner::new(
-            collection_schema,
-            collection
-                .key_ptrs
+            document_schema_guard.schema.curi.clone(),
+            document_key_ptrs
                 .iter()
                 .map(|k| doc::Pointer::from_str(k))
                 .collect::<Vec<_>>()
@@ -205,8 +189,7 @@ impl Pipeline {
         );
 
         // Identify partitions to extract on combiner drain.
-        let partitions = collection
-            .projections
+        let partitions = projections
             .iter()
             // Projections are already sorted by field, but defensively sort again.
             .sorted_by_key(|proj| &proj.field)
@@ -219,31 +202,27 @@ impl Pipeline {
             })
             .collect();
 
-        let registers_schema =
-            url::Url::parse(&register_schema_uri).map_err(|source| Error::RegisterSchema {
-                schema: register_schema_uri.clone(),
-                source,
-            })?;
-        let registers_initial =
-            serde_json::from_str(&register_initial_json).map_err(Error::RegisterJson)?;
-        let validator = doc::Validator::new(schema_index);
+        let register_schema_guard =
+            ValidatorGuard::new(&register_schema_json).context("parsing register schema")?;
+        let register_initial = serde_json::from_str(&register_initial_json)
+            .context("parsing register initial value")?;
 
         Ok(Self {
-            collection,
-            transforms,
-            registers_initial,
-            registers_schema,
-            updates_model,
-            publishes_model,
-            next: first_block,
-            trampoline: cgo::Trampoline::new(),
-            await_update: FuturesOrdered::new(),
             await_publish: FuturesOrdered::new(),
-            registers,
+            await_update: FuturesOrdered::new(),
             combiner,
+            document_schema_guard,
+            document_uuid_ptr,
+            next: first_block,
             partitions,
-            validator,
+            publishes_model,
+            register_initial,
+            register_schema_guard,
+            registers,
             stats: PipelineStats::default(),
+            trampoline: cgo::Trampoline::new(),
+            transforms,
+            updates_model,
         })
     }
 
@@ -354,14 +333,14 @@ impl Pipeline {
         out: &mut Vec<cgo::Out>,
     ) -> Result<bool, Error> {
         let waker = futures::task::noop_waker();
-        let mut ctx = Context::from_waker(&waker);
+        let mut ctx = task::Context::from_waker(&waker);
 
         // Process all ready blocks which were awaiting "update" lambda invocation.
         loop {
             match self.await_update.poll_next_unpin(&mut ctx) {
-                Poll::Pending => break,
-                Poll::Ready(None) => break,
-                Poll::Ready(Some(result)) => {
+                task::Poll::Pending => break,
+                task::Poll::Ready(None) => break,
+                task::Poll::Ready(Some(result)) => {
                     let (mut block, update_outputs) =
                         result.map_err(Error::UpdateInvocationError)?;
 
@@ -384,9 +363,9 @@ impl Pipeline {
         // Process all ready blocks which were awaiting "publish" lambda invocation.
         loop {
             match self.await_publish.poll_next_unpin(&mut ctx) {
-                Poll::Pending => break,
-                Poll::Ready(None) => break,
-                Poll::Ready(Some(result)) => {
+                task::Poll::Pending => break,
+                task::Poll::Ready(None) => break,
+                task::Poll::Ready(Some(result)) => {
                     let (mut block, publish_outputs) =
                         result.map_err(Error::PublishInvocationError)?;
 
@@ -425,7 +404,7 @@ impl Pipeline {
 
         let combine_out = crate::combine_api::drain_combiner(
             &mut self.combiner,
-            &self.collection.uuid_ptr,
+            &self.document_uuid_ptr,
             &self.partitions,
             arena,
             out,
@@ -474,19 +453,19 @@ impl Pipeline {
             };
 
             let publish = &mut block.publishes[*tf_ind as usize];
-            publish.begin_register(self.registers.read(key, &self.registers_initial));
+            publish.begin_register(self.registers.read(key, &self.register_initial));
 
             // If we have deltas to apply, reduce them and assemble into
             // a future publish invocation body.
             if !deltas.is_empty() {
                 self.registers.reduce(
                     key,
-                    &self.registers_schema,
-                    &self.registers_initial,
+                    &self.register_schema_guard.schema.curi,
+                    &self.register_initial,
                     deltas.into_iter(),
-                    &mut self.validator,
+                    &mut self.register_schema_guard.validator,
                 )?;
-                publish.end_register(Some(self.registers.read(key, &self.registers_initial)));
+                publish.end_register(Some(self.registers.read(key, &self.register_initial)));
             } else {
                 publish.end_register(None);
             }
@@ -531,7 +510,8 @@ impl Pipeline {
             };
 
             for doc in derived_docs {
-                self.combiner.combine_right(doc, &mut self.validator)?;
+                self.combiner
+                    .combine_right(doc, &mut self.document_schema_guard.validator)?;
             }
         }
         tracing::trace!(combiner = ?self.combiner, "combined documents");

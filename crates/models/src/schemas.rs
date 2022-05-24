@@ -14,7 +14,7 @@ use super::{Object, RelativeUrl};
 ///
 /// For example, "schemas/marketing.yaml#/$defs/campaign" would reference the schema
 /// at location {"$defs": {"campaign": ...}} within ./schemas/marketing.yaml.
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged)]
 #[schemars(example = "Schema::example_absolute")]
 #[schemars(example = "Schema::example_relative")]

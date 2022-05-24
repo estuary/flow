@@ -196,7 +196,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Interlude: Another read, this time with an invalid schema.
 	var badShuffle = shuffle
-	badShuffle.SourceSchemaUri += "/does/not/exist"
+	badShuffle.ValidateSchemaJson = `{"invalid":"keyword"}`
 
 	var badRead = &read{
 		logger: ops.StdLogger(),
@@ -212,7 +212,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Expect we read an error, and that TerminalError is set.
 	_, err = badRead.next()
 	require.Equal(t, io.EOF, err, err.Error())
-	require.Regexp(t, "building document extractor: schema index: .*", badRead.resp.TerminalError)
+	require.Regexp(t, "building document extractor: building schema.*", badRead.resp.TerminalError)
 
 	// Write and commit a single ACK document.
 	app = client.NewAppender(backgroundCtx, bk.Client(), pb.AppendRequest{Journal: "a/journal"})

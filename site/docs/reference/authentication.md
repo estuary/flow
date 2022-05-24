@@ -1,0 +1,85 @@
+---
+sidebar_position: 1
+---
+
+# Authorizing users and authenticating with Flow
+
+Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
+are granted to Flow users through **roles**.
+
+Roles are granted in terms of **prefixes** within the Flow [namespace](../concepts/README.md#namespace).
+By default, each organization has a unique top-level prefix.
+For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
+You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.
+When you name a collection, you can customize the prefix, and roles can be configured at any prefix level.
+This allows you to flexibly control access to your Flow data.
+
+The available roles are:
+
+* **`read`**: Allows the subject to read data from collections of the given prefix.
+
+* **`write`**: Allows the subject to read and write data from collections of the given prefix.
+
+* **`admin`**: Allows the subject to read and write data from collections of the given prefix,
+and to manage storage mappings, catalog specifications, and role grants within the prefix.
+The admin role also inherits roles granted to the prefix, as discussed below.
+
+## Subjects, objects, and inherited roles
+
+The entity to which you grant a role is called the **subject**, and the entity over which access is granted is called the **object**.
+The subject can be either a user or a prefix, and the object is always a prefix. This allows subjects to inherit nested roles,
+so long as they are granted the `admin` role.
+
+For example, user X of Acme Co has admin access to the `acmeCo/` prefix, and user Y has write access.
+A third party has granted `acmeCo/` read access to shared data at `outside-org/acmeCo-share/`.
+User X automatically inherits read access to `outside-org/acmeCo-share/`, but user Y does not.
+
+## Default authorization settings
+
+When you first sign up to use Flow, your organization is provisioned a prefix, and your username is granted admin access to the prefix.
+Your prefix is granted write access to itself and read access to its logs, which are stored under a unique sub-prefix of the global `ops/` prefix.
+
+Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
+`acmeCo/`, in turn, has write access to `acmeCo/` and read access to `ops/acmeCo/`.
+
+As more users and prefixes are added, admins can [provision roles](#provisioning-roles) using the CLI.
+
+## Authenticating Flow in the web app
+
+You must sign in to begin a new session using the Flow web application.
+For the duration of the session, you'll be able to perform actions depending on the roles granted to the user profile.
+
+You can view the roles currently provisioned in your organization on the **Admin** tab.
+
+## Authenticating Flow using the CLI
+
+You can use the [flowctl](../concepts/flowctl.md) CLI to work with your organization's catalogs and drafts in your local development environment.
+
+To authenticate a local development session using the CLI, do the following:
+
+1. Sign into the Flow web application.
+
+2. Click the **Admin** tab, scroll to the **Access Token** box, and copy the token.
+
+3. In the terminal of your local development environment, run:
+   ``` console
+   flowctl auth token --token=<copied-token>
+   ```
+
+The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
+
+## Provisioning roles
+
+As an admin, you can provision roles using the CLI with the subcommands of `flowctl auth roles`.
+
+For example:
+
+* `flowctl auth roles list` returns a list of all currently provisioned roles
+
+* `flowctl auth roles grant --object-role=acmeCo/ --capability=admin --subject-user-id=userZ` grants user Z admin access to `acmeCo`
+
+* `flowctl auth roles revoke --object-role=outside-org/acmeCo-share/ --capability=read --subject-role=acmeCo/` would be used by an admin of `outside-org`
+to revoke `acmeCo/`'s read access to `outside-org/acmeCo-share/`.
+
+You can find detailed help for all subcommands using the `--help` or `-h` flag.
+

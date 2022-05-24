@@ -20,8 +20,11 @@ anyhow = "*"
 bytes = "*"
 clap = {version = "*", features = ["derive"]}
 futures = "*"
+itertools = "*"
 reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
 serde_json = "*"
+superslice = "*"
+tokio = { version = "1", features = ["rt", "net"] }
 tracing = "*"
 url = "*"
 
