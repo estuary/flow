@@ -84,8 +84,7 @@ func Run(
 		// send them a SIGTERM. Without this, the (potentially numerous) child processes within a
 		// container may never actually be stopped.
 		"--init",
-		// I'm honestly not sure why, but --interactive is required in order for (at least some)
-		// connectors to startup properly.
+		// --interactive causes docker run to attach and proxy stdin to the container.
 		"--interactive",
 		"--rm",
 		// Tell docker not to persist any container stdout/stderr output.
@@ -280,7 +279,7 @@ func runCommand(
 	go func(signal func(os.Signal) error) {
 		<-ctx.Done()
 		logger.Log(logrus.DebugLevel, nil, "sending termination signal to connector")
-		if sigErr := signal(syscall.SIGTERM); sigErr != nil {
+		if sigErr := signal(syscall.SIGTERM); sigErr != nil && sigErr != os.ErrProcessDone {
 			// I haven't seen any evidence that sending the signal ever fails for any other reason
 			// than the child has already exited. But this is here just to help track down any
 			// potential issues with cleaning up connector processes.
