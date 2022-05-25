@@ -20,7 +20,14 @@ $$ language sql;
 create function tests.test_auth_roles()
 returns setof text as $$
 
-  -- Replace seed role_grants with fixtures for this test.
+  -- Replace seed grants with fixtures for this test.
+  delete from user_grants;
+  insert into user_grants (user_id, object_role, capability) values
+    ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin'),
+    ('22222222-2222-2222-2222-222222222222', 'bobCo/', 'admin'),
+    ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'read')
+  ;
+
   delete from role_grants;
   insert into role_grants (subject_role, object_role, capability) values
     ('aliceCo/widgets/', 'bobCo/burgers/', 'admin'),

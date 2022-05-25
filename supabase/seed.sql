@@ -35,20 +35,34 @@ select id, id, json_build_object('sub', id), 'email', now(), now(), now() from a
 insert into user_grants (user_id, object_role, capability) values
   ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin'),
   ('22222222-2222-2222-2222-222222222222', 'bobCo/', 'admin'),
-  ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'read')
+  ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'admin')
 ;
 
 -- Also grant other namespaces commonly used while testing.
+-- aliceCo, bobCo, and carolCo are distinct owned namespaces,
+-- but all are also able to admin examples/
 insert into role_grants (subject_role, object_role, capability) values
   ('aliceCo/', 'aliceCo/', 'write'),
-  ('bobCo/', 'acmeCo/', 'admin'),
+  ('aliceCo/', 'examples/', 'admin'),
+  ('aliceCo/', 'ops/aliceCo/', 'read'),
+  ('bobCo/', 'bobCo/', 'write'),
   ('bobCo/', 'examples/', 'admin'),
   ('bobCo/', 'ops/bobCo/', 'read'),
-  ('bobCo/', 'testing/', 'admin'),
+  ('carolCo/', 'carolCo/', 'write'),
+  ('carolCo/', 'examples/', 'admin'),
+  ('carolCo/', 'ops/carolCo/', 'read'),
   ('examples/', 'examples/', 'write'),
-  ('examples/', 'ops/examples/', 'read'),
-  ('testing/', 'testing/', 'write')
+  ('examples/', 'ops/examples/', 'read')
 ;
+
+-- Create corresponding storage mappings.
+insert into storage_mappings (catalog_prefix, spec) values
+  ('aliceCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+  ('bobCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+  ('carolCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+  ('examples/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+  ('ops/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
+  ('recovery/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.
@@ -83,44 +97,5 @@ begin
 
 end;
 $$ language plpgsql;
-
--- Create some storage mappings.
-insert into storage_mappings (catalog_prefix, spec) values
-  ('aliceCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('acmeCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('examples/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('ops/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('recovery/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('testing/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
-
-
--- TODO(johnny): Awkward additional grants and storage mappings which
--- allow our current catalog tests to work. We should clean these up
--- by renaming specifications in our integration tests.
-
-insert into storage_mappings (catalog_prefix, spec) values
-  ('acmeBank/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('example/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('marketing/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('patterns/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('soak/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('stock/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('temperature/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
-
-insert into role_grants (subject_role, object_role, capability) values
-  ('acmeBank/', 'acmeBank/', 'write'),
-  ('bobCo/', 'acmeBank/', 'admin'),
-  ('bobCo/', 'example/', 'admin'),
-  ('bobCo/', 'marketing/', 'admin'),
-  ('bobCo/', 'patterns/', 'admin'),
-  ('bobCo/', 'soak/', 'admin'),
-  ('bobCo/', 'stock/', 'admin'),
-  ('bobCo/', 'temperature/', 'admin'),
-  ('example/', 'example/', 'write'),
-  ('marketing/', 'marketing/', 'write'),
-  ('patterns/', 'patterns/', 'write'),
-  ('soak/', 'soak/', 'write'),
-  ('stock/', 'stock/', 'write'),
-  ('temperature/', 'temperature/', 'write');
 
 commit;
