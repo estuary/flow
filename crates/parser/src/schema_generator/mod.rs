@@ -118,11 +118,7 @@ mod test {
         .iter()
         .for_each(|json| {
             let result = generate(Metadata::default(), &json);
-
-            match result {
-                Ok(_) => assert!(false),
-                Err(_) => {}
-            }
+            result.expect_err("generate should return error");
         });
     }
 
@@ -133,13 +129,11 @@ mod test {
         iter.for_each(|json| {
             let result = generate(Metadata::default(), &json);
 
-            match result {
-                Ok(e) => assert!(
-                    false,
+            if let Ok(ok_val) = result {
+                panic!(
                     "expected the document to fail: {}",
-                    serde_json::to_string_pretty(&e.root).unwrap()
-                ),
-                Err(_) => {}
+                    serde_json::to_string_pretty(&ok_val.root).unwrap()
+                )
             }
         });
     }
