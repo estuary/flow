@@ -57,6 +57,7 @@ func (d *Driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecRespons
 
 	// Use reflection to build JSON Schemas from endpoint and resource configuration types.
 	var reflector = jsonschema.Reflector{
+		DoNotReference: true,
 		ExpandedStruct: true,
 	}
 	endpointSchema, err := reflector.Reflect(d.EndpointSpecType).MarshalJSON()
