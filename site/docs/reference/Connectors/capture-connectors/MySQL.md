@@ -53,9 +53,9 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```sql
 SET PERSIST binlog_row_metadata = 'FULL';
 ```
-4. Configure the binary log to retain data for at least seven days, if previously set lower.
+4. Configure the binary log to retain data for at least seven days, if previously set lower. If possible, it's recommended to use the default MySQL setting of 2592000 seconds (30 days).
 ```sql
-SET PERSIST binlog_expire_logs_seconds = 604800;
+SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
 
 ## Configuration
@@ -79,8 +79,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `/namespace` | Namespace | The [namespace](https://dev.mysql.com/doc/refman/5.6/en/ha-memcached-using-namespaces.html) of the table, if used. | string | |
-| **`/stream`** | Stream | Name of the table to be created in the database. | string | Required |
+| **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required |
+| **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
