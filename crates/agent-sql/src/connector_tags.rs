@@ -1,9 +1,9 @@
-use super::Id;
+use super::{Id, TextJson as Json};
 
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Uuid;
 
 // Row is the dequeued task shape of a tag connector operation.
 #[derive(Debug)]
@@ -73,11 +73,11 @@ pub async fn update_open_graph_raw(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"update connectors set
-                open_graph_raw = $2,
-                updated_at = clock_timestamp()
-            where id = $1
-            returning 1 as "must_exist";
-            "#,
+            open_graph_raw = $2,
+            updated_at = clock_timestamp()
+        where id = $1
+        returning 1 as "must_exist";
+        "#,
         connector_id as Id,
         Json(open_graph_raw) as Json<Box<RawValue>>,
     )

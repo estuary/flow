@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 mod id;
 pub use id::Id;
 
+mod text_json;
+pub use text_json::TextJson;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "catalog_spec_type")]
 #[sqlx(rename_all = "lowercase")]

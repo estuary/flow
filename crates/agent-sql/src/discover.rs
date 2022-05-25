@@ -1,8 +1,9 @@
-use super::{CatalogType, Id};
+use super::{CatalogType, Id, TextJson as Json};
+
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Uuid;
 
 // Row is the dequeued task shape of a discover operation.
 #[derive(Debug)]
@@ -90,17 +91,18 @@ where
     S: Serialize + Send + Sync,
 {
     sqlx::query!(
-        r#"insert into draft_specs(
-              draft_id,
-              catalog_name,
-              spec,
-              spec_type
-          ) values ($1, $2, $3, $4)
-          on conflict (draft_id, catalog_name) do update set
-              spec = $3,
-              spec_type = $4
-          returning 1 as "must_exist";
-          "#,
+        r#"
+        insert into draft_specs(
+            draft_id,
+            catalog_name,
+            spec,
+            spec_type
+        ) values ($1, $2, $3, $4)
+        on conflict (draft_id, catalog_name) do update set
+            spec = $3,
+            spec_type = $4
+        returning 1 as "must_exist";
+        "#,
         draft_id as Id,
         catalog_name as &str,
         Json(spec) as Json<S>,

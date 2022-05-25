@@ -6,7 +6,7 @@ use agent_sql::{Capability, CatalogType};
 use anyhow::Context;
 use itertools::Itertools;
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Uuid;
 use std::collections::BTreeMap;
 
 // resolve_specifications returns the definitive set of specifications which
@@ -62,7 +62,7 @@ pub async fn resolve_specifications(
             row.live_spec = None;
             row.live_spec_id = row.draft_spec_id;
             row.live_type = None;
-            row.spec_capabilities = Json(Vec::new());
+            row.spec_capabilities.0 = Vec::new();
         }
     }
 
@@ -212,7 +212,7 @@ pub fn validate_transition(
                     catalog_name: catalog_name.clone(),
                     detail: format!(
                         "Specification is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                        serde_json::to_string_pretty(&spec_capabilities).unwrap(),
+                        serde_json::to_string_pretty(&spec_capabilities.0).unwrap(),
                     ),
                     ..Default::default()
                 });
@@ -227,7 +227,7 @@ pub fn validate_transition(
                     catalog_name: catalog_name.clone(),
                     detail: format!(
                         "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                        serde_json::to_string_pretty(&spec_capabilities).unwrap(),
+                        serde_json::to_string_pretty(&spec_capabilities.0).unwrap(),
                     ),
                     ..Default::default()
                 });
