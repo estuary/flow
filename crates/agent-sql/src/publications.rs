@@ -1,9 +1,9 @@
-use super::{Capability, CatalogType, Id};
+use super::{Capability, CatalogType, Id, TextJson as Json};
 
 use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Uuid;
 
 // Row is the dequeued task shape of a draft build & test operation.
 #[derive(Debug)]
