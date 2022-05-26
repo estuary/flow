@@ -303,6 +303,7 @@ pub async fn deploy_build(
             .arg(consumer_address.as_str())
             .arg("--network")
             .arg(connector_network)
+            .arg("--no-wait")
             .args(activate_names)
             .arg("--log.level=info")
             .arg("--log.format=color"),
