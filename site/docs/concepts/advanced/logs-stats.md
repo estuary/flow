@@ -8,8 +8,8 @@ Access to statistics is still a work in progress. For now, this documentation de
 
 ## Logs
 
-Each organization, or tenant, that uses Flow has a `logs` collection under the global `ops` prefix.
-For the tenant acmeCo, it would have the name `ops/acmeCo/logs`.
+Each organization that uses Flow has a `logs` collection under the global `ops` prefix.
+For the organization Acme Co, it would have the name `ops/acmeCo/logs`.
 
 These can be thought of as standard application logs:
 they store information about events that occur at runtime.

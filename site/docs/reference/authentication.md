@@ -5,30 +5,30 @@ sidebar_position: 1
 # Authorizing users and authenticating with Flow
 
 Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
-are granted to Flow users through **roles**.
+are granted to Flow users through **capabilities**.
 
-Roles are granted in terms of **prefixes** within the Flow [namespace](../concepts/README.md#namespace).
+Capabilities are granted in terms of **prefixes** within the Flow [namespace](../concepts/README.md#namespace).
 By default, each organization has a unique top-level prefix.
 For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
 You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.
-When you name a collection, you can customize the prefix, and roles can be configured at any prefix level.
+When you name a collection, you can customize the prefix, and capabilities can be configured at any prefix level.
 This allows you to flexibly control access to your Flow data.
 
-The available roles are:
+The available capabilities are:
 
 * **`read`**: Allows the subject to read data from collections of the given prefix.
 
 * **`write`**: Allows the subject to read and write data from collections of the given prefix.
 
 * **`admin`**: Allows the subject to read and write data from collections of the given prefix,
-and to manage storage mappings, catalog specifications, and role grants within the prefix.
-The admin role also inherits roles granted to the prefix, as discussed below.
+and to manage storage mappings, catalog specifications, and capability grants within the prefix.
+The admin capability also inherits capabilities granted to the prefix, as discussed below.
 
-## Subjects, objects, and inherited roles
+## Subjects, objects, and inherited capabilities
 
-The entity to which you grant a role is called the **subject**, and the entity over which access is granted is called the **object**.
-The subject can be either a user or a prefix, and the object is always a prefix. This allows subjects to inherit nested roles,
-so long as they are granted the `admin` role.
+The entity to which you grant a capability is called the **subject**, and the entity over which access is granted is called the **object**.
+The subject can be either a user or a prefix, and the object is always a prefix. This allows subjects to inherit nested capabilities,
+so long as they are granted `admin`.
 
 For example, user X of Acme Co has admin access to the `acmeCo/` prefix, and user Y has write access.
 A third party has granted `acmeCo/` read access to shared data at `outside-org/acmeCo-share/`.
@@ -42,14 +42,14 @@ Your prefix is granted write access to itself and read access to its logs, which
 Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
 `acmeCo/`, in turn, has write access to `acmeCo/` and read access to `ops/acmeCo/`.
 
-As more users and prefixes are added, admins can [provision roles](#provisioning-roles) using the CLI.
+As more users and prefixes are added, admins can [provision capabilities](#provisioning-capabilities) using the CLI.
 
 ## Authenticating Flow in the web app
 
 You must sign in to begin a new session using the Flow web application.
-For the duration of the session, you'll be able to perform actions depending on the roles granted to the user profile.
+For the duration of the session, you'll be able to perform actions depending on the capabilities granted to the user profile.
 
-You can view the roles currently provisioned in your organization on the **Admin** tab.
+You can view the capabilities currently provisioned in your organization on the **Admin** tab.
 
 ## Authenticating Flow using the CLI
 
@@ -68,13 +68,13 @@ To authenticate a local development session using the CLI, do the following:
 
 The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
 
-## Provisioning roles
+## Provisioning capabilities
 
-As an admin, you can provision roles using the CLI with the subcommands of `flowctl auth roles`.
+As an admin, you can provision capabilities using the CLI with the subcommands of `flowctl auth roles`.
 
 For example:
 
-* `flowctl auth roles list` returns a list of all currently provisioned roles
+* `flowctl auth roles list` returns a list of all currently provisioned capabilities
 
 * `flowctl auth roles grant --object-role=acmeCo/ --capability=admin --subject-user-id=userZ` grants user Z admin access to `acmeCo`
 

@@ -37,9 +37,9 @@ You can print logs for a given deployed task using the flag `--task` followed by
 flowctl logs --task acmeCo/anvils/capture-one
 ```
 
-#### Printing all logs for a tenant
+#### Printing all logs for a prefix
 
-You can print all logs for currently deployed catalogs of a given tenant using the flag `--tenant`.
+You can print all logs for currently deployed catalogs of a given prefix using the flag `--tenant`.
 
 ```console
 flowctl logs --tenant acmeCo
@@ -49,7 +49,7 @@ This is the same as printing the entire contents of the collection `ops/acmeCo/l
 
 #### Printing logs by task type
 
-Within a given tenant, you can print logs for all deployed tasks of a given type using the flag `--task-type` followed by one of `capture`, `derivation`, or `materialization`.
+Within a given prefix, you can print logs for all deployed tasks of a given type using the flag `--task-type` followed by one of `capture`, `derivation`, or `materialization`.
 
 ```console
 flowctl logs --tenant acmeCo --task-type capture
