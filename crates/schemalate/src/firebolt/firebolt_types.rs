@@ -1,4 +1,9 @@
+use lazy_static::lazy_static;
 use std::fmt::{self, Display};
+
+use regex::Regex;
+
+use super::reserved_words::RESERVED_WORDS;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Table {
@@ -88,13 +93,20 @@ impl Display for FireboltType {
     }
 }
 
-// non-lower-case keys must be quoted.
-// see https://docs.firebolt.io/general-reference/identifier-requirements.html
+lazy_static! {
+    static ref VALID_FIELD_REGEX: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap();
+}
+
+// non-lower-case keys, reserved words, and fields not conforming to the regex must
+// be quoted. see https://docs.firebolt.io/general-reference/identifier-requirements.html
 pub fn column_quote(s: &str) -> String {
-    if s == s.to_lowercase() {
-        s.to_string()
-    } else {
+    if !VALID_FIELD_REGEX.is_match(s)
+        || RESERVED_WORDS.contains(&s.to_lowercase())
+        || s != s.to_lowercase()
+    {
         format!("\"{}\"", s)
+    } else {
+        s.to_string()
     }
 }
 
@@ -137,6 +149,7 @@ mod tests {
                         is_key: false,
                     },
                     Column {
+                        // Reserved word, must be quoted
                         key: "int".to_string(),
                         r#type: FireboltType::Int,
                         nullable: true,
@@ -155,24 +168,28 @@ mod tests {
                         is_key: true,
                     },
                     Column {
+                        // Reserved word, must be quoted
                         key: "float".to_string(),
                         r#type: FireboltType::Float,
                         nullable: false,
                         is_key: true,
                     },
                     Column {
+                        // Reserved word, must be quoted
                         key: "date".to_string(),
                         r#type: FireboltType::Date,
                         nullable: false,
                         is_key: true,
                     },
                     Column {
+                        // Reserved word, must be quoted
                         key: "timestamp".to_string(),
                         r#type: FireboltType::Timestamp,
                         nullable: false,
                         is_key: true,
                     },
                     Column {
+                        // Reserved word, must be quoted
                         key: "boolean".to_string(),
                         r#type: FireboltType::Boolean,
                         nullable: false,
@@ -183,11 +200,18 @@ mod tests {
                         r#type: FireboltType::Boolean,
                         nullable: false,
                         is_key: true,
+                    },
+                    Column {
+                        // Unusual characters, must be quoted
+                        key: "x%@!#sk".to_string(),
+                        r#type: FireboltType::Text,
+                        nullable: false,
+                        is_key: false,
                     }
                 ],
             }
             .to_string(),
-            "str TEXT,int INT NULL,num DOUBLE,big BIGINT,float FLOAT,date DATE,timestamp TIMESTAMP,boolean BOOLEAN,\"Nonlowercase\" BOOLEAN"
+            "str TEXT,\"int\" INT NULL,num DOUBLE,big BIGINT,\"float\" FLOAT,\"date\" DATE,\"timestamp\" TIMESTAMP,\"boolean\" BOOLEAN,\"Nonlowercase\" BOOLEAN,\"x%@!#sk\" TEXT"
         );
 
         assert_eq!(
