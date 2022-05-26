@@ -105,3 +105,53 @@ The Firebolt connector operates only in [delta updates](../../../concepts/materi
 Firebolt stores all deltas — the unmerged collection documents — directly.
 
 In some cases, this will affect how materialized views look in Firebolt compared to other systems that use standard updates.
+
+## Reserved words
+
+Firebolt has a list of reserved words, which my not be used in identifiers.
+Collections with field names that include a reserved word may not be materialized to Firebolt.
+
+|Reserved words| | |
+|---|---|---|
+| all |	false |	or |
+| alter |	fetch |	order |
+| and |	first |	outer |
+| array |	float |	over |
+| between |	from |	partition |
+| bigint |	full |	precision |
+| bool |	generate |	prepare |
+| boolean |	group |	primary |
+| both |	having |	quarter |
+| case |	if |	right |
+| cast |	ilike |	row |
+| char |	in |	rows |
+| concat |	inner |	sample |
+| copy |	insert |	select |
+| create |	int |	set |
+| cross |	integer |	show |
+| current_date |	intersect |	text |
+| current_timestamp |	interval |	time |
+| database |	is |	timestamp |
+| date |	isnull |	top |
+| datetime |	join |	trailing |
+| decimal |	join_type |	trim |
+| delete |	leading |	true |
+| describe |	left |	truncate |
+| distinct |	like |	union |
+| double |	limit |	unknown_char |
+| doublecolon |	limit_distinct |	unnest |
+| dow |	localtimestamp |	unterminated_string |
+| doy |	long |	update |
+| drop |	natural |	using |
+| empty_identifier |	next |	varchar |
+| epoch |	not |	week |
+| except |	null |	when |
+| execute |	numeric |	where |
+| exists |	offset |	with |
+| explain |	on | |
+| extract |	only | |
+
+
+
+
+
