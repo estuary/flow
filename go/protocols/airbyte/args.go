@@ -121,7 +121,8 @@ func RunMain(spec Spec, doCheck func(CheckCmd) error, doDiscover func(DiscoverCm
 	// This will actually execute the given subcommand because that's clearly what "parse" means /s.
 	var _, err = parser.Parse()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error: ", err)
+		// We don't log the error because flags.Default includes flags.PrintErrors,
+		// and thus Parse() has already done so on our behalf.
 		os.Exit(1)
 	}
 	os.Exit(0)
