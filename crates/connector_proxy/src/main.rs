@@ -1,17 +1,13 @@
+use clap::Parser;
+use flow_cli_common::{init_logging, LogArgs};
+
 pub mod apis;
 pub mod connector_runner;
 pub mod errors;
 pub mod interceptors;
 pub mod libs;
-use std::fs::File;
-use std::io::BufReader;
-
-use clap::{ArgEnum, Parser, Subcommand};
 
 use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
-
-use flow_cli_common::{init_logging, LogArgs};
-
 use connector_runner::{
     run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
 };
@@ -22,7 +18,7 @@ use libs::{
 };
 use std::process::Stdio;
 
-#[derive(Debug, ArgEnum, Clone)]
+#[derive(Debug, clap::ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
     Airbyte,
     FlowCapture,
@@ -35,7 +31,7 @@ struct ProxyFlowCapture {
     operation: FlowCaptureOperation,
 }
 
-#[derive(Debug, ArgEnum, Clone)]
+#[derive(Debug, clap::ArgEnum, Clone)]
 pub enum MaterializeConnectorProtocol {
     FlowMaterialize,
 }
@@ -52,7 +48,7 @@ struct DelayedExecutionConfig {
     config_file_path: String,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, clap::Subcommand)]
 enum ProxyCommand {
     /// proxies the Flow runtime Capture Protocol to the connector.
     ProxyFlowCapture(ProxyFlowCapture),
@@ -62,7 +58,7 @@ enum ProxyCommand {
     DelayedExecute(DelayedExecutionConfig),
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
 pub struct Args {
     /// The path (in the container) to the JSON file that contains the inspection results from the connector image.
@@ -90,7 +86,7 @@ static DEFAULT_CONNECTOR_ENTRYPOINT: &str = "/connector/connector";
 //    functionalities to be triggered during the communications.
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() {
     let Args {
         image_inspect_json_path,
         proxy_command,
@@ -99,11 +95,19 @@ async fn main() -> std::io::Result<()> {
     init_logging(&log_args);
 
     let result = async_main(image_inspect_json_path, proxy_command, log_args).await;
-    if let Err(err) = result.as_ref() {
-        tracing::error!(error = ?err, message = "connector proxy execution failed.");
-        std::process::exit(1);
+
+    match result {
+        Err(Error::CommandExecutionError(_)) => {
+            // This error summarizes an error of a child process.
+            // As its stderr is passed through, we don't log its failure again here.
+            std::process::exit(1);
+        }
+        Err(err) => {
+            tracing::error!(error = ?err, message = "connector-proxy failed");
+            std::process::exit(1);
+        }
+        Ok(()) => {}
     }
-    Ok(())
 }
 
 async fn async_main(
@@ -160,13 +164,15 @@ async fn proxy_flow_materialize(
     run_flow_materialize_connector(&m.operation, entrypoint).await
 }
 
+// TODO(johnny): We ought to replace this with an exec call.
+// If we knew a shell were available it'd be as simple as:
+//   /bin/sh -c 'read -r line; exec $0 $@' /connector arg0 arg1 arg2
 async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
     // Wait for the "READY" signal from the parent process before starting the connector.
     read_ready(&mut tokio::io::stdin()).await?;
+    tracing::debug!("delayed_execute read READY");
 
-    tracing::info!("delayed process execution continue...");
-
-    let reader = BufReader::new(File::open(command_config_path)?);
+    let reader = std::io::BufReader::new(std::fs::File::open(command_config_path)?);
     let command_config: CommandConfig = serde_json::from_reader(reader)?;
 
     let mut child = invoke_connector(
@@ -177,11 +183,5 @@ async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
         &command_config.args,
     )?;
 
-    match check_exit_status("delayed process", child.wait().await) {
-        Err(e) => {
-            tracing::error!("connector failed. command_config: {:?}.", &command_config);
-            Err(e)
-        }
-        _ => Ok(()),
-    }
+    check_exit_status("delayed process", child.wait().await)
 }

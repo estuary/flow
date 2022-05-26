@@ -11,17 +11,18 @@ path = "src/main.rs"
 doc = { path = "../doc", version = "0.0.0" }
 flow_cli_common = { path = "../flow_cli_common" }
 network-tunnel = { path = "../network-tunnel", version = "0.1.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
+proto-flow = { path = "../proto-flow", version = "0.0.0" }
 
-async-trait="*"
+async-trait = "*"
+bytelines = "*"
+byteorder = "*"
 bytes = "*"
-byteorder="*"
 clap = { version = "^3", features = ["derive"] }
+futures = "*"
 futures-core = "*"
-futures-util="*"
-futures="*"
-json-pointer="*"
-libc="*"
+futures-util = "*"
+json-pointer = "*"
+libc = "*"
 prost = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"]}
@@ -29,10 +30,9 @@ serde_json = { version = "*", features = ["raw_value"]}
 structopt = "*"
 strum = "*"
 strum_macros = "*"
-tempfile="*"
+tempfile = "*"
 thiserror = "*"
-tokio = { version = "1.15.0", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "*", features = ["io"] }
-bytelines = "*"
-tracing="*"
+tracing = "*"
 validator = { version = "*", features = ["derive"] }

@@ -11,11 +11,11 @@ use crate::libs::protobuf::encode_message;
 use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses};
 
 use bytes::Bytes;
-use protocol::capture::{
+use proto_flow::capture::{
     discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
     PullRequest, PullResponse, SpecRequest, SpecResponse, ValidateRequest, ValidateResponse,
 };
-use protocol::flow::{DriverCheckpoint, Slice};
+use proto_flow::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;

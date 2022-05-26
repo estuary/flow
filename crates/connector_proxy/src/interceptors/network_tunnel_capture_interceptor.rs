@@ -4,7 +4,7 @@ use crate::libs::network_tunnel::NetworkTunnel;
 use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::get_decoded_message;
 use futures::{future, stream, StreamExt, TryStreamExt};
-use protocol::capture::{
+use proto_flow::capture::{
     ApplyRequest, DiscoverRequest, PullRequest, SpecResponse, ValidateRequest,
 };
 

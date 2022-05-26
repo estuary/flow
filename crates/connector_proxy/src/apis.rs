@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use clap::ArgEnum;
-use futures::TryStream;
+use futures::Stream;
 use std::pin::Pin;
 
 // The protocol used by FlowRuntime to speak with connector-proxy.
@@ -42,10 +42,4 @@ pub enum FlowMaterializeOperation {
 
 // An interceptor modifies the request/response streams between Flow runtime and the connector.
 // InterceptorStream defines the type of input and output streams handled by interceptors.
-pub type InterceptorStream = Pin<
-    Box<
-        dyn TryStream<Ok = Bytes, Error = std::io::Error, Item = std::io::Result<Bytes>>
-            + Send
-            + Sync,
-    >,
->;
+pub type InterceptorStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send + Sync>>;

@@ -117,7 +117,7 @@ mod test {
 
     use bytes::BytesMut;
     use futures::stream;
-    use protocol::{
+    use proto_flow::{
         flow::EndpointType,
         materialize::{validate_request, ValidateRequest},
     };

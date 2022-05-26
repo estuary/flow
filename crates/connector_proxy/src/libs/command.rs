@@ -1,9 +1,7 @@
 use crate::errors::Error;
 
-use flow_cli_common::LogArgs;
 use serde::{Deserialize, Serialize};
 use std::process::{ExitStatus, Stdio};
-use tempfile::NamedTempFile;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
@@ -59,16 +57,16 @@ pub struct CommandConfig {
 pub fn invoke_connector_delayed(
     entrypoint: String,
     args: Vec<String>,
-    log_args: LogArgs,
+    log_args: flow_cli_common::LogArgs,
 ) -> Result<Child, Error> {
-    tracing::info!("invoke delayed connector {}, {:?}", entrypoint, args);
+    tracing::debug!(%entrypoint, ?args, "invoke_connector_delayed");
 
     // Saves the configs to start the connector.
     let command_config = CommandConfig {
         entrypoint: entrypoint,
         args: args,
     };
-    let config_file = NamedTempFile::new()?;
+    let config_file = tempfile::NamedTempFile::new()?;
     serde_json::to_writer(&config_file, &command_config)?;
     let (_, config_file_path) = config_file.keep()?;
     let config_file_path = config_file_path
@@ -124,7 +122,7 @@ pub fn invoke_connector(
     entrypoint: &str,
     args: &[String],
 ) -> Result<Child, Error> {
-    tracing::info!("invoke connector {}, {:?}", entrypoint, args);
+    tracing::debug!(%entrypoint, ?args, "invoke_connector");
 
     Command::new(entrypoint)
         .stdin(stdin)
