@@ -68,7 +68,7 @@ To do so, provide a JSON pointer to the field in the collection schema, choose t
 
 ```yaml
 materializations:
-  tenant/mat_name:
+  PREFIX/mat_name:
     endpoint:
       connector:
          # Path to the latest version of the connector, provided as a Docker image
@@ -89,7 +89,7 @@ materializations:
                       field_type: date
                         date_spec:
                           format: yyyy-MM-dd
-            source: tenant/source_collection
+            source: PREFIX/source_collection
 ```
 ## Delta updates
 

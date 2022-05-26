@@ -46,7 +46,7 @@ During account creation:
    ```console
    base64 /path/to/key.json
    ```
-   
+
    You'll use the resulting string when you configure the connector.
 
 
@@ -86,7 +86,7 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 
 ```yaml
 materializations:
-  ${tenant}/${mat_name}:
+  ${PREFIX}/${mat_name}:
 	  endpoint:
   	    connector:
     	    config:
@@ -102,7 +102,7 @@ materializations:
     bindings:
   	- resource:
       	table: ${table_name}
-    source: ${tenant}/${source_collection}
+    source: ${PREFIX}/${source_collection}
 ```
 
 ## Delta updates
@@ -122,5 +122,5 @@ You can enable delta updates on a per-binding basis:
   	- resource:
       	table: ${table_name}
         delta_updates: true
-    source: ${tenant}/${source_collection}
+    source: ${PREFIX}/${source_collection}
 ```

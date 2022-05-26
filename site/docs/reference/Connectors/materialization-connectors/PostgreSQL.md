@@ -38,7 +38,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 
 ```yaml
 materializations:
-  ${tenant}/${mat_name}:
+  ${PREFIX}/${mat_name}:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
@@ -51,7 +51,7 @@ materializations:
     bindings:
       - resource:
           table: ${TABLE_NAME}
-        source: ${TENANT}/${COLLECTION_NAME}
+        source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 ## PostgreSQL on managed cloud platforms

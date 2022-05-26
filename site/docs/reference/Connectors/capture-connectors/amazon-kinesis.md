@@ -58,7 +58,7 @@ A minimal capture definition will look like the following:
 
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/source-kinesis:dev
@@ -70,7 +70,7 @@ captures:
       - resource:
           stream: ${STREAM_NAME}
           syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 
 ```
 

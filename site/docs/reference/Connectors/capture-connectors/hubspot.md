@@ -101,18 +101,20 @@ The following properties reflect the API Key authentication method.
 ### Sample
 
 ```yaml
-endpoint:
-  connector:
-    image: ghcr.io/estuary/airbyte-source-hubspot:dev
-      config:
-        credentials:
-          credentials_title: API Key Credentials
-          api_key: <secret>
-  bindings:
-    - resource:
-         stream: companies
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/airbyte-source-hubspot:dev
+          config:
+            credentials:
+              credentials_title: API Key Credentials
+              api_key: <secret>
+      bindings:
+        - resource:
+            stream: companies
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 ```
 Your configuration will have many more bindings representing all supported [resources](#supported-data-resources)
 in your Hubspot account.

@@ -58,7 +58,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/source-gcs:dev
@@ -79,7 +79,7 @@ captures:
       - resource:
           stream: my-bucket/${PREFIX}
           syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 
 ```
 

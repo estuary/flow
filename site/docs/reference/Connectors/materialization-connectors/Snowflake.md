@@ -54,7 +54,7 @@ Use the below properties to configure a Snowflake materialization, which will di
 ```yaml
 
 materializations:
-  ${tenant}/${mat_name}:
+  ${PREFIX}/${mat_name}:
     endpoint:
   	    connector:
     	    config:
@@ -71,7 +71,7 @@ materializations:
     bindings:
   	- resource:
       	table: ${table_name}
-    source: ${tenant}/${source_collection}
+    source: ${PREFIX}/${source_collection}
 ```
 
 ## Delta updates
@@ -91,7 +91,7 @@ You can enable delta updates on a per-binding basis:
   	- resource:
       	table: ${table_name}
         delta_updates: true
-    source: ${tenant}/${source_collection}
+    source: ${PREFIX}/${source_collection}
 ```
 
 ### Optimizing performance for standard updates

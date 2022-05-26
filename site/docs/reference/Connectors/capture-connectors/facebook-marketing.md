@@ -107,7 +107,7 @@ are a subset of breakdowns that must be specified separately.
 
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/airbyte-source-facebook-marketing:dev
@@ -125,55 +125,55 @@ captures:
       - resource:
           stream: ad_account
           syncMode: incremental
-        target: ${TENANT}/ad_account
+        target: ${PREFIX}/ad_account
       - resource:
           stream: ad_sets
           syncMode: incremental
-        target: ${TENANT}/ad_sets
+        target: ${PREFIX}/ad_sets
       - resource:
           stream: ads_insights
           syncMode: incremental
-        target: ${TENANT}/ads_insights
+        target: ${PREFIX}/ads_insights
       - resource:
           stream: ads_insights_age_and_gender
           syncMode: incremental
-        target: ${TENANT}/ads_insights_age_and_gender
+        target: ${PREFIX}/ads_insights_age_and_gender
       - resource:
           stream: ads_insights_country
           syncMode: incremental
-        target: ${TENANT}/ads_insights_country
+        target: ${PREFIX}/ads_insights_country
       - resource:
           stream: ads_insights_region
           syncMode: incremental
-        target: ${TENANT}/ads_insights_region
+        target: ${PREFIX}/ads_insights_region
       - resource:
           stream: ads_insights_dma
           syncMode: incremental
-        target: ${TENANT}/ads_insights_dma
+        target: ${PREFIX}/ads_insights_dma
       - resource:
           stream: ads_insights_platform_and_device
           syncMode: incremental
-        target: ${TENANT}/ads_insights_platform_and_device
+        target: ${PREFIX}/ads_insights_platform_and_device
       - resource:
           stream: ads_insights_action_type
           syncMode: incremental
-        target: ${TENANT}/ads_insights_action_type
+        target: ${PREFIX}/ads_insights_action_type
       - resource:
           stream: campaigns
           syncMode: incremental
-        target: ${TENANT}/campaigns
+        target: ${PREFIX}/campaigns
       - resource:
           stream: activities
           syncMode: incremental
-        target: ${TENANT}/activities
+        target: ${PREFIX}/activities
       - resource:
           stream: ads
           syncMode: incremental
-        target: ${TENANT}/ads
+        target: ${PREFIX}/ads
       - resource:
           stream: ad_creatives
           syncMode: full_refresh
-        target: ${TENANT}/ad_creatives
+        target: ${PREFIX}/ad_creatives
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)

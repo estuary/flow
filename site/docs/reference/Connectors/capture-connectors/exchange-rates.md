@@ -47,7 +47,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/airbyte-source-exchange-rates:dev
@@ -60,7 +60,7 @@ captures:
       - resource:
            stream: exchange_rates
            syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 This capture definition should only have one binding, as `exchange_rates` is the only available data stream.

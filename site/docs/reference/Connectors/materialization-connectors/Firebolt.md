@@ -78,7 +78,7 @@ Use the below properties to configure a Firebolt materialization, which will dir
 
 ```yaml
 materializations:
-  ${tenant}/${mat_name}:
+  ${PREFIX}/${mat_name}:
 	  endpoint:
         connector:
           config:
@@ -96,7 +96,7 @@ materializations:
       - resource:
           table: table-name
           table_type: fact
-      source: ${tenant}/${source_collection}
+      source: ${PREFIX}/${source_collection}
 ```
 
 ## Delta updates

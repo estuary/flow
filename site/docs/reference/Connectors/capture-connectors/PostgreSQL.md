@@ -109,7 +109,7 @@ A minimal capture definition will look like the following:
 
 ```yaml
 captures:
-  ${tenant}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: "ghcr.io/estuary/source-postgres:dev"
@@ -127,7 +127,7 @@ captures:
           stream: ${TABLE_NAME}
           namespace: ${TABLE_NAMESPACE}
           syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
