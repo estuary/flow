@@ -144,67 +144,69 @@ You must include the `ga:date` dimension for proper data flow.
 ### Sample
 
 ```yaml
-endpoint:
-  connector:
-    image: ghcr.io/estuary/airbyte-source-google-analytics-v4:dev
-      config:
-        view_id: 000000000
-        start_date: 2022-03-01
-        credentials:
-          auth_type: service
-          credentials_json: <secret>
-        window_in_days: 1
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/airbyte-source-google-analytics-v4:dev
+          config:
+            view_id: 000000000
+            start_date: 2022-03-01
+            credentials:
+              auth_type: service
+              credentials_json: <secret>
+            window_in_days: 1
 
-  bindings:
-    - resource:
-         stream: daily_active_users
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+      bindings:
+        - resource:
+            stream: daily_active_users
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: devices
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: devices
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: four_weekly_active_users
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: four_weekly_active_users
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: locations
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: locations
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: monthly_active_users
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: monthly_active_users
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: pages
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: pages
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: traffic_sources
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: traffic_sources
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: two_weekly_active_users
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: two_weekly_active_users
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: website_overview
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: website_overview
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: weekly_active_users
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: weekly_active_users
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)

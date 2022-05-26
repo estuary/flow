@@ -57,7 +57,7 @@ The following compression types are supported:
 ### Sample
 ```yaml
 materializations:
-  tenant/mat_name:
+  PREFIX/mat_name:
 	  endpoint:
         connector:
           config:
@@ -72,7 +72,7 @@ materializations:
     bindings:
       - resource:
           pathPrefix: /my-prefix
-      source: tenant/source_collection
+      source: PREFIX/source_collection
 ```
 
 ## Delta updates

@@ -84,7 +84,7 @@ The following properties reflect the Service Account Key authentication method.
 
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/airbyte-source-google-sheets:dev
@@ -97,7 +97,7 @@ captures:
       - resource:
           stream: Sheet1
            syncMode: full_refresh
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)

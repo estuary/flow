@@ -47,7 +47,7 @@ If you've ever used database schemas to organize your tables and authorize acces
 you can think of name prefixes as being akin to database schemas with arbitrary nesting.
 
 All catalog entities exist together in a single **namespace**.
-As a Flow customer, you're provisioned the highest level **tenant** prefix for your organization.
+As a Flow customer, you're provisioned one or more high-level prefixes for your organization.
 Further division of the namespace into prefixes is up to you.
 
 Prefixes of the namespace, like `acmeCo/teams/manufacturing/`,

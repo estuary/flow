@@ -64,28 +64,30 @@ The following properties reflect the API Key authentication method.
 ### Sample
 
 ```yaml
-endpoint:
-  connector:
-    image: ghcr.io/estuary/airbyte-source-mailchimp:dev
-      config:
-        credentials:
-          auth_type: apikey
-          apikey: <secret>
-  bindings:
-    - resource:
-         stream: lists
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/airbyte-source-mailchimp:dev
+          config:
+            credentials:
+              auth_type: apikey
+              apikey: <secret>
+      bindings:
+        - resource:
+            stream: lists
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: campaigns
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: campaigns
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 
-    - resource:
-         stream: email_activity
-         syncMode: incremental
-      target: ${TENANT}/${COLLECTION_NAME}
+        - resource:
+            stream: email_activity
+            syncMode: incremental
+          target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)

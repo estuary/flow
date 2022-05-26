@@ -66,7 +66,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 ### Sample
 ```yaml
 captures:
-  ${TENANT}/${CAPTURE_NAME}:
+  ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
         image: ghcr.io/estuary/source-kafka:dev
@@ -81,7 +81,7 @@ captures:
       - resource:
            stream: ${TOPIC_NAME}
            syncMode: incremental
-        target: ${TENANT}/${COLLECTION_NAME}
+        target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
 Your capture definition will likely be more complex, with additional bindings for each Kafka topic.

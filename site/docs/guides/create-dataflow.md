@@ -42,7 +42,7 @@ credentials provided by your Estuary account manager.
 2. Click the **Captures** tab and choose **New capture**.
 
 3. On the **Create Captures** page, choose a name for your capture.
-Your capture name must begin with your organization's globally unique tenant [prefix](../concepts/README.md#namespace).
+Your capture name must begin with a [prefix](../concepts/README.md#namespace) to which you [have access](../reference/authentication.md).
 Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
 Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
 

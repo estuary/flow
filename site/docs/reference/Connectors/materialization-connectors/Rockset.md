@@ -44,7 +44,7 @@ Use the below properties to configure a Rockset materialization, which will dire
 
 ```yaml
 materializations:
-  ${tenant}/${mat_name}:
+  ${PREFIX}/${mat_name}:
 	  endpoint:
   	  connector:
     	    config:
@@ -57,7 +57,7 @@ materializations:
   	- resource:
       	workspace: ${namespace_name}
       	collection: ${table_name}
-    source: ${tenant}/${source_collection}
+    source: ${PREFIX}/${source_collection}
 ```
 
 ## Delta updates and reduction strategies
