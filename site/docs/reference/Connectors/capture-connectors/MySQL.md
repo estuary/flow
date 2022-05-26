@@ -68,12 +68,13 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** | Address | Database address in the format `host:port`. | string | Required, `"127.0.0.1:3306"` |
-| **`/dbname`** | Database name | Name of the database to capture from. | string | Required |
-| **`/password`** | Password | Password for the specified database user. | string | Required |
-| **`/server_id`** | Server ID | Unique value used for replication. Cannot be 0. | integer | Required |
-| **`/user`** | User | Database user to connect as. | string | Required, `"flow_capture"` |
-| `/watermarks_table` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"flow.watermarks"` |
+| **`/address`** | Server Address and Port | The host:port at which the database can be reached. | string | Required, `"127.0.0.1:3306"` |
+| **`/login/user`** | Login Username | The database user to authenticate as. | string | Required, `"flow_capture"` |
+| **`/login/password`** | Login Password | Password for the specified database user. | string | Required |
+| `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
+| `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
+| `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
+| `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need. | boolean |  |
 
 #### Bindings
 
@@ -94,19 +95,17 @@ captures:
         image: ghcr.io/estuary/source-mysql:dev
         config:
           address: "127.0.0.1:3306"
-          dbname: "test"
-          password: "secret"
-          server_id: 12345
-          user: "flow_capture"
-          watermarks_table: "flow.watermarks"
+          login:
+            user: "flow_capture"
+            password: "secret"
     bindings:
       - resource:
           namespace: ${TABLE_NAMESPACE}
           stream: ${TABLE_NAME}
           syncMode: incremental
         target: ${TENANT}/${COLLECTION_NAME}
-
 ```
+
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
