@@ -142,39 +142,8 @@ mod test {
     fn test_generator_with_multiple_values() {
         let data = json!({"a_null_value": null, "boolean": true, "number": 123, "string": "else"});
         let schema = generate(Metadata::default(), &data).unwrap();
-        let properties = &schema.root.schema.object.as_ref().unwrap().properties;
 
-        {
-            let val = enum_value!(properties, "a_null_value", Schema::Object(so) => so);
-            assert_eq!(
-                val.instance_type,
-                Some(SingleOrVec::Single(Box::new(InstanceType::Null)))
-            );
-        }
-
-        {
-            let val = enum_value!(properties, "boolean", Schema::Object(so) => so);
-            assert_eq!(
-                val.instance_type,
-                Some(SingleOrVec::Single(Box::new(InstanceType::Boolean)))
-            );
-        }
-
-        {
-            let val = enum_value!(properties, "number", Schema::Object(so) => so);
-            assert_eq!(
-                val.instance_type,
-                Some(SingleOrVec::Single(Box::new(InstanceType::Number)))
-            );
-        }
-
-        {
-            let val = enum_value!(properties, "string", Schema::Object(so) => so);
-            assert_eq!(
-                val.instance_type,
-                Some(SingleOrVec::Single(Box::new(InstanceType::String)))
-            );
-        }
+        insta::assert_json_snapshot!(&schema.root);
     }
 
     #[test]
