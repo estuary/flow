@@ -12,9 +12,8 @@ use crate::libs::protobuf::{decode_message, encode_message};
 use flow_cli_common::LogArgs;
 use futures::channel::oneshot;
 use futures::{stream, StreamExt};
-use protocol::capture::PullResponse;
-use protocol::flow::DriverCheckpoint;
-use serde_json::json;
+use proto_flow::capture::PullResponse;
+use proto_flow::flow::DriverCheckpoint;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -135,7 +134,7 @@ pub async fn run_airbyte_source_connector(
             tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
             let mut resp = PullResponse::default();
             resp.checkpoint = Some(DriverCheckpoint {
-                driver_checkpoint_json: serde_json::to_vec(&json!({})).unwrap(),
+                driver_checkpoint_json: b"{}".to_vec(),
                 rfc7396_merge_patch: true,
             });
             let encoded_response = &encode_message(&resp)?;
@@ -185,10 +184,10 @@ async fn streaming_all(
     let req_stream_bytes = a?;
     let resp_stream_bytes = b?;
 
-    tracing::info!(
+    tracing::debug!(
         req_stream = req_stream_bytes,
         resp_stream = resp_stream_bytes,
-        message = "Done streaming"
+        "streaming_all finished"
     );
     Ok(())
 }

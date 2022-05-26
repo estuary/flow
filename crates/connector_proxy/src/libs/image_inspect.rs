@@ -81,9 +81,9 @@ impl ImageInspect {
                 return T::from_str(&value, false).or_bail();
             }
         }
-        tracing::warn!(
-            "No connector protocol is specified in the image, using default: {:?}",
-            default
+        tracing::debug!(
+            ?default,
+            "no connector protocol is specified in the image, using default",
         );
         default
     }

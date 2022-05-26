@@ -696,7 +696,7 @@ dependencies = [
  "libc",
  "network-tunnel",
  "prost",
- "protocol",
+ "proto-flow",
  "schemars",
  "serde",
  "serde_json",

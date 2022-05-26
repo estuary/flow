@@ -5,7 +5,7 @@ use crate::libs::protobuf::{decode_message, encode_message};
 use crate::libs::stream::get_decoded_message;
 
 use futures::{future, stream, StreamExt, TryStreamExt};
-use protocol::materialize::{ApplyRequest, SpecResponse, TransactionRequest, ValidateRequest};
+use proto_flow::materialize::{ApplyRequest, SpecResponse, TransactionRequest, ValidateRequest};
 
 use serde_json::value::RawValue;
 use tokio_util::io::{ReaderStream, StreamReader};
