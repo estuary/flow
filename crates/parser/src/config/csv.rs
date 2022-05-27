@@ -90,7 +90,10 @@ impl JsonSchema for LineEnding {
         serde_json::from_value(serde_json::json!({
             "description": "the character(s) that separates lines, which must either be a single character or '\r\n'",
             "oneOf": [
-                { "enum": ["\r\n"] },
+                {
+                    "enum": ["\r\n"],
+                    "type": "string"
+                },
                 char_schema,
             ]
         })).unwrap()

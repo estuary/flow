@@ -31,14 +31,6 @@ expression: schema
         "zip"
       ]
     },
-    "contentEncoding": {
-      "description": "The content-encoding of the data, if known. This is used in determining how to decompress files. If your file contents came from a web server that sets the `Content-Encoding` header, then that header value can be used directly here.",
-      "type": "string"
-    },
-    "contentType": {
-      "description": "The mime type of the data, if known. This will be used for format inference, or ignored if `format` is specified.",
-      "type": "string"
-    },
     "contentTypeMappings": {
       "description": "Mappings from content types to format identifiers.",
       "default": {},
@@ -99,6 +91,7 @@ expression: schema
           "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
           "oneOf": [
             {
+              "type": "string",
               "enum": [
                 "\r\n"
               ]
@@ -136,10 +129,6 @@ expression: schema
         ]
       }
     },
-    "filename": {
-      "description": "filename is used for format inference. It will be ignored if `format` is specified.",
-      "type": "string"
-    },
     "format": {
       "title": "format",
       "description": "format forces the use of the given parser and disables automatic format detection. If unspecified, then the format will be inferred from the filename, content-type, or file contents.",
@@ -151,21 +140,6 @@ expression: schema
         "w3cExtendedLog",
         "avro"
       ]
-    },
-    "projections": {
-      "description": "Projections control how tabular data like CSV gets transformed into potentially nested JSON structures. The keys are field names, which may match column names in the source data, and the values are json pointers indicating where to place the values within the output JSON document.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
-        "examples": [
-          "/json/pointer"
-        ],
-        "type": "string",
-        "pattern": "^(/[^/]+)*$"
-      }
-    },
-    "schema": {
-      "description": "JSON schema describing the desired shape of the output JSON documents. Output documents will not be validated against this schema, but it can be used to automatically infer projections for mapping tabular data to nested JSON structures."
     },
     "tsv": {
       "description": "Configures handling of tab-separated values (TSV) format.",
@@ -210,6 +184,7 @@ expression: schema
           "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
           "oneOf": [
             {
+              "type": "string",
               "enum": [
                 "\r\n"
               ]
