@@ -339,17 +339,20 @@ pub struct ParseConfig {
 
     /// filename is used for format inference. It will be ignored if `format` is specified.
     #[serde(default)]
+    #[schemars(skip)]
     pub filename: Option<String>,
 
     /// The mime type of the data, if known. This will be used for format inference, or ignored if
     /// `format` is specified.
     #[serde(default)]
+    #[schemars(skip)]
     pub content_type: Option<String>,
 
     /// The content-encoding of the data, if known. This is used in determining how to decompress
     /// files. If your file contents came from a web server that sets the `Content-Encoding`
     /// header, then that header value can be used directly here.
     #[serde(default)]
+    #[schemars(skip)]
     pub content_encoding: Option<String>,
 
     #[serde(default)]
@@ -366,12 +369,14 @@ pub struct ParseConfig {
     /// the values are json pointers indicating where to place the values within the output JSON
     /// document.
     #[serde(default)]
+    #[schemars(skip)]
     pub projections: BTreeMap<String, JsonPointer>,
 
     /// JSON schema describing the desired shape of the output JSON documents. Output documents
     /// will not be validated against this schema, but it can be used to automatically infer
     /// projections for mapping tabular data to nested JSON structures.
     #[serde(default)]
+    #[schemars(skip)]
     pub schema: Value,
 
     /// Mappings from file extensions to format identifiers.
