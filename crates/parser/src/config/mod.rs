@@ -404,11 +404,28 @@ pub enum ConfigError {
     InvalidErrorThreshold(u64),
 }
 
+#[derive(Debug, Clone)]
+pub struct RemoveDefaultNull {}
+
+impl schemars::visit::Visitor for RemoveDefaultNull {
+    fn visit_schema_object(&mut self, schema: &mut schemars::schema::SchemaObject) {
+        schemars::visit::visit_schema_object(self, schema);
+
+        if let Some(metadata) = &mut schema.metadata {
+            if let Some(serde_json::Value::Null) = &metadata.default {
+                metadata.default = None;
+            }
+        }
+    }
+}
+
 impl ParseConfig {
     /// Returns the generated json schema for the configuration file.
     pub fn json_schema() -> schemars::schema::RootSchema {
         let mut settings = schemars::gen::SchemaSettings::draft07();
         settings.option_add_null_type = false;
+        settings.inline_subschemas = true;
+        settings.visitors.push(Box::new(RemoveDefaultNull {}));
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<ParseConfig>()
     }
