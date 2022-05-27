@@ -111,7 +111,7 @@ fn do_spec() {
     let mut schema = ParseConfig::json_schema();
     // Add a UUID as the $id of the schema. This allows the resulting schema to be nested within
     // other schemas, since any $ref uris will be resolved relative to the $id.
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = format!("uuid://{}", uuid::Uuid::new_v4());
     if let Some(meta) = schema.schema.metadata.as_mut() {
         meta.id = Some(id);
     } else {
