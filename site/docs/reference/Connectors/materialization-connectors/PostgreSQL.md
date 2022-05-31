@@ -68,7 +68,7 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `networkProxy` stanza to enable the SSH tunnel, if using.
+with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 
