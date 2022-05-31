@@ -18,6 +18,8 @@ which acts as a SQL interface between the JSON documents and the destination tab
 To use this connector, you'll need:
 
 * A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/)
+  * The engine must be started before creating a materialization
+  * It is important that the engine stays up throughout the lifetime of the materialization, to ensure this is the case, select Edit Engine on your engine and set "Auto-stop engine after" setting of your engine to "Always On".
 * An S3 bucket where JSON documents will be stored prior to loading
   * The bucket must be in a [supported AWS region](https://docs.firebolt.io/general-reference/available-regions.html) matching your Firebolt database.
   * The bucket may be public, or may be accessible by an IAM user. To configure your IAM user, see the [steps below](#setup).
