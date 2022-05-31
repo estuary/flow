@@ -25,7 +25,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 :::tip
 You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket
 in a way that emulates a directory structure.
-This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#flowctl-discover) phase of setup, and later, when the capture is running.
+This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#using-connectors) phase of setup, and later, when the capture is running.
 
 * You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
 * You're required to specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
@@ -42,7 +42,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 |---|---|---|---|---|
 | `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
 | **`/bucket`** | Bucket | Name of the Google Cloud Storage bucket | string | Required |
-| `/googleCredentials` | Google service account | Contents of the service account JSON file. Required unless the bucket is public.| object |  |
+| `/googleCredentials` | Google service account | Contents of the service account JSON file. Required unless the bucket is public.| string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
 | `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
 
