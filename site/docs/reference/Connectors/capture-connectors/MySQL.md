@@ -4,11 +4,6 @@ sidebar_position: 11
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-:::caution
-This connector is still under development. Estuary does not currently guarantee
-that it will behave as expected in all production environments.
-:::
-
 [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image.
 You can also follow the link in your browser to see past image versions.
 
@@ -83,6 +78,13 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required |
 | **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+
+:::info
+When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
+
+Tables in the MySQL system schemas `information_schema`, `mysql`, `performance_schema`, and `sys` will not be discovered.
+You can add bindings for such tables manually.
+:::
 
 ### Sample
 A minimal capture definition will look like the following:
