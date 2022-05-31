@@ -1,15 +1,40 @@
-use schemars::{gen::SchemaGenerator, schema::*};
+use doc::inference::{ObjProperty, Shape};
+use json::schema::types;
+use schemars::{gen::SchemaGenerator, schema::RootSchema, schema::*};
 use serde_json::Value as JSONValue;
+use uuid::Uuid;
+
+mod properties;
+mod validations;
 
 #[derive(Debug, Default)]
-pub struct JSONSchema {
-    root: RootSchema,
+pub struct JsonSchema {
+    metadata: Metadata,
+    root: Shape,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SchemaParseError {
     #[error("failed to parse the value: {0}")]
     InvalidValueType(serde_json::Value),
+
+    #[error("failed generating a property: #{0}")]
+    PropertyError(properties::PropertyError),
+
+    #[error("failed to encode schema: #{0}")]
+    EncodeError(serde_json::Error),
+}
+
+impl From<serde_json::Error> for SchemaParseError {
+    fn from(err: serde_json::Error) -> SchemaParseError {
+        SchemaParseError::EncodeError(err)
+    }
+}
+
+impl From<properties::PropertyError> for SchemaParseError {
+    fn from(err: properties::PropertyError) -> SchemaParseError {
+        SchemaParseError::PropertyError(err)
+    }
 }
 
 // Generate a JSONSchema from a JSON document.
@@ -24,18 +49,23 @@ pub enum SchemaParseError {
 pub fn generate(
     metadata: Metadata,
     json_value: &JSONValue,
-) -> Result<JSONSchema, SchemaParseError> {
-    let mut schema = JSONSchema::default();
-    schema.root.schema = SchemaObject::default();
+) -> Result<JsonSchema, SchemaParseError> {
+    let mut schema = JsonSchema {
+        metadata: metadata,
+        root: Shape {
+            type_: types::OBJECT,
+            ..Shape::default()
+        },
+        ..JsonSchema::default()
+    };
 
-    schema.root.schema.metadata = Some(Box::new(metadata));
-    schema.root.schema.instance_type = Some(SingleOrVec::from(InstanceType::Object));
-
-    // Initializing the SchemaGenerator only to get the meta_schema.
-    // I think it's probably overkill, and it's possible hardcoding
-    // a static' string instead would be better.
-    let sg = SchemaGenerator::default();
-    schema.root.meta_schema = sg.settings().meta_schema.clone();
+    // This is explicitly checked and only updated if no value is set to help
+    // with testing the JSON output. It also gives the nice benefit that if the calling methods wants
+    // to set the id to a given value, it can. However, it is expected to not be set by the caller
+    // and be dynamically generated here.
+    if schema.metadata.id.is_none() {
+        schema.metadata.id = Some(Uuid::new_v4().hyphenated().to_string())
+    }
 
     let data = if let JSONValue::Object(data) = json_value {
         data
@@ -43,68 +73,50 @@ pub fn generate(
         return Err(SchemaParseError::InvalidValueType(json_value.to_owned()));
     };
 
-    schema.generate_root_validation_schema(data)?;
+    data.iter().try_for_each(|(key, value)| {
+        let mut property = ObjProperty {
+            name: key.to_string(),
+            is_required: true,
+            shape: Shape::default(),
+        };
+
+        match properties::build(&mut property, &value) {
+            Ok(_) => (),
+            Err(e) => return Err(e),
+        };
+
+        schema.root.object.properties.push(property);
+
+        Ok(())
+    })?;
 
     Ok(schema)
 }
 
-impl JSONSchema {
-    fn generate_root_validation_schema(
-        &mut self,
-        data: &serde_json::Map<String, JSONValue>,
-    ) -> Result<(), SchemaParseError> {
-        let mut validation = ObjectValidation::default();
+impl JsonSchema {
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        let schema_obj = SchemaObject {
+            instance_type: Some(SingleOrVec::from(InstanceType::Object)),
+            metadata: Some(Box::new(self.metadata.clone())),
+            ..SchemaObject::default()
+        };
 
-        data.iter().try_for_each(|(key, value)| {
-            let schema_obj = match schema_object_for_value(&value) {
-                Ok(s) => s.clone(),
-                Err(e) => return Err(e),
-            };
+        let mut root = RootSchema {
+            schema: schema_obj,
+            meta_schema: SchemaGenerator::default().settings().meta_schema.clone(),
+            ..RootSchema::default()
+        };
 
-            validation
-                .properties
-                .insert(key.to_owned(), Schema::Object(schema_obj));
+        root.schema.object = validations::object(&self.root);
 
-            Ok(())
-        })?;
-
-        // If each pair of key/value was processed into validation without error,
-        // the schema can be safely configured with the ObjectValidation built.
-        self.root.schema.object = Some(Box::new(validation));
-        Ok(())
+        serde_json::to_string(&root)
     }
-}
-
-fn schema_object_for_value(value: &JSONValue) -> Result<SchemaObject, SchemaParseError> {
-    let mut schema_obj = SchemaObject::default();
-    schema_obj.instance_type = match value {
-        JSONValue::Bool(_) => Some(SingleOrVec::Single(Box::new(InstanceType::Boolean))),
-        JSONValue::Number(_) => Some(SingleOrVec::Single(Box::new(InstanceType::Number))),
-        JSONValue::String(_) => Some(SingleOrVec::Single(Box::new(InstanceType::String))),
-        JSONValue::Null => Some(SingleOrVec::Single(Box::new(InstanceType::Null))),
-        e => {
-            return Err(SchemaParseError::InvalidValueType(e.to_owned()));
-        }
-    };
-
-    return Ok(schema_obj);
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use schemars::gen::SchemaGenerator;
     use serde_json::json;
-    use uuid::Uuid;
-
-    macro_rules! enum_value {
-        ($properties:expr, $value:expr, $pattern:pat => $extracted_value:expr) => {
-            match $properties.get($value).unwrap() {
-                $pattern => $extracted_value,
-                _ => panic!("Pattern doesn't match!"),
-            }
-        };
-    }
 
     #[test]
     fn test_generation_with_non_acceptable_values() {
@@ -123,49 +135,15 @@ mod test {
     }
 
     #[test]
-    fn test_parsing_deep_nested_error() {
-        let iter = vec![json!({"test": {"more": "than 1 level"}})].into_iter();
-
-        iter.for_each(|json| {
-            let result = generate(Metadata::default(), &json);
-
-            if let Ok(ok_val) = result {
-                panic!(
-                    "expected the document to fail: {}",
-                    serde_json::to_string_pretty(&ok_val.root).unwrap()
-                )
-            }
-        });
-    }
-
-    #[test]
     fn test_generator_with_multiple_values() {
+        let metadata = Metadata {
+            id: Some("342ac041-7e3c-42ca-8311-c248284cd034".to_string()),
+            ..Metadata::default()
+        };
+
         let data = json!({"a_null_value": null, "boolean": true, "number": 123, "string": "else"});
-        let schema = generate(Metadata::default(), &data).unwrap();
-
-        insta::assert_json_snapshot!(&schema.root);
-    }
-
-    #[test]
-    fn test_metadata() {
-        let data = json!({});
-        let mut metadata = Metadata::default();
-        metadata.title = Some("test".to_string());
-        metadata.description = Some("My description".to_string());
-        metadata.id = Some(Uuid::new_v4().hyphenated().to_string());
-
         let schema = generate(metadata, &data).unwrap();
 
-        assert_eq!(
-            schema.root.meta_schema,
-            SchemaGenerator::default().settings().meta_schema
-        );
-
-        // The root schema instance type is required to be an instance type
-        // Object as that's what expected in flow.
-        match schema.root.schema.instance_type {
-            Some(SingleOrVec::Single(x)) if *x == InstanceType::Object => {}
-            _ => assert!(false),
-        }
+        insta::assert_json_snapshot!(schema.to_json().unwrap());
     }
 }
