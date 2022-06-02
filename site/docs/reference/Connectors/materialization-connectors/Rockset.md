@@ -28,17 +28,45 @@ Use the below properties to configure a Rockset materialization, which will dire
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/api_key`** | API key | Rockset API key generated from the web UI. | String | Required |
-| `/http_logging`| HTTP logging | Enable verbose logging of the HTTP calls to the Rockset API. | bool | false |
-| `/max_concurrent_requests` | Maximum concurrent requests | The upper limit on how many concurrent requests will be sent to Rockset. | int | 1 |
+| **`/api_key`** | API key | The key used to authenticate to the Rockset API. | String | Required |
 
 
 #### Bindings
 
+The binding configuration for this connector includes two optional sections.
+**Backfill from S3** allows you to backfill historical data from an S3 bucket, [as detailed below](#bulk-ingestion-for-large-backfills-of-historical-data).
+**Advanced collection settings** includes settings that may help optimize your resulting Rockset collections:
+
+* **Clustering fields**: You can specify clustering fields
+for your Rockset collection's columnar index to help optimize specific query patterns.
+See the [Rockset docs](https://rockset.com/docs/query-composition/#data-clustering) for more information.
+* **Event time field**: All Rockset documents have an associated `_event_time` field,
+which is created for each collection.
+You can specify an existing integer or timestamp field in your data to be used for `_event_time`.
+See the [Rockset docs](https://rockset.com/docs/special-fields/#the-_event_time-field) for more information.
+* **Insert only**: Disallows updates and deletes. The materialization will fail if there are documents with duplicate keys, but indexing in Rockset will be more efficient.
+* **Retention period**: Amount of time before data is purged, in seconds.
+A low value will keep the amount of data indexed in Rockset smaller.
+
 | Property | Title | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| **`/workspace`** | Workspace | Rockset namespace. If it doesn't exist, the connector will create it. | string | Required |
-| **`/collection`** | Collection | Rockset collection name. If it doesn't exist, the connector will create it. | string | Required |
+|---|---|---|---|---|
+| `/advancedCollectionSettings` | Advanced Collection Settings |  | object |  |
+| `/advancedCollectionSettings/clustering_key` | Clustering Key | List of clustering fields | array |  |
+| _`/advancedCollectionSettings/clustering_key/-/field_name`_ | Field Name | The name of a field | string |  |
+| `/advancedCollectionSettings/event_time_info` | Event Time Info |  | object |  |
+| `/advancedCollectionSettings/event_time_info/field` | Field Name | Name of the field containing the event time | string |  |
+| `/advancedCollectionSettings/event_time_info/format` | Format | Format of the time field | string |  |
+| `/advancedCollectionSettings/event_time_info/time_zone` | Timezone | Default timezone | string |  |
+| `/advancedCollectionSettings/insert_only` | Insert Only | If true disallows updates and deletes. The materialization will fail if there are documents with duplicate keys. | boolean |  |
+| `/advancedCollectionSettings/retention_secs` | Retention Period | Number of seconds after which data is purged based on event time | integer |  |
+| `/collection` | Rockset Collection | The name of the Rockset collection (will be created if it does not exist) | string |  |
+| `/initializeFromS3` | Backfill from S3 |  | object |  |
+| `/initializeFromS3/bucket` | Bucket | The name of the S3 bucket to load data from. | string |  |
+| `/initializeFromS3/integration` | Integration Name | The name of the integration that was previously created in the Rockset UI | string |  |
+| `/initializeFromS3/pattern` | Pattern | A regex that is used to match objects to be ingested | string |  |
+| `/initializeFromS3/prefix` | Prefix | Prefix of the data within the S3 bucket. All files under this prefix will be loaded. Optional. Must not be set if &#x27;pattern&#x27; is defined. | string |  |
+| `/initializeFromS3/region` | Region | The AWS region in which the bucket resides. Optional. | string |  |
+| `/workspace` | Workspace | The name of the Rockset workspace (will be created if it does not exist) | string |  |
 
 ### Sample
 
@@ -79,7 +107,8 @@ To accomplish this, ensure that your collection schema has the following [data r
 
 ## Bulk ingestion for large backfills of historical data
 
-You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and requires additional steps in your dataflow. Flow's Rockset connector supports this through the GitOps workflow.
+You can backfill large amounts of historical data into Rockset using a *bulk ingestion*. Bulk ingestion must originate in S3 and requires additional steps in your dataflow.
+This workflow is supported using the [flowctl](../../../concepts/flowctl.md) CLI.
 
 ### Prerequisites
 
@@ -144,7 +173,6 @@ To set this up, use the following procedure as a guide, substituting `example/fl
           image: ghcr.io/estuary/materialize-rockset:dev
           config:
             api_key: <your rockset API key here>
-            max_concurrent_requests: 5
       bindings:
         - resource:
             workspace: <your rockset workspace name>
