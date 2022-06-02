@@ -37,8 +37,7 @@ for the Google [project](https://cloud.google.com/storage/docs/projects) with wh
 During setup, grant the account the **Viewer** role on your project.
 You'll copy the contents of the downloaded key file into the Google Service Account parameter when you configure the connector.
 
-3. Share your Google spreadsheet with the service account. You may either share the sheet so that anyone with the link can view it,
-or share explicitly with the service account's email address.
+3. Share your Google spreadsheet with the service account, granting edit access
 
 ## Configuration
 
