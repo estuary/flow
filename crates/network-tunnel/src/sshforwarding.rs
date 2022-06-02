@@ -2,15 +2,16 @@ use super::errors::Error;
 use super::networktunnel::NetworkTunnel;
 
 use async_trait::async_trait;
+use base64::DecodeError;
 use futures::pin_mut;
 use schemars::JsonSchema;
-use std::net::SocketAddr;
 use std::sync::Arc;
+use std::{convert::TryInto, net::SocketAddr};
 use thrussh::{
     client,
     client::{Handle, Session},
 };
-use thrussh_keys::key;
+use thrussh_keys::{key, openssh};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::{TcpListener, TcpStream};
@@ -20,7 +21,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-#[schemars(title = "SSH Tunnel", description = "Connect to your system through an SSH server that acts as a bastion host for your network.")]
+#[schemars(
+    title = "SSH Tunnel",
+    description = "Connect to your system through an SSH server that acts as a bastion host for your network."
+)]
 pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]
     pub ssh_endpoint: String,
@@ -50,9 +54,11 @@ fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
     .unwrap()
 }
 
-
 fn forward_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    port_schema("Forward Port", "The port number that the data source is listening on")
+    port_schema(
+        "Forward Port",
+        "The port number that the data source is listening on",
+    )
 }
 
 fn local_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
@@ -109,13 +115,35 @@ impl SshForwarding {
         Ok(())
     }
 
+    // Decode the base64 content of OpenSSH key files
+    fn read_openssh_key(content: String) -> Result<Vec<u8>, DecodeError> {
+        let lines_count = content.lines().count();
+        let main_body = content
+            .lines()
+            .skip(1)
+            .take(lines_count - 2)
+            .collect::<Vec<&str>>()
+            .join("");
+        base64::decode(main_body)
+    }
+
     pub async fn authenticate(&mut self) -> Result<(), Error> {
-        // TODO: this breaks on the new OpenSSH keys, see:
-        // https://stackoverflow.com/questions/54994641/openssh-private-key-to-rsa-private-key
-        let key_pair = Arc::new(key::KeyPair::RSA {
-            key: openssl::rsa::Rsa::private_key_from_pem(&self.config.private_key.as_bytes())?,
+        // First try to parse the key as RSA key, if it fails, fallback to OpenSSH key format
+        // TODO: we still do not support ECDSA and other formats of keys yet, but it is possible to support them
+        let rsa_key_pair = openssl::rsa::Rsa::private_key_from_pem(
+            &self.config.private_key.as_bytes(),
+        )
+        .map(|key| key::KeyPair::RSA {
+            key,
             hash: key::SignatureHash::SHA2_256,
         });
+
+        let openssh_key_pair = openssh::decode_openssh(
+            &Self::read_openssh_key(self.config.private_key.clone())?,
+            None,
+        );
+
+        let key_pair = Arc::new(rsa_key_pair.or(openssh_key_pair)?);
 
         let sc = self
             .ssh_client

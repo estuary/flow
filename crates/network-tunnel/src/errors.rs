@@ -1,3 +1,7 @@
+use std::array::TryFromSliceError;
+
+use base64::DecodeError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("SSH endpoint is invalid.")]
@@ -26,4 +30,10 @@ pub enum Error {
 
     #[error("Json serialization error.")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Failed to parse OpenSSH key.")]
+    KeyParsingError(#[from] thrussh_keys::Error),
+
+    #[error("Failed to decode base64 content of OpenSSH key.")]
+    DecodeError(#[from] DecodeError),
 }
