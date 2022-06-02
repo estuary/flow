@@ -23,7 +23,12 @@ impl JsonSchema for NetworkTunnelConfig {
             "title": "Network Tunneling",
             "description": "Setup a network tunnel to access systems on a private network",
             "advanced": true,
-            "oneOf": [ssh_forwarding],
+            "oneOf": [{
+                "type": "object",
+                "properties": {
+                    "sshForwarding": ssh_forwarding
+                }
+            }],
         }))
         .unwrap()
     }
