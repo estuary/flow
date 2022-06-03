@@ -8,6 +8,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -575,7 +576,16 @@ func drainBinding(
 	// Drain the combiner into materialization Store requests.
 	var stats, err = combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
 		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
-		var _, wasFlighted = flighted[string(packedKey)]
+		if _, ok := flighted[string(packedKey)]; !ok {
+			var key, _ = tuple.Unpack(packedKey)
+			return fmt.Errorf(
+				"driver implementation error: "+
+					"loaded key %v (rawKey: %q) was not requested by Flow in this transaction (document %s)",
+				key,
+				string(packedKey),
+				string(docRaw),
+			)
+		}
 
 		// We're using |full|, an indicator of whether the document was a full
 		// reduction or a partial combine, to track whether the document exists
@@ -590,12 +600,8 @@ func drainBinding(
 		// We can retain a bounded number of documents from this transaction
 		// as a performance optimization, so that they may be directly available
 		// to the next transaction without issuing a Load.
-		if !wasFlighted {
-			// The connector sent this document without our having requested it.
-			// We passed it back to StageStore, but don't cache it across transactions.
-		} else if deltaUpdates || remaining >= cachedDocumentBound {
+		if deltaUpdates || remaining >= cachedDocumentBound {
 			delete(flighted, string(packedKey)) // Don't retain.
-			remaining--                         // We saw an expected key.
 		} else {
 			// We cannot reference |rawDoc| beyond this callback, and must copy.
 			// Fortunately, StageStore did just that, appending the document
@@ -603,9 +609,9 @@ func drainBinding(
 			// Arena bytes are write-once.
 			var s = (*request).Store
 			flighted[string(packedKey)] = s.Arena.Bytes(s.DocsJson[len(s.DocsJson)-1])
-			remaining-- // We saw an expected key.
 		}
 
+		remaining--
 		return nil
 
 	})
