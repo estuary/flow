@@ -9,7 +9,7 @@ mod validations;
 
 #[derive(Debug, Default)]
 pub struct JsonSchema {
-    metadata: Metadata,
+    metadata: Option<Metadata>,
     root: Shape,
 }
 
@@ -23,6 +23,9 @@ pub enum SchemaParseError {
 
     #[error("failed to encode schema: #{0}")]
     EncodeError(serde_json::Error),
+
+    #[error("missing metadata while rendering schema")]
+    MissingMetadataError(),
 }
 
 impl From<serde_json::Error> for SchemaParseError {
@@ -47,11 +50,11 @@ impl From<properties::PropertyError> for SchemaParseError {
 // from the JSON. As more complex validations will be generated, it's possible that some
 // validations will be moved into definitions.
 pub fn generate(
-    metadata: Metadata,
+    mut metadata: Metadata,
     json_value: &JSONValue,
 ) -> Result<JsonSchema, SchemaParseError> {
     let mut schema = JsonSchema {
-        metadata: metadata,
+        metadata: None,
         root: Shape {
             type_: types::OBJECT,
             ..Shape::default()
@@ -63,8 +66,8 @@ pub fn generate(
     // with testing the JSON output. It also gives the nice benefit that if the calling methods wants
     // to set the id to a given value, it can. However, it is expected to not be set by the caller
     // and be dynamically generated here.
-    if schema.metadata.id.is_none() {
-        schema.metadata.id = Some(Uuid::new_v4().hyphenated().to_string())
+    if metadata.id.is_none() {
+        metadata.id = Some(Uuid::new_v4().hyphenated().to_string())
     }
 
     let data = if let JSONValue::Object(data) = json_value {
@@ -90,14 +93,20 @@ pub fn generate(
         Ok(())
     })?;
 
+    schema.metadata = Some(metadata);
     Ok(schema)
 }
 
 impl JsonSchema {
+    pub fn merge(&mut self, other: &JsonSchema) -> Result<&Self, SchemaParseError> {
+        let root = Shape::intersect(self.root.clone(), other.root.clone());
+        return Ok(self);
+    }
+
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         let schema_obj = SchemaObject {
             instance_type: Some(SingleOrVec::from(InstanceType::Object)),
-            metadata: Some(Box::new(self.metadata.clone())),
+            metadata: Some(Box::new(self.metadata.clone().unwrap())),
             ..SchemaObject::default()
         };
 
@@ -145,5 +154,20 @@ mod test {
         let schema = generate(metadata, &data).unwrap();
 
         insta::assert_json_snapshot!(schema.to_json().unwrap());
+    }
+
+    #[test]
+    fn test_merging_json_documents() {
+        let metadata = Metadata {
+            id: Some("342ac041-7e3c-42ca-8311-c248284cd034".to_string()),
+            ..Metadata::default()
+        };
+
+        let mut schema = generate(metadata, &json!({"string": "else"})).unwrap();
+        schema
+            .merge(&generate(schema.metadata.clone().unwrap(), &json!({ "string": null })).unwrap())
+            .unwrap();
+
+        println!("{:?}", schema.to_json().unwrap());
     }
 }

@@ -323,6 +323,7 @@ impl ObjShape {
                 None
             }
         };
+
         let properties = itertools::merge_join_by(
             lhs_properties.into_iter(),
             rhs_properties.into_iter(),
