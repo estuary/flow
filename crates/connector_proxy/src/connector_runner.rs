@@ -16,7 +16,18 @@ use proto_flow::capture::PullResponse;
 use proto_flow::flow::DriverCheckpoint;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
+use tokio::task::JoinHandle;
 use tokio_util::io::{ReaderStream, StreamReader};
+
+async fn flatten_join_handle<T, E: std::convert::From<tokio::task::JoinError>>(
+    handle: JoinHandle<Result<T, E>>,
+) -> Result<T, E> {
+    match handle.await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(err.into()),
+    }
+}
 
 pub async fn run_flow_capture_connector(
     op: &FlowCaptureOperation,
@@ -34,9 +45,23 @@ pub async fn run_flow_capture_connector(
     let adapted_response_stream =
         NetworkTunnelCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
 
-    streaming_all(child_stdin, adapted_request_stream, adapted_response_stream).await?;
+    let streaming_all_task = tokio::spawn(streaming_all(
+        child_stdin,
+        adapted_request_stream,
+        adapted_response_stream,
+    ));
 
-    check_exit_status("flow capture connector:", child.wait().await)
+    let exit_status_task =
+        tokio::spawn(
+            async move { check_exit_status("flow capture connector:", child.wait().await) },
+        );
+
+    tokio::try_join!(
+        flatten_join_handle(streaming_all_task),
+        flatten_join_handle(exit_status_task)
+    )?;
+
+    Ok(())
 }
 
 pub async fn run_flow_materialize_connector(
@@ -57,9 +82,22 @@ pub async fn run_flow_materialize_connector(
         response_stream(child_stdout),
     )?;
 
-    streaming_all(child_stdin, adapted_request_stream, adapted_response_stream).await?;
+    let streaming_all_task = tokio::spawn(streaming_all(
+        child_stdin,
+        adapted_request_stream,
+        adapted_response_stream,
+    ));
 
-    check_exit_status("flow materialize connector:", child.wait().await)
+    let exit_status_task = tokio::spawn(async move {
+        check_exit_status("flow materialize connector:", child.wait().await)
+    });
+
+    tokio::try_join!(
+        flatten_join_handle(streaming_all_task),
+        flatten_join_handle(exit_status_task)
+    )?;
+
+    Ok(())
 }
 
 pub async fn run_airbyte_source_connector(
@@ -118,32 +156,46 @@ pub async fn run_airbyte_source_connector(
     let adapted_response_stream =
         NetworkTunnelCaptureInterceptor::adapt_response_stream(op, res_stream)?;
 
-    streaming_all(child_stdin, adapted_request_stream, adapted_response_stream).await?;
+    let streaming_all_task = tokio::spawn(streaming_all(
+        child_stdin,
+        adapted_request_stream,
+        adapted_response_stream,
+    ));
 
-    let exit_status = check_exit_status("airbyte source connector:", child.wait().await);
+    let cloned_op = op.clone();
+    let exit_status_task = tokio::spawn(async move {
+        let exit_status = check_exit_status("airbyte source connector:", child.wait().await);
 
-    // There are some Airbyte connectors that write records, and exit successfully, without ever writing
-    // a state (checkpoint). In those cases, we want to provide a default empty checkpoint. It's important that
-    // this only happens if the connector exit successfully, otherwise we risk double-writing data.
-    if exit_status.is_ok() && *op == FlowCaptureOperation::Pull {
-        // the received value (transaction_pending) is true if the connector writes output messages and exits _without_ writing
-        // a final state checkpoint.
-        if tp_receiver.await.unwrap() {
-            // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
-            // of the next invocation will be "full refresh".
-            tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
-            let mut resp = PullResponse::default();
-            resp.checkpoint = Some(DriverCheckpoint {
-                driver_checkpoint_json: b"{}".to_vec(),
-                rfc7396_merge_patch: true,
-            });
-            let encoded_response = &encode_message(&resp)?;
-            let mut buf = &encoded_response[..];
-            copy(&mut buf, &mut tokio::io::stdout()).await?;
+        // There are some Airbyte connectors that write records, and exit successfully, without ever writing
+        // a state (checkpoint). In those cases, we want to provide a default empty checkpoint. It's important that
+        // this only happens if the connector exit successfully, otherwise we risk double-writing data.
+        if exit_status.is_ok() && cloned_op == FlowCaptureOperation::Pull {
+            // the received value (transaction_pending) is true if the connector writes output messages and exits _without_ writing
+            // a final state checkpoint.
+            if tp_receiver.await.unwrap() {
+                // We generate a synthetic commit now, and the empty checkpoint means the assumed behavior
+                // of the next invocation will be "full refresh".
+                tracing::warn!("connector exited without writing a final state checkpoint, flushing the driver checkpoint.");
+                let mut resp = PullResponse::default();
+                resp.checkpoint = Some(DriverCheckpoint {
+                    driver_checkpoint_json: b"{}".to_vec(),
+                    rfc7396_merge_patch: true,
+                });
+                let encoded_response = &encode_message(&resp)?;
+                let mut buf = &encoded_response[..];
+                copy(&mut buf, &mut tokio::io::stdout()).await?;
+            }
         }
-    }
 
-    exit_status
+        Ok(())
+    });
+
+    tokio::try_join!(
+        flatten_join_handle(streaming_all_task),
+        flatten_join_handle(exit_status_task)
+    )?;
+
+    Ok(())
 }
 
 fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), Error> {
@@ -180,9 +232,10 @@ async fn streaming_all(
         copy(&mut response_stream_reader, &mut response_stream_writer).await
     });
 
-    let (a, b) = tokio::try_join!(request_stream_copy, response_stream_copy)?;
-    let req_stream_bytes = a?;
-    let resp_stream_bytes = b?;
+    let (req_stream_bytes, resp_stream_bytes) = tokio::try_join!(
+        flatten_join_handle(request_stream_copy),
+        flatten_join_handle(response_stream_copy)
+    )?;
 
     tracing::debug!(
         req_stream = req_stream_bytes,
@@ -208,7 +261,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_streaming_all_eof() {
+    async fn test_streaming_all_eof_in_stdin() {
         let input = "hello\n".as_bytes();
         let req_stream = create_stream(vec![Bytes::from(input)]);
 
@@ -225,4 +278,21 @@ mod test {
 
         assert!(streaming_all(stdin, req_stream, res_stream).await.is_ok());
     }
+
+    /* This test will still hang because there is a detached streaming task lingering around
+     * that prevents it from shutting down. In the code itself we use `std::process::exit` when we see an error such as this
+     * however here we can't do that as it breaks the test runner.
+     *
+     * Uncommenting and running this test should result in the `done!` message in stderr which means we do propagate the Err
+     * upstream.
+     *
+    #[tokio::test]
+    async fn test_run_connector_exit_process_before_eof() {
+        let script = vec!["sh".to_string(), "-c".to_string(), "exit 2".to_string()];
+
+        let result =
+            run_flow_materialize_connector(&FlowMaterializeOperation::Transactions, script).await;
+        assert!(result.is_err());
+        eprintln!("done! {:#?}", result);
+    }*/
 }
