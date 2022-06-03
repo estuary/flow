@@ -37,12 +37,12 @@ for the Google [project](https://cloud.google.com/storage/docs/projects) with wh
 During setup, grant the account the **Viewer** role on your project.
 You'll copy the contents of the downloaded key file into the Google Service Account parameter when you configure the connector.
 
-3. Share your Google spreadsheet with the service account, granting edit access
+3. Share your Google spreadsheet with the service account, granting edit access.
 
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a Google Sheets materialization, which will direct one or more of your Flow collections to sheets in your Google Sheets spreadsheet.
+Use the below properties to configure a Google Sheets materialization.
 
 ### Properties
 
@@ -54,6 +54,10 @@ Use the below properties to configure a Google Sheets materialization, which wil
 | **`/spreadsheetId`** | Spreadsheet ID | ID of the spreadsheet to materialize, which is shared with the service account. | string | Required |
 
 #### Bindings
+
+Configure a separate binding for each collection you want to materialize to a sheet.
+Note that the connector will add an addition column to the beginning of each sheet;
+this is to track the internal state of the data.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
