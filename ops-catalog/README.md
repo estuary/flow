@@ -4,7 +4,7 @@ This is the Flow catalog that manages the Flow tasks that we use to materialize 
 plane database, so that they are made available via REST endpoints.
 
 Whenever a new tenant signs up, they need to be added to `derivations.flow.yaml`,
-`derivations.flow.ts`, and `mock-tasks.flow.yaml`. The intent is to automate that as part of new
+`derivations.flow.ts`, and `ops-collections.flow.yaml`. The intent is to automate that as part of new
 tenant sign up, but it's not done yet.
 
 `local.flow.yaml` exists to allow testing things locally.

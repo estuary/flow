@@ -1,7 +1,5 @@
 import:
   - derivations.flow.yaml
-  # mock-tasks are included here because foreign entity resolution is not yet working for the CLI.
-  - mock-tasks.flow.yaml
 
 materializations:
   estuary/ops/task-stats/to-postgres:
@@ -54,6 +52,3 @@ materializations:
             rclock_begin: {}
             ts: {}
             flow_document: {}
-
-storageMappings:
-  "": { stores: [{ provider: GCS, bucket: estuary-flow-poc }] }

@@ -1,3 +1,5 @@
+import: [ops-collections.flow.yaml]
+
 collections:
   estuary/ops/task-stats/by-minute:
     schema: ops-stats-schema.json
@@ -12,6 +14,7 @@ collections:
       key_begin: /shard/keyBegin
       rclock_begin: /shard/rClockBegin
     derivation:
+      typescript: { module: 'by-minute.ts' }
       transform:
         acmeCo:
           source:
@@ -51,6 +54,7 @@ collections:
       key_begin: /shard/keyBegin
       rclock_begin: /shard/rClockBegin
     derivation:
+      typescript: { module: 'by-hour.ts' }
       transform:
         minuteToHour:
           source:
@@ -70,15 +74,19 @@ collections:
       key_begin: /shard/keyBegin
       rclock_begin: /shard/rClockBegin
     derivation:
+      typescript: { module: 'by-day.ts' }
       transform:
         hourToDay:
           source:
             name: estuary/ops/task-stats/by-hour
           publish: { lambda: typescript }
 
-
+# Note that tests may need to be temporarily deleted before applying the catalog.
+# Flow currently requires that the test has write access to all of the collections,
+# and I haven't bothered to create those grants, since it seems possible we may want to lift that
+# restriction anyway. See: https://github.com/estuary/animated-carnival/issues/18
 tests:
-  timestamps_are_rounded:
+  estuary/ops/task-stats/timestamps_are_rounded:
     - ingest:
         collection: ops/acmeCo/stats
         documents:
