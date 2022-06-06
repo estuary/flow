@@ -1,42 +1,20 @@
-use doc::inference::{ObjProperty, Shape};
+use doc::inference::{ObjProperty, Reduction, Shape};
 use json::schema::types;
-use schemars::{gen::SchemaGenerator, schema::RootSchema, schema::*};
+use schema_inference::schema::*;
+use schema_inference::*;
+use schemars::schema::Metadata;
 use serde_json::Value as JSONValue;
+use std::fs::File;
+use std::io::BufReader;
 use uuid::Uuid;
 
-mod properties;
-mod validations;
+pub fn file(file: File) {
+    let reader = BufReader::new(file);
+    let data: JSONValue = serde_json::from_reader(reader).unwrap();
+    let schema = generate(Metadata::default(), &data).unwrap();
 
-#[derive(Debug, Default)]
-pub struct JsonSchema {
-    metadata: Metadata,
-    root: Shape,
+    println!("{:?}", schema.to_json().unwrap());
 }
-
-#[derive(Debug, thiserror::Error)]
-pub enum SchemaParseError {
-    #[error("failed to parse the value: {0}")]
-    InvalidValueType(serde_json::Value),
-
-    #[error("failed generating a property: #{0}")]
-    PropertyError(properties::PropertyError),
-
-    #[error("failed to encode schema: #{0}")]
-    EncodeError(serde_json::Error),
-}
-
-impl From<serde_json::Error> for SchemaParseError {
-    fn from(err: serde_json::Error) -> SchemaParseError {
-        SchemaParseError::EncodeError(err)
-    }
-}
-
-impl From<properties::PropertyError> for SchemaParseError {
-    fn from(err: properties::PropertyError) -> SchemaParseError {
-        SchemaParseError::PropertyError(err)
-    }
-}
-
 // Generate a JSONSchema from a JSON document.
 // Metadata is used to build the metadata of the root schema
 // so that things like the `title`, `description` and `$id` can be passed to
@@ -54,6 +32,7 @@ pub fn generate(
         metadata: metadata,
         root: Shape {
             type_: types::OBJECT,
+            reduction: Reduction::Merge,
             ..Shape::default()
         },
         ..JsonSchema::default()
@@ -77,13 +56,15 @@ pub fn generate(
         let mut property = ObjProperty {
             name: key.to_string(),
             is_required: true,
-            shape: Shape::default(),
+            shape: Shape {
+                reduction: Reduction::Merge,
+                ..Shape::default()
+            },
         };
 
-        match properties::build(&mut property, &value) {
-            Ok(_) => (),
-            Err(e) => return Err(e),
-        };
+        if let Err(err) = properties::build(&mut property, &value) {
+            return Err(err);
+        }
 
         schema.root.object.properties.push(property);
 
@@ -93,29 +74,10 @@ pub fn generate(
     Ok(schema)
 }
 
-impl JsonSchema {
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        let schema_obj = SchemaObject {
-            instance_type: Some(SingleOrVec::from(InstanceType::Object)),
-            metadata: Some(Box::new(self.metadata.clone())),
-            ..SchemaObject::default()
-        };
-
-        let mut root = RootSchema {
-            schema: schema_obj,
-            meta_schema: SchemaGenerator::default().settings().meta_schema.clone(),
-            ..RootSchema::default()
-        };
-
-        root.schema.object = validations::object(&self.root);
-
-        serde_json::to_string(&root)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use doc::inference;
     use serde_json::json;
 
     #[test]
