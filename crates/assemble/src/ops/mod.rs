@@ -24,7 +24,7 @@ macro_rules! gen_schema {
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
 pub fn generate_ops_collections(tables: &mut tables::Sources) {
-    let tenants = all_tenant_names(tables);
+    let prefixes = all_top_level_prefixes(&*tables);
     let shard_schema = gen_schema!("ops-shard-schema.json");
     let stats_schema = gen_schema!("ops-stats-schema.json");
     let log_schema = gen_schema!("ops-log-schema.json");
@@ -50,32 +50,51 @@ pub fn generate_ops_collections(tables: &mut tables::Sources) {
         .imports
         .insert_row(&log_schema.url, &log_schema.url, &shard_schema.url);
 
+    let mut added_any_collection = false;
+    for prefix in prefixes {
+        let logs_collection_name = format!("ops/{}/logs", &prefix);
+        let stats_collection_name = format!("ops/{}/stats", &prefix);
+
+        if !has_collection(&*tables, &logs_collection_name) {
+            add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
+            added_any_collection = true;
+        }
+        if !has_collection(&*tables, &stats_collection_name) {
+            add_ops_collection(stats_collection_name, stats_schema.url.clone(), tables);
+            added_any_collection = true;
+        }
+    }
+
     // Setup imports to allow derivations and materializations to reference these ops collections.
     // Flow currently validates that an import path exists whenever a derivation or materialization
     // references a collection as a source, so without these imports you wouldn't be able to
-    // actually derive or materialize the ops collections. This is a restriction that we'll
-    // probably need to revisit, but in the meantime we'll just set it up so that everything
-    // implicitly imports the resource URL of the ops collections.
-    let importers = tables
-        .resources
-        .iter()
-        .filter(|r| r.content_type == flow::ContentType::Catalog)
-        .map(|r| r.resource.clone())
-        .collect::<Vec<_>>();
-    for importer in importers {
-        tables.imports.insert_row(
-            ops_collection_resource_url(),
-            importer,
-            ops_collection_resource_url(),
-        );
+    // actually derive or materialize the ops collections. We'll just set it up so that everything
+    // implicitly imports the resource URL of the ops collections, since it's not easy to tell
+    // exactly which ones need to import it. We only do this if we actually created at least one
+    // ops collection, though, since otherwise the imported resource would not exist (AFAIK this
+    // would just be confusing, but wouldn't necessarily break anything).
+    if added_any_collection {
+        let importers = tables
+            .resources
+            .iter()
+            .filter(|r| r.content_type == flow::ContentType::Catalog)
+            .map(|r| r.resource.clone())
+            .collect::<Vec<_>>();
+        for importer in importers {
+            tables.imports.insert_row(
+                ops_collection_resource_url(),
+                importer,
+                ops_collection_resource_url(),
+            );
+        }
     }
+}
 
-    for tenant in tenants {
-        let logs_collection_name = format!("ops/{}/logs", tenant);
-        let stats_collection_name = format!("ops/{}/stats", tenant);
-        add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
-        add_ops_collection(stats_collection_name, stats_schema.url.clone(), tables);
-    }
+fn has_collection(tables: &tables::Sources, name: &str) -> bool {
+    tables
+        .collections
+        .iter()
+        .any(|c| c.collection.as_str() == name)
 }
 
 fn ops_collection_resource_url() -> Url {
@@ -120,8 +139,8 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
     }
 }
 
-fn all_tenant_names(tables: &tables::Sources) -> BTreeSet<String> {
-    let mut tenants = BTreeSet::new();
+fn all_top_level_prefixes(tables: &tables::Sources) -> BTreeSet<String> {
+    let mut prefixes = BTreeSet::new();
     let captures = tables.captures.iter().map(|c| c.capture.as_str());
     let derivations = tables.derivations.iter().map(|d| d.derivation.as_str());
     let materializations = tables
@@ -131,11 +150,11 @@ fn all_tenant_names(tables: &tables::Sources) -> BTreeSet<String> {
     let iter = captures.chain(derivations).chain(materializations);
     for name in iter {
         let tenant = first_path_component(name);
-        if !tenants.contains(tenant) {
-            tenants.insert(tenant.to_string());
+        if !prefixes.contains(tenant) {
+            prefixes.insert(tenant.to_string());
         }
     }
-    tenants
+    prefixes
 }
 
 fn first_path_component(task_name: &str) -> &str {
@@ -201,6 +220,26 @@ mod test {
             )
             .unwrap(),
             None,
+        );
+
+        // Add an ops collection to the tables so that we can assert that a duplicate ops
+        // collection is not generated. Note that this collection is intentionally different from
+        // the one that would be generated, and would be invalid to use as a stats collection. But
+        // the difference is used to assert that the collection from tables takes precedence.
+        let dummy_url = Url::parse("test://foo.bar/collection").unwrap();
+        let schema_url = Url::parse("test://foo.bar/schema").unwrap();
+        let spec = models::CollectionDef {
+            schema: models::Schema::Bool(true),
+            key: models::CompositeKey::new(vec![models::JsonPointer::new("/not/a/real/key")]),
+            derivation: None,
+            projections: Default::default(),
+            journals: Default::default(),
+        };
+        tables.collections.insert_row(
+            dummy_url,
+            models::Collection::new("ops/acmeCo/logs"),
+            spec,
+            schema_url,
         );
 
         generate_ops_collections(&mut tables);
