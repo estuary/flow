@@ -1,6 +1,6 @@
 ---
-source: crates/parser/src/schema_generator/mod.rs
-assertion_line: 146
+source: crates/schema-inference/src/parse.rs
+assertion_line: 97
 expression: schema.to_json().unwrap()
 ---
 "{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"$id\":\"342ac041-7e3c-42ca-8311-c248284cd034\",\"type\":\"object\",\"properties\":{\"a_null_value\":{\"type\":\"null\"},\"boolean\":{\"type\":\"boolean\"},\"number\":{\"type\":\"number\"},\"string\":{\"type\":\"string\"}}}"
