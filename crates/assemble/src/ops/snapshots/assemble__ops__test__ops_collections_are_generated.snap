@@ -36,18 +36,15 @@ Sources {
     ],
     collections: [
         Collection {
-            scope: builtin://flow/ops/generated/collections,
+            scope: test://foo.bar/collection,
             collection: ops/acmeCo/logs,
             spec: {
-              "schema": false,
+              "schema": true,
               "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
+                "/not/a/real/key"
               ]
             },
-            schema: builtin://flow/ops-log-schema.json,
+            schema: test://foo.bar/schema,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
@@ -201,24 +198,6 @@ Sources {
     ],
     npm_dependencies: [],
     projections: [
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/logs,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/logs,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
         Projection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/acmeCo/stats,
