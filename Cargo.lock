@@ -810,6 +810,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae5588f6b3c3cb05239e90bd110f257254aecd01e4635400391aeae07497845"
+dependencies = [
+ "cfg-if",
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -842,6 +856,16 @@ dependencies = [
  "lazy_static",
  "memoffset",
  "scopeguard",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f25d8400f4a7a5778f0e4e52384a48cbd9b5c495d110786187fc750075277a2"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -1123,6 +1147,16 @@ dependencies = [
  "crc32fast",
  "libc",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flate3"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aff3294398490ca851e398380debdb9cd0d760bc7bd3dd8a61c7102e66606b6"
+dependencies = [
+ "crossbeam",
+ "scoped_threadpool",
 ]
 
 [[package]]
@@ -2991,6 +3025,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "schema-inference"
+version = "0.0.0"
+dependencies = [
+ "assert_cmd",
+ "avro-rs",
+ "base64",
+ "bytes",
+ "caseless",
+ "chardetng",
+ "chrono",
+ "csv",
+ "doc",
+ "encoding_rs",
+ "flate3",
+ "insta",
+ "json",
+ "mime",
+ "num-bigint 0.4.3",
+ "schemars",
+ "serde",
+ "serde_json",
+ "structopt",
+ "tempdir",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-bom",
+ "unicode-normalization",
+ "url",
+ "uuid 1.0.0",
+ "zip",
+]
+
+[[package]]
 name = "schemalate"
 version = "0.0.0"
 dependencies = [
@@ -3037,6 +3106,12 @@ dependencies = [
  "serde_derive_internals",
  "syn",
 ]
+
+[[package]]
+name = "scoped_threadpool"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d51f5df5af43ab3f1360b429fa5e0152ac5ce8c0bd6485cae490332e96846a8"
 
 [[package]]
 name = "scopeguard"
