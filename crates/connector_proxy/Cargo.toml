@@ -21,7 +21,6 @@ clap = { version = "^3", features = ["derive"] }
 futures = "*"
 futures-core = "*"
 futures-util = "*"
-json-pointer = "*"
 libc = "*"
 prost = "*"
 schemars = "*"

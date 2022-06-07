@@ -22,7 +22,6 @@ use tokio::sync::Mutex;
 use validator::Validate;
 
 use futures::{stream, StreamExt, TryStreamExt};
-use json_pointer::JsonPointer;
 use serde_json::value::RawValue;
 use std::fs::File;
 use std::io::Write;
@@ -114,11 +113,9 @@ impl AirbyteSourceInterceptor {
 
                 let key_ptrs = match stream.source_defined_primary_key {
                     None => Vec::new(),
-                    // TODO: use doc::Pointer, and if necessary implement creation of new json pointers
-                    // in that module. What about the existing tokenize_jsonpointer function?
                     Some(keys) => keys
                         .iter()
-                        .map(|k| JsonPointer::new(k).to_string())
+                        .map(|k| doc::Pointer::from_vec(k).to_string())
                         .collect(),
                 };
                 let recommended_name = stream_to_recommended_name(&stream.name);
