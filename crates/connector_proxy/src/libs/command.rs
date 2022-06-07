@@ -6,7 +6,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
-pub const READY: &[u8] = "READY".as_bytes();
+pub const READY: &[u8] = "READY\n".as_bytes();
 
 // Start the connector directly.
 pub fn invoke_connector_direct(entrypoint: String, args: Vec<String>) -> Result<Child, Error> {
@@ -50,45 +50,28 @@ pub struct CommandConfig {
     pub entrypoint: String,
     pub args: Vec<String>,
 }
-// Instead of starting the connector directly, `invoke_connector_delayed` starts a bouncer process first, which will
-// start the real connector after reading a "READY" string from Stdin. Two actions are involved,
-// The caller of `invoke_connector_delayed` is responsible of sending "READY" to the Stdin of the returned Child process,
-// before sending anything else.
-pub fn invoke_connector_delayed(
-    entrypoint: String,
-    args: Vec<String>,
-    log_args: flow_cli_common::LogArgs,
-) -> Result<Child, Error> {
+// Instead of starting the connector directly, `invoke_connector_delayed` starts a
+// shell process that reads a first line, and then starts the connector. This is to allow
+// time for us to write down configuration files for Airbyte connectors before starting them up.
+// The stdin passed to delayed connector processes must start with a line that serves as a signal
+// for readiness of the configuration files.
+pub fn invoke_connector_delayed(entrypoint: String, args: Vec<String>) -> Result<Child, Error> {
     tracing::debug!(%entrypoint, ?args, "invoke_connector_delayed");
 
-    // Saves the configs to start the connector.
-    let command_config = CommandConfig {
-        entrypoint: entrypoint,
-        args: args,
-    };
-    let config_file = tempfile::NamedTempFile::new()?;
-    serde_json::to_writer(&config_file, &command_config)?;
-    let (_, config_file_path) = config_file.keep()?;
-    let config_file_path = config_file_path
-        .to_str()
-        .expect("config file path conversion failed.");
-
-    // Prepares and starts the bouncer process.
-    let bouncer_process_entrypoint = std::env::current_exe()?;
-    let bouncer_process_entrypoint = bouncer_process_entrypoint
-        .to_str()
-        .expect("unexpected binary path");
+    let flat_args = args
+        .iter()
+        .map(|arg| format!("\"{arg}\""))
+        .collect::<Vec<String>>()
+        .join(" ");
 
     invoke_connector(
         Stdio::piped(),
         Stdio::piped(),
         Stdio::inherit(),
-        bouncer_process_entrypoint,
+        "sh",
         &vec![
-            "--log.level".to_string(),
-            log_args.level.to_string(),
-            "delayed-execute".to_string(),
-            config_file_path.to_string(),
+            "-c".to_string(),
+            format!("read -r && exec {entrypoint} {flat_args}"),
         ],
     )
 }
