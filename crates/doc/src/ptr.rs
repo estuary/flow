@@ -1,6 +1,7 @@
 use json::{json_cmp, Location};
 use serde_json as sj;
 use std::cmp::Ordering;
+use std::fmt::Display;
 use std::str::FromStr;
 use tinyvec::TinyVec;
 
@@ -28,6 +29,30 @@ impl Pointer {
     /// Builds an empty Pointer which references the document root.
     pub fn empty() -> Pointer {
         Pointer(TinyVec::new())
+    }
+
+    pub fn from_vec(v: &Vec<String>) -> Pointer {
+        if v.is_empty() {
+            return Pointer::empty();
+        }
+
+        let mut tape = Pointer(TinyVec::new());
+
+        v.iter()
+            .map(|t| t.replace("~1", "/").replace("~0", "~"))
+            .for_each(|t| {
+                if t == "-" {
+                    tape.push(Token::NextIndex);
+                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) {
+                    tape.push(Token::Property(&t));
+                } else if let Ok(ind) = usize::from_str(&t) {
+                    tape.push(Token::Index(ind));
+                } else {
+                    tape.push(Token::Property(&t));
+                }
+            });
+
+        tape
     }
 
     /// Builds a Pointer from the given string, which is an encoded JSON pointer.
@@ -136,6 +161,25 @@ impl Pointer {
 impl Default for Pointer {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl Display for Pointer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn replace_escapes(s: &str) -> String {
+            s.replace("~", "~0").replace("/", "~1")
+        }
+
+        for item in self.iter() {
+            write!(f, "/")?;
+            match item {
+                Token::NextIndex => write!(f, "-")?,
+                Token::Property(p) => write!(f, "{}", replace_escapes(p))?,
+                Token::Index(ind) => write!(f, "{}", ind)?,
+            };
+        }
+
+        Ok(())
     }
 }
 
@@ -456,5 +500,30 @@ mod test {
             let ptr = Pointer::from(*case);
             assert!(ptr.create(&mut root).is_none());
         }
+    }
+
+    #[test]
+    fn test_ptr_to_string() {
+        // Turn JSON pointer strings to doc::Pointer and back to string
+        let cases = vec![
+            "/foo/2/a~1b",
+            "/foo/2/b~0",
+            "/foo/0",
+            "/bar",
+            "/foo/0",
+            "/foo/-",
+            "/foo/2/4",
+            "/foo/2/-",
+        ];
+
+        let results = cases
+            .iter()
+            .map(|case| {
+                let ptr = Pointer::from(case);
+                ptr.to_string()
+            })
+            .collect::<Vec<String>>();
+
+        assert_eq!(cases, results);
     }
 }
