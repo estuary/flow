@@ -73,7 +73,7 @@ jobs:
           context: .
           network: host
           push: true
-          tags: ghcr.io/estuary/animated-carnival:${{ steps.prep.outputs.tag }},ghcr.io/estuary/animated-carnival:lates
+          tags: ghcr.io/estuary/animated-carnival:${{ steps.prep.outputs.tag }},ghcr.io/estuary/animated-carnival:latest
           build-args: |
             DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
       
