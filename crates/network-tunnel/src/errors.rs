@@ -1,5 +1,3 @@
-use std::array::TryFromSliceError;
-
 use base64::DecodeError;
 
 #[derive(thiserror::Error, Debug)]

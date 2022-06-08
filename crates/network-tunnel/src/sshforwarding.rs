@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use base64::DecodeError;
 use futures::pin_mut;
 use schemars::JsonSchema;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{convert::TryInto, net::SocketAddr};
 use thrussh::{
     client,
     client::{Handle, Session},
