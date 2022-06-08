@@ -25,9 +25,13 @@ impl JsonSchema for NetworkTunnelConfig {
             "advanced": true,
             "oneOf": [{
                 "type": "object",
+                "title": "SSH Forwarding",
                 "properties": {
                     "sshForwarding": ssh_forwarding
                 }
+            }, {
+                "type": "null",
+                "title": "Disabled"
             }],
         }))
         .unwrap()
@@ -62,7 +66,7 @@ mod test {
         assert!(as_json.pointer("/oneOf").unwrap().is_array());
         assert_eq!(
             as_json.pointer("/oneOf").unwrap().as_array().unwrap().len(),
-            1
+            2
         );
     }
 
