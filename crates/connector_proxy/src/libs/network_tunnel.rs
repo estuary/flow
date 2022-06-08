@@ -70,6 +70,7 @@ impl NetworkTunnel {
 
         let network_tunnel_config: NetworkTunnelConfig = match network_tunnel_config {
             None => return Ok(endpoint_spec_json),
+            Some(serde_json::Value::Null) => return Ok(serde_json::from_value(endpoint_spec)?),
             Some(c) => serde_json::from_value(c)?,
         };
 
@@ -87,5 +88,23 @@ impl NetworkTunnel {
 
         let json = serde_json::to_string_pretty(&endpoint_spec)?;
         RawValue::from_string(json).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::{json, value::RawValue};
+
+    use super::NetworkTunnel;
+
+    #[tokio::test]
+    async fn test_consume_network_tunnel_config_null() {
+        let raw_value: Box<RawValue> =
+            serde_json::from_value(json!({ "x": true, "networkTunnel": null })).unwrap();
+        let result = NetworkTunnel::consume_network_tunnel_config(raw_value.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(result.get(), json!({"x": true}).to_string());
     }
 }
