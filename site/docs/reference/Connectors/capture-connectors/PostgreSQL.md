@@ -85,21 +85,20 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/database`** | Database | Name of the database to capture from. | string | Required, `"postgres"` |
-| **`/host`** | Host | Host name of the database. | string | Required |
+| **`/address`** | Address | The host or host:port at which the database can be reached. | string | Required |
+| **`/database`** | Database | Logical database name to capture from. | string | Required, `"postgres"` |
+| **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Password | Password for the specified database user. | string | Required |
-| **`/port`** | Port | Port of the database. | integer | Required, `5432` |
-| `/publicationName` | Publication name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
-| `/slotName` | Slot name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
-| **`/user`** | User | Database user to connect as. | string | Required, `"postgres"` |
-| `/watermarksTable` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
+| `/advanced/publicationName` | Publication name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
+| `/advanced/slotName` | Slot name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
+| `/advanced/watermarksTable` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
 
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| `/namespace` | Namespace | The [namespace](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table, if used. | string | |
+| **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required |
 | **`/stream`** | Stream | Table name. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
@@ -114,14 +113,10 @@ captures:
       connector:
         image: "ghcr.io/estuary/source-postgres:dev"
         config:
-          host: "localhost"
-          port: 5432
-          database: "flow"
+          address: "localhost:5432"
+          database: "postgres"
           user: "flow_capture"
           password: "secret"
-          # slot_name: “flow_slot”                     # Default
-          # publication_name: “flow_publication”       # Default
-          # watermarks_table: “public.flow_watermarks” # Default
     bindings:
       - resource:
           stream: ${TABLE_NAME}

@@ -63,9 +63,9 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** | Server Address and Port | The host:port at which the database can be reached. | string | Required, `"127.0.0.1:3306"` |
-| **`/login/user`** | Login Username | The database user to authenticate as. | string | Required, `"flow_capture"` |
-| **`/login/password`** | Login Password | Password for the specified database user. | string | Required |
+| **`/address`** | Server Address and Port | The host:port at which the database can be reached. | string | Required |
+| **`/user`** | Login User | The database user to authenticate as. | string | Required, `"flow_capture"` |
+| **`/password`** | Login Password | Password for the specified database user. | string | Required |
 | `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
 | `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
 | `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
@@ -97,9 +97,8 @@ captures:
         image: ghcr.io/estuary/source-mysql:dev
         config:
           address: "127.0.0.1:3306"
-          login:
-            user: "flow_capture"
-            password: "secret"
+          user: "flow_capture"
+          password: "secret"
     bindings:
       - resource:
           namespace: ${TABLE_NAMESPACE}
