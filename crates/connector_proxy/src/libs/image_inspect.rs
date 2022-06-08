@@ -62,6 +62,16 @@ impl ImageInspect {
             }
         }
 
+        // TODO: change this to allow arbitrary docker images to be recognized
+        // as a materialization
+        if let Some(repo_tags) = &self.repo_tags {
+            for tag in repo_tags {
+                if tag.starts_with("ghcr.io/estuary/materialize-") {
+                    return FlowRuntimeProtocol::Materialize;
+                }
+            }
+        }
+
         return FlowRuntimeProtocol::Capture;
     }
 
