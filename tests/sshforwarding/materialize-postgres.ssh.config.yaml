@@ -8,8 +8,7 @@ networkTunnel:
     localPort: 16666
     forwardHost: localhost
     forwardPort: 2345
-    sshEndpoint: ssh://localhost:2222
-    user: flowssh
+    sshEndpoint: ssh://flowssh@localhost:2222
     privateKey: |2
       -----BEGIN OPENSSH PRIVATE KEY-----
       b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
