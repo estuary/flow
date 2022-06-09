@@ -36,7 +36,8 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/account`** | Account | The Snowflake account identifier | string | Required |
 | **`/database`** | Database | Name of the Snowflake database to which to materialize | string | Required |
 | **`/password`** | Password | Snowflake user password | string | Required |
-| `/region` | Region | Region where the account is located | string |  |
+| **`/cloud_provider`** | Cloud Provider | Cloud Provider where the account is located | string | Required |
+| **`/region`** | Region | Region where the account is located | string | Required |
 | `/role` | Role | Role assigned to the user | string |  |
 | **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
 | **`/user`** | User | Snowflake username | string | Required |
@@ -61,6 +62,7 @@ materializations:
               account: acmeCo
               database: acmeCo_db
               password: secret
+              cloud_provider: aws
               region: us-east-1
               schema: acmeCo_flow_schema
               user: snowflake_user
