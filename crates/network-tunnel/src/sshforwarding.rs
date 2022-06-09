@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]
     pub ssh_endpoint: String,
+    #[serde(default)]
+    #[schemars(skip)]
+    pub user: Option<String>,
     /// Private key to connect to the remote SSH server.
     #[schemars(schema_with = "private_key_schema")]
     pub private_key: String,
@@ -79,6 +82,16 @@ impl SshForwarding {
             process: None,
         }
     }
+
+    // We used to have `user` as a field on SSHForwarding config
+    // In order to be backward-compatible, we still allow that field, and if it exists we add
+    // the user ourselves manually
+    fn backward_compatible_forward_host(user: Option<&String>, forward_host: &String) -> String {
+        match user {
+            Some(user) => forward_host.replace("ssh://", &format!("ssh://{user}@")),
+            None => forward_host.clone(),
+        }
+    }
 }
 
 #[async_trait]
@@ -92,7 +105,10 @@ impl NetworkTunnel for SshForwarding {
         tokio::fs::set_permissions(&temp_key_path, std::fs::Permissions::from_mode(0o600)).await?;
 
         let local_port = self.config.local_port;
-        let forward_host = &self.config.forward_host;
+        let forward_host = SshForwarding::backward_compatible_forward_host(
+            self.config.user.as_ref(),
+            &self.config.forward_host,
+        );
         let forward_port = self.config.forward_port;
 
         let mut child = Command::new("ssh")
@@ -153,5 +169,37 @@ impl NetworkTunnel for SshForwarding {
         self.process.as_mut().unwrap().wait().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::sshforwarding::SshForwarding;
+
+    #[test]
+    fn test_backward_compatible_forward_host() {
+        assert_eq!(
+            SshForwarding::backward_compatible_forward_host(
+                Some(&"user".to_string()),
+                &"ssh://estuary.dev:22".to_string(),
+            ),
+            "ssh://user@estuary.dev:22"
+        );
+
+        assert_eq!(
+            SshForwarding::backward_compatible_forward_host(
+                None,
+                &"ssh://estuary.dev:22".to_string(),
+            ),
+            "ssh://estuary.dev:22"
+        );
+
+        assert_eq!(
+            SshForwarding::backward_compatible_forward_host(
+                None,
+                &"ssh://user@estuary.dev:22".to_string(),
+            ),
+            "ssh://user@estuary.dev:22"
+        );
     }
 }
