@@ -89,7 +89,6 @@ mod test {
             result.unwrap(),
             NetworkTunnelConfig::SshForwarding(SshForwardingConfig {
                 ssh_endpoint: "ssh://flow@localhost:2222".to_string(),
-                user: None,
                 forward_host: "localhost".to_string(),
                 forward_port: 5432,
                 private_key: "".to_string(),
