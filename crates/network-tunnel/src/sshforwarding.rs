@@ -171,13 +171,7 @@ impl NetworkTunnel for SshForwarding {
     }
 
     async fn start_serve(&mut self) -> Result<(), Error> {
-        let exit_status = self.process.as_mut().unwrap().wait().await?;
-        if !exit_status.success() {
-            tracing::error!(
-                exit_code = ?exit_status.code(),
-                message = "network tunnel ssh exit with non-zero code."
-            );
-        }
+        self.process.as_mut().unwrap().wait().await?;
 
         Ok(())
     }
