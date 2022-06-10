@@ -82,7 +82,7 @@ checksum = "08f9b8508dccb7687a1d6c4ce66b2b0ecef467c94667de27d8d7fe1f8d2a9cdc"
 [[package]]
 name = "assemble"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "bytes",
  "doc",
@@ -535,7 +535,7 @@ dependencies = [
 [[package]]
 name = "doc"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "fancy-regex",
  "itertools",
@@ -1115,7 +1115,7 @@ dependencies = [
 [[package]]
 name = "json"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "bitvec",
  "fancy-regex",
@@ -1132,7 +1132,7 @@ dependencies = [
 [[package]]
 name = "labels"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 
 [[package]]
 name = "lazy_static"
@@ -1245,7 +1245,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "caseless",
  "doc",
@@ -1714,12 +1714,12 @@ dependencies = [
 [[package]]
 name = "proto-build"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 
 [[package]]
 name = "proto-flow"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "bytes",
  "pbjson",
@@ -1735,7 +1735,7 @@ dependencies = [
 [[package]]
 name = "proto-gazette"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "bytes",
  "pbjson",
@@ -2164,7 +2164,7 @@ dependencies = [
 [[package]]
 name = "sources"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "anyhow",
  "assemble",
@@ -2352,7 +2352,7 @@ dependencies = [
 [[package]]
 name = "tables"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2658,7 +2658,7 @@ checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 [[package]]
 name = "typescript"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "doc",
  "json",
@@ -2744,7 +2744,7 @@ dependencies = [
 [[package]]
 name = "validation"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#672e2f9b474f84baf54af27f3ab5a9733055f257"
+source = "git+https://github.com/estuary/flow?branch=master#7b134a96ade24fc1ae369b80c75450d74f8de542"
 dependencies = [
  "anyhow",
  "assemble",
