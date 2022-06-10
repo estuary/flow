@@ -1,21 +1,14 @@
+use std::os::unix::prelude::PermissionsExt;
+use std::process::Stdio;
+
 use super::errors::Error;
 use super::networktunnel::NetworkTunnel;
 
 use async_trait::async_trait;
-use base64::DecodeError;
-use futures::pin_mut;
 use schemars::JsonSchema;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use thrussh::{
-    client,
-    client::{Handle, Session},
-};
-use thrussh_keys::{key, openssh};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::ReadHalf;
-use tokio::net::{TcpListener, TcpStream};
-use url::Url;
+use tokio::io::AsyncReadExt;
+use tokio::process::Child;
+use tokio::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -26,10 +19,8 @@ use serde::{Deserialize, Serialize};
     description = "Connect to your system through an SSH server that acts as a bastion host for your network."
 )]
 pub struct SshForwardingConfig {
-    /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://hostname[:port]
+    /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]
     pub ssh_endpoint: String,
-    /// User name to connect to the remote SSH server.
-    pub user: String,
     /// Private key to connect to the remote SSH server.
     #[schemars(schema_with = "private_key_schema")]
     pub private_key: String,
@@ -78,210 +69,89 @@ fn port_schema(title: &str, description: &str) -> schemars::schema::Schema {
 
 pub struct SshForwarding {
     config: SshForwardingConfig,
-    ssh_client: Option<Handle<ClientHandler>>,
-    local_listener: Option<TcpListener>,
+    process: Option<Child>,
 }
 
 impl SshForwarding {
-    const DEFAULT_SSH_PORT: u16 = 22;
-
     pub fn new(config: SshForwardingConfig) -> Self {
         Self {
             config,
-            ssh_client: None,
-            local_listener: None,
+            process: None,
         }
-    }
-
-    pub async fn prepare_ssh_client(&mut self) -> Result<(), Error> {
-        let ssh_addrs =
-            Url::parse(&self.config.ssh_endpoint)?.socket_addrs(|| Some(Self::DEFAULT_SSH_PORT))?;
-        let ssh_addr = ssh_addrs.get(0).ok_or(Error::InvalidSshEndpoint)?;
-        let config = Arc::new(client::Config::default());
-        let handler = ClientHandler {};
-        self.ssh_client = Some(client::connect(config, ssh_addr, handler).await?);
-
-        Ok(())
-    }
-
-    pub async fn prepare_local_listener(&mut self) -> Result<(), Error> {
-        if self.config.local_port == 0 {
-            return Err(Error::ZeroLocalPort);
-        }
-        let local_listen_addr: SocketAddr =
-            format!("127.0.0.1:{}", self.config.local_port).parse()?;
-        self.local_listener = Some(TcpListener::bind(local_listen_addr).await?);
-
-        Ok(())
-    }
-
-    // Decode the base64 content of OpenSSH key files
-    fn read_openssh_key(content: String) -> Result<Vec<u8>, DecodeError> {
-        let lines_count = content.lines().count();
-        let main_body = content
-            .lines()
-            .skip(1)
-            .take(lines_count - 2)
-            .collect::<Vec<&str>>()
-            .join("");
-        base64::decode(main_body)
-    }
-
-    pub async fn authenticate(&mut self) -> Result<(), Error> {
-        // First try to parse the key as RSA key, if it fails, fallback to OpenSSH key format
-        // TODO: we still do not support ECDSA and other formats of keys yet, but it is possible to support them
-        let rsa_key_pair = openssl::rsa::Rsa::private_key_from_pem(
-            &self.config.private_key.as_bytes(),
-        )
-        .map(|key| key::KeyPair::RSA {
-            key,
-            hash: key::SignatureHash::SHA2_256,
-        });
-
-        let openssh_key_pair = openssh::decode_openssh(
-            &Self::read_openssh_key(self.config.private_key.clone())?,
-            None,
-        );
-
-        let key_pair = Arc::new(rsa_key_pair.or(openssh_key_pair)?);
-
-        let sc = self
-            .ssh_client
-            .as_mut()
-            .expect("ssh_client is uninitialized.");
-        if !sc
-            .authenticate_publickey(&self.config.user, key_pair)
-            .await?
-        {
-            return Err(Error::InvalidSshCredential);
-        }
-
-        Ok(())
     }
 }
 
 #[async_trait]
 impl NetworkTunnel for SshForwarding {
     async fn prepare(&mut self) -> Result<(), Error> {
-        self.prepare_ssh_client().await?;
-        self.prepare_local_listener().await?;
-        self.authenticate().await?;
+        // Write the key to a temporary file
+        let mut temp_key_path = std::env::temp_dir();
+        temp_key_path.push("id_rsa");
+
+        tokio::fs::write(&temp_key_path, self.config.private_key.as_bytes()).await?;
+        tokio::fs::set_permissions(&temp_key_path, std::fs::Permissions::from_mode(0o600)).await?;
+
+        let local_port = self.config.local_port;
+        let forward_host = &self.config.forward_host;
+        let forward_port = self.config.forward_port;
+
+        let mut child = Command::new("ssh")
+            .args(vec![
+                // Disable psuedo-terminal allocation
+                "-T".to_string(),
+                // Be verbose so we can pick up signals about status of the tunnel
+                "-v".to_string(),
+                // This is necessary unless we also ask for the public key from users
+                "-o".to_string(),
+                "StrictHostKeyChecking no".to_string(),
+                // Pass the private key
+                "-i".to_string(),
+                temp_key_path.into_os_string().into_string().unwrap(),
+                // Do not execute a remote command. Just forward the ports.
+                "-N".to_string(),
+                // Port forwarding stanza
+                "-L".to_string(),
+                format!("{local_port}:{forward_host}:{forward_port}"),
+                self.config.ssh_endpoint.clone(),
+            ])
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        // Read stderr of SSH until we find "Local forwarding listening", which means
+        // the ports are open and we are ready to serve requests
+        let mut stderr = child.stderr.take().unwrap();
+        let mut last_line = String::new();
+        loop {
+            let mut buffer = [0; 64];
+
+            let n = stderr.read(&mut buffer).await?;
+
+            if n == 0 {
+                break;
+            }
+
+            let read_str = std::str::from_utf8(&buffer).unwrap();
+            tracing::debug!(read_str);
+            last_line.push_str(read_str);
+
+            if last_line.contains("Local forwarding listening") {
+                break;
+            }
+            let split_by_newline: Vec<_> = last_line.split('\n').collect();
+            last_line = split_by_newline
+                .last()
+                .map(|s| s.to_string())
+                .unwrap_or(String::new());
+        }
+
+        self.process = Some(child);
+
         Ok(())
     }
 
     async fn start_serve(&mut self) -> Result<(), Error> {
-        let sc = self
-            .ssh_client
-            .as_mut()
-            .expect("ssh_client is uninitialized.");
-        let ll = self
-            .local_listener
-            .as_mut()
-            .expect("local_listener is uninitialized.");
-        loop {
-            let (forward_stream, _) = ll.accept().await?;
-            let bastion_channel = sc
-                .channel_open_direct_tcpip(
-                    &self.config.forward_host,
-                    self.config.forward_port as u32,
-                    "127.0.0.1",
-                    0,
-                )
-                .await?;
-            tokio::task::spawn(async move {
-                if let Err(err) = tunnel_streaming(forward_stream, bastion_channel).await {
-                    tracing::error!(error = ?err, "tunnel_streaming failed.");
-                    std::process::exit(1);
-                }
-            });
-        }
-    }
-}
+        self.process.as_mut().unwrap().wait().await?;
 
-async fn start_reading_forward_stream(
-    mut stream: ReadHalf<'_>,
-    mut buf: Vec<u8>,
-) -> Result<(usize, ReadHalf<'_>, Vec<u8>), Error> {
-    let n = stream.read(&mut buf).await?;
-    Ok((n, stream, buf))
-}
-
-async fn tunnel_streaming(
-    mut forward_stream: TcpStream,
-    mut bastion_channel: client::Channel,
-) -> Result<(), Error> {
-    let (forward_stream_read, mut forward_stream_write) = forward_stream.split();
-
-    // Allocate a buffer of 128 KiB for forward stream.
-    let buf_forward_stream = vec![0; 2 << 17];
-    let reading = start_reading_forward_stream(forward_stream_read, buf_forward_stream);
-    pin_mut!(reading);
-
-    loop {
-        tokio::select! {
-            r = &mut reading => match r {
-                Ok((n, forward_stream_read, buf_forward_stream)) => {
-                    match n {
-                        0 => {
-                            bastion_channel.eof().await?;
-                            break
-                        },
-                        n => {
-                          bastion_channel.data(&buf_forward_stream[..n]).await?;
-                        }
-                    }
-                    // The `pin_mut!` called on `reading` turns it into a Pin of a mutable Future.
-                    // The `reading.set` replaces the terminated future behind the pinned pointer with a new future to be polled.
-                    reading.set(start_reading_forward_stream(forward_stream_read, buf_forward_stream));
-                },
-                Err(e) => return Err(e),
-            },
-
-            // bastion_channel.wait() is calling `recv()` on a receiver, which is safe to cancel.
-            // https://doc.servo.org/tokio/sync/mpsc/struct.Receiver.html#cancel-safety
-            bastion_channel_data = bastion_channel.wait() => match bastion_channel_data {
-                None => {}, // Ignore None values, keep polling.
-                Some(chan_msg) => match chan_msg {
-                    thrussh::ChannelMsg::Eof => {
-                      forward_stream_write.flush().await?;
-                      break;
-                    },
-
-                    thrussh::ChannelMsg::Data { ref data } => {
-                        forward_stream_write.write(data).await?;
-                    },
-                    // Ignore the other control messages, keep polling.
-                    msg => { tracing::info!("SSH control message: {:?}", msg)}
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub struct ClientHandler {}
-
-impl client::Handler for ClientHandler {
-    type Error = thrussh::Error;
-    type FutureUnit = futures::future::Ready<Result<(Self, client::Session), Self::Error>>;
-    type FutureBool = futures::future::Ready<Result<(Self, bool), Self::Error>>;
-
-    // For the tunneling application, trivial functions, which immediately return Ready futures, are sufficient for
-    // the default implementations of the other APIs of the client handler.
-    fn finished_bool(self, b: bool) -> Self::FutureBool {
-        futures::future::ready(Ok((self, b)))
-    }
-    fn finished(self, session: Session) -> Self::FutureUnit {
-        futures::future::ready(Ok((self, session)))
-    }
-
-    fn auth_banner(self, banner: &str, session: Session) -> Self::FutureUnit {
-        tracing::info!(banner);
-        self.finished(session)
-    }
-
-    fn check_server_key(self, server_public_key: &key::PublicKey) -> Self::FutureBool {
-        tracing::info!("received server public key: {:?}", server_public_key);
-        self.finished_bool(true)
+        Ok(())
     }
 }
