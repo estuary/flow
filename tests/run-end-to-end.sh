@@ -70,6 +70,7 @@ flowctl temp-data-plane \
     --sigterm \
     --tempdir ${TESTDIR} \
     --unix-sockets \
+    --log.level=debug \
     1>$TESTDIR/data-plane.stdout \
     2>$TESTDIR/data-plane.stderr \
     &
@@ -97,6 +98,7 @@ flowctl api build \
     --build-id ${BUILD_ID} \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
+    --log.level=debug \
     1>>$TESTDIR/build.stdout \
     2>>$TESTDIR/build.stderr \
     || bail "Catalog build failed."
@@ -108,7 +110,7 @@ touch $TESTDIR/activate.stderr
 tail -f $TESTDIR/activate.stdout &
 tail -f $TESTDIR/activate.stderr &
 # Activate the catalog.
-flowctl api activate --build-id ${BUILD_ID} --all 1>>$TESTDIR/activate.stdout 2>>$TESTDIR/activate.stderr || bail "Activate failed."
+flowctl api activate --log.level=debug --build-id ${BUILD_ID} --all 1>>$TESTDIR/activate.stdout 2>>$TESTDIR/activate.stderr || bail "Activate failed."
 
 # allow writing tests for failure cases
 set +e
