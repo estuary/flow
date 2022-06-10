@@ -23,5 +23,7 @@ serde_json = "*"
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}
+thrussh={version="*", features=["openssl"]}
+thrussh-keys={version="*", features=["openssl"]}
 tokio = { version = "1.15.0", features = ["full"] }
 url = "*"

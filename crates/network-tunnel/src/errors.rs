@@ -11,6 +11,9 @@ pub enum Error {
     #[error("Local port number of 0 is invalid")]
     ZeroLocalPort,
 
+    #[error("SSH error.")]
+    ThrusshError(#[from] thrussh::Error),
+
     #[error("io operation error.")]
     IoError(#[from] std::io::Error),
 
@@ -25,6 +28,9 @@ pub enum Error {
 
     #[error("Json serialization error.")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Failed to parse OpenSSH key.")]
+    KeyParsingError(#[from] thrussh_keys::Error),
 
     #[error("Failed to decode base64 content of OpenSSH key.")]
     DecodeError(#[from] DecodeError),
