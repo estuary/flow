@@ -12,7 +12,11 @@ use connector_runner::{
     run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
 };
 use errors::Error;
-use libs::image_inspect::ImageInspect;
+use libs::{
+    command::{check_exit_status, invoke_connector, read_ready, CommandConfig},
+    image_inspect::ImageInspect,
+};
+use std::process::Stdio;
 
 #[derive(Debug, clap::ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -39,12 +43,19 @@ struct ProxyFlowMaterialize {
     operation: FlowMaterializeOperation,
 }
 
+#[derive(Debug, clap::Parser)]
+struct DelayedExecutionConfig {
+    config_file_path: String,
+}
+
 #[derive(Debug, clap::Subcommand)]
 enum ProxyCommand {
     /// proxies the Flow runtime Capture Protocol to the connector.
     ProxyFlowCapture(ProxyFlowCapture),
     /// proxies the Flow runtime Materialize Protocol to the connector.
     ProxyFlowMaterialize(ProxyFlowMaterialize),
+    /// internal command used by the connector proxy itself to delay execution until signaled.
+    DelayedExecute(DelayedExecutionConfig),
 }
 
 #[derive(clap::Parser, Debug)]
@@ -83,7 +94,7 @@ async fn main() {
     } = Args::parse();
     init_logging(&log_args);
 
-    let result = async_main(image_inspect_json_path, proxy_command).await;
+    let result = async_main(image_inspect_json_path, proxy_command, log_args).await;
 
     match result {
         Err(Error::CommandExecutionError(_)) => {
@@ -102,18 +113,23 @@ async fn main() {
 async fn async_main(
     image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     match proxy_command {
-        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
+        ProxyCommand::ProxyFlowCapture(c) => {
+            proxy_flow_capture(c, image_inspect_json_path, log_args).await
+        }
         ProxyCommand::ProxyFlowMaterialize(m) => {
             proxy_flow_materialize(m, image_inspect_json_path).await
         }
+        ProxyCommand::DelayedExecute(ba) => delayed_execute(ba.config_file_path).await,
     }
 }
 
 async fn proxy_flow_capture(
     c: ProxyFlowCapture,
     image_inspect_json_path: Option<String>,
+    log_args: LogArgs,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Capture {
@@ -129,7 +145,7 @@ async fn proxy_flow_capture(
             run_flow_capture_connector(&c.operation, entrypoint).await
         }
         CaptureConnectorProtocol::Airbyte => {
-            run_airbyte_source_connector(&c.operation, entrypoint).await
+            run_airbyte_source_connector(&c.operation, entrypoint, log_args).await
         }
     }
 }
@@ -146,4 +162,26 @@ async fn proxy_flow_materialize(
     let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
 
     run_flow_materialize_connector(&m.operation, entrypoint).await
+}
+
+// TODO(johnny): We ought to replace this with an exec call.
+// If we knew a shell were available it'd be as simple as:
+//   /bin/sh -c 'read -r line; exec $0 $@' /connector arg0 arg1 arg2
+async fn delayed_execute(command_config_path: String) -> Result<(), Error> {
+    // Wait for the "READY" signal from the parent process before starting the connector.
+    read_ready(&mut tokio::io::stdin()).await?;
+    tracing::debug!("delayed_execute read READY");
+
+    let reader = std::io::BufReader::new(std::fs::File::open(command_config_path)?);
+    let command_config: CommandConfig = serde_json::from_reader(reader)?;
+
+    let mut child = invoke_connector(
+        Stdio::inherit(),
+        Stdio::inherit(),
+        Stdio::inherit(),
+        &command_config.entrypoint,
+        &command_config.args,
+    )?;
+
+    check_exit_status("delayed process", child.wait().await)
 }
