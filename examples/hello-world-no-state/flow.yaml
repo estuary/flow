@@ -16,7 +16,7 @@ captures:
   examples/source-hello-world-no-state:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-hello-world:8926a3f
         config:
           # Number of greeting documents to produce
           # [integer] (required)
