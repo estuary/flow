@@ -49,16 +49,13 @@ where
     let directory = std::fs::canonicalize(&config.directory)
         .context("failed to canonicalize build directory")?;
 
-    let mut all_tables = load_and_validate(root_url, root_spec, fetcher, drivers, &config).await;
+    let mut all_tables =
+        load_and_validate(root_url.clone(), root_spec, fetcher, drivers, &config).await;
     all_tables.meta.insert_row(config.clone());
 
     // Output database path is implied from the configured directory and ID.
     let output_path = directory.join(&config.build_id);
     let db = rusqlite::Connection::open(&output_path).context("failed to open catalog database")?;
-
-    tables::persist_tables(&db, &all_tables.as_tables())
-        .context("failed to persist catalog tables")?;
-    tracing::info!(?output_path, "wrote build database");
 
     if config.typescript_generate || config.typescript_compile || config.typescript_package {
         generate_npm_package(&all_tables, &directory)
@@ -66,17 +63,19 @@ where
     }
 
     if !all_tables.errors.is_empty() {
-        // Skip follow-on build steps if errors were encountered.
-        return Ok(all_tables);
-    }
-
-    if config.typescript_compile || config.typescript_package {
-        compile_npm(&directory).context("failed to compile TypeScript package")?;
-    }
-    if config.typescript_package {
+        // Skip TypeScript compilation / packaging if catalog errors were encountered.
+    } else if !config.typescript_compile && !config.typescript_package {
+        // Skip TypeScript compilation / packaging if not configured.
+    } else if let Err(err) = compile_npm(&directory) {
+        all_tables.errors.insert_row(&root_url, err);
+    } else if config.typescript_package {
         let npm_resources = pack_npm(&directory).context("failed to pack TypeScript package")?;
         tables::persist_tables(&db, &[&npm_resources]).context("failed to persist NPM package")?;
     }
+
+    tables::persist_tables(&db, &all_tables.as_tables())
+        .context("failed to persist catalog tables")?;
+    tracing::info!(?output_path, "wrote build database");
 
     Ok(all_tables)
 }
