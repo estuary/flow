@@ -231,8 +231,12 @@ func (d *Driver) ApplyDelete(ctx context.Context, req *pm.ApplyRequest) (*pm.App
 	if err != nil {
 		return nil, fmt.Errorf("loading stored spec: %w", err)
 	} else if loaded == nil {
-		return nil, fmt.Errorf("materialization %s not found", req.Materialization.Materialization)
-	} else if version != req.Version {
+		// If we can't find the materialization spec in the database on ApplyDelete, we just
+		// assume that ApplyDelete has previously been run or the user has cleaned up the database themselves.
+		return &pm.ApplyResponse{
+			ActionDescription: "Could not find materialization spec in database, not deleting anything.",
+		}, nil
+	} else if loaded != nil && version != req.Version {
 		return nil, fmt.Errorf("materialization %s is at version %s, not the requested %s",
 			req.Materialization.Materialization, version, req.Version)
 	}
@@ -259,7 +263,7 @@ func (d *Driver) ApplyDelete(ctx context.Context, req *pm.ApplyRequest) (*pm.App
 	for _, spec := range req.Materialization.Bindings {
 		var target = ResourcePath(spec.ResourcePath).Join()
 		var ident = endpoint.Generator().IdentifierRenderer.Render(target)
-		statements = append(statements, fmt.Sprintf("DROP TABLE %s;", ident))
+		statements = append(statements, fmt.Sprintf("DROP TABLE IF EXISTS %s;", ident))
 	}
 
 	// Execute the statements if not in DryRun.
