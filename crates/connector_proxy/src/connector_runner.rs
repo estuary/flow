@@ -1,5 +1,5 @@
 use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStream};
-use crate::errors::Error;
+use crate::errors::{create_custom_error, raise_err, Error};
 use crate::interceptors::{
     airbyte_source_interceptor::AirbyteSourceInterceptor,
     network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
@@ -141,7 +141,9 @@ pub async fn run_airbyte_source_connector(
                         (msg, bytes)
                     }
                     None => {
-                        sender.send(transaction_pending).unwrap();
+                        sender.send(transaction_pending).map_err(|_|
+                            create_custom_error("Could not send signal for Airbyte connector's pending checkpoint. This can happen if the connector exits abruptly.")
+                        )?;
                         return Ok(None);
                     }
                 };
