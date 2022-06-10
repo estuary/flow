@@ -61,16 +61,16 @@ func (cmd cmdTempDataPlane) Execute(_ []string) error {
 		return fmt.Errorf("starting data plane: %w", err)
 	}
 
-	fmt.Printf("export BROKER_ADDRESS=%s\n", brokerAddr)
-	fmt.Printf("export CONSUMER_ADDRESS=%s\n", consumerAddr)
+	log.Info("export BROKER_ADDRESS=", brokerAddr)
+	log.Info("export CONSUMER_ADDRESS=", consumerAddr)
 
 	<-sigCh
-	fmt.Println("Stopping the temp-data-plane.")
+	log.Info("Stopping the temp-data-plane.")
 
 	if cmd.Sigterm {
 		time.AfterFunc(time.Second, func() {
-			fmt.Println("The data plane is taking a while to stop after SIGTERM.")
-			fmt.Println("Ctrl-C again to SIGKILL.")
+			log.Warn("The data plane is taking a while to stop after SIGTERM.")
+			log.Warn("Ctrl-C again to SIGKILL.")
 
 			<-sigCh
 			cmd.kill()

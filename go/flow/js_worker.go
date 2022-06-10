@@ -38,6 +38,7 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	// Bootstrap a Node package with the installed pack.
 	var cmd = exec.Command("npm", "install", packagePath)
 	cmd.Dir = tempdir
+	// TODO: Should we be directly piping npm outputs to the OS? Should these go to ops/ logs and/or logrus logs instead?
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
@@ -93,6 +94,7 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "SOCKET_PATH="+socketPath)
+	// TODO: Should we be directly piping npm outputs to the OS? Should these go to ops/ logs and/or logrus logs instead?
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = &readyWriter{delegate: os.Stderr, ch: readyCh}
 

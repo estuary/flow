@@ -83,8 +83,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 
 	for _, be := range errors {
 		var path, ptr = scopeToPathAndPtr(args.Directory, be.Scope)
-		fmt.Println(yellow(path), "error at", red(ptr), ":")
-		fmt.Println(be.Error)
+		log.WithFields(log.Fields{"path": path, "ptr": ptr}).Error(be.Error)
 	}
 	if len(errors) != 0 {
 		return fmt.Errorf("%d build errors", len(errors))

@@ -92,9 +92,9 @@ func (cmd cmdDeploy) Execute(_ []string) (retErr error) {
 	var sigCh = make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
-	fmt.Println("Deployment done. Waiting for Ctrl-C to clean up and exit.")
+	log.Warn("Deployment done. Waiting for Ctrl-C to clean up and exit.")
 	<-sigCh
-	fmt.Println("Signaled to exit. Cleaning up deployment.")
+	log.Warn("Signaled to exit. Cleaning up deployment.")
 
 	// Delete derivations and collections from the local dataplane.
 	var delete = apiDelete{
@@ -108,6 +108,6 @@ func (cmd cmdDeploy) Execute(_ []string) (retErr error) {
 		return err
 	}
 
-	fmt.Println("All done.")
+	log.Warn("All done.")
 	return nil
 }

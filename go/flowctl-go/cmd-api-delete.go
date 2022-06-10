@@ -99,12 +99,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 			return fmt.Errorf("deleting capture %q: %w", spec.Capture, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Deleting capture ", spec.Capture, ":")
-			fmt.Println(response.ActionDescription)
-		}
-
-		log.WithFields(log.Fields{"name": spec.Capture}).
+		log.WithFields(log.Fields{"name": spec.Capture, "actionDescription": response.ActionDescription}).
 			Info("deleted capture from endpoint")
 	}
 
@@ -131,12 +126,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 			return fmt.Errorf("deleting materialization %q: %w", spec.Materialization, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Deleting materialization ", spec.Materialization, ":")
-			fmt.Println(response.ActionDescription)
-		}
-
-		log.WithFields(log.Fields{"name": spec.Materialization}).
+		log.WithFields(log.Fields{"name": spec.Materialization, "actionDescription": response.ActionDescription}).
 			Info("deleted materialization from endpoint")
 	}
 

@@ -94,7 +94,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	}
 
 	var failed []string
-	fmt.Println("Running ", len(tests), " tests...")
+	log.Warn("Running ", len(tests), " tests...")
 
 	for _, testCase := range tests {
 		if ctx.Err() != nil {
@@ -106,8 +106,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 			return fmt.Errorf("reseting internal state between test cases: %w", err)
 		} else if scope, err := testing.RunTestCase(ctx, graph, driver, testCase); err != nil {
 			var path, ptr = scopeToPathAndPtr(config.Directory, scope)
-			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
-			fmt.Println(err)
+			log.WithFields(log.Fields{"path": path, "ptr": ptr}).Error("❌ ", err)
 			failed = append(failed, testCase.Test)
 
 			var verify testing.FailedVerifies
@@ -118,12 +117,13 @@ func (cmd apiTest) execute(ctx context.Context) error {
 			}
 		} else {
 			var path, _ = scopeToPathAndPtr(config.Directory, testCase.Steps[0].StepScope)
-			fmt.Println("✔️", path, "::", green(testCase.Test))
+			log.WithFields(log.Fields{"path": path}).Warn("✔️ ", testCase.Test)
 		}
 	}
 
-	fmt.Printf("\nRan %d tests, %d passed, %d failed\n",
-		len(tests), len(tests)-len(failed), len(failed))
+	log.Warn("Ran ", len(tests), " tests, ",
+		len(tests)-len(failed), " passed, ",
+		len(failed), " failed")
 
 	if failed != nil {
 		return fmt.Errorf("failed tests: [%s]", strings.Join(failed, ", "))

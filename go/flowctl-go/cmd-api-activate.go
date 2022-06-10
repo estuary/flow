@@ -100,11 +100,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Applying capture ", spec.Capture, ":")
-			fmt.Println(response.ActionDescription)
-		}
-		log.WithFields(log.Fields{"name": spec.Capture}).
+		log.WithFields(log.Fields{"name": spec.Capture, "actionDescription": response.ActionDescription}).
 			Info("applied capture to endpoint")
 	}
 
@@ -131,11 +127,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			return fmt.Errorf("applying materialization %q: %w", spec.Materialization, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Applying materialization ", spec.Materialization, ":")
-			fmt.Println(response.ActionDescription)
-		}
-		log.WithFields(log.Fields{"name": spec.Materialization}).
+		log.WithFields(log.Fields{"name": spec.Materialization, "actionDescription": response.ActionDescription}).
 			Info("applied materialization to endpoint")
 	}
 
