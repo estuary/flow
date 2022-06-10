@@ -116,6 +116,7 @@ impl NetworkTunnel for SshForwarding {
         let forward_host = &self.config.forward_host;
         let forward_port = self.config.forward_port;
 
+        tracing::debug!("spawning ssh tunnel");
         let mut child = Command::new("ssh")
             .args(vec![
                 // Disable psuedo-terminal allocation
@@ -142,20 +143,24 @@ impl NetworkTunnel for SshForwarding {
         // the ports are open and we are ready to serve requests
         let mut stderr = child.stderr.take().unwrap();
         let mut last_line = String::new();
+
+        tracing::debug!("listening on ssh tunnel stderr");
         loop {
             let mut buffer = [0; 64];
 
             let n = stderr.read(&mut buffer).await?;
 
             if n == 0 {
+                tracing::debug!("received empty output from ssh tunnel, breaking out");
                 break;
             }
 
             let read_str = std::str::from_utf8(&buffer).unwrap();
-            tracing::debug!(read_str);
             last_line.push_str(read_str);
+            tracing::debug!("ssh stderr: {}", &last_line);
 
             if last_line.contains("Local forwarding listening") {
+                tracing::debug!("ssh tunnel is listening & ready for serving requests");
                 break;
             }
             let split_by_newline: Vec<_> = last_line.split('\n').collect();
@@ -171,7 +176,16 @@ impl NetworkTunnel for SshForwarding {
     }
 
     async fn start_serve(&mut self) -> Result<(), Error> {
-        self.process.as_mut().unwrap().wait().await?;
+        tracing::debug!("awaiting ssh tunnel process");
+        let exit_status = self.process.as_mut().unwrap().wait().await?;
+        if !exit_status.success() {
+            tracing::error!(
+                exit_code = ?exit_status.code(),
+                message = "network tunnel ssh exit with non-zero code."
+            );
+
+            return Err(Error::TunnelExitNonZero(format!("{:#?}", exit_status)))
+        }
 
         Ok(())
     }
