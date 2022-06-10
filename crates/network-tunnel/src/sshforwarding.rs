@@ -21,6 +21,13 @@ use serde::{Deserialize, Serialize};
 pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]
     pub ssh_endpoint: String,
+    /// Deprecated field specifying the user used to connect to the SSH endpoint.
+    /// User must now be specified as part of the ssh_endpoint, however to be backward-compatible
+    /// we still allow the option (but do not expose it in JSONSchema).
+    /// See [`SshForwarding::backward_compatible_ssh_endpoint`] for more information
+    #[serde(default)]
+    #[schemars(skip)]
+    pub user: Option<String>,
     /// Private key to connect to the remote SSH server.
     #[schemars(schema_with = "private_key_schema")]
     pub private_key: String,
@@ -79,6 +86,16 @@ impl SshForwarding {
             process: None,
         }
     }
+
+    // We used to have `user` as a field on SSHForwarding config
+    // In order to be backward-compatible, we still allow that field, and if it exists we add
+    // the user ourselves manually
+    fn backward_compatible_ssh_endpoint(user: Option<&String>, ssh_endpoint: &String) -> String {
+        match user {
+            Some(user) => ssh_endpoint.replace("ssh://", &format!("ssh://{user}@")),
+            None => ssh_endpoint.clone(),
+        }
+    }
 }
 
 #[async_trait]
@@ -92,6 +109,10 @@ impl NetworkTunnel for SshForwarding {
         tokio::fs::set_permissions(&temp_key_path, std::fs::Permissions::from_mode(0o600)).await?;
 
         let local_port = self.config.local_port;
+        let ssh_endpoint = SshForwarding::backward_compatible_ssh_endpoint(
+            self.config.user.as_ref(),
+            &self.config.ssh_endpoint,
+        );
         let forward_host = &self.config.forward_host;
         let forward_port = self.config.forward_port;
 
@@ -112,7 +133,7 @@ impl NetworkTunnel for SshForwarding {
                 // Port forwarding stanza
                 "-L".to_string(),
                 format!("{local_port}:{forward_host}:{forward_port}"),
-                self.config.ssh_endpoint.clone(),
+                ssh_endpoint,
             ])
             .stderr(Stdio::piped())
             .spawn()?;
@@ -153,5 +174,37 @@ impl NetworkTunnel for SshForwarding {
         self.process.as_mut().unwrap().wait().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::sshforwarding::SshForwarding;
+
+    #[test]
+    fn test_backward_compatible_ssh_endpoint() {
+        assert_eq!(
+            SshForwarding::backward_compatible_ssh_endpoint(
+                Some(&"user".to_string()),
+                &"ssh://estuary.dev:22".to_string(),
+            ),
+            "ssh://user@estuary.dev:22"
+        );
+
+        assert_eq!(
+            SshForwarding::backward_compatible_ssh_endpoint(
+                None,
+                &"ssh://estuary.dev:22".to_string(),
+            ),
+            "ssh://estuary.dev:22"
+        );
+
+        assert_eq!(
+            SshForwarding::backward_compatible_ssh_endpoint(
+                None,
+                &"ssh://user@estuary.dev:22".to_string(),
+            ),
+            "ssh://user@estuary.dev:22"
+        );
     }
 }
