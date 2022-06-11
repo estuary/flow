@@ -723,7 +723,7 @@ examples/hello-world/views
 examples/source-hello-world
 examples/source-hello-world-no-state
 no_state_driver_checkpoint_flush:
-examples/source-hello-world-no-state|warn|connector exited without writing a final state checkpoint, flushing the driver checkpoint.
+examples/source-hello-world-no-state|warn|connector exited without writing a final state checkpoint, writing an empty object {} merge patch driver checkpoint.
 flow_stats:
 capture|examples/citi-bike/rides-from-s3
 capture|examples/source-hello-world
