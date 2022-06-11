@@ -164,12 +164,12 @@ pub async fn run_airbyte_source_connector(
 
     let cloned_op = op.clone();
     let exit_status_task = tokio::spawn(async move {
-        let exit_status = check_exit_status("airbyte source connector:", child.wait().await);
+        let exit_status_result = check_exit_status("airbyte source connector:", child.wait().await);
 
         // There are some Airbyte connectors that write records, and exit successfully, without ever writing
         // a state (checkpoint). In those cases, we want to provide a default empty checkpoint. It's important that
         // this only happens if the connector exit successfully, otherwise we risk double-writing data.
-        if exit_status.is_ok() && cloned_op == FlowCaptureOperation::Pull {
+        if exit_status_result.is_ok() && cloned_op == FlowCaptureOperation::Pull {
             // the received value (transaction_pending) is true if the connector writes output messages and exits _without_ writing
             // a final state checkpoint.
             if tp_receiver.await.unwrap() {
@@ -187,7 +187,7 @@ pub async fn run_airbyte_source_connector(
             }
         }
 
-        Ok(())
+        exit_status_result
     });
 
     tokio::try_join!(
