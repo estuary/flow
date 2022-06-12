@@ -37,6 +37,8 @@ type coordinator struct {
 // captureTxn is the state of a transaction.
 type captureTxn struct {
 	combiners []pf.Combiner
+	// Are we no longer accepting further documents & checkpoints ?
+	full bool
 	// Merged checkpoint of the capture.
 	merged pf.DriverCheckpoint
 	// Number of bytes accumulated into the transaction.
@@ -45,8 +47,8 @@ type captureTxn struct {
 	numCheckpoints int
 	// Are we awaiting a Checkpoint before we may commit ?
 	pending bool
-	// Are we no longer accepting further documents & checkpoints ?
-	full bool
+	// Was this ready transaction already popped?
+	popped bool
 }
 
 func newCoordinator(
@@ -103,20 +105,26 @@ func (c *coordinator) Close() error {
 	return nil
 }
 
-// Combiners returns the Combiners of a transaction which is ready to commit.
-// It's safe to call only after a callback notification from Serve(),
-// and only until a call to SetLogCommitOp().
-// The caller is responsible for fully draining the combiners.
-func (c *coordinator) Combiners() []pf.Combiner { return c.prior.combiners }
+// PopTransaction returns the Combiners and DriverCheckpoint of a transaction
+// which is ready to commit. It's safe to call only after a commit callback
+// notification from Serve(), and must be called exactly once prior to
+// SetLogCommitOp(). The caller is responsible for fully draining the combiners.
+func (c *coordinator) PopTransaction() ([]pf.Combiner, pf.DriverCheckpoint) {
+	if c.prior.popped {
+		panic("PopTransaction was called more than once")
+	}
+	c.prior.popped = true
 
-// DriverCheckpoint returns the DriverCheckpoint of a transaction which is ready
-// to commit. It's safe to call only after a callback notification from Serve(),
-// and only until a call to SetLogCommitOp().
-func (c *coordinator) DriverCheckpoint() pf.DriverCheckpoint { return c.prior.merged }
+	return c.prior.combiners, c.prior.merged
+}
 
 // SetLogCommitOp tells the PullClient of a future recovery log commit operation
 // which will commit a transaction previously started via a Serve() callback.
 func (c *coordinator) SetLogCommitOp(op client.OpFuture) error {
+	if !c.prior.popped {
+		panic("PopTransaction was not called before SetLogCommitOp")
+	}
+
 	select {
 	case c.logCommittedOpCh <- op:
 		return nil

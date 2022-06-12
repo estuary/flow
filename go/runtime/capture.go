@@ -18,7 +18,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -36,7 +35,7 @@ type Capture struct {
 	// Specification under which the capture is currently running.
 	spec pf.CaptureSpec
 	// Store for persisting local checkpoints.
-	store connectorStore
+	store *consumer.JSONFileStore
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
@@ -69,15 +68,15 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			c.Log(log.DebugLevel, log.Fields{
+			c.Log(logrus.DebugLevel, logrus.Fields{
 				"capture":    c.labels.TaskName,
 				"shard":      c.shardSpec.Id,
 				"build":      c.labels.Build,
 				"checkpoint": cp,
 			}, "initialized processing term")
 		} else {
-			c.Log(log.ErrorLevel, log.Fields{
-				"error": err.Error(),
+			c.Log(logrus.ErrorLevel, logrus.Fields{
+				"error": err,
 			}, "failed to initialize processing term")
 		}
 	}()
@@ -92,7 +91,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	c.Log(log.DebugLevel, log.Fields{"spec": c.spec, "build": c.labels.Build},
+	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
 		"loaded specification")
 
 	if c.delegate != nil {
@@ -143,7 +142,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		c.delegate, err = pc.OpenPull(
 			c.taskTerm.ctx,
 			conn,
-			c.store.driverCheckpoint(),
+			loadDriverCheckpoint(c.store),
 			newCombinerFn,
 			c.labels.Range,
 			&c.spec,
@@ -155,7 +154,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}
 
-	if cp, err = c.store.restoreCheckpoint(shard); err != nil {
+	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
 		return pf.Checkpoint{}, err
 	}
 
@@ -272,7 +271,7 @@ func (c *Capture) StartReadingMessages(
 
 	go c.delegate.Serve(startCommitFn)
 
-	c.Log(log.DebugLevel, log.Fields{
+	c.Log(logrus.DebugLevel, logrus.Fields{
 		"capture":  c.labels.TaskName,
 		"shard":    c.shardSpec.Id,
 		"build":    c.labels.Build,
@@ -296,11 +295,19 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		c.delegateEOF = true // Mark for StartCommit.
 		return nil
 	}
+	// This is a commit notification. The delegate has prepared combiners for each
+	// binding with captured documents, and a DriverCheckpoint update.
+	var combiners, driverCheckpoint = c.delegate.PopTransaction()
 
+	if err := updateDriverCheckpoint(c.store, driverCheckpoint); err != nil {
+		return err
+	}
+
+	// Walk each binding combiner, publishing captured documents and collecting stats.
 	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
+	var bindingStats = make([]*pf.CombineAPI_Stats, 0, len(combiners))
 
-	var statsPerBinding = make([]*pf.CombineAPI_Stats, 0, len(c.delegate.Combiners()))
-	for b, combiner := range c.delegate.Combiners() {
+	for b, combiner := range combiners {
 		var binding = c.spec.Bindings[b]
 		_ = binding.Collection // Elide nil check.
 
@@ -329,7 +336,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		if err != nil {
 			return fmt.Errorf("combiner.Drain: %w", err)
 		}
-		statsPerBinding = append(statsPerBinding, stats)
+		bindingStats = append(bindingStats, stats)
 	}
 
 	// Publish a final message with statistics about the capture transaction we'll soon finish, but
@@ -338,7 +345,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	// publish stats in that case in order to reduce noise in the stats collections, and simplify
 	// working with them (readers of stats can safely assume that there will be capture stats when
 	// kind = capture).
-	var statsEvent = c.captureStats(statsPerBinding)
+	var statsEvent = c.captureStats(bindingStats)
 	if len(statsEvent.Capture) > 0 {
 		var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
 		if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
@@ -400,14 +407,13 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	c.Log(log.DebugLevel, log.Fields{
-		"capture":    c.labels.TaskName,
-		"shard":      c.shardSpec.Id,
-		"build":      c.labels.Build,
-		"checkpoint": cp,
+	c.Log(logrus.DebugLevel, logrus.Fields{
+		"capture": c.labels.TaskName,
+		"shard":   c.shardSpec.Id,
+		"build":   c.labels.Build,
 	}, "StartCommit")
 
-	var commitOp = c.store.startCommit(shard, cp, c.delegate.DriverCheckpoint(), waitFor)
+	var commitOp = c.store.StartCommit(shard, cp, waitFor)
 
 	if c.delegateEOF {
 		// This "transaction" was caused by an EOF from the delegate,
@@ -430,14 +436,13 @@ func (c *Capture) Destroy() {
 		_ = c.delegate.Close()
 	}
 	c.taskTerm.destroy()
-	c.store.destroy()
+	c.store.Destroy()
 }
 
 // delegate is the common interface of PullClient and PushServer that we use.
 type delegate interface {
 	Close() error
-	Combiners() []pf.Combiner
-	DriverCheckpoint() pf.DriverCheckpoint
+	PopTransaction() ([]pf.Combiner, pf.DriverCheckpoint)
 	Serve(startCommitFn func(error))
 	SetLogCommitOp(op client.OpFuture) error
 }
