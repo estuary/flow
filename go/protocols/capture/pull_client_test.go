@@ -48,12 +48,14 @@ func TestPullClientLifecycle(t *testing.T) {
 	// It models the caller's expected behavior of producing captured documents
 	// into a collection upon notification.
 	var drain = func() string {
-		var combiner = rpc.Combiners()[0].(*pf.MockCombiner)
+		var combiners, checkpoint = rpc.PopTransaction()
+
+		var combiner = combiners[0].(*pf.MockCombiner)
 		var n = len(combiner.Combined)
 		captured = append(captured, combiner.Combined...)
 		combiner.Combined = nil
 
-		require.NoError(t, reducedCheckpoint.Reduce(rpc.DriverCheckpoint()))
+		require.NoError(t, reducedCheckpoint.Reduce(checkpoint))
 		return fmt.Sprintf("%d => %s", n, string(reducedCheckpoint.DriverCheckpointJson))
 	}
 

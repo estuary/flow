@@ -27,7 +27,7 @@ type Materialize struct {
 	// FlowConsumer which owns this Materialize shard.
 	host *FlowConsumer
 	// Store delegate for persisting local checkpoints.
-	store connectorStore
+	store *consumer.JSONFileStore
 	// Specification under which the materialization is currently running.
 	spec pf.MaterializationSpec
 	// Stats are handled differently for materializations than they are for other task types,
@@ -142,7 +142,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	m.client, err = pm.OpenTransactions(
 		shard.Context(),
 		conn,
-		m.store.driverCheckpoint(),
+		loadDriverCheckpoint(m.store),
 		newCombinerFn,
 		m.labels.Range,
 		&m.spec,
@@ -161,7 +161,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		checkpointSource = "driver"
 	} else {
 		// Otherwise restore locally persisted checkpoint.
-		if cp, err = m.store.restoreCheckpoint(shard); err != nil {
+		if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
 		}
 		checkpointSource = "recoveryLog"
@@ -179,8 +179,9 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 		"checkpoint":      cp,
 	}, "StartCommit")
 
-	var prepared, err = m.client.Prepare(cp)
-	if err != nil {
+	if driverCP, err := m.client.Prepare(cp); err != nil {
+		return client.FinishedOperation(err)
+	} else if err = updateDriverCheckpoint(m.store, driverCP); err != nil {
 		return client.FinishedOperation(err)
 	}
 
@@ -191,7 +192,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	}
 
 	// Arrange for our store to commit to its recovery log upon DriverCommitted.
-	commitOps.LogCommitted = m.store.startCommit(shard, cp, prepared,
+	commitOps.LogCommitted = m.store.StartCommit(shard, cp,
 		consumer.OpFutures{commitOps.DriverCommitted: struct{}{}})
 
 	stats, err := m.client.StartCommit(commitOps)
@@ -200,7 +201,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	}
 
 	// Now that we've drained the combiner, we're able to finish publishing the stats for this
-	// transaciton. This PendingPublish was initialized by the call to DeferPublishUncommitted
+	// transaction. This PendingPublish was initialized by the call to DeferPublishUncommitted
 	// in FinalizeTxn.
 	var statsEvent = m.materializationStats(stats)
 	err = m.pendingStats.Resolve(m.StatsFormatter.FormatEvent(statsEvent))
@@ -248,7 +249,7 @@ func (m *Materialize) Destroy() {
 		_ = m.client.Close()
 	}
 	m.taskTerm.destroy()
-	m.store.destroy()
+	m.store.Destroy()
 }
 
 // Implementing shuffle.Store for Materialize

@@ -6,65 +6,50 @@ import (
 	"fmt"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
 )
 
-// connectorStore is used for captures and materializations. It persists a
-// storeState containing a DriverCheckpoint updated via RFC7396 Merge Patch,
-// along with the usual Gazette checkpoint.
-type connectorStore struct {
-	delegate *consumer.JSONFileStore
-}
-
+// storeState is a JSONFileStore.State used for captures and materializations.
+// It persists a DriverCheckpoint updated via RFC7396 Merge Patch.
 type storeState struct {
 	DriverCheckpoint json.RawMessage
 }
 
-func newConnectorStore(recorder *recoverylog.Recorder) (connectorStore, error) {
-	var delegate, err = consumer.NewJSONFileStore(recorder, new(storeState))
+func newConnectorStore(recorder *recoverylog.Recorder) (*consumer.JSONFileStore, error) {
+	var store, err = consumer.NewJSONFileStore(recorder, new(storeState))
 	if err != nil {
-		return connectorStore{}, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
+		return nil, fmt.Errorf("consumer.NewJSONFileStore: %w", err)
 	}
 
 	// A `nil` driver checkpoint will round-trip through JSON encoding as []byte("null").
 	// Restore it's nil-ness after deserialization.
-	if bytes.Equal([]byte("null"), delegate.State.(*storeState).DriverCheckpoint) {
-		delegate.State.(*storeState).DriverCheckpoint = nil
+	if bytes.Equal([]byte("null"), store.State.(*storeState).DriverCheckpoint) {
+		store.State.(*storeState).DriverCheckpoint = nil
 	}
 
-	return connectorStore{delegate: delegate}, nil
+	return store, nil
 }
 
-func (s *connectorStore) driverCheckpoint() json.RawMessage {
-	if cp := s.delegate.State.(*storeState).DriverCheckpoint; len(cp) != 0 {
+func loadDriverCheckpoint(store *consumer.JSONFileStore) json.RawMessage {
+	if cp := store.State.(*storeState).DriverCheckpoint; len(cp) != 0 {
 		return cp
 	}
 	return []byte("{}")
 }
 
-func (s *connectorStore) restoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err error) {
-	return s.delegate.RestoreCheckpoint(shard)
-}
-
-func (s *connectorStore) startCommit(
-	shard consumer.Shard,
-	flowCheckpoint pf.Checkpoint,
+func updateDriverCheckpoint(
+	store *consumer.JSONFileStore,
 	driverCheckpoint pf.DriverCheckpoint,
-	waitFor consumer.OpFutures,
-) consumer.OpFuture {
-
+) error {
 	var reduced = pf.DriverCheckpoint{
-		DriverCheckpointJson: s.delegate.State.(*storeState).DriverCheckpoint,
+		DriverCheckpointJson: store.State.(*storeState).DriverCheckpoint,
 		Rfc7396MergePatch:    false,
 	}
 	if err := reduced.Reduce(driverCheckpoint); err != nil {
-		return client.FinishedOperation(fmt.Errorf("patching driver checkpoint: %w", err))
+		return fmt.Errorf("patching driver checkpoint: %w", err)
 	}
+	store.State.(*storeState).DriverCheckpoint = reduced.DriverCheckpointJson
 
-	s.delegate.State.(*storeState).DriverCheckpoint = reduced.DriverCheckpointJson
-	return s.delegate.StartCommit(shard, flowCheckpoint, waitFor)
+	return nil
 }
-
-func (s *connectorStore) destroy() { s.delegate.Destroy() }

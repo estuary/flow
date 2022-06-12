@@ -37,11 +37,13 @@ func TestPushServerLifecycle(t *testing.T) {
 	// drain takes Combined documents from the MockCombiner, appending them into
 	// |captured|, and reduces the driver checkpoint into |reducedCheckpoint|.
 	var drain = func() {
-		var combiner = push.Combiners()[0].(*pf.MockCombiner)
+		var combiners, checkpoint = push.PopTransaction()
+
+		var combiner = combiners[0].(*pf.MockCombiner)
 		captured = append(captured, combiner.Combined...)
 		combiner.Combined = nil
 
-		require.NoError(t, reducedCheckpoint.Reduce(push.DriverCheckpoint()))
+		require.NoError(t, reducedCheckpoint.Reduce(checkpoint))
 	}
 
 	// Start Serve() delivering into |startCommitCh|.
