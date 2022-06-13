@@ -9,3 +9,6 @@ You can then add extra files to run checks:
 - `<table_name>.tunnel.rows` run a diff against content of `<table_name>` in the postgres instance that is behind an SSH tunnel. This file requires you to specify the columns you want to match against as the first line. Only those columns are fetched from the database.
 - `data-plane.stdout` and `data-plane.stderr` check if certain lines against among the logs of the data plane. This uses `grep` so you can use patterns supported by `grep` here.
 - Similarly, there is `activate.stdout`, `activate.stderr`, `build.stdout`, `build.stderr`, `await.stdout` and `await.stderr`.
+
+
+Finally, make sure you add your new test to `run-all.sh` script so that it becomes part of the CI pipeline.
