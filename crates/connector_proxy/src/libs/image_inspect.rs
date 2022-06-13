@@ -62,6 +62,15 @@ impl ImageInspect {
             }
         }
 
+        // For backward compatibility with old images that do not have the label
+        if let Some(repo_tags) = &self.repo_tags {
+            for tag in repo_tags {
+                if tag.starts_with("ghcr.io/estuary/materialize-") {
+                    return FlowRuntimeProtocol::Materialize;
+                }
+            }
+        }
+
         return FlowRuntimeProtocol::Capture;
     }
 
