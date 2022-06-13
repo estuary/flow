@@ -1,0 +1,6 @@
+name,kind
+examples/citi-bike/rides-from-s3,capture
+examples/citi-bike/last-seen,derivation
+examples/citi-bike/rides-and-relocations,derivation
+examples/citi-bike/stations,derivation
+examples/citi-bike/views,derivation

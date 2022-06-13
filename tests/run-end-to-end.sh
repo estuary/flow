@@ -7,6 +7,7 @@
 # -m turns on job management, required for our use of `fg` below.
 set -em
 
+
 ROOTDIR="$(realpath $(git rev-parse --show-toplevel))"
 cd "${ROOTDIR}"
 
@@ -15,9 +16,16 @@ function bail() {
     exit 1
 }
 
+# The test to run, a folder name relative to `tests` directory
+TEST=$1
+# Root of the running test
+TEST_ROOT="${ROOTDIR}/tests/${TEST}"
+
 # Temporary test directory into which we'll build our test database,
 # and stage temporary data plane files.
 TESTDIR="$(mktemp -d -t flow-end-to-end-XXXXXXXXXX)"
+
+echo "temporary test directory: $TESTDIR"
 
 # Move sshd configs to the temp dir, which will be removed after execution.
 cp -r "${ROOTDIR}/tests/sshforwarding/sshd-configs" "${TESTDIR}"
@@ -47,13 +55,6 @@ function cleanupDataIfPassed() {
 # Start local ssh server and postgres database.
 startTestInfra
 
-# SQLite database into which the catalog materializes.
-OUTPUT_DB="${ROOTDIR}/examples/examples.db"
-# Actual materialization output scraped from ${OUTPUT_DB}.
-ACTUAL="${TESTDIR}/actual_test_results.txt"
-# Expected materialization output.
-EXPECTED="${ROOTDIR}/tests/end-to-end.expected"
-
 # `flowctl` commands which interact with the data plane look for *_ADDRESS
 # variables, which are used by the temp-data-plane we're about to start.
 export BROKER_ADDRESS=unix://localhost${TESTDIR}/gazette.sock
@@ -79,13 +80,13 @@ export BUILDS_ROOT=${TESTDIR}/builds
 # Arrange to stop the data plane on exit and remove the temporary directory.
 trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed" EXIT
 
-BUILD_ID=run-end-to-end
+BUILD_ID=run-end-to-end-${TEST}
 
 # Build the catalog. Arrange for it to be removed on exit.
 flowctl api build \
     --directory ${TESTDIR}/catalog-build \
     --build-id ${BUILD_ID} \
-    --source ${ROOTDIR}/tests/end-to-end.flow.yaml \
+    --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
     || bail "Catalog build failed."
 # Move the built database to the data plane's builds root.
@@ -95,76 +96,51 @@ flowctl api activate --build-id ${BUILD_ID} --all || bail "Activate failed."
 # Wait for polling pass to finish.
 flowctl api await --build-id ${BUILD_ID} || bail "Await failed."
 
-# Read out materialization results.
-#
-# TODO(johnny): relocation-related statistics are not stable due to
-# mis-orderings of the source ride data, which cause allowable variations
-# depending on how the capture is chunked up into transactions.
-echo 'greetings:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT count, message FROM greetings ORDER BY count;' >> ${ACTUAL}
-echo 'greetings_no_state:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT count, message FROM greetings_no_state ORDER BY count;' >> ${ACTUAL}
-echo 'citi_stations:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT id, name, "arrival/ride", "departure/ride" FROM citi_stations;' >> ${ACTUAL}
-echo 'citi_last_seen:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT bike_id, "last/station/name", "last/timestamp" FROM citi_last_seen;' >> ${ACTUAL}
-# Assert that each task produced at least one log message, which was able to be materialized.
-echo 'flow_logs:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT DISTINCT name FROM flow_logs;' | sort >> ${ACTUAL}
-echo 'no_state_driver_checkpoint_flush:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} 'SELECT name,level,message FROM flow_logs WHERE name="examples/source-hello-world-no-state" AND message LIKE "%driver checkpoint%";' >> ${ACTUAL}
-# We can't really make precise assertions on the stats that have been materialized because they
-# vary from run to run. So this is basically asserting that we've materialized some stats on at
-# least one transaction for each expected task.
-echo 'flow_stats:' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB}\
-    'SELECT distinct kind, name FROM flow_stats where txnCount >= 1 AND openSecondsTotal > 0;'\
-    | sort >> ${ACTUAL}
-# We _can_ make a precise assertion on the number of documents output from the hello-world capture
-# because it's configured to output a specific number of documents. So this value should match the
-# `greetings` config in that capture.
-echo 'flow_stats (greetings docsTotal):' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} >> ${ACTUAL} <<EOF
-    select
-        sum(json_extract(flow_document,
-            '$.capture.examples/greetings.right.docsTotal'
-        )) as right_docs_total,
-        sum(json_extract(flow_document,
-            '$.capture.examples/greetings.out.docsTotal'
-        )) as out_docs_total
-        from flow_stats
-    where
-        name = 'examples/source-hello-world'
-EOF
-echo 'greetings from psql:' >> ${ACTUAL}
-docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow -c 'SELECT message, count FROM greetings ORDER BY count;' --csv -P pager=off >> ${ACTUAL}
-# We _can_ make a precise assertion on the number of documents output from the hello-world-no-state capture
-# because it's configured to output a specific number of documents. So this value should match the
-# `greetings` config in that capture.
-echo 'flow_stats (greetings-no-state docsTotal):' >> ${ACTUAL}
-sqlite3 ${OUTPUT_DB} >> ${ACTUAL} <<EOF
-    select
-        sum(json_extract(flow_document,
-            '$.capture.examples/greetings-no-state.right.docsTotal'
-        )) as right_docs_total,
-        sum(json_extract(flow_document,
-            '$.capture.examples/greetings-no-state.out.docsTotal'
-        )) as out_docs_total
-        from flow_stats
-    where
-        name = 'examples/source-hello-world-no-state'
-EOF
-echo 'greetings_no_state from psql:' >> ${ACTUAL}
-docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow -c 'SELECT message, count FROM greetings_no_state ORDER BY count;' --csv -P pager=off >> ${ACTUAL}
+function ssh_psql_exec() {
+    docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow "$@"
+}
 
-# Clean up the activated catalog.
+shopt -s nullglob
+# Data saved in tunneled postgres
+for table_expected in ${TEST_ROOT}/*.tunnel.rows; do
+    table_id=$(basename $table_expected .tunnel.rows)
+    actual=${TESTDIR}/${table_id}.rows
+
+    columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+
+    ssh_psql_exec -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
+    diff --suppress-common-lines $actual $table_expected || bail "Test failed"
+done
+
+# Data saved in local postgres
+for table_expected in ${TEST_ROOT}/*.local.rows; do
+    table_id=$(basename $table_expected .local.rows)
+    actual=${TESTDIR}/${table_id}.rows
+
+    columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+
+    psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
+    diff --suppress-common-lines $actual $table_expected || bail "Test failed"
+done
+
+# Logs from connector. In this case we don't do a full diff between all lines, we just check
+# that the expected logs exist among all the logs from the connector.
+# Logs from the runtime and connector can be volatile, but there are certain logs that are important signals for us
+for table_expected in ${TEST_ROOT}/logs; do
+    table_id="flow_logs"
+    actual=${TESTDIR}/${table_id}
+
+    columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+
+    psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
+    # content of $table_expected must be found in $actual
+    cat $actual | grep $(tail +2 $table_expected)
+done
+
+# TODO: support checking exit status code of connector
+
+## Clean up the activated catalog.
 flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."
-
-# Uncomment me to update the expectation from a current run.
-# cp ${ACTUAL} ${EXPECTED}
-
-# Verify actual vs expected results. `diff` will exit 1 if files are different
-diff --suppress-common-lines ${ACTUAL} ${EXPECTED} || bail "Test Failed"
 
 # Setting this to true will cause TESTDIR to be cleaned up on exit
 TESTS_PASSED=true
