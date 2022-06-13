@@ -70,6 +70,8 @@ flowctl temp-data-plane \
     --sigterm \
     --tempdir ${TESTDIR} \
     --unix-sockets \
+    1>$TESTDIR/data-plane.stdout \
+    2>$TESTDIR/data-plane.stderr \
     &
 DATA_PLANE_PID=$!
 
@@ -78,7 +80,7 @@ DATA_PLANE_PID=$!
 export BUILDS_ROOT=${TESTDIR}/builds
 
 # Arrange to stop the data plane on exit and remove the temporary directory.
-trap "kill -s SIGTERM ${DATA_PLANE_PID} && wait ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed" EXIT
+trap "kill -s SIGKILL ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed" EXIT
 
 BUILD_ID=run-end-to-end-${TEST}
 
@@ -88,18 +90,57 @@ flowctl api build \
     --build-id ${BUILD_ID} \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
+    1>$TESTDIR/build.stdout \
+    2>$TESTDIR/build.stderr \
     || bail "Catalog build failed."
 # Move the built database to the data plane's builds root.
 mv ${TESTDIR}/catalog-build/${BUILD_ID} ${BUILDS_ROOT}/
 # Activate the catalog.
-flowctl api activate --build-id ${BUILD_ID} --all || bail "Activate failed."
+flowctl api activate --build-id ${BUILD_ID} --all 1>$TESTDIR/activate.stdout 2>$TESTDIR/activate.stderr || bail "Activate failed."
+
+# allow writing tests for failure cases
+set +e
 # Wait for polling pass to finish.
-flowctl api await --build-id ${BUILD_ID} || bail "Await failed."
+flowctl api await --build-id ${BUILD_ID} 1>$TESTDIR/await.stdout 2>$TESTDIR/await.stderr
+await_status_code=$!
+set -e
+
+echo "running checks against stdout and stderr files"
+if [ -f $TEST_ROOT/data-plane.stdout ]; then
+    cat $TESTDIR/data-plane.stdout | grep -f $TEST_ROOT/data-plane.stdout || bail "$TEST_ROOT/data-plane.stdout not found in $TESTDIR/data-plane.stdout"
+fi
+if [ -f $TEST_ROOT/data-plane.stderr ]; then
+    cat $TESTDIR/data-plane.stderr | grep -f $TEST_ROOT/data-plane.stderr || bail "$TEST_ROOT/data-plane.stderr not found in $TESTDIR/data-plane.stderr"
+fi
+if [ -f $TEST_ROOT/build.stdout ]; then
+    cat $TESTDIR/build.stdout | grep -f $TEST_ROOT/build.stdout || bail "$TEST_ROOT/build.stdout not found in $TESTDIR/build.stdout"
+fi
+if [ -f $TEST_ROOT/build.stderr ]; then
+    cat $TESTDIR/build.stderr | grep -f $TEST_ROOT/build.stderr || bail "$TEST_ROOT/build.stderr not found in $TESTDIR/build.stderr"
+fi
+if [ -f $TEST_ROOT/activate.stdout ]; then
+    cat $TESTDIR/activate.stdout | grep -f $TEST_ROOT/activate.stdout || bail "$TEST_ROOT/activate.stdout not found in $TESTDIR/activate.stdout"
+fi
+if [ -f $TEST_ROOT/activate.stderr ]; then
+    cat $TESTDIR/activate.stderr | grep -f $TEST_ROOT/activate.stderr || bail "$TEST_ROOT/activate.stderr not found in $TESTDIR/activate.stderr"
+fi
+if [ -f $TEST_ROOT/await.stdout ]; then
+    cat $TESTDIR/await.stdout | grep -f $TEST_ROOT/await.stdout || bail "$TEST_ROOT/await.stdout not found in $TESTDIR/await.stdout"
+fi
+if [ -f $TEST_ROOT/await.stderr ]; then
+    cat $TESTDIR/await.stderr | grep -f $TEST_ROOT/await.stderr || bail "$TEST_ROOT/await.stderr not found in $TESTDIR/await.stderr"
+fi
+
+if [ $await_status_code -ne 0 ]; then
+    echo "flowctl api await failed. will sleep for 5s to allow the materialization to finish."
+    sleep 5
+fi
 
 function ssh_psql_exec() {
     docker-compose --file ${SSH_PSQL_DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow "$@"
 }
 
+echo "running checks against ${TEST_ROOT}/*.tunnel.rows"
 shopt -s nullglob
 # Data saved in tunneled postgres
 for table_expected in ${TEST_ROOT}/*.tunnel.rows; do
@@ -112,6 +153,7 @@ for table_expected in ${TEST_ROOT}/*.tunnel.rows; do
     diff --suppress-common-lines $actual $table_expected || bail "Test failed"
 done
 
+echo "running checks against ${TEST_ROOT}/*.local.rows"
 # Data saved in local postgres
 for table_expected in ${TEST_ROOT}/*.local.rows; do
     table_id=$(basename $table_expected .local.rows)
@@ -123,22 +165,24 @@ for table_expected in ${TEST_ROOT}/*.local.rows; do
     diff --suppress-common-lines $actual $table_expected || bail "Test failed"
 done
 
+echo "running checks against ${TEST_ROOT}/logs"
 # Logs from connector. In this case we don't do a full diff between all lines, we just check
 # that the expected logs exist among all the logs from the connector.
-# Logs from the runtime and connector can be volatile, but there are certain logs that are important signals for us
 for table_expected in ${TEST_ROOT}/logs; do
     table_id="flow_logs"
     actual=${TESTDIR}/${table_id}
 
     columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+    # we don't want to grep the column names, so we create a headless version of the expected file
+    headless_expected="$TESTDIR/$table_id.headless"
+    tail +2 $table_expected > $headless_expected
 
     psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
     # content of $table_expected must be found in $actual
-    cat $actual | grep $(tail +2 $table_expected)
+    cat $actual | grep -f $headless_expected || bail "$headless_expected not found in $actual"
 done
 
-# TODO: support checking exit status code of connector
-
+echo "running flowctl api delete"
 ## Clean up the activated catalog.
 flowctl api delete --build-id ${BUILD_ID} --all || bail "Delete failed."
 

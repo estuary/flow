@@ -16,10 +16,10 @@ collections:
     key: [/count]
 
 captures:
-  examples/source-hello-world-no-state:
+  examples/source-test-no-state:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-hello-world:8926a3f
+        image: ghcr.io/estuary/source-test:dev
         config:
           # Number of greeting documents to produce
           # [integer] (required)
