@@ -1,0 +1,25 @@
+import:
+  - ../../examples/citi-bike/rides.flow.yaml
+  - ../../examples/citi-bike/last-seen.flow.yaml
+  - ../../examples/citi-bike/stations.flow.yaml
+  - ../materialize-logs.flow.yaml
+
+materializations:
+  examples/citi-bike/views:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config:
+          host: localhost
+          port: 5432
+          user: flow
+          password: flow
+          database: flow
+    bindings:
+      - source: examples/citi-bike/stations
+        resource: { table: citi_stations }
+      - source: examples/citi-bike/last-seen
+        resource: { table: citi_last_seen }
+
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
