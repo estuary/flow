@@ -176,6 +176,28 @@ jobs:
 
       - name: Install rust toolchain
         run: rustup show
+
+      - name: Cache/Restore Rust dependencies.
+        uses: actions/cache@v2
+        with:
+          # See: https://doc.rust-lang.org/nightly/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+          # TODO: Try https://github.com/Swatinem/rust-cache
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-glibc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-glibc-cargo-
+
+      - name: Cache/Restore Go dependencies.
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
       - run: make extra-ci-runner-setup
       - run: make print-versions
 
@@ -263,6 +285,16 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
+
+      # Use to the cached version of cargo-cache if it exists. Saves minutes installing it.
+      - run: |
+          if [[ $(cargo cache --version) != "cargo-cache $CARGO_CACHE_VERSION" ]]; then
+            cargo install --force cargo-cache --version="$CARGO_CACHE_VERSION"
+          fi
+        shell: bash
+
+      # Cleanup in preparation for populating the build cache.
+      - run: cargo cache --autoclean
 
       # Package and push images.
       - run: make docker-image
