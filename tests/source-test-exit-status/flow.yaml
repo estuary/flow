@@ -1,0 +1,44 @@
+import:
+  - ../materialize-logs.flow.yaml
+
+collections:
+  examples/greetings:
+    schema:
+      properties:
+        count:
+          type: integer
+        message:
+          type: string
+      required:
+        - count
+        - message
+      type: object
+    key: [/count]
+
+captures:
+  examples/source-test-fail:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-test:dev
+        config:
+          greetings: 10
+          fail_after: 10
+    bindings:
+      - resource:
+          stream: greetings
+          syncMode: incremental
+        target: examples/greetings
+
+materializations:
+  test/hello-world/ssh-postgresl:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config: ../sshforwarding/materialize-postgres.ssh.config.yaml
+    bindings:
+      - resource:
+          table: greetings
+        source: examples/greetings
+
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
