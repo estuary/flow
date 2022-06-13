@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_CACHE_VERSION: 0.8.2
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -140,6 +140,25 @@ jobs:
   assembly:
     runs-on: ubuntu-20.04
     needs: [flowctl, musl]
+
+    env:
+      PGPASSWORD: flow
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: flow
+          POSTGRES_USER: flow
+          POSTGRES_PASSWORD: flow
+        ports:
+          - 5432:5432
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v2
