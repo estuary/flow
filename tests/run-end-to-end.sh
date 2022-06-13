@@ -75,6 +75,9 @@ flowctl temp-data-plane \
     &
 DATA_PLANE_PID=$!
 
+tail -f $TESTDIR/data-plane.stdout &
+tail -f $TESTDIR/data-plane.stderr &
+
 # `flowctl temp-data-plane` always uses ./builds/ of --tempdir as its --flow.builds-root.
 # See cmd-temp-data-plane.go.
 export BUILDS_ROOT=${TESTDIR}/builds
@@ -84,24 +87,37 @@ trap "kill -s SIGKILL ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed"
 
 BUILD_ID=run-end-to-end-${TEST}
 
+touch $TESTDIR/build.stdout
+touch $TESTDIR/build.stderr
+tail -f $TESTDIR/build.stdout &
+tail -f $TESTDIR/build.stderr &
 # Build the catalog. Arrange for it to be removed on exit.
 flowctl api build \
     --directory ${TESTDIR}/catalog-build \
     --build-id ${BUILD_ID} \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
-    1>$TESTDIR/build.stdout \
-    2>$TESTDIR/build.stderr \
+    1>>$TESTDIR/build.stdout \
+    2>>$TESTDIR/build.stderr \
     || bail "Catalog build failed."
 # Move the built database to the data plane's builds root.
 mv ${TESTDIR}/catalog-build/${BUILD_ID} ${BUILDS_ROOT}/
+
+touch $TESTDIR/activate.stdout
+touch $TESTDIR/activate.stderr
+tail -f $TESTDIR/activate.stdout &
+tail -f $TESTDIR/activate.stderr &
 # Activate the catalog.
-flowctl api activate --build-id ${BUILD_ID} --all 1>$TESTDIR/activate.stdout 2>$TESTDIR/activate.stderr || bail "Activate failed."
+flowctl api activate --build-id ${BUILD_ID} --all 1>>$TESTDIR/activate.stdout 2>>$TESTDIR/activate.stderr || bail "Activate failed."
 
 # allow writing tests for failure cases
 set +e
 # Wait for polling pass to finish.
-flowctl api await --build-id ${BUILD_ID} 1>$TESTDIR/await.stdout 2>$TESTDIR/await.stderr
+touch $TESTDIR/await.stdout
+touch $TESTDIR/await.stderr
+tail -f $TESTDIR/await.stdout &
+tail -f $TESTDIR/await.stderr &
+flowctl api await --build-id ${BUILD_ID} 1>>$TESTDIR/await.stdout 2>>$TESTDIR/await.stderr
 await_status_code=$!
 set -e
 
