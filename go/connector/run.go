@@ -119,7 +119,7 @@ func Run(
 		)
 	}
 
-	if err := pullRemoteImage(ctx, image, logger); err != nil {
+	if err := PullRemoteImage(ctx, image, logger); err != nil {
 		// This might be a local image. Log an error and keep going.
 		// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
 		logger.Log(logrus.InfoLevel, logrus.Fields{
@@ -127,7 +127,7 @@ func Run(
 		}, "pull remote image does not succeed.")
 	}
 
-	if inspectOutput, err := inspectImage(ctx, image); err != nil {
+	if inspectOutput, err := InspectImage(ctx, image); err != nil {
 		return fmt.Errorf("inspect image: %w", err)
 	} else {
 		if jsonFiles == nil {
@@ -568,7 +568,7 @@ func (fe *firstError) unwrap() error {
 const maxStderrBytes = 4096
 const maxMessageSize = 1 << 23 // 8 MB.
 
-func pullRemoteImage(ctx context.Context, image string, logger ops.Logger) error {
+func PullRemoteImage(ctx context.Context, image string, logger ops.Logger) error {
 	var combinedOutput, err = exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput()
 	logger.Log(logrus.TraceLevel, nil, fmt.Sprintf("output from docker pull: %s", combinedOutput))
 	if err != nil {
@@ -577,7 +577,7 @@ func pullRemoteImage(ctx context.Context, image string, logger ops.Logger) error
 	return nil
 }
 
-func inspectImage(ctx context.Context, image string) (json.RawMessage, error) {
+func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
 	if output, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
 		return nil, fmt.Errorf("inspect image: %w", err)
 	} else {

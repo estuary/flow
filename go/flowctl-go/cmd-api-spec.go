@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"fmt"
 
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/materialize"
@@ -31,6 +33,16 @@ type apiSpec struct {
 	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
 }
 
+type imageConfig struct {
+	Labels map[string]string `json:"Labels"`
+}
+
+type imageInspect struct {
+	Config imageConfig `json:"Config"`
+}
+
+const FLOW_RUNTIME_PROTOCOL_KEY = "FLOW_RUNTIME_PROTOCOL"
+
 func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 	var endpointSpec, err = json.Marshal(struct {
 		Image  string   `json:"image"`
@@ -41,8 +53,35 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 		return specResponse{}, err
 	}
 
-	// TODO(johnny): Switch to Docker labels, to annotate Estuary connectors.
-	if strings.HasPrefix(cmd.Image, "ghcr.io/estuary/materialize-") {
+	// This might be a local image and might fail because of that
+	// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
+	err = connector.PullRemoteImage(ctx, cmd.Image, ops.StdLogger())
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"error":    err,
+		}).Info("pull remote image does not succeed.")
+	}
+	inspectOutput, err := connector.InspectImage(ctx, cmd.Image)
+	if err != nil {
+		return specResponse{}, fmt.Errorf("inspecting image %w", err)
+	}
+	var parsedInspects []imageInspect
+	err = json.Unmarshal(inspectOutput, &parsedInspects)
+	if err != nil {
+		return specResponse{}, fmt.Errorf("parsing inspect image %w", err)
+	}
+	labels := parsedInspects[0].Config.Labels
+
+	if protocol_key, ok := labels[FLOW_RUNTIME_PROTOCOL_KEY]; ok {
+		if protocol_key == "materialize" {
+			return cmd.specMaterialization(ctx, endpointSpec)
+		} else if protocol_key == "capture" {
+			return cmd.specCapture(ctx, endpointSpec)
+		} else {
+			return specResponse{}, fmt.Errorf("image labels specify unknown protocol %s=%s", FLOW_RUNTIME_PROTOCOL_KEY, protocol_key)
+		}
+	} else if strings.HasPrefix(cmd.Image, "ghcr.io/estuary/materialize-") {
+		// For backward compatibility with old images that do not have the labels
 		return cmd.specMaterialization(ctx, endpointSpec)
 	} else {
 		return cmd.specCapture(ctx, endpointSpec)
