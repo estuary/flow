@@ -1,0 +1,2 @@
+name,kind,level,message
+examples/source-test-no-state,capture,warn,"connector exited without writing a final state checkpoint, writing an empty object {} merge patch driver checkpoint."
