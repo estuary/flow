@@ -148,8 +148,9 @@ for table_expected in ${TEST_ROOT}/*.tunnel.rows; do
     actual=${TESTDIR}/${table_id}.rows
 
     columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+    first_column=$(echo $columns | sed 's/",.*//')
 
-    ssh_psql_exec -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
+    ssh_psql_exec -c "SELECT \"$columns\" FROM $table_id ORDER BY \"$first_column\";" --csv -P pager=off >> $actual
     diff --suppress-common-lines $actual $table_expected || bail "Test failed"
 done
 
@@ -160,8 +161,9 @@ for table_expected in ${TEST_ROOT}/*.local.rows; do
     actual=${TESTDIR}/${table_id}.rows
 
     columns=$(head -n 1 $table_expected | sed 's/,/","/g')
+    first_column=$(echo $columns | sed 's/",.*//')
 
-    psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
+    psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id ORDER BY \"$first_column\";" --csv -P pager=off >> $actual
     diff --suppress-common-lines $actual $table_expected || bail "Test failed"
 done
 
@@ -176,7 +178,6 @@ for table_expected in ${TEST_ROOT}/logs; do
     # we don't want to grep the column names, so we create a headless version of the expected file
     headless_expected="$TESTDIR/$table_id.headless"
     tail +2 $table_expected > $headless_expected
-
     psql -h localhost -w -U flow -d flow -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $actual
     # content of $table_expected must be found in $actual
     cat $actual | grep -f $headless_expected || bail "$headless_expected not found in $actual"

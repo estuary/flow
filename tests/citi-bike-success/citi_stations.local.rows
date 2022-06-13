@@ -5,7 +5,6 @@ id,name,arrival/ride,departure/ride
 3184,Paulus Hook,315,278
 3185,City Hall,448,391
 3186,Grove St PATH,1967,1603
-3271,Danforth Light Rail,13,12
 3187,Warren St,400,371
 3188,NJCU,20,24
 3189,West Side Light Rail,20,19
@@ -41,6 +40,7 @@ id,name,arrival/ride,departure/ride
 3268,Lafayette Park,91,79
 3269,Brunswick & 6th,304,287
 3270,Jersey & 6th St,221,305
+3271,Danforth Light Rail,13,12
 3272,Jersey & 3rd,285,342
 3273,Manila & 1st,280,196
 3274,Bethune Center,1,3
