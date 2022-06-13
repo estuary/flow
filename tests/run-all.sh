@@ -11,3 +11,7 @@ echo "running source-test-exit-status"
 echo
 echo "running source-test-no-state"
 ./run-end-to-end.sh source-test-no-state
+echo
+echo "running push-capture"
+./run-end-to-end.sh push-capture
+
