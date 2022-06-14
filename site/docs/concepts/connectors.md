@@ -335,10 +335,8 @@ materializations:
               # tunneling from the SSH server.
               forwardPort: 5432
               # Location of the remote SSH server that supports tunneling.
-              # Formatted as ssh://hostname[:port].
-              sshEndpoint: ssh://198.21.98.1
-              # Username to connect to the SSH server.
-              user: sshUser
+              # Formatted as ssh://user@hostname[:port].
+              sshEndpoint: ssh://sshUser@198.21.98.1
               # Private key to connect to the SSH server, formatted as multiline plaintext.
               # Use the YAML literal block style with the indentation indicator.
               # See https://yaml-multiline.info/ for details.
