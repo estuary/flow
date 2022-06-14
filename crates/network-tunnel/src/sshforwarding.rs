@@ -159,7 +159,9 @@ impl NetworkTunnel for SshForwarding {
             last_line.push_str(read_str);
             tracing::debug!("ssh stderr: {}", &last_line);
 
-            if last_line.contains("Local forwarding listening") {
+            // OpenSSH will enter interactive session after tunnelling has been
+            // successful
+            if last_line.contains("Entering interactive session.") {
                 tracing::debug!("ssh tunnel is listening & ready for serving requests");
                 break;
             }
