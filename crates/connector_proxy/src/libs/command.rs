@@ -71,7 +71,7 @@ pub fn invoke_connector_delayed(entrypoint: String, args: Vec<String>) -> Result
         "sh",
         &vec![
             "-c".to_string(),
-            format!("read -r && exec {entrypoint} {flat_args}"),
+            format!("read -r connector_proxy_dummy_var && exec {entrypoint} {flat_args}"),
         ],
     )
 }
