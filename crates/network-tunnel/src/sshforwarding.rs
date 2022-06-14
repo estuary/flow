@@ -177,6 +177,8 @@ impl NetworkTunnel for SshForwarding {
                 exit_code = ?exit_status.code(),
                 message = "network tunnel ssh exit with non-zero code."
             );
+
+            return Err(Error::TunnelExitNonZero(format!("{:#?}", exit_status)))
         }
 
         Ok(())
