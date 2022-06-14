@@ -70,7 +70,6 @@ flowctl temp-data-plane \
     --sigterm \
     --tempdir ${TESTDIR} \
     --unix-sockets \
-    --log.level=debug \
     1>$TESTDIR/data-plane.stdout \
     2>$TESTDIR/data-plane.stderr \
     &
@@ -79,12 +78,15 @@ DATA_PLANE_PID=$!
 tail -f $TESTDIR/data-plane.stdout &
 tail -f $TESTDIR/data-plane.stderr &
 
+
 # `flowctl temp-data-plane` always uses ./builds/ of --tempdir as its --flow.builds-root.
 # See cmd-temp-data-plane.go.
 export BUILDS_ROOT=${TESTDIR}/builds
 
 # Arrange to stop the data plane on exit and remove the temporary directory.
-trap "kill -s SIGKILL ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed" EXIT
+trap "kill -s SIGKILL ${DATA_PLANE_PID} && stopTestInfra && cleanupDataIfPassed && killall tail" EXIT
+# do not clean up temporary directory on SIGINT and SIGTERM
+trap "kill -s SIGKILL ${DATA_PLANE_PID} && stopTestInfra && killall tail" SIGINT SIGTERM
 
 BUILD_ID=run-end-to-end-${TEST}
 
@@ -98,7 +100,6 @@ flowctl api build \
     --build-id ${BUILD_ID} \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
-    --log.level=debug \
     1>>$TESTDIR/build.stdout \
     2>>$TESTDIR/build.stderr \
     || bail "Catalog build failed."
