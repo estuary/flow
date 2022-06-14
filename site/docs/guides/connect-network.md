@@ -19,10 +19,10 @@ basic configuration options.
 
 2. Referencing the config files and shell output, collect the following information:
 
-   * The **SSH endpoint** for the SSH server, formatted as `ssh://hostname[:port]`. This may look like the any of following:
-     * `ssh://ec2-198-21-98-1.compute-1.amazonaws.com`
-     * `ssh://198.21.98.1`
-     * `ssh://198.21.98.1:22`
+   * The **SSH endpoint** for the SSH server, formatted as `ssh://user@hostname[:port]`. This may look like the any of following:
+     * `ssh://sshuser@ec2-198-21-98-1.compute-1.amazonaws.com`
+     * `ssh://sshuser@198.21.98.1`
+     * `ssh://sshuser@198.21.98.1:22`
    * The SSH **user**, which will be used to log into the SSH server, for example, `sshuser`. You may choose to create a new
   user for this workflow.
 
@@ -162,9 +162,8 @@ note that instructions for other database engines may be different.
 
 After you've completed the prerequisites, you should have the following parameters:
 
-* **SSH Endpoint** / `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://hostname[:port]`
+* **SSH Endpoint** / `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://user@hostname[:port]`
 * **Private Key** / `privateKey`: the contents of the PEM file
-* **User** / `user`: the username used to connect to the SSH server.
 * **Forward Host** / `forwardHost`: the capture or materialization endpoint's host
 * **Forward Port** / `forwardPort`: the capture or materialization endpoint's port
 * **Local Port** / `localPort`: the port on the localhost used to connect to the SSH server
