@@ -74,6 +74,7 @@ impl NetworkTunnel {
             Some(c) => serde_json::from_value(c)?,
         };
 
+        tracing::info!("starting network tunnel");
         let (mut tx, rx) = oneshot::channel();
         tokio::spawn(Self::start_network_tunnel(network_tunnel_config, rx));
 
