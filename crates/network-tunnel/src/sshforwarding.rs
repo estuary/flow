@@ -159,7 +159,9 @@ impl NetworkTunnel for SshForwarding {
             last_line.push_str(read_str);
             tracing::debug!("ssh stderr: {}", &last_line);
 
-            if last_line.contains("Local forwarding listening") {
+            // OpenSSH will enter interactive session after tunnelling has been
+            // successful
+            if last_line.contains("Entering interactive session.") {
                 tracing::debug!("ssh tunnel is listening & ready for serving requests");
                 break;
             }
@@ -169,8 +171,6 @@ impl NetworkTunnel for SshForwarding {
                 .map(|s| s.to_string())
                 .unwrap_or(String::new());
         }
-
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         self.process = Some(child);
 
