@@ -70,6 +70,7 @@ flowctl temp-data-plane \
     --sigterm \
     --tempdir ${TESTDIR} \
     --unix-sockets \
+    --log.level=debug \
     1>$TESTDIR/data-plane.stdout \
     2>$TESTDIR/data-plane.stderr \
     &
