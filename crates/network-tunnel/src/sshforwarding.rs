@@ -170,6 +170,8 @@ impl NetworkTunnel for SshForwarding {
                 .unwrap_or(String::new());
         }
 
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
         self.process = Some(child);
 
         Ok(())
