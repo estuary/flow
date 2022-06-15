@@ -6,6 +6,6 @@ expression: errors
 [
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
-        error: collection testing/int-string key cannot be empty,
+        error: collection testing/int-string key cannot be empty (https://go.estuary.dev/Zq6zVB),
     },
 ]

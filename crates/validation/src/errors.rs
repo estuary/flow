@@ -55,7 +55,7 @@ pub enum Error {
     },
     #[error("referenced schema fragment location {schema} does not exist")]
     NoSuchSchema { schema: Url },
-    #[error("collection {collection} key cannot be empty")]
+    #[error("collection {collection} key cannot be empty (https://go.estuary.dev/Zq6zVB)")]
     CollectionKeyEmpty { collection: String },
     #[error("collection {collection} schema must be an object")]
     CollectionSchemaNotObject { collection: String },
