@@ -2,6 +2,7 @@ package mainboilerplate
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -9,6 +10,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // AddressConfig of a remote service.
@@ -20,8 +22,8 @@ type AddressConfig struct {
 func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 	var cc, err = grpc.DialContext(ctx,
 		c.Address.GRPCAddr(),
-		grpc.WithInsecure(),
-		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, pb.DispatcherGRPCBalancerName)),
 		// Use a tighter bound for the maximum back-off delay (default is 120s).
 		// TODO(johnny): Make this configurable?
 		grpc.WithBackoffMaxDelay(time.Second*5),

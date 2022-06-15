@@ -15,6 +15,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Server bundles gRPC & HTTP servers, multiplexed over a single bound TCP
@@ -91,8 +92,8 @@ func New(iface string, port string) (*Server, error) {
 	srv.GRPCLoopback, err = grpc.DialContext(
 		context.Background(),
 		srv.RawListener.Addr().String(),
-		grpc.WithInsecure(),
-		grpc.WithBalancerName(pb.DispatcherGRPCBalancerName),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, pb.DispatcherGRPCBalancerName)),
 		// This grpc.ClientConn connects to this server's loopback, and also
 		// to peer server addresses via the dispatch balancer. It has particular
 		// knowledge of what addresses *should* be reach-able (from Etcd
