@@ -196,8 +196,7 @@ Your installation is seeded with three existing users:
 * bob@example.com
 * carol@example.com
 
-All have the password `password`. You can also "Sign Up" as a new user through email.
-It doesn't actually send an email and will immediately log you in as that user.
+To login with a Magic Link you need to enter an email and then your local will "send" an email. To check this email you need to use Inbucket [http://localhost:5434/](http://localhost:5434/) and click on the link provided in the email.
 
 ### Use the `flowctl` CLI:
 
