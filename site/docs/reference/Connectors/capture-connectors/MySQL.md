@@ -58,7 +58,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** | Server Address and Port | The host:port at which the database can be reached. | string | Required |
+| **`/address`** | Server Address | The host or host:port at which the database can be reached. | string | Required |
 | **`/user`** | Login User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Login Password | Password for the specified database user. | string | Required |
 | `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |

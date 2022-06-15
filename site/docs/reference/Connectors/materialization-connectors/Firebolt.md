@@ -111,7 +111,7 @@ In some cases, this will affect how materialized views look in Firebolt compared
 ## Reserved words
 
 Firebolt has a list of reserved words, which my not be used in identifiers.
-Collections with field names that include a reserved word may not be materialized to Firebolt.
+Collections with field names that include a reserved word will automatically be quoted as part of a Firebolt materialization.
 
 |Reserved words| | |
 |---|---|---|

@@ -16,10 +16,7 @@ To use this connector, you'll need:
 
   If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 
-* The spreadsheet ID for your Google spreadsheet.
-This is a string of characters that can be found as a segment of the spreadsheet URL in your browser. The example below shows this structure:
-
-  `https://docs.google.com/spreadsheets/d/SPREADSHEETID/edit#gid=0`
+* The Google spreadsheet URL.
 
 * Google Sheets and Google Drive APIs enabled on your Google account.
 
@@ -51,7 +48,7 @@ Use the below properties to configure a Google Sheets materialization.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/googleCredentials`** | Google Service Account | Service account JSON key to use as Application Default Credentials | string | Required |
-| **`/spreadsheetId`** | Spreadsheet ID | ID of the spreadsheet to materialize, which is shared with the service account. | string | Required |
+| **`/spreadsheetURL`** | Spreadsheet URL | URL of the spreadsheet to materialize into, which is shared with the service account. | string | Required |
 
 #### Bindings
 
