@@ -128,10 +128,6 @@ You're able to apply the connector directly to the primary instance if you'd lik
 1. You'll need to configure secure access to the database to enable the Flow capture.
   Estuary recommends SSH tunneling to allow this.
   Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
-  :::info beta
-  SSH tunneling on the MySQL source connector is actively being worked on and will be fully supported soon.
-  If you encounter issues with this feature, [contact Estuary support](mailto:support@estuary.dev).
-  :::
 
 2. Create a RDS parameter group to enable replication in MySQL.
 
