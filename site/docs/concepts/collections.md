@@ -239,6 +239,12 @@ and it is generally good practice to chose a key that reflects how
 you wish to _query_ a collection, rather than an exhaustive key
 that's certain to be unique for every document.
 
+### Empty keys
+
+When a catalog is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
+
+In cases like this, the generated catalog will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated catalog and specify keys for those collections before using the catalog.
+
 ## Projections
 
 Projections are named locations within a collection document that may be used for
