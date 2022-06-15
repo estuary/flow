@@ -139,7 +139,7 @@ impl NetworkTunnel for SshForwarding {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        // Read stderr of SSH until we find "Local forwarding listening", which means
+        // Read stderr of SSH until we find a signal message that
         // the ports are open and we are ready to serve requests
         let mut stderr = child.stderr.take().unwrap();
         let mut last_line = String::new();
