@@ -48,6 +48,7 @@ fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
         "type": "string",
         // This annotation is interpreted by the UI to render this as a multiline input.
         "multiline": true,
+        "secret": true
     }))
     .unwrap()
 }
