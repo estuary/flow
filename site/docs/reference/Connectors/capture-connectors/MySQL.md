@@ -11,8 +11,8 @@ You can also follow the link in your browser to see past image versions.
 To use this connector, you'll need a MySQL database setup with the following:
 * [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
   system variable set to `ROW` (the default value).
-* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) of at at least seven days.
-If possible, it's recommended to keep the default setting of 2592000 seconds (30 days).
+* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
+  - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
 * A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
@@ -43,7 +43,7 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
-3. Configure the binary log to retain data for at least seven days, if previously set lower. If possible, it's recommended to use the default MySQL setting of 2592000 seconds (30 days).
+3. Configure the binary log to retain data for the default MySQL setting of 30 days, if previously set lower.
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
@@ -137,7 +137,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
       * read_only: 0
 
    3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
+   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 30 days.
    Reboot the database to allow the changes to take effect.
 
 3. Create a read replica with the new parameter group applied (recommended).
@@ -148,7 +148,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
    2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
    and set the following:
       * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 7 days
+      * **Backup retention period**: 30 days
 
    3. Reboot the replica to allow the changes to take effect.
 
@@ -166,9 +166,9 @@ GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to seven days:
+5. Run the following command to set the binary log retention to 30 days:
 ```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 168);
+CALL mysql.rds_set_configuration('binlog retention hours', 720);
 ```
 
 ### Google Cloud SQL
@@ -221,4 +221,8 @@ This should never happen, and most likely means that the MySQL binlog itself is 
 
 ### Insufficient Binlog Retention
 
-If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time. This should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
+If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
+
+(If this were to happen, then change events would be permanently lost and that particular capture would never be able to make progress without potentially producing incorrect data. Thus the capture would need to be torn down and recreated so that each table could be re-captured in its entirety, starting with a complete backfill of current contents.)
+
+The `"binlog retention period is too short"` error should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
