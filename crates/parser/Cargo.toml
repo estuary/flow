@@ -40,6 +40,10 @@ unicode-normalization = "*"
 url = "*"
 uuid = {version = "*", features = ["v4"]}
 zip = "*"
+strum = { version = "0.24.1", features = ["derive"] }
+bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
+lazy_static = "1.4.0"
+regex = "1.5.6"
 
 [dev-dependencies]
 assert_cmd = "*"

@@ -54,6 +54,7 @@ impl Input {
     /// bytes. The returned `Bytes` will contain a duplicate of the first `max_bytes` (at most)
     /// from `self`.
     pub fn peek(self, max_bytes: usize) -> io::Result<(Bytes, Input)> {
+        // TODO: it might be worth optimizing for the case where `peek` is called multiple times
         match self {
             Input::File(mut f) => {
                 let result = read_at_most(&mut f, max_bytes)?;
@@ -78,10 +79,16 @@ impl Input {
         }
     }
 
-    // Converts `self` into UTF-8. If the `source_encoding` is specified, then it is assumed to be
-    // correct. Otherwise, this will attempt to detect the source encoding based on the first
-    // `max_peek` bytes. If the source encoding is already UTF-8, then no transcoding will be
-    // performed.
+    /// Converts `self` into UTF-8. If the `source_encoding` is specified, then it is assumed to be
+    /// correct. Otherwise, this will attempt to detect the source encoding based on the first
+    /// `max_peek` bytes. If the source encoding is already UTF-8, then no transcoding will be
+    /// performed. This means that we can't _guarantee_ that the output bytes are valid utf-8
+    /// because there may still be invalid bytes after the `max_peek`. This is considered a fine
+    /// tradeoff because:
+    /// - Invalid utf-8 will be caught anyway by parser implementations, for example by reading into
+    ///   a String.
+    /// - It would be nice to avoid duplicating the work of utf-8 validation, especially since this
+    ///   is likely to be by far the most common input encoding.
     pub fn transcode_non_utf8(
         self,
         source_encoding: Option<EncodingRef>,
@@ -96,32 +103,26 @@ impl Input {
             (detected, new_input)
         };
 
-        // If the source encoding is already utf-8, then we'll just pass it through. This does mean
-        // that we _can't_ guarantee that the output bytes are valid utf-8. This is considered a fine
-        // tradeoff because:
-        // - Invalid utf-8 will be caught anyway by parser implementations, for example by reading into
-        //   a String.
-        // - It would be nice to avoid duplicating the work of utf-8 validation, especially since this
-        //   is likely to be by far the most common input encoding.
         if resolved_encoding.is_utf8() {
             Ok(input)
         } else {
-            tracing::debug!(
-                "transcoding from '{}' into utf-8",
-                resolved_encoding.encoding().name()
-            );
-            let reader = self::encoding::TranscodingReader::with_buffer_size(
-                input.into_stream(),
-                resolved_encoding,
-                8192,
-            );
-            Ok(Input::Stream(Box::new(reader)))
+            Ok(input.transcode_to_utf8(resolved_encoding))
         }
     }
 
+    /// Wraps the input stream in a TranscodingReader that converts the input into utf-8.
+    pub fn transcode_to_utf8(self, source_encoding: EncodingRef) -> Self {
+        tracing::debug!("transcoding from '{}' into utf-8", source_encoding);
+        let reader = self::encoding::TranscodingReader::with_buffer_size(
+            self.into_stream(),
+            source_encoding,
+            8192,
+        );
+        Input::Stream(Box::new(reader))
+    }
+
     pub fn decompressed(self, compression: Compression) -> Result<Self, CompressionError> {
-        let decompressed = self::compression::decompress_input(self, compression)?;
-        Ok(Input::Stream(decompressed))
+        self::compression::decompress_input(self, compression)
     }
 }
 

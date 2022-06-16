@@ -1,7 +1,6 @@
 mod avro;
 mod character_separated;
 mod json;
-mod projection;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -34,9 +33,6 @@ pub enum ParseError {
     #[error("adding fields to json: {0}")]
     AddFields(#[from] AddFieldError),
 
-    #[error("failed to build projections: {0}")]
-    BuildingProjections(#[from] projection::BuildError),
-
     #[error("failed to parse content: {0}")]
     Parse(#[from] Box<dyn std::error::Error>),
 
@@ -56,31 +52,35 @@ pub enum ParseError {
 #[tracing::instrument(level = "debug", skip(content))]
 pub fn resolve_config(
     config: &ParseConfig,
-    mut content: Input,
-) -> Result<(ParseConfig, Input), ParseError> {
-    let mut resolved = ParseConfig::default().override_from(config);
-    if let Some(f) = config.format {
-        tracing::debug!("using provided format: {}", f);
+    content: Input,
+) -> Result<(Format, Compression, Input), ParseError> {
+    let resolved_format = if let Some(f) = config.format.non_auto() {
+        tracing::debug!("using user-provided format: {:?}", f);
+        f.clone()
     } else {
-        let inferred = determine_format(&resolved).ok_or_else(|| ParseError::CannotInferFormat)?;
-        tracing::info!("inferred format: {}", inferred);
-        resolved.format = Some(inferred);
-    }
+        let inferred = determine_format(&config).ok_or_else(|| ParseError::CannotInferFormat)?;
+        tracing::info!(format = %inferred, "inferred format");
+        inferred
+    };
 
-    if let Some(c) = config.compression {
-        tracing::debug!(compression = %c, "using provided compression");
-    } else {
-        let mut inferred = determine_compression(&resolved);
-        if inferred.is_none() {
-            let (bytes, new_input) = content.peek(32)?;
-            content = new_input;
-            inferred = detect_compression(&bytes);
+    let (resolved_compression, input) = match determine_compression(&config) {
+        Some(from_conf) => {
+            tracing::debug!(compression = %from_conf, "determined compression from configuration");
+            (from_conf, content)
         }
-        tracing::debug!(compression = ?inferred, "inferred compression");
-        resolved.compression = inferred;
-    }
+        None => {
+            let (bytes, new_input) = content.peek(32)?;
+            if let Some(from_file) = detect_compression(&bytes) {
+                tracing::debug!(compression = %from_file, "determined compression from file contents");
+                (from_file, new_input)
+            } else {
+                tracing::debug!("assuming content is uncompressed");
+                (Compression::None, new_input)
+            }
+        }
+    };
 
-    Ok((resolved, content))
+    Ok((resolved_format, resolved_compression, input))
 }
 
 /// Drives the parsing process using the given configuration, input, and output streams. The
@@ -91,28 +91,29 @@ pub fn parse(
     content: Input,
     dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
-    let (config, content) = resolve_config(config, content)?;
-    tracing::debug!(config = ?config, "resolved config");
-    let format = config.format.ok_or(ParseError::MissingFormat)?;
-    let parser = parser_for(format);
+    let (resolved_format, resolved_compression, content) = resolve_config(config, content)?;
+    tracing::debug!(format = ?resolved_format, compression = %resolved_compression, "resolved config");
 
-    let input = if parser.decompress() && config.compression.is_some() {
-        content.decompressed(config.compression.unwrap())?
+    let parser = parser_for(resolved_format);
+
+    // Do we need to decompress the input before sending it to the parser?
+    let input = if parser.decompress() {
+        content.decompressed(resolved_compression)?
     } else {
         content
     };
 
-    let output = parser.parse(&config, input)?;
+    let output = parser.parse(input)?;
     format_output(&config, output, dest)
 }
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
-        Format::Json => json::new_parser(),
-        Format::Csv => character_separated::new_csv_parser(),
-        Format::Tsv => character_separated::new_tsv_parser(),
-        Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
-        Format::Avro => avro::new_parser(),
+        Format::Auto(()) => character_separated::new_csv_parser(Default::default()),
+        Format::Json(()) => json::new_parser(),
+        Format::Csv(csv_config) => character_separated::new_csv_parser(csv_config),
+        Format::W3cExtendedLog(()) => character_separated::new_w3c_extended_log_parser(),
+        Format::Avro(()) => avro::new_parser(),
     }
 }
 
@@ -136,8 +137,8 @@ pub trait Parser {
         true
     }
 
-    /// Parse the given `content` using the `config`, which will already have been fully resolved.
-    fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError>;
+    /// Parse the given `content`
+    fn parse(&self, content: Input) -> Result<Output, ParseError>;
 }
 
 /// Takes the output of a parser and writes it to the given destination, generally stdout.
@@ -165,23 +166,45 @@ fn format_output(
 
 /// Attempts to reoslve a Format using the the fields in the config.
 fn determine_format(config: &ParseConfig) -> Option<Format> {
-    config
-        .format // If format is set, then use whatever it says
-        .clone()
-        .or_else(|| {
-            // Try to determine based on file extension
-            config.filename.as_deref().and_then(|filename| {
-                extensions(filename)
-                    .find_map(|ext| config.file_extension_mappings.get(ext).cloned())
-            })
+    Some(
+        config
+            .format // If format is set, then use whatever it says
+            .clone(),
+    )
+    .filter(|f| !f.is_auto())
+    .or_else(|| {
+        // Try to determine based on file extension
+        config.filename.as_deref().and_then(|filename| {
+            extensions(filename).find_map(|ext| format_for_file_extension(ext))
         })
-        .or_else(|| {
-            // Try to determine based on content-type
-            config
-                .content_type
-                .as_deref()
-                .and_then(|content_type| config.content_type_mappings.get(content_type).cloned())
-        })
+    })
+    .or_else(|| {
+        // Try to determine based on content-type
+        config
+            .content_type
+            .as_deref()
+            .and_then(|content_type| format_for_content_type(content_type))
+    })
+}
+
+fn format_for_content_type(content_type: &str) -> Option<Format> {
+    match content_type {
+        "application/json" => Some(Format::Json(())),
+        "text/json" => Some(Format::Json(())),
+        "text/csv" => Some(Format::Csv(Default::default())),
+        "text/tab-separated-values" => Some(Format::Csv(Default::default())),
+        _ => None,
+    }
+}
+
+fn format_for_file_extension(extension: &str) -> Option<Format> {
+    match extension {
+        "jsonl" | "json" => Some(Format::Json(())),
+        "csv" => Some(Format::Csv(Default::default())),
+        "tsv" => Some(Format::Csv(Default::default())),
+        "avro" => Some(Format::Avro(())),
+        _ => None,
+    }
 }
 
 fn extensions(filename: &str) -> impl Iterator<Item = &str> {
@@ -195,12 +218,13 @@ fn extensions(filename: &str) -> impl Iterator<Item = &str> {
 }
 
 fn determine_compression(config: &ParseConfig) -> Option<Compression> {
-    if config.compression.is_some() {
-        return config.compression.clone();
+    if config.compression.as_ref().is_some() {
+        return config.compression.as_ref().cloned();
     }
     config
         .compression
-        .clone()
+        .as_ref()
+        .cloned()
         .or_else(|| {
             config
                 .filename
@@ -263,11 +287,11 @@ mod test {
     #[test]
     fn compression_is_determined_from_filename() {
         let conf = ParseConfig {
-            filename: Some("some.csv.zip".to_string()),
+            filename: "some.csv.zip".to_string().into(),
             // content encoding disagrees, but we ignore it
-            content_encoding: Some("gzip".to_string()),
+            content_encoding: "gzip".to_string().into(),
             // content_type disagrees, but we ignore it
-            content_type: Some("application/gzip".to_string()),
+            content_type: "application/gzip".to_string().into(),
             ..Default::default()
         };
         let result = determine_compression(&conf).expect("failed to determine compression");
@@ -307,7 +331,7 @@ mod test {
             content_type: Some("xml or something lol".to_string()),
             ..Default::default()
         };
-        assert_format_eq(Some(Format::Json), &conf);
+        assert_format_eq(Some(Format::Json(())), &conf);
         conf.filename = Some("nope.jason".to_string());
         assert_format_eq(None, &conf);
     }
@@ -319,9 +343,9 @@ mod test {
             content_type: Some("application/json".to_string()),
             ..Default::default()
         };
-        assert_format_eq(Some(Format::Json), &conf);
+        assert_format_eq(Some(Format::Json(())), &conf);
         conf.content_type = Some("text/json".to_string());
-        assert_format_eq(Some(Format::Json), &conf);
+        assert_format_eq(Some(Format::Json(())), &conf);
         conf.content_type = Some("wat".to_string());
         assert_format_eq(None, &conf);
     }

@@ -8,202 +8,64 @@ expression: schema
   "description": "Configures how files are parsed",
   "type": "object",
   "properties": {
-    "addRecordOffset": {
-      "description": "Add the record offset as a property of each object at the location given. The offset is a monotonic counter that starts at 0 and increases by 1 for each output document.",
-      "examples": [
-        "/json/pointer"
-      ],
-      "type": "string",
-      "pattern": "^(/[^/]+)*$"
-    },
-    "addValues": {
-      "description": "Static data to add to each output JSON document.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": true
-    },
     "compression": {
-      "title": "compression",
-      "description": "compression forces the use of the given compression format to decompress the contents. If unspecified, then the compression (or lack thereof) will be inferred from the filename, content-encoding, content-type, or file contents.",
-      "type": "string",
-      "enum": [
-        "gzip",
-        "zip"
-      ]
-    },
-    "contentTypeMappings": {
-      "description": "Mappings from content types to format identifiers.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
-        "title": "format",
-        "description": "Specifies the format to use for parsing, which overrides the default behavior of infering the format.",
-        "type": "string",
-        "enum": [
-          "json",
-          "csv",
-          "tsv",
-          "w3cExtendedLog",
-          "avro"
-        ]
-      }
-    },
-    "csv": {
-      "description": "Configures handling of comma-separated values (CSV) format.",
-      "type": "object",
-      "properties": {
-        "delimiter": {
-          "description": "The delimiter that separates values within each row. Only single-byte delimiters are supported.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
+      "title": "Compression",
+      "description": "Determines how to decompress the contents. The default, 'Auto', will try to determine the compression automatically.",
+      "default": null,
+      "oneOf": [
+        {
+          "title": "GZip",
+          "const": "Gzip"
         },
-        "encoding": {
-          "title": "encoding",
-          "description": "The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label.",
-          "type": "string",
-          "pattern": "^[a-z0-9_\\-:]{2,20}$"
+        {
+          "title": "Zip Archive",
+          "const": "ZipArchive"
         },
-        "errorThreshold": {
-          "title": "errorThreshold",
-          "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
-          "type": [
-            "integer"
-          ],
-          "maximum": 100.0,
-          "minimum": 0.0
+        {
+          "title": "None",
+          "const": "None"
         },
-        "escape": {
-          "description": "The escape character, used to escape quotes within fields.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
-        },
-        "headers": {
-          "description": "Manually specified headers, which can be used in cases where the file itself doesn't contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here.",
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "lineEnding": {
-          "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
-          "oneOf": [
-            {
-              "type": "string",
-              "enum": [
-                "\r\n"
-              ]
-            },
-            {
-              "description": "A single character in the range 0-127",
-              "type": "string",
-              "maxLength": 1,
-              "minLength": 1
-            }
-          ]
-        },
-        "quote": {
-          "description": "The character used to quote fields.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
+        {
+          "title": "Auto",
+          "const": null
         }
-      }
-    },
-    "fileExtensionMappings": {
-      "description": "Mappings from file extensions to format identifiers.",
-      "default": {},
-      "type": "object",
-      "additionalProperties": {
-        "title": "format",
-        "description": "Specifies the format to use for parsing, which overrides the default behavior of infering the format.",
-        "type": "string",
-        "enum": [
-          "json",
-          "csv",
-          "tsv",
-          "w3cExtendedLog",
-          "avro"
-        ]
-      }
+      ]
     },
     "format": {
-      "title": "format",
-      "description": "format forces the use of the given parser and disables automatic format detection. If unspecified, then the format will be inferred from the filename, content-type, or file contents.",
-      "type": "string",
-      "enum": [
-        "json",
-        "csv",
-        "tsv",
-        "w3cExtendedLog",
-        "avro"
-      ]
-    },
-    "tsv": {
-      "description": "Configures handling of tab-separated values (TSV) format.",
+      "title": "Format",
+      "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
+      "default": {
+        "config": null,
+        "type": "Auto"
+      },
       "type": "object",
       "properties": {
-        "delimiter": {
-          "description": "The delimiter that separates values within each row. Only single-byte delimiters are supported.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
-        },
-        "encoding": {
-          "title": "encoding",
-          "description": "The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label.",
-          "type": "string",
-          "pattern": "^[a-z0-9_\\-:]{2,20}$"
-        },
-        "errorThreshold": {
-          "title": "errorThreshold",
-          "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
-          "type": [
-            "integer"
-          ],
-          "maximum": 100.0,
-          "minimum": 0.0
-        },
-        "escape": {
-          "description": "The escape character, used to escape quotes within fields.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
-        },
-        "headers": {
-          "description": "Manually specified headers, which can be used in cases where the file itself doesn't contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here.",
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "lineEnding": {
-          "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
+        "type": {
           "oneOf": [
             {
-              "type": "string",
-              "enum": [
-                "\r\n"
-              ]
+              "title": "Auto",
+              "const": "Auto"
             },
             {
-              "description": "A single character in the range 0-127",
-              "type": "string",
-              "maxLength": 1,
-              "minLength": 1
+              "title": "CSV",
+              "const": "CSV"
+            },
+            {
+              "title": "JSON",
+              "const": "JSON"
+            },
+            {
+              "title": "Avro",
+              "const": "Avro"
+            },
+            {
+              "title": "W3C Extended Log",
+              "const": "W3cExtendedLog"
             }
           ]
-        },
-        "quote": {
-          "description": "The character used to quote fields.",
-          "type": "string",
-          "maxLength": 1,
-          "minLength": 1
         }
-      }
+      },
+      "order": 0
     }
   }
 }
