@@ -21,13 +21,11 @@ pub fn detect_compression(prefix: &[u8]) -> Option<Compression> {
     }
 }
 
-pub fn decompress_input(
-    input: Input,
-    compression: Compression,
-) -> Result<Box<dyn Read>, CompressionError> {
+pub fn decompress_input(input: Input, compression: Compression) -> Result<Input, CompressionError> {
     match compression {
-        Compression::ZipArchive => decompress_zip_archive(input.into_file()?),
-        Compression::Gzip => decompress_gzip(input.into_stream()),
+        Compression::ZipArchive => decompress_zip_archive(input.into_file()?).map(Input::Stream),
+        Compression::Gzip => decompress_gzip(input.into_stream()).map(Input::Stream),
+        Compression::None => Ok(input),
     }
 }
 
