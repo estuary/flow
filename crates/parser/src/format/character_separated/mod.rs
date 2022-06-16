@@ -5,48 +5,33 @@ mod w3c_extended_log;
 
 use self::error_buffer::ParseErrorBuffer;
 use crate::config::{
-    csv::{CharacterSeparatedConfig, LineEnding},
-    ParseConfig,
+    character_separated::{AdvancedCsvConfig, Delimiter, Escape, LineEnding, Quote},
+    EnumSelection,
 };
-use crate::format::projection::{build_projections, Projection, Projections};
-use crate::format::{Format, Output, ParseError, ParseResult, Parser};
+use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::{detect_encoding, Input};
 use csv::{Reader, StringRecord, Terminator};
 use json::schema::types;
 use serde_json::Value;
 use std::io;
+use strum::IntoEnumIterator;
 
 /// Returns a parser for the [W3C extended log format](https://www.w3.org/TR/WD-logfile.html)
 pub use self::w3c_extended_log::new_w3c_extended_log_parser;
 
 /// Returns a Parser for the comma-separated values format.
-pub fn new_csv_parser() -> Box<dyn Parser> {
-    Box::new(CsvParser {
-        format: Format::Csv,
-        default_delimiter: b',',
-    })
-}
-
-/// Returns a Parser for the tab-separated values format.
-pub fn new_tsv_parser() -> Box<dyn Parser> {
-    Box::new(CsvParser {
-        format: Format::Tsv,
-        default_delimiter: b'\t',
-    })
+pub fn new_csv_parser(config: AdvancedCsvConfig) -> Box<dyn Parser> {
+    Box::new(CsvParser { config })
 }
 
 struct CsvParser {
-    /// The specific format associated with this parser. Used to lookup the correct configuration
-    /// section.
-    format: Format,
-    /// The default value used to separate values in a row.
-    default_delimiter: u8,
+    config: AdvancedCsvConfig,
 }
 
 // There's definitely some room for improvement in this function, but it doesn't seem worth the
 // time right now. This detection is only to provide a best-effort guess of the quote character in
 // the case that the config doesn't specifiy one.
-fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<u8> {
+fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<Quote> {
     let mut n_double = 0;
     let mut n_single = 0;
 
@@ -67,31 +52,71 @@ fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<u8> {
         None
     } else if n_double >= n_single {
         // If there's a tie, then I guess double quotes win?
-        Some(b'"')
+        Some(Quote::DoubleQuote)
     } else {
-        Some(b'\'')
+        Some(Quote::SingleQuote)
     }
 }
 
+/// Applies a not-quite-best-effort heuristic to determine a delimiter character that can hopefully
+/// work to parse the CSV file that has a prefix of `peeked` bytes. This implementation is super
+/// basic. It just counts the occurrences of common delimiters and returns the one with the most.
+/// A more sophisticated method would be to split on the line ending
+fn detect_delimiter(peeked: &[u8]) -> Delimiter {
+    let mut delims = Vec::<(Delimiter, usize)>::new();
+    for candidate in Delimiter::iter() {
+        let n = bytecount::count(peeked, candidate.byte_value());
+        delims.push((candidate, n));
+    }
+
+    // Sort by the number of observed matches, and then by the byte value of the delimiter. This
+    // means that lower numbered delimiters, such as control characters, will take precedence over
+    // those with higher byte values such as printable characters. This only serves to break a tie
+    // in the number of observed values, though, so that the selected delimiter in such cases is
+    // deterministic.
+    delims.sort_by_key(|elem| (peeked.len() - elem.1 as usize, elem.0.byte_value()));
+
+    let best = delims.first().unwrap();
+    // TODO: consider returning an error if the best delimiter still has 0 occurrences
+    tracing::debug!(delimiter = best.0.string_title(), "detected delimiter");
+    best.0
+}
+
 impl Parser for CsvParser {
-    fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError> {
-        let projections = build_projections(config)?;
-        let user_provided_config = get_config(self.format, config).cloned().unwrap_or_default();
+    fn parse(&self, content: Input) -> Result<Output, ParseError> {
+        // Peek at the input so we can detect the delimiter, quote character, and encoding.
+        let (peek, input) = content.peek(8096)?;
+
         // Transcode into UTF-8 before attempting to parse the CSV. This simplifies a lot, since
-        // our ultimate target is JSON in UTF-8, and since the configuration is also provided as
-        // JSON in UTF-8.
-        let (content_peek, input) = content.peek(2048)?;
-        let encoding = detect_encoding(&content_peek);
-        let input = if encoding.is_utf8() {
+        // our ultimate target is JSON in UTF-8, and we'd otherwise need to transcode every parsed
+        // value separately. This also saves us from having to transcode the delimiter, quote char,
+        // etc when configuring the CSV parser.
+        let input_encoding = self
+            .config
+            .encoding
+            .as_option()
+            .unwrap_or_else(|| detect_encoding(peek.as_ref()));
+
+        let input = if input_encoding.is_utf8() {
             input
         } else {
-            input.transcode_non_utf8(Some(encoding), 0)?
+            input.transcode_non_utf8(Some(input_encoding), 0)?
         };
 
-        let delim = user_provided_config
-            .delimiter
-            .map(Into::into)
-            .unwrap_or(self.default_delimiter);
+        // line ending _detection_ is not yet implemented, but CRLF is a pretty reasonable default
+        // since it also permits lone CR or LF characters.
+        let line_ending = self
+            .config
+            .line_ending
+            .as_option()
+            .unwrap_or(LineEnding::CRLF);
+
+        let delimiter = if let Some(delim) = self.config.delimiter.as_ref().cloned() {
+            tracing::debug!(delimiter = %delim, "using delimiter provided by configuration");
+            delim
+        } else {
+            detect_delimiter(peek.as_ref())
+        };
 
         let mut builder = csv::ReaderBuilder::new();
         // Configure the underlying parser to allow rows to have more columns than the header row.
@@ -99,42 +124,53 @@ impl Parser for CsvParser {
         // instead of reading the column names from the first row. `CsvOutput` will explicitly check
         // each row to ensure that it has no more columns than there are headers, which will account
         // for explicitly configured headers.
-        builder.delimiter(delim).flexible(true);
+        builder.flexible(true);
+        builder.delimiter(delimiter.byte_value());
 
-        // The default line ending is CRLF, and we'll stick with that unless the user specifies
-        // something different.
-        if let Some(ending) = user_provided_config.line_ending {
-            let terminator = match ending {
-                LineEnding::CRLF => Terminator::CRLF,
-                LineEnding::Other(c) => Terminator::Any(c.0),
-            };
-            builder.terminator(terminator);
-        }
+        let terminator = match line_ending {
+            LineEnding::CRLF => Terminator::CRLF,
+            LineEnding::CR => Terminator::Any(b'\r'),
+            LineEnding::LF => Terminator::Any(b'\n'),
+            LineEnding::RecordSeparator => Terminator::Any(0x1E),
+            LineEnding::Null => Terminator::Any(0),
+        };
+        builder.terminator(terminator);
 
         // If the user hasn't specified a quote character, then we'll try to detect it.
-        let quote = user_provided_config.quote.map(Into::into).or_else(|| {
-            let detected = detect_quote_char(delim, &content_peek);
-            tracing::debug!("detected quote char: {:?}", detected);
-            detected
-        });
-        if let Some(c) = quote {
-            builder.quote(c);
-        } else {
-            // The config didn't specify a quote character and we didn't see any, so disable
-            // special handling of quote characters. This will help avoid issues with mismatched
-            // quotes if a value happens to contain a quote character.
-            builder.quoting(false);
-        }
+        // Default to double quote unless the user explicitly disables quoting. This is more
+        // robust, since it's common for some CSV formatters to only conditionally quote values
+        // containing certain characters, so detection may not observe any quote characters within the
+        // limited prefix of the input.
+        let quote = self
+            .config
+            .quote
+            .as_option()
+            .or_else(|| {
+                let detected = detect_quote_char(delimiter.byte_value(), &peek);
+                tracing::debug!(quote_char = ?detected, "detected quote char");
+                detected
+            })
+            .unwrap_or(Quote::DoubleQuote);
+
+        match quote {
+            Quote::DoubleQuote => builder.quote(b'"'),
+            Quote::SingleQuote => builder.quote(b'\''),
+            Quote::None => builder.quoting(false),
+        };
 
         // It's not clear to me that escapes are common enough to try to detect, so for now we'll
         // only enable escape sequences if the config explicitly provides a character. The default
         // behavior is for the csv parser to only interpred doubled quotes within a quoted string,
         // but not to process any other escapes like "\n" or "\"".
-        builder.escape(user_provided_config.escape.map(Into::into));
+        let escape = self.config.escape.as_option().and_then(|e| match e {
+            Escape::Backslash => Some(b'\\'),
+            Escape::None => None,
+        });
+        builder.escape(escape);
 
         // If headers were specified in the config, then we'll use those and tell the parser to
         // interpret the first row as data. Otherwise, we'll try to read headers from the file.
-        let mut headers = user_provided_config.headers.clone();
+        let mut headers = self.config.headers.clone();
         builder.has_headers(headers.is_empty());
 
         let mut reader = builder.from_reader(input.into_stream());
@@ -149,10 +185,10 @@ impl Parser for CsvParser {
                 .collect();
             tracing::debug!(nColumns = headers.len(), "Parsed headers from file");
         }
-        let columns = resolve_headers(headers, projections, CSV_NULLS);
+        let columns = resolve_headers(headers, CSV_NULLS);
 
         let csv_output = CsvOutput::new(columns, reader);
-        let iterator = if let Some(threshold) = user_provided_config.error_threshold {
+        let iterator = if let Some(threshold) = self.config.error_threshold {
             Box::new(ParseErrorBuffer::new(csv_output, threshold)) as Output
         } else {
             Box::new(csv_output) as Output
@@ -169,15 +205,13 @@ impl Parser for CsvParser {
 /// shape of the JSON.
 fn resolve_headers(
     column_header_names: Vec<String>,
-    projections: Projections,
     null_sentinels: &'static [&'static str],
-) -> Vec<Header> {
+) -> Vec<Column> {
     let mut columns = Vec::new();
     for name in column_header_names {
-        let projection = projections.lookup(&name);
-        columns.push(Header {
+        columns.push(Column {
             name,
-            projection,
+            allowed_types: types::STRING | types::NULL,
             null_sentinels,
         });
     }
@@ -187,17 +221,11 @@ fn resolve_headers(
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("value {0:?} is not valid for: {1:?}")]
-    InvalidType(String, Projection),
+    #[error("value {0:?} could not be parsed as type: {1:?}")]
+    InvalidType(String, types::Set),
 
     #[error("failed to parse character-separated content: {0}")]
     InvalidContent(#[from] csv::Error),
-
-    #[error("row {0} is missing required column: {1:?}")]
-    MissingColumn(u64, String),
-
-    #[error("cannot construct a JSON object from row {0} because it's impossible to create the location {2:?} within the document: {1}")]
-    InvalidStructure(u64, Value, String),
 
     #[error("row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/QRKf3x for help with configuring the parser")]
     ExtraColumn(u64, usize, usize),
@@ -248,38 +276,30 @@ impl TargetType {
 
 /// Encapsulates a specific named column and associated Projection information.
 #[derive(Debug, Clone)]
-pub struct Header {
+pub struct Column {
     pub name: String,
-    pub projection: Projection,
-    /// The allowable values that will be interpreted as null. Ignored if the projection
-    /// information doesn't allow nulls. This is static because we currently don't have a use case
-    /// for them to be dynamic, and it's convenient to just use string literals.
+    pub allowed_types: types::Set,
+    /// The allowable values that will be interpreted as null. This is static because we currently
+    /// don't have a use case for them to be dynamic, and it's convenient to just use string
+    /// literals.
     pub null_sentinels: &'static [&'static str],
 }
 
 pub const CSV_NULLS: &[&str] = &["", "NULL", "null", "nil"];
 
-impl Header {
+impl Column {
     fn parse(&self, value: &str) -> Result<Value, Error> {
-        if let Some(possible_types) = self.projection.possible_types {
-            // Since we have type information about this field, try to parse it as one of the
-            // allowable types.
-            for possible_type in PARSE_ORDER {
-                if possible_type.to_set().overlaps(possible_types) {
-                    if let Some(parsed) = self.parse_as_type(value, *possible_type) {
-                        return Ok(parsed);
-                    }
+        for candidate_type in PARSE_ORDER {
+            if candidate_type.to_set().overlaps(self.allowed_types) {
+                if let Some(parsed) = self.parse_as_type(value, *candidate_type) {
+                    return Ok(parsed);
                 }
             }
-            Err(Error::InvalidType(
-                value.to_string(),
-                self.projection.clone(),
-            ))
-        } else {
-            // If we don't know any actual type information about this field, then always treat it
-            // as a string.
-            Ok(Value::String(value.to_string()))
         }
+        Err(Error::InvalidType(
+            value.to_string(),
+            self.allowed_types.clone(),
+        ))
     }
 
     fn parse_as_type(&self, value: &str, target_type: TargetType) -> Option<Value> {
@@ -323,23 +343,15 @@ impl Header {
     }
 }
 
-fn get_config(format: Format, conf: &ParseConfig) -> Option<&CharacterSeparatedConfig> {
-    match format {
-        Format::Csv => conf.csv.as_ref(),
-        Format::Tsv => conf.tsv.as_ref(),
-        other => panic!("called csv::get_config with invalid format: {:?}", other),
-    }
-}
-
 pub struct CsvOutput {
-    headers: Vec<Header>,
+    headers: Vec<Column>,
     reader: Reader<Box<dyn io::Read>>,
     current_row: StringRecord,
     row_num: u64,
 }
 
 impl CsvOutput {
-    pub fn new(headers: Vec<Header>, reader: Reader<Box<dyn io::Read>>) -> CsvOutput {
+    pub fn new(headers: Vec<Column>, reader: Reader<Box<dyn io::Read>>) -> CsvOutput {
         CsvOutput {
             headers,
             reader,
@@ -355,25 +367,11 @@ impl CsvOutput {
             row_num,
             ..
         } = self;
-        let mut result = Value::Object(serde_json::Map::with_capacity(current_row.len()));
+        let mut result = serde_json::Map::with_capacity(current_row.len());
         for (i, header) in headers.iter().enumerate() {
             if let Some(value) = current_row.get(i) {
                 let parsed = header.parse(value).map_err(box_err)?;
-                if let Some(target) = header.projection.target_location.create(&mut result) {
-                    // Success! We've now placed the parsed value into it's home.
-                    *target = parsed;
-                } else {
-                    return Err(box_err(Error::InvalidStructure(
-                        *row_num,
-                        result.clone(),
-                        format!("{:?}", header.projection.target_location),
-                    ))
-                    .into());
-                }
-            } else {
-                if header.projection.must_exist {
-                    return Err(box_err(Error::MissingColumn(*row_num, header.name.clone())).into());
-                }
+                result.insert(header.name.clone(), parsed);
             }
         }
         if current_row.len() > headers.len() {
@@ -384,7 +382,7 @@ impl CsvOutput {
             ))
             .into());
         }
-        Ok(result)
+        Ok(Value::Object(result))
     }
 }
 
@@ -415,7 +413,7 @@ impl Iterator for CsvOutput {
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     fn test_input(content: impl Into<Vec<u8>>) -> Input {
         use std::io::Cursor;
@@ -425,11 +423,11 @@ mod test {
     // Test for: https://github.com/estuary/connectors/issues/97
     #[test]
     fn fails_when_there_are_more_columns_than_headers() {
-        let conf = ParseConfig::default();
-
         // CSV has 2 column headers, but row 3 has 3 columns :boom:
         let csv = test_input("a,b\n1\n2,3\n4,5,6");
-        let mut iter = new_csv_parser().parse(&conf, csv).expect("parse failed");
+        let mut iter = new_csv_parser(Default::default())
+            .parse(csv)
+            .expect("parse failed");
 
         // First two rows should parse successfully
         let one = iter
@@ -457,18 +455,14 @@ mod test {
 
     #[test]
     fn parses_when_there_are_more_configured_headers_than_columns() {
-        let conf = ParseConfig {
-            format: Some(Format::Csv),
-            csv: Some(CharacterSeparatedConfig {
-                headers: vec!["a".to_string(), "b".to_string(), "c".to_string()],
-                ..Default::default()
-            }),
+        let conf = AdvancedCsvConfig {
+            headers: vec!["a".to_string(), "b".to_string(), "c".to_string()],
             ..Default::default()
         };
 
         let csv = test_input("1\n2,3\n4,5,6");
-        let results = new_csv_parser()
-            .parse(&conf, csv)
+        let results = new_csv_parser(conf)
+            .parse(csv)
             .expect("parse failed")
             .collect::<Result<Vec<_>, ParseError>>()
             .expect("output fail");
@@ -483,22 +477,54 @@ mod test {
     }
 
     #[test]
-    fn values_parsed_as_null_when_sentinel_matches() {
-        let conf = ParseConfig {
-            format: Some(Format::Csv),
-            schema: json!({
-                "type": "object",
-                "properties": {
-                    "foo": {
-                        "type": ["string", "integer", "null"]
-                    }
-                }
-            }),
+    fn detects_single_quote_with_pipe_delimiter() {
+        let csv = test_input("a|b|c\n'fo,o'|'bar'|'b''az'");
+        let results = new_csv_parser(Default::default())
+            .parse(csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        assert_eq!(
+            vec![json!({"a": "fo,o", "b": "bar", "c": "b'az"}),],
+            results
+        );
+    }
+
+    #[test]
+    fn detects_tab_delimiter() {
+        let csv = test_input("a\tb\tc\nfo,o\tbar\tbaz");
+        let results = new_csv_parser(Default::default())
+            .parse(csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        assert_eq!(vec![json!({"a": "fo,o", "b": "bar", "c": "baz"}),], results);
+    }
+
+    #[test]
+    fn quotes_can_be_disabled() {
+        let csv = test_input("a,b,c\n\"foo\",\"bar\",\"b''az\"");
+
+        let config = AdvancedCsvConfig {
+            quote: Quote::None.into(),
             ..Default::default()
         };
+        let results = new_csv_parser(config)
+            .parse(csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        assert_eq!(
+            vec![json!({"a": "\"foo\"", "b": "\"bar\"", "c": "\"b''az\""}),],
+            results
+        );
+    }
+
+    #[test]
+    fn values_parsed_as_null_when_sentinel_matches() {
         let csv = test_input("foo\nnuul\nNULL\nnil\nNul\nnull\nnullll\n0\n");
-        let results = new_csv_parser()
-            .parse(&conf, csv)
+        let results = new_csv_parser(Default::default())
+            .parse(csv)
             .expect("parse failed")
             .collect::<Result<Vec<_>, ParseError>>()
             .expect("output fail");
@@ -510,79 +536,9 @@ mod test {
                 json!({"foo": "Nul"}),
                 json!({ "foo": null }),
                 json!({"foo": "nullll"}),
-                json!({"foo": 0}),
+                json!({"foo": "0"}),
             ],
             results
         );
-    }
-
-    #[test]
-    fn values_parsed_as_strings_when_numbers_would_overflow() {
-        let conf = ParseConfig {
-            format: Some(Format::Csv),
-            schema: json!({
-                "type": "object",
-                "properties": {
-                    "ride_id": {
-                        "type": ["number", "string"]
-                    }
-                }
-            }),
-            ..Default::default()
-        };
-
-        // This file was created by pulling out some of the naughty rows from: '202102-citibike-tripdata.csv.zip' in the publicly available
-        // 'tripdata' bucket. The ride_id column there contains some ids that just so happen to be
-        // all numeric digits with a single 'E' character in them, and so serde will parse them as
-        // numbers, since the `arbitrary_precision` feature flag is enabled. This test is asserting
-        // that the numbers that would overflow are parsed as strings.
-        let file =
-            std::fs::File::open("tests/examples/valid-big-nums.csv").expect("failed to open file");
-        let input = Input::File(file);
-        let mut result_iter = new_csv_parser()
-            .parse(&conf, input)
-            .expect("failed to init parser");
-        for i in 0..3 {
-            let parsed = result_iter
-                .next()
-                .unwrap()
-                .expect(&format!("failed to parse row: {}", i));
-            assert_is_string(&parsed, "/ride_id");
-        }
-    }
-
-    #[test]
-    fn values_parsed_as_strings_when_missing_type_info() {
-        let conf = ParseConfig {
-            format: Some(Format::Csv),
-            ..Default::default()
-        };
-
-        // This file was created by pulling out some of the naughty rows from: '202102-citibike-tripdata.csv.zip' in the publicly available
-        // 'tripdata' bucket. The ride_id column there contains some ids that just so happen to be
-        // all numeric digits with a single 'E' character in them, and so serde will parse them as
-        // numbers, since the `arbitrary_precision` feature flag is enabled. This test is asserting
-        // that the numbers that would overflow are parsed as strings.
-        let file = std::fs::File::open("tests/examples/valid-mixed-types.csv")
-            .expect("failed to open file");
-        let input = Input::File(file);
-        let mut result_iter = new_csv_parser()
-            .parse(&conf, input)
-            .expect("failed to init parser");
-        for i in 0..4 {
-            let parsed = result_iter
-                .next()
-                .unwrap()
-                .expect(&format!("failed to parse row: {}", i));
-            assert_is_string(&parsed, "/int_or_string");
-            assert_is_string(&parsed, "/bool_or_string");
-        }
-    }
-
-    fn assert_is_string(value: &Value, pointer: &str) {
-        let actual = value
-            .pointer(pointer)
-            .expect(&format!("missing: {} in: {}", pointer, value));
-        assert!(actual.is_string(), "expected a string, got: {:?}", actual);
     }
 }

@@ -2,9 +2,7 @@
 //! http server logs. It's essentially just a tab-separated values file, with a few extra
 //! differences. The main thing being that the column headers appear in a special `#Fields`
 //! directive instead just being on the first row. Also, nulls are represented as `-`.
-use super::{resolve_headers, CsvOutput};
-use crate::config::ParseConfig;
-use crate::format::projection::build_projections;
+use super::{Column, CsvOutput};
 use crate::format::{Output, ParseError, Parser};
 use crate::input::Input;
 use std::io::BufRead;
@@ -39,14 +37,14 @@ struct Directive {
 /// The `#Fields` directive is the only one that's significant to parsing the rest of the file,
 /// but all the other directives are preserved here so that they can be added to the output
 /// documents if desired.
-struct Header {
+struct FileHeader {
     fields: Vec<String>,
     other_directives: Vec<Directive>,
 }
 
 impl W3cLogParser {
-    fn parse_header(input: &[u8]) -> Result<Header, Error> {
-        let mut header = Header {
+    fn parse_header(input: &[u8]) -> Result<FileHeader, Error> {
+        let mut header = FileHeader {
             fields: Vec::new(),
             other_directives: Vec::new(),
         };
@@ -77,7 +75,7 @@ impl W3cLogParser {
 }
 
 impl Parser for W3cLogParser {
-    fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError> {
+    fn parse(&self, content: Input) -> Result<Output, ParseError> {
         // We'll peek at a up to 8KiB in order to try to parse the header. The Fields directive is
         // the only thing we really _need_ from the header, and that's always supposed to be the
         // second directive (right after Version). So practically, this should always be enough,
@@ -87,8 +85,7 @@ impl Parser for W3cLogParser {
             W3cLogParser::parse_header(&prefix).map_err(|e| ParseError::Parse(Box::new(e)))?;
         // TODO: (optionally) add the extra directives from header as fields to each json object.
 
-        let projections = build_projections(config)?;
-        let headers = resolve_headers(header.fields, projections, &["-"]);
+        let headers = resolve_headers(header.fields);
 
         let reader = csv::ReaderBuilder::new()
             .delimiter(b'\t')
@@ -102,11 +99,45 @@ impl Parser for W3cLogParser {
     }
 }
 
+/// Associates each field in the file to a `Column` containing the expected type. The set of fields
+/// with numeric types is hard-coded based on the docs at: https://www.w3.org/TR/WD-logfile.html
+/// and augmented with a few additional fields taken from an example log file of unknown
+/// provenance. If that sounds a little sketchy to you, that's because it is. We might need to
+/// revisit this, but it seems like a fairly reasonable starting point, since the
+fn resolve_headers(fields: Vec<String>) -> Vec<Column> {
+    use json::schema::types;
+    fields
+        .into_iter()
+        .map(|field| {
+            // Check if this field is one of the known integer or fractional fields.
+            let column_type = {
+                // If the field name matches a known prefix, then first strip off that prefix and
+                // match against the remainder.
+                let match_ident = match field.split_once('-') {
+                    Some(("c" | "s" | "r" | "cs" | "sc" | "sr" | "rs" | "x", ident)) => ident,
+                    _ => field.as_str(),
+                };
+                match match_ident {
+                    "bytes" | "cached" | "content-len" | "count" | "interval" | "port"
+                    | "status" => types::INTEGER,
+                    "time-taken" | "time-to-first-byte" => types::INT_OR_FRAC,
+                    _ => types::STRING,
+                }
+            };
+
+            Column {
+                name: field,
+                allowed_types: column_type | types::NULL,
+                null_sentinels: &["-"],
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::input::Input;
-    use serde_json::json;
 
     const VALID_FILE: &[u8] = include_bytes!("../../../tests/examples/w3c-extended-log");
 
@@ -115,28 +146,8 @@ mod test {
         let input = Input::Stream(Box::new(std::io::Cursor::new(VALID_FILE)));
         // Pass an explicit schema to make sure that types get parsed. In particular, - won't get
         // interpreted as null unless the schema specifically allows it.
-        let config = ParseConfig {
-            schema: json!({
-                "type": "object",
-                "properties": {
-                    "cs(Cookie)": {
-                        "type": ["string", "null"]
-                    },
-                    "cs(Referer)": {
-                        "type": ["string", "null"]
-                    },
-                    "cs-bytes": {
-                        "type": "integer"
-                    },
-                    "c-port": {
-                        "type": "integer"
-                    },
-                }
-            }),
-            ..Default::default()
-        };
         let parser = new_w3c_extended_log_parser();
-        let mut output = parser.parse(&config, input).expect("parse failed");
+        let mut output = parser.parse(input).expect("parse failed");
         let first = output
             .next()
             .expect("first row should be Some")
@@ -153,28 +164,28 @@ mod test {
             "cs-method": "GET",
             "cs-protocol": "https",
             "cs-protocol-version": "HTTP/1.0",
-            "cs-uri-query": "-",
+            "cs-uri-query": null,
             "cs-uri-stem": "/",
             "date": "2021-09-07",
-            "fle-encrypted-fields": "-",
-            "fle-status": "-",
-            "sc-bytes": "535",
-            "sc-content-len": "58",
+            "fle-encrypted-fields": null,
+            "fle-status": null,
+            "sc-bytes": 535,
+            "sc-content-len": 58,
             "sc-content-type": "application/json",
-            "sc-range-end": "-",
-            "sc-range-start": "-",
-            "sc-status": "404",
+            "sc-range-end": null,
+            "sc-range-start": null,
+            "sc-status": 404,
             "ssl-cipher": "TLS_AES_128_GCM_SHA256",
             "ssl-protocol": "TLSv1.3",
             "time": "20:02:43",
-            "time-taken": "0.422",
-            "time-to-first-byte": "0.422",
+            "time-taken": 0.422,
+            "time-to-first-byte": 0.422,
             "x-edge-detailed-result-type": "Error",
             "x-edge-location": "wat-edge-location",
             "x-edge-request-id": "some-bytes",
             "x-edge-response-result-type": "Error",
             "x-edge-result-type": "Error",
-            "x-forwarded-for": "-",
+            "x-forwarded-for": null,
             "x-host-header": "api-sandbox.foo.com",
         });
         assert_eq!(expected, first);

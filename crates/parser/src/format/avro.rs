@@ -1,11 +1,7 @@
-use crate::config::ParseConfig;
-use crate::decorate::display_ptr;
-use crate::format::projection::{build_projections, Projection};
 use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::Input;
 use avro_rs::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
 use chrono::{NaiveDateTime, NaiveTime};
-use json::schema::types;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io;
@@ -28,9 +24,6 @@ pub enum AvroError {
     #[error("invalid floating point value '{0}' for column '{1}'")]
     InvalidFloat(String, String),
 
-    #[error("unable to convert avro to json because the projected location '{0}' (column '{1}') conflicts with the document structure: {2}")]
-    ImpossibleDocument(String, String, Value),
-
     /// Date-like values in avro are essentially just type hints on top of numeric primitives, so
     /// it's distinctly possible for them to be out of range. This error is returned in that case.
     #[error("the column '{2}' value {0} is out of range for an avro {1}")]
@@ -38,38 +31,25 @@ pub enum AvroError {
 }
 
 impl Parser for AvroParser {
-    fn parse(&self, config: &ParseConfig, content: Input) -> Result<Output, ParseError> {
-        let iter = AvroIter::from_config_and_input(config, content)?;
+    fn parse(&self, content: Input) -> Result<Output, ParseError> {
+        let iter = AvroIter::from_input(content)?;
         Ok(Box::new(iter))
     }
 }
 
 struct AvroIter {
     reader: Reader<'static, Box<dyn io::BufRead>>,
-    projections: BTreeMap<String, Projection>,
 }
 
 impl AvroIter {
-    fn from_config_and_input(config: &ParseConfig, content: Input) -> Result<AvroIter, ParseError> {
-        let projections = build_projections(config)?;
-
+    fn from_input(content: Input) -> Result<AvroIter, ParseError> {
         let reader = Reader::new(content.into_buffered_stream(64 * 1024))
             .map_err(|err| ParseError::Parse(Box::new(err)))?;
 
-        tracing::debug!(avro_writer_schema = ?reader.writer_schema(), "parsed avro header");
         match reader.writer_schema() {
             Schema::Record { fields, .. } => {
-                let mut resolved = BTreeMap::new();
-                for field in fields {
-                    let projection = projections.lookup(&field.name);
-                    resolved.insert(field.name.clone(), projection);
-                }
-                tracing::debug!(projections = ?resolved, "resolved projections for avro schema");
-
-                Ok(AvroIter {
-                    reader,
-                    projections: resolved,
-                })
+                tracing::debug!(avro_writer_schema = ?fields, "parsed avro header");
+                Ok(AvroIter { reader })
             }
             other => Err(ParseError::Parse(Box::new(AvroError::NonRecordSchema(
                 other.into(),
@@ -78,30 +58,13 @@ impl AvroIter {
     }
 
     fn record_to_json(&self, record: Vec<(String, AvroValue)>) -> Result<Value, AvroError> {
-        let mut json = Value::Object(serde_json::Map::with_capacity(record.len()));
+        let mut json = serde_json::Map::with_capacity(record.len());
 
         for (avro_key, avro_value) in record {
-            let projection = self
-                .projections
-                .get(&avro_key)
-                .expect("missing projection for avro field");
-            let allow_string_repr = projection
-                .possible_types
-                .map(|t| t.overlaps(types::STRING))
-                .unwrap_or(true);
-            let json_value = avro_to_json(&avro_key, avro_value, allow_string_repr)?;
-
-            if let Some(loc) = projection.target_location.create(&mut json) {
-                *loc = json_value;
-            } else {
-                return Err(AvroError::ImpossibleDocument(
-                    display_ptr(&projection.target_location),
-                    avro_key,
-                    json.clone(),
-                ));
-            }
+            let json_value = avro_to_json(&avro_key, avro_value, true)?;
+            json.insert(avro_key, json_value);
         }
-        Ok(json)
+        Ok(Value::Object(json))
     }
 }
 
@@ -167,8 +130,7 @@ fn avro_to_json(
                 column_name.to_string(),
             )),
         },
-        Bytes(b) | Fixed(_, b) if allow_string_repr => Ok(Value::String(base64::encode(&b))),
-        Bytes(b) | Fixed(_, b) => Ok(Value::Array(b.into_iter().map(Value::from).collect())),
+        Bytes(b) | Fixed(_, b) => Ok(Value::String(base64::encode(&b))),
         String(s) => Ok(Value::String(s)),
         Enum(_, s) => Ok(Value::String(s)),
         // union is just a wrapper around a boxed avro Value, so we just unwrap it here and
@@ -311,7 +273,6 @@ mod test {
             (2_000_000, MICROS_PER_SEC, (2, 0)),
             (2_000_001, MICROS_PER_SEC, (2, 1_000)),
             (-28_000_001, MICROS_PER_SEC, (-29, 999_999_000)),
-
             (9_001, MILLIS_PER_SEC, (9, 1_000_000)),
             (-9_999, MILLIS_PER_SEC, (-10, 1_000_000)),
         ];
@@ -363,21 +324,6 @@ mod test {
                     {
                       "name": "float",
                       "type": "float"
-                    },
-                    {
-                      "name": "date",
-                      "type": "int",
-                      "logicalType": "date"
-                    },
-                    {
-                      "name": "time",
-                      "type": "int",
-                      "logicalType": "time-millis"
-                    },
-                    {
-                      "name": "timestamp",
-                      "type": "long",
-                      "logicalType": "timestamp-millis"
                     }
                 ]
             }"#,
@@ -398,48 +344,21 @@ mod test {
         );
 
         record.put("float", AvroValue::Float(23.0));
-        record.put("date", AvroValue::Date(23456));
-        record.put("time", AvroValue::TimeMillis(28_000_000));
-        record.put(
-            "timestamp",
-            AvroValue::TimestampMillis(1_607_483_647_000i64),
-        );
 
         writer.append(record).expect("failed to write");
         let bytes = writer.into_inner().expect("failed to flush");
         let input = Input::Stream(Box::new(std::io::Cursor::new(bytes)));
 
-        let config = ParseConfig {
-            // The schema restricts some of the columns to only allow numbers, so we can test that
-            // those get converted to numbers. Any logical type columns not mentioned here will get
-            // converted as strings, which is the default.
-            schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "float": {"type": "number"},
-                    "date": {"type": "integer"},
-                    "time": {"type": "number"},
-                    "timestamp": {"type": "number"}
-                }
-            }),
-            ..Default::default()
-        };
-        let mut iter = AvroIter::from_config_and_input(&config, input).expect("parse failed");
-
-        // Asserts that we're picking up the right projections
-        insta::assert_debug_snapshot!(&iter.projections);
+        let mut iter = AvroIter::from_input(input).expect("parse failed");
 
         let json = iter.next().expect("next result").expect("next document");
         let expected = serde_json::json!({
             "binary":"c29tZSBieXRlcw==",
-            "date":23456,
             "date_string":"2034-03-22",
             "float":23.0,
             "float_string":"-inf",
             "id":"first",
-            "time":28000000,
             "time_string":"07:46:40",
-            "timestamp":1607483647000i64,
             "timestamp_string":"2020-12-09 03:14:07"
         });
         assert_eq!(expected, json);

@@ -1,7 +1,6 @@
 //! Parser for the json format. This will accept any stream of JSON values separated by whitespace.
 //! It allows any amount of whitespace (including newlines) within and in between records.
 use super::{Input, Output, ParseError, Parser};
-use crate::ParseConfig;
 
 struct JsonParser;
 
@@ -10,7 +9,7 @@ pub fn new_parser() -> Box<dyn Parser> {
 }
 
 impl Parser for JsonParser {
-    fn parse(&self, _config: &ParseConfig, content: Input) -> Result<Output, ParseError> {
+    fn parse(&self, content: Input) -> Result<Output, ParseError> {
         // The JSON RFC (RFC 4627) specifies that JSON content is "unicode", but explicitly allows
         // for UTF-16 and 32 encoding schemes in addition to the default of UTF-8. Technically,
         // we're being too permissive here since `transcode_non_utf8` will accept basically any

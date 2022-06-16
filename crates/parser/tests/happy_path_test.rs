@@ -3,8 +3,11 @@ mod testutil;
 use std::fs;
 use std::path::PathBuf;
 
-use parser::{Format, JsonPointer, ParseConfig};
-use serde_json::json;
+use parser::{
+    character_separated::{AdvancedCsvConfig, Quote},
+    Format, JsonPointer, ParseConfig,
+};
+use serde_json::{json, Value};
 use testutil::{input_for_file, run_test};
 
 #[test]
@@ -23,7 +26,7 @@ fn w3c_extended_log_file_is_parsed() {
     let config = ParseConfig {
         // Explicit format is required, since there's no file extension that's associated with
         // this format.
-        format: Some(Format::W3cExtendedLog),
+        format: Format::W3cExtendedLog(()).into(),
         ..Default::default()
     };
     let input = input_for_file("tests/examples/w3c-extended-log");
@@ -31,38 +34,31 @@ fn w3c_extended_log_file_is_parsed() {
     result.assert_success(1);
 }
 
-/// The file `requires-explicit-quote.csv` has 206 columns. The header row does not use any quote
-/// characters, and so we don't automatically determine the correct quote character because we only
-/// look at the first 2KiB, which in this case is all unquoted headers. So this test asserts that
-/// we fail to parse the file, but that it succeeds when the quote character is provided in the
-/// config.
 #[test]
-fn csv_requires_explicit_quote() {
-    let path = "tests/examples/requires-explicit-quote.csv";
+fn csv_does_not_require_explicit_quote_configuration() {
+    let path = "tests/examples/valid-with-double-quotes.csv";
     let no_quote = ParseConfig {
         filename: Some(path.to_string()),
         ..Default::default()
     };
 
-    {
-        let input = input_for_file(path);
-        run_test(&no_quote, input).assert_failure(0);
-    }
-
-    let with_quote = ParseConfig {
-        filename: Some(path.to_string()),
-        csv: Some(parser::csv::CharacterSeparatedConfig {
-            quote: Some(parser::csv::Char('"' as u8)),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let same_input = input_for_file(path);
-    let output = run_test(&with_quote, same_input);
+    let input = input_for_file(path);
+    let output = run_test(&no_quote, input);
     output.assert_success(1);
-    // Confirm the number of columns as a way of confirming that we're using the correct quote in
-    // the parse configuration.
+
     assert_eq!(206, output.parsed[0].as_object().unwrap().len());
+    // Assert that quotes were handled correctly by checking to ensure that none of the string
+    // values begin or end with a double-quote.
+    for value in output.parsed[0].as_object().unwrap().values() {
+        match value {
+            Value::String(s) => {
+                assert!(!s.starts_with("\""));
+                assert!(!s.ends_with("\""));
+            }
+            Value::Null => { /* this is expected for some columns */ }
+            other => panic!("unexpected value type: {:?}", other),
+        }
+    }
 }
 
 fn assert_file_is_parsed(file: PathBuf) {
