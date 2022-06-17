@@ -137,21 +137,25 @@ ${RUSTBIN}/flowctl:
 
 # Statically linked binaries using MUSL:
 
-.PHONY: ${RUST_MUSL_BIN}/flow-schemalate
-${RUST_MUSL_BIN}/flow-schemalate:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
-
-.PHONY: ${RUST_MUSL_BIN}/flow-parser
-${RUST_MUSL_BIN}/flow-parser:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
+.PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
+${RUST_MUSL_BIN}/flow-connector-proxy:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
 
 .PHONY: ${RUST_MUSL_BIN}/flow-network-tunnel
 ${RUST_MUSL_BIN}/flow-network-tunnel:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-tunnel
 
-.PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
-${RUST_MUSL_BIN}/flow-connector-proxy:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
+.PHONY: ${RUST_MUSL_BIN}/flow-parser
+${RUST_MUSL_BIN}/flow-parser:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
+
+.PHONY: ${RUST_MUSL_BIN}/flow-schema-inference
+${RUST_MUSL_BIN}/flow-schema-inference:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p schema-inference
+
+.PHONY: ${RUST_MUSL_BIN}/flow-schemalate
+${RUST_MUSL_BIN}/flow-schemalate:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
 
 
 ########################################################################
@@ -165,10 +169,11 @@ RUST_TARGETS = \
 	${PKGDIR}/bin/sops
 
 MUSL_TARGETS = \
-	${PKGDIR}/bin/flow-parser \
-	${PKGDIR}/bin/flow-schemalate \
+	${PKGDIR}/bin/flow-connector-proxy \
 	${PKGDIR}/bin/flow-network-tunnel \
-	${PKGDIR}/bin/flow-connector-proxy
+	${PKGDIR}/bin/flow-parser \
+	${PKGDIR}/bin/flow-schema-inference \
+	${PKGDIR}/bin/flow-schemalate
 
 .PHONY: rust-binaries
 rust-binaries: $(RUST_TARGETS)
@@ -188,15 +193,22 @@ ${PKGDIR}:
 	mkdir ${PKGDIR}/lib
 ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 	cp ${RUSTBIN}/flowctl $@
+
 # The following binaries are statically linked, so come from a different subdirectory
-${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-schemalate $@
-${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-parser $@
-${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
+
+${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
+
+${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-parser $@
+
+${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-schema-inference $@
+
+${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-schemalate $@
 
 ##########################################################################
 # Make targets used by CI:
