@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_CACHE_VERSION: 0.8.2
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -202,6 +202,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
@@ -215,6 +216,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
@@ -228,6 +230,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
@@ -241,6 +244,7 @@ jobs:
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
+          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
           -o /home/runner/work/flow/flow/.build/package/bin/gazette \
           -o /home/runner/work/flow/flow/.build/package/bin/sops
