@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alecthomas/jsonschema"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	schemagen "github.com/estuary/flow/go/protocols/materialize/go-schema-gen"
 )
 
 // Resource is a driver-provided type which represents the SQL resource
@@ -55,18 +55,14 @@ func (d *Driver) Spec(ctx context.Context, req *pm.SpecRequest) (*pm.SpecRespons
 		return nil, fmt.Errorf("validating request: %w", err)
 	}
 
-	// Use reflection to build JSON Schemas from endpoint and resource configuration types.
-	var reflector = jsonschema.Reflector{
-		DoNotReference: true,
-		ExpandedStruct: true,
-	}
-	endpointSchema, err := reflector.Reflect(d.EndpointSpecType).MarshalJSON()
+	var endpointSchema, err = schemagen.GenerateSchema("SQL Connection", d.EndpointSpecType).MarshalJSON()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generating endpoint schema: %w", err)
 	}
-	resourceSchema, err := reflector.Reflect(d.ResourceSpecType).MarshalJSON()
+
+	resourceSchema, err := schemagen.GenerateSchema("SQL Table", d.ResourceSpecType).MarshalJSON()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generating resource schema: %w", err)
 	}
 
 	return &pm.SpecResponse{
