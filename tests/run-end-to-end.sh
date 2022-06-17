@@ -20,6 +20,7 @@ function bail() {
 TEST=$1
 # Root of the running test
 TEST_ROOT="${ROOTDIR}/tests/${TEST}"
+PGPASSWORD=${PGPASSWORD:-flow}
 
 # Temporary test directory into which we'll build our test database,
 # and stage temporary data plane files.
