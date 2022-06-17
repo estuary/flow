@@ -137,7 +137,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
       * read_only: 0
 
    3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 30 days.
+   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
    Reboot the database to allow the changes to take effect.
 
 3. Create a read replica with the new parameter group applied (recommended).
@@ -148,7 +148,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
    2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
    and set the following:
       * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 30 days
+      * **Backup retention period**: 7 days
 
    3. Reboot the replica to allow the changes to take effect.
 
@@ -166,9 +166,9 @@ GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to 30 days:
+5. Run the following command to set the binary log retention to its maximum permitted value of 7 days:
 ```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 720);
+CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
 
 ### Google Cloud SQL
