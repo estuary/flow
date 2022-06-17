@@ -9,8 +9,8 @@
         "type": "string"
       }
     },
-    "additionalProperties": false,
-    "type": "object"
+    "type": "object",
+    "title": "SQL Connection"
   },
   "resource_spec_schema_json": {
     "$schema": "http://json-schema.org/draft-04/schema#",
@@ -22,8 +22,8 @@
         "type": "string"
       }
     },
-    "additionalProperties": false,
-    "type": "object"
+    "type": "object",
+    "title": "SQL Table"
   },
   "documentation_url": "https://docs.estuary.dev/#FIXME"
 }
