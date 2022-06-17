@@ -1,0 +1,107 @@
+---
+source: crates/schema-inference/src/analyze.rs
+assertion_line: 146
+expression: schema
+---
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "a",
+    "b",
+    "c"
+  ],
+  "properties": {
+    "a": {
+      "type": [
+        "integer",
+        "object"
+      ],
+      "required": [
+        "imaginary",
+        "real"
+      ],
+      "properties": {
+        "imaginary": {
+          "type": "integer"
+        },
+        "real": {
+          "type": "number"
+        }
+      }
+    },
+    "b": {
+      "type": "array",
+      "items": [
+        {
+          "type": "object",
+          "required": [
+            "truthful"
+          ],
+          "properties": {
+            "harmless": {
+              "type": "string"
+            },
+            "hurtful": {
+              "type": "boolean"
+            },
+            "truthful": {
+              "type": [
+                "boolean",
+                "string"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "c": {
+      "type": "object",
+      "required": [
+        "inner"
+      ],
+      "properties": {
+        "even_more_optional": {
+          "type": "boolean"
+        },
+        "inner": {
+          "type": [
+            "null",
+            "object",
+            "string"
+          ],
+          "required": [
+            "details"
+          ],
+          "properties": {
+            "details": {
+              "type": "string"
+            }
+          }
+        },
+        "optional": {
+          "type": "array",
+          "items": [
+            {
+              "type": "integer"
+            }
+          ]
+        }
+      }
+    },
+    "x": {
+      "type": "string"
+    },
+    "y": {
+      "type": "array",
+      "items": [
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "z": {
+      "type": "null"
+    }
+  }
+}
