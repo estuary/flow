@@ -166,7 +166,7 @@ GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to its maximum permitted value of 7 days:
+5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
