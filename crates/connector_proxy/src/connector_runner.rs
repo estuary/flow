@@ -1,5 +1,5 @@
 use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStream};
-use crate::errors::{create_custom_error, raise_err, Error};
+use crate::errors::{create_custom_error, Error};
 use crate::interceptors::{
     airbyte_source_interceptor::AirbyteSourceInterceptor,
     network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
