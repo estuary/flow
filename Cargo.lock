@@ -181,7 +181,7 @@ dependencies = [
  "strum_macros 0.18.0",
  "thiserror",
  "typed-builder",
- "uuid 0.8.2",
+ "uuid",
  "zerocopy",
 ]
 
@@ -469,7 +469,7 @@ version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b6d248e3ca02f3fbfabcb9284464c596baec223a26d91bbf44a5a62ddb0d900"
 dependencies = [
- "clap 3.1.17",
+ "clap 3.2.5",
  "heck 0.4.0",
  "indexmap",
  "log",
@@ -582,16 +582,16 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.1.17"
+version = "3.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47582c09be7c8b32c0ab3a6181825ababb713fde6fff20fc573a3870dd45c6a0"
+checksum = "d53da17d37dba964b9b3ecb5c5a1f193a2762c700e6829201e645b9381c99dc7"
 dependencies = [
  "atty",
  "bitflags",
  "clap_derive",
  "clap_lex",
  "indexmap",
- "lazy_static",
+ "once_cell",
  "strsim 0.10.0",
  "termcolor",
  "textwrap 0.15.0",
@@ -599,9 +599,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "3.1.7"
+version = "3.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3aab4734e083b809aaf5794e14e756d1c798d2c69c7f7de7a09a2f5214993c1"
+checksum = "c11d40217d16aee8508cc8e5fde8b4ff24639758608e5374e731b53f85749fb9"
 dependencies = [
  "heck 0.4.0",
  "proc-macro-error",
@@ -612,9 +612,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a37c35f1112dad5e6e0b1adaff798507497a18fceeb30cceb3bae7d1427b9213"
+checksum = "5538cd660450ebeb4234cfecf8f2284b844ffc4c50531e66d584ad5b91293613"
 dependencies = [
  "os_str_bytes",
 ]
@@ -636,7 +636,7 @@ dependencies = [
  "bytelines",
  "byteorder",
  "bytes",
- "clap 3.1.17",
+ "clap 3.2.5",
  "doc",
  "flow_cli_common",
  "futures",
@@ -759,20 +759,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ae5588f6b3c3cb05239e90bd110f257254aecd01e4635400391aeae07497845"
-dependencies = [
- "cfg-if",
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -805,16 +791,6 @@ dependencies = [
  "lazy_static",
  "memoffset",
  "scopeguard",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f25d8400f4a7a5778f0e4e52384a48cbd9b5c495d110786187fc750075277a2"
-dependencies = [
- "cfg-if",
- "crossbeam-utils",
 ]
 
 [[package]]
@@ -886,7 +862,7 @@ dependencies = [
  "tracing",
  "tuple",
  "url",
- "uuid 1.0.0",
+ "uuid",
 ]
 
 [[package]]
@@ -1044,22 +1020,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "flate3"
-version = "0.1.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aff3294398490ca851e398380debdb9cd0d760bc7bd3dd8a61c7102e66606b6"
-dependencies = [
- "crossbeam",
- "scoped_threadpool",
-]
-
-[[package]]
 name = "flow_cli_common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "atty",
- "clap 3.1.17",
+ "clap 3.2.5",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1073,7 +1039,7 @@ dependencies = [
  "assert_cmd",
  "build",
  "bytes",
- "clap 3.1.17",
+ "clap 3.2.5",
  "derive",
  "doc",
  "flow_cli_common",
@@ -1958,9 +1924,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.10.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
+checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
 
 [[package]]
 name = "oorandom"
@@ -2095,7 +2061,7 @@ dependencies = [
  "unicode-bom",
  "unicode-normalization",
  "url",
- "uuid 1.0.0",
+ "uuid",
  "zip",
 ]
 
@@ -2795,7 +2761,7 @@ dependencies = [
  "smallvec",
  "time 0.3.9",
  "url",
- "uuid 0.8.2",
+ "uuid",
 ]
 
 [[package]]
@@ -2846,37 +2812,17 @@ dependencies = [
 
 [[package]]
 name = "schema-inference"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
- "assert_cmd",
- "avro-rs",
- "base64",
- "bytes",
- "caseless",
- "chardetng",
- "chrono",
- "csv",
+ "anyhow",
+ "clap 3.2.5",
  "doc",
- "encoding_rs",
- "flate3",
  "insta",
+ "itertools",
  "json",
- "mime",
- "num-bigint 0.4.3",
  "schemars",
  "serde",
  "serde_json",
- "structopt",
- "tempdir",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "unicode-bom",
- "unicode-normalization",
- "url",
- "uuid 1.0.0",
- "zip",
 ]
 
 [[package]]
@@ -2885,7 +2831,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
- "clap 3.1.17",
+ "clap 3.2.5",
  "doc",
  "flow_cli_common",
  "indexmap",
@@ -2905,9 +2851,9 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "0.8.8"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b5a3c80cea1ab61f4260238409510e814e38b4b563c06044edf91e7dc070e3"
+checksum = "1847b767a3d62d95cbf3d8a9f0e421cf57a0d8aa4f411d4b16525afb0284d4ed"
 dependencies = [
  "dyn-clone",
  "schemars_derive",
@@ -2917,21 +2863,15 @@ dependencies = [
 
 [[package]]
 name = "schemars_derive"
-version = "0.8.8"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41ae4dce13e8614c46ac3c38ef1c0d668b101df6ac39817aebdaa26642ddae9b"
+checksum = "af4d7e1b012cb3d9129567661a63755ea4b8a7386d339dc945ae187e403c6743"
 dependencies = [
  "proc-macro2",
  "quote",
  "serde_derive_internals",
  "syn",
 ]
-
-[[package]]
-name = "scoped_threadpool"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d51f5df5af43ab3f1360b429fa5e0152ac5ce8c0bd6485cae490332e96846a8"
 
 [[package]]
 name = "scopeguard"
@@ -3009,9 +2949,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive_internals"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dbab34ca63057a1f15280bdf3c39f2b1eb1b54c17e98360e511637aef7418c6"
+checksum = "85bf8229e7920a9f636479437026331ce11aa132b4dde37d121944a44d6e5f3c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3645,9 +3585,9 @@ checksum = "360dfd1d6d30e05fda32ace2c8c70e9c0a9da713275777f5a4dbb8a1893930c6"
 
 [[package]]
 name = "tracing"
-version = "0.1.34"
+version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d0ecdcb44a79f0fe9844f0c4f33a342cbcbb5117de8001e6ba0dc2351327d09"
+checksum = "a400e31aa60b9d44a52a8ee0343b5b18566b03a8321e0d321f695cf56e940160"
 dependencies = [
  "cfg-if",
  "log",
@@ -3669,11 +3609,11 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.26"
+version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f54c8ca710e81886d498c2fd3331b56c93aa248d49de2222ad2742247c60072f"
+checksum = "7709595b8878a4965ce5e87ebf880a7d39c9afc6837721b21a5a816a8117d921"
 dependencies = [
- "lazy_static",
+ "once_cell",
  "valuable",
 ]
 
@@ -3848,15 +3788,6 @@ checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom 0.2.6",
  "serde",
-]
-
-[[package]]
-name = "uuid"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cfcd319456c4d6ea10087ed423473267e1a071f3bc0aa89f80d60997843c6f0"
-dependencies = [
- "getrandom 0.2.6",
 ]
 
 [[package]]
