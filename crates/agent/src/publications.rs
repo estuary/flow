@@ -177,6 +177,24 @@ impl PublishHandler {
         let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 
+        // Touch all expanded specifications to update their build ID.
+        // TODO(johnny): This can potentially deadlock. We may eventually want
+        // to catch this condition and gracefully roll-back the transaction to
+        // allow it to be re-attempted. BUT I'm avoiding this extra code path
+        // (and the potential for new bugs) until we actually see this in practice.
+        // Current behavior is that the agent will crash and restart, and the
+        // publication will then go on to retry as desired.
+        agent_sql::publications::update_expanded_live_specs(
+            &expanded_rows
+                .iter()
+                .map(|r| r.live_spec_id)
+                .collect::<Vec<_>>(),
+            row.pub_id,
+            &mut *txn,
+        )
+        .await
+        .context("updating build_id of expanded specifications")?;
+
         let errors = specs::extend_catalog(
             &mut draft_catalog,
             expanded_rows

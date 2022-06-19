@@ -77,7 +77,7 @@ begin
     'https://estuary.dev'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
 
   insert into connectors (image_name, detail, external_url) values (
     'ghcr.io/estuary/source-postgres',
@@ -85,7 +85,7 @@ begin
     'https://postgresql.org'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
 
   insert into connectors (image_name, detail, external_url) values (
     'ghcr.io/estuary/materialize-postgres',
@@ -93,7 +93,7 @@ begin
     'https://postgresql.org'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
 
 end;
 $$ language plpgsql;

@@ -111,8 +111,8 @@ pub async fn insert_new_live_specs(
 ) -> sqlx::Result<u64> {
     let rows = sqlx::query!(
         r#"
-        insert into live_specs(catalog_name, last_pub_id) (
-            select catalog_name, $2
+        insert into live_specs(catalog_name, last_build_id, last_pub_id) (
+            select catalog_name, $2, $2
             from draft_specs
             where draft_specs.draft_id = $1
             for update of draft_specs
@@ -148,6 +148,9 @@ pub struct SpecRow {
     // Optional expected value for `last_pub_id` of the live spec.
     // A special all-zero value means "this should be a creation".
     pub expect_pub_id: Option<Id>,
+    // Last build ID of the live spec.
+    // If the spec is being created, this is the current publication ID.
+    pub last_build_id: Id,
     // Last publication ID of the live spec.
     // If the spec is being created, this is the current publication ID.
     pub last_pub_id: Id,
@@ -177,6 +180,7 @@ pub async fn resolve_spec_rows(
             draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
             draft_specs.id as "draft_spec_id: Id",
             draft_specs.spec_type as "draft_type: CatalogType",
+            live_specs.last_build_id as "last_build_id: Id",
             live_specs.last_pub_id as "last_pub_id: Id",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
             live_specs.id as "live_spec_id: Id",
@@ -208,6 +212,8 @@ pub async fn resolve_spec_rows(
 pub struct ExpandedRow {
     // Name of the specification.
     pub catalog_name: String,
+    // Last build ID of the live spec.
+    pub last_build_id: Id,
     // Current live specification of this expansion.
     // It won't be changed by this publication.
     pub live_spec: Json<Box<RawValue>>,
@@ -266,6 +272,7 @@ pub async fn resolve_expanded_rows(
         select
             l.id as "live_spec_id!: Id",
             l.catalog_name as "catalog_name!",
+            l.last_build_id as "last_build_id!: Id",
             l.spec as "live_spec!: Json<Box<RawValue>>",
             l.spec_type as "live_type!: CatalogType"
         from live_specs l join pass_two p on l.id = p.id
@@ -391,7 +398,7 @@ pub async fn insert_publication_spec(
     Ok(())
 }
 
-pub async fn update_live_spec(
+pub async fn update_published_live_spec(
     catalog_name: &str,
     connector_image_name: Option<&String>,
     connector_tag_name: Option<&String>,
@@ -407,6 +414,7 @@ pub async fn update_live_spec(
         update live_specs set
             connector_image_name = $2,
             connector_image_tag = $3,
+            last_build_id = $4,
             last_pub_id = $4,
             reads_from = $5,
             spec = $6,
@@ -426,6 +434,25 @@ pub async fn update_live_spec(
         writes_to as &Option<Vec<&str>>,
     )
     .fetch_one(&mut *txn)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn update_expanded_live_specs(
+    live_spec_ids: &[Id],
+    pub_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        update live_specs set last_build_id = $1
+        where id in (select id from unnest($2::flowid[]) as id);
+        "#,
+        pub_id as Id,
+        live_spec_ids as &[Id],
+    )
+    .execute(&mut *txn)
     .await?;
 
     Ok(())
