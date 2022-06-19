@@ -111,7 +111,8 @@ impl TagHandler {
                 .arg("-url")
                 .arg(&row.external_url)
                 .output()
-                .await?;
+                .await
+                .context("fetching open graph metadata")?;
 
         if !fetch_open_graph.status.success() {
             return Ok((

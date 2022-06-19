@@ -58,6 +58,7 @@ pub async fn resolve_specifications(
     // as if the spec is being created.
     for row in &mut spec_rows {
         if row.user_capability.is_none() {
+            row.last_build_id = pub_id;
             row.last_pub_id = pub_id;
             row.live_spec = None;
             row.live_spec_id = row.draft_spec_id;
@@ -179,6 +180,7 @@ pub fn validate_transition(
         draft_spec_id: _,
         draft_type,
         expect_pub_id,
+        last_build_id: _,
         last_pub_id,
         live_spec: _,
         live_spec_id: _,
@@ -350,6 +352,7 @@ pub async fn apply_updates_for_row(
         draft_spec_id,
         draft_type,
         expect_pub_id: _,
+        last_build_id: _,
         last_pub_id: _,
         live_spec: _,
         live_spec_id,
@@ -393,7 +396,7 @@ pub async fn apply_updates_for_row(
 
     let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
 
-    agent_sql::publications::update_live_spec(
+    agent_sql::publications::update_published_live_spec(
         catalog_name,
         image_parts.as_ref().map(|p| &p.0),
         image_parts.as_ref().map(|p| &p.1),
@@ -436,6 +439,7 @@ fn extract_spec_metadata<'a>(
         draft_spec_id: _,
         draft_type,
         expect_pub_id: _,
+        last_build_id: _,
         last_pub_id: _,
         live_spec: _,
         live_spec_id: _,

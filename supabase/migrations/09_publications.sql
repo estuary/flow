@@ -44,6 +44,7 @@ create table live_specs (
   catalog_name          catalog_name not null,
   connector_image_name  text,
   connector_image_tag   text,
+  last_build_id         flowid not null,
   last_pub_id           flowid not null,
   reads_from            text[],
   spec                  json,
@@ -76,6 +77,15 @@ comment on column live_specs.connector_image_name is
   'OCI (Docker) connector image name used by this specification';
 comment on column live_specs.connector_image_tag is
   'OCI (Docker) connector image tag used by this specification';
+comment on column live_specs.last_build_id is '
+Last publication ID under which this specification was built and activated
+into the data-plane, even if it was not necessarily updated.
+
+A specification may be included in a publication which did not directly
+change it simply because of its connection to other specifications which
+were part of that publication: Flow identifies connected specifications
+in order to holistically verify and test their combined behaviors.
+';
 comment on column live_specs.last_pub_id is
   'Last publication ID which updated this specification';
 comment on column live_specs.reads_from is '

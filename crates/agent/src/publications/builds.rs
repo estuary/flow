@@ -265,9 +265,6 @@ pub async fn deploy_build(
 
     let spec_rows = spec_rows
         .iter()
-        // Filter specs which are under the special no-op prefix.
-        // TODO(johnny): Remove when no longer used for UI testing.
-        .filter(|r| !r.catalog_name.starts_with("no-op/"))
         // Filter specs which are tests, or are deletions of already-deleted specs.
         .filter(|r| match (r.live_type, r.draft_type) {
             (None, None) => false, // Before and after are both deleted.
@@ -283,7 +280,6 @@ pub async fn deploy_build(
         .chain(
             expanded_rows
                 .iter()
-                .filter(|r| !r.catalog_name.starts_with("no-op/"))
                 .filter(|r| !matches!(r.live_type, CatalogType::Test))
                 .map(|r| format!("--name={}", r.catalog_name)),
         );
@@ -318,26 +314,27 @@ pub async fn deploy_build(
         });
     }
 
-    // Delete drafts which are deleted, grouped on their `last_pub_id`
+    // Delete drafts which are deleted, grouped on their `last_build_id`
     // under which they're deleted. Note that `api delete` requires that
-    // we give the correct --build-id of the running specification or
-    // it won't do anything.
+    // we give the correct --build-id of the running specification,
+    // in order to provide the last-applicable built specification to
+    // connector ApplyDelete RPCs.
 
     let delete_groups = spec_rows
         .filter(|r| r.draft_type.is_none())
-        .map(|r| (r.last_pub_id, format!("--name={}", r.catalog_name)))
+        .map(|r| (r.last_build_id, format!("--name={}", r.catalog_name)))
         .sorted()
-        .group_by(|(last_pub_id, _)| *last_pub_id)
+        .group_by(|(last_build_id, _)| *last_build_id)
         .into_iter()
-        .map(|(last_pub_id, delete_names)| {
+        .map(|(last_build_id, delete_names)| {
             (
-                last_pub_id,
+                last_build_id,
                 delete_names.map(|(_, name)| name).collect::<Vec<_>>(),
             )
         })
         .collect::<Vec<_>>();
 
-    for (last_pub_id, delete_names) in delete_groups {
+    for (last_build_id, delete_names) in delete_groups {
         let job = jobs::run(
             "delete",
             logs_tx,
@@ -348,7 +345,7 @@ pub async fn deploy_build(
                 .arg("--broker.address")
                 .arg(broker_address.as_str())
                 .arg("--build-id")
-                .arg(format!("{last_pub_id}"))
+                .arg(format!("{last_build_id}"))
                 .arg("--consumer.address")
                 .arg(consumer_address.as_str())
                 .arg("--network")
