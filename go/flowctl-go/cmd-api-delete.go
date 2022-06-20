@@ -66,7 +66,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
 
-	shards, journals, err := flow.DeletionChanges(ctx, rjc, sc, collections, tasks, cmd.BuildID)
+	shards, journals, err := flow.DeletionChanges(ctx, rjc, sc, collections, tasks)
 	if err != nil {
 		return err
 	}

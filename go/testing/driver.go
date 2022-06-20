@@ -431,14 +431,13 @@ func CombineDocuments(
 }
 
 // Initialize fetches existing collection offsets from the cluster,
-// models them as completed ingestions, and ensures all downstream dataflows have
+// models each as a completed ingestion, and ensures all downstream data-flows have
 // completed. On its return, the internal write clock of the Graph reflects the
 // current cluster state.
 func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error {
 	for _, collection := range driver.collections {
 		// List journals of the collection.
-		list, err := client.ListAllJournals(ctx, driver.rjc,
-			flow.ListPartitionsAtBuildRequest(collection, driver.buildID))
+		list, err := client.ListAllJournals(ctx, driver.rjc, flow.ListPartitionsRequest(collection))
 		if err != nil {
 			return fmt.Errorf("listing journals of %s: %w", collection.Collection, err)
 		}
