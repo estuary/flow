@@ -12,9 +12,9 @@ The Flow web application is currently available to users in the Estuary [beta pr
 
 ## Prerequisites
 
-This guide assumes a basic understanding of Flow and its key concepts.
-Before you begin, it's recommended that you read
-the [high level concepts](../concepts/README.md) documentation.
+This guide is intended for new Flow users and briefly introduces Flow's key concepts.
+Though it's not required, you may find it helpful to read
+the [high level concepts](../concepts/README.md) documentation for more detail before you begin.
 
 ## Introduction
 
@@ -41,7 +41,7 @@ credentials provided by your Estuary account manager.
 
 2. Click the **Captures** tab and choose **New capture**.
 
-3. On the **Create Captures** page, choose a name for your capture.
+3. On the **Create Capture** page, choose a name for your capture.
 Your capture name must begin with a [prefix](../concepts/README.md#namespace) to which you [have access](../reference/authentication.md).
 Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
 Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
@@ -51,17 +51,17 @@ Append a unique capture name after the `/` to create the full name, for example 
   A form appears with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/capture-connectors/README.md).
 
-5. Fill out the required properties and click **Test Config**.
+5. Fill out the required properties and click **Discover Endpoint**.
 
   Flow uses the provided information to initiate a connection to the source system.
   It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. Each resource is mapped to a collection through a **binding**.
 
-  If there's an error, you'll be prompted to fix your configuration and test again.
+  If there's an error, you'll be prompted to fix and test your configuration.
 
 6. Look over the generated capture definition and the schema of the resulting Flow **collection(s)**.
 
   Flow generates catalog specifications as YAML files.
-  You can modify it by filling in new values in the form and clicking **Regenerate Catalog**,
+  You can modify it by filling in new values in the form and clicking **Discover Endpoint**,
   or by editing the YAML files directly in the web application.
   (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
 
@@ -84,7 +84,7 @@ The **New Materializations** page is pre-populated with the capture and collecti
   The rest of the page populates with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
 
-3. Fill out the required properties and click **Regenerate catalog**.
+3. Fill out the required properties and click **Discover Endpoint**.
 
   Flow initiates a connection with the destination system, and creates a binding to map each collection in your catalog to a **resource** in the destination.
   Again, these may be tables, data streams, or something else.
