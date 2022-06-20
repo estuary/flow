@@ -1,6 +1,6 @@
 ---
 source: crates/schema-inference/src/analyze.rs
-assertion_line: 58
+assertion_line: 70
 expression: schema
 ---
 {
@@ -33,11 +33,9 @@ expression: schema
     },
     "tags": {
       "type": "array",
-      "items": [
-        {
-          "type": "string"
-        }
-      ]
+      "items": {
+        "type": "string"
+      }
     },
     "title": {
       "type": "string"

@@ -1,6 +1,6 @@
 ---
 source: crates/schema-inference/src/analyze.rs
-assertion_line: 146
+assertion_line: 158
 expression: schema
 ---
 {
@@ -32,28 +32,29 @@ expression: schema
     },
     "b": {
       "type": "array",
-      "items": [
-        {
-          "type": "object",
-          "required": [
-            "truthful"
-          ],
-          "properties": {
-            "harmless": {
-              "type": "string"
-            },
-            "hurtful": {
-              "type": "boolean"
-            },
-            "truthful": {
-              "type": [
-                "boolean",
-                "string"
-              ]
-            }
+      "items": {
+        "type": [
+          "boolean",
+          "object"
+        ],
+        "required": [
+          "truthful"
+        ],
+        "properties": {
+          "harmless": {
+            "type": "string"
+          },
+          "hurtful": {
+            "type": "boolean"
+          },
+          "truthful": {
+            "type": [
+              "boolean",
+              "string"
+            ]
           }
         }
-      ]
+      }
     },
     "c": {
       "type": "object",
@@ -81,11 +82,9 @@ expression: schema
         },
         "optional": {
           "type": "array",
-          "items": [
-            {
-              "type": "integer"
-            }
-          ]
+          "items": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -94,11 +93,9 @@ expression: schema
     },
     "y": {
       "type": "array",
-      "items": [
-        {
-          "type": "string"
-        }
-      ]
+      "items": {
+        "type": "string"
+      }
     },
     "z": {
       "type": "null"
