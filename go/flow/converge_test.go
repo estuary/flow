@@ -124,11 +124,6 @@ func TestConvergence(t *testing.T) {
 		cupaloy.SnapshotT(t, out)
 	})
 
-	t.Run("list-shards-at-build-request", func(t *testing.T) {
-		var out = ListShardsAtBuildRequest(derivation, "foo-build")
-		cupaloy.SnapshotT(t, out)
-	})
-
 	t.Run("list-recovery-logs-request", func(t *testing.T) {
 		var out = ListRecoveryLogsRequest(derivation)
 		cupaloy.SnapshotT(t, out)
@@ -136,11 +131,6 @@ func TestConvergence(t *testing.T) {
 
 	t.Run("list-partitions-request", func(t *testing.T) {
 		var out = ListPartitionsRequest(collection)
-		cupaloy.SnapshotT(t, out)
-	})
-
-	t.Run("list-partitions-at-build-request", func(t *testing.T) {
-		var out = ListPartitionsAtBuildRequest(collection, "bar-build")
 		cupaloy.SnapshotT(t, out)
 	})
 
@@ -362,7 +352,7 @@ func TestConvergence(t *testing.T) {
 		var jc = &mockJournals{}
 		var sc = &mockShards{}
 
-		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, "fixture")
+		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
 		require.NoError(t, err)
 		cupaloy.SnapshotT(t, shards, journals)
 	})
@@ -383,7 +373,7 @@ func TestConvergence(t *testing.T) {
 			},
 		}
 
-		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, "fixture")
+		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
 		require.NoError(t, err)
 		cupaloy.SnapshotT(t, shards, journals)
 	})

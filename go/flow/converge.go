@@ -12,6 +12,7 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	glabels "go.gazette.dev/core/labels"
 )
 
 // ListShardsRequest builds a ListRequest of the Task's shards.
@@ -26,24 +27,12 @@ func ListShardsRequest(task pf.Task) pc.ListRequest {
 	}
 }
 
-// ListShardsAtBuildRequest builds a ListRequest of the Task's shards which are at the given |buildID|.
-func ListShardsAtBuildRequest(task pf.Task, buildID string) pc.ListRequest {
-	return pc.ListRequest{
-		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(
-				labels.Build, buildID,
-				labels.TaskName, task.TaskName(),
-				labels.TaskType, taskType(task),
-			),
-		},
-	}
-}
-
 // ListRecoveryLogsRequest builds a ListRequest of the Tasks's recovery logs.
 func ListRecoveryLogsRequest(task pf.Task) pb.ListRequest {
 	return pb.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(
+				glabels.ContentType, glabels.ContentType_RecoveryLog,
 				labels.TaskName, task.TaskName(),
 				labels.TaskType, taskType(task),
 			),
@@ -56,18 +45,6 @@ func ListPartitionsRequest(collection *pf.CollectionSpec) pb.ListRequest {
 	return pb.ListRequest{
 		Selector: pf.LabelSelector{
 			Include: pb.MustLabelSet(labels.Collection, collection.Collection.String()),
-		},
-	}
-}
-
-// ListPartitionsAtBuildRequest builds a ListRequest of the collection's partitions at the given |buildID|.
-func ListPartitionsAtBuildRequest(collection *pf.CollectionSpec, buildID string) pb.ListRequest {
-	return pb.ListRequest{
-		Selector: pf.LabelSelector{
-			Include: pb.MustLabelSet(
-				labels.Build, buildID,
-				labels.Collection, collection.Collection.String(),
-			),
 		},
 	}
 }
@@ -417,15 +394,13 @@ func ActivationChanges(
 
 // DeletionChanges enumerates all shard and journal changes required to bring
 // a current data-plane state into consistency with the deletion of each of the
-// specified collections and tasks, expected to be at |buildID|. If a task ShardSpec
-// or partition JournalSpec isn't at |buildID|, then no deletion change is generated.
+// specified collections and tasks.
 func DeletionChanges(
 	ctx context.Context,
 	jc pb.JournalClient,
 	sc pc.ShardClient,
 	collections []*pf.CollectionSpec,
 	tasks []pf.Task,
-	buildID string,
 ) ([]pc.ApplyRequest_Change, []pb.ApplyRequest_Change, error) {
 
 	var shards []pc.ApplyRequest_Change
@@ -434,7 +409,7 @@ func DeletionChanges(
 	// TODO(johnny): We could parallelize this by scattering / gathering list requests.
 
 	for _, collection := range collections {
-		var resp, err = client.ListAllJournals(ctx, jc, ListPartitionsAtBuildRequest(collection, buildID))
+		var resp, err = client.ListAllJournals(ctx, jc, ListPartitionsRequest(collection))
 		if err != nil {
 			return nil, nil, fmt.Errorf("listing partitions of %s: %w", collection.Collection, err)
 		}
@@ -448,7 +423,7 @@ func DeletionChanges(
 	}
 
 	for _, task := range tasks {
-		var shardsReq = ListShardsAtBuildRequest(task, buildID)
+		var shardsReq = ListShardsRequest(task)
 		var logsReq = ListRecoveryLogsRequest(task)
 
 		shardsResp, err := consumer.ListShards(ctx, sc, &shardsReq)
@@ -460,26 +435,17 @@ func DeletionChanges(
 			return nil, nil, fmt.Errorf("listing recovery logs of %s: %w", task.TaskName(), err)
 		}
 
-		var logsIdx = make(map[pf.Journal]pb.ListResponse_Journal, len(logsResp.Journals))
-		for _, cur := range logsResp.Journals {
-			logsIdx[cur.Spec.Name] = cur
-		}
-
 		for _, cur := range shardsResp.Shards {
 			shards = append(shards, pc.ApplyRequest_Change{
 				Delete:            cur.Spec.Id,
 				ExpectModRevision: cur.ModRevision,
 			})
-			// If we're removing a shard, we remove its recovery log regardless of
-			// whether it's converged to the shard's same build ID. It definitely
-			// *should* be, but we don't allow the recovery log to dangle either way.
-
-			if log, ok := logsIdx[cur.Spec.RecoveryLog()]; ok {
-				journals = append(journals, pb.ApplyRequest_Change{
-					Delete:            log.Spec.Name,
-					ExpectModRevision: log.ModRevision,
-				})
-			}
+		}
+		for _, cur := range logsResp.Journals {
+			journals = append(journals, pb.ApplyRequest_Change{
+				Delete:            cur.Spec.Name,
+				ExpectModRevision: cur.ModRevision,
+			})
 		}
 	}
 	return shards, journals, nil
