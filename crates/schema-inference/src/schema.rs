@@ -57,7 +57,7 @@ pub fn to_schema(shape: &Shape) -> Schema {
         for item in shape.array.tuple.iter() {
             array_items.push(to_schema(item));
         }
-        schema_object.array().items = Some(SingleOrVec::Vec(array_items));
+        schema_object.array().items = Some(flatten(array_items));
     }
 
     Schema::Object(schema_object)

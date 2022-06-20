@@ -136,7 +136,7 @@ mod test {
         });
         let data_two = json!({
             "a": 2,
-            "b": [],
+            "b": [true],
             "c": {
                 "inner": "nested data",
             },
