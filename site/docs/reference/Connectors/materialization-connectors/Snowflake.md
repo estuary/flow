@@ -26,8 +26,8 @@ If you haven't yet captured your data from its external source, start at the beg
 
 ### Setup
 
-To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor,
-check the **All Queries** check box, and click **Run**.
+To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first six lines with whatever you'd like.
+Check the **All Queries** check box, and click **Run**.
 
 ```sql
 set database_name = 'ESTUARY_DB';
