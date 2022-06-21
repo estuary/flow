@@ -15,12 +15,59 @@ To use this connector, you'll need:
 * A Snowflake account that includes:
     * A target database, to which you'll materialize data
     * A [schema](https://docs.snowflake.com/en/sql-reference/ddl-database.html) — a logical grouping of database objects — within the target database
-    * A user with a role assigned that [grants the `MODIFY` privilege](https://docs.snowflake.com/en/user-guide/security-access-control-overview.html) on the target database
+    * A virtual warehouse
+    * A user with a role assigned that grants the appropriate access levels to these resources.
+    See the [script below](#setup) for details.
 * At least one Flow collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
+
+### Setup
+
+To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first six lines with whatever you'd like.
+Check the **All Queries** check box, and click **Run**.
+
+```sql
+set database_name = 'ESTUARY_DB';
+set warehouse_name = 'ESTUARY_WH';
+set estuary_role = 'ESTUARY_ROLE';
+set estuary_user = 'ESTUARY_USER';
+set estuary_password = 'secret';
+set estuary_schema = 'ESTUARY_SCHEMA';
+-- create role and schema for Estuary
+create role if not exists identifier($estuary_role);
+grant role identifier($estuary_role) to role SYSADMIN;
+create schema if not exists identifier($estuary_schema);
+-- create a user for Estuary
+create user if not exists identifier($estuary_user)
+password = $estuary_password
+default_role = $estuary_role
+default_warehouse = $warehouse_name;
+grant role identifier($estuary_role) to user identifier($estuary_user);
+grant all on schema identifier($estuary_schema) to identifier($estuary_user);
+-- create a warehouse for estuary
+create warehouse if not exists identifier($warehouse_name)
+warehouse_size = xsmall
+warehouse_type = standard
+auto_suspend = 60
+auto_resume = true
+initially_suspended = true;
+-- Create snowflake DB
+create database if not exists identifier($database_name);
+-- grant Estuary role access to warehouse
+grant USAGE
+on warehouse identifier($warehouse_name)
+to role identifier($estuary_role);
+-- grant Estuary access to database
+grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to role identifier($estuary_role);
+-- change role to ACCOUNTADMIN for STORAGE INTEGRATION support to Estuary (only needed for Snowflake on GCP)
+use role ACCOUNTADMIN;
+grant CREATE INTEGRATION on account to role identifier($estuary_role);
+use role sysadmin;
+COMMIT;
+```
 
 ## Configuration
 
