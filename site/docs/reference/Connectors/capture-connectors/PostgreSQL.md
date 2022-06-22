@@ -35,12 +35,13 @@ The simplest way to meet the above prerequisites is to change the WAL level and 
 
 For a more restricted setup, create a new user with just the required permissions as detailed in the following steps:
 
-1. Create a new user and password:
+1. Connect to your instance and create a new user and password:
 ```sql
 CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 ```
 2. Assign the appropriate role.
     1. If using PostgreSQL v14 or later:
+    
     ```sql
     GRANT pg_read_all_data TO flow_capture;
     ```
@@ -155,7 +156,7 @@ You can use this connector for PostgreSQL instances on Amazon RDS using the foll
 
    4. Reboot the database to allow the new parameter group to take effect.
 
-3. In the PostgreSQL client, run the following commands to create a new user for the capture with appropriate permissions,
+3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
   ```sql
   CREATE USER flow_capture WITH PASSWORD 'secret';
@@ -171,7 +172,7 @@ and set up the watermarks table and publication.
 with the additional of the `proxy` stanza to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the `forwardHost` and `forwardPort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
+You can find the SSH `forwardHost` and `forwardPort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
 
 ### Google Cloud SQL
 
@@ -193,7 +194,7 @@ You can use this connector for PostgreSQL instances on Google Cloud SQL using th
 
 2. Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your loud SQL PostgreSQL instance.
 
-3. In your PostgreSQL client, issue the following commands to create a new user for the capture with appropriate permissions,
+3. In your PostgreSQL client, connect to your instance and issue the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
 
   ```sql
@@ -223,20 +224,44 @@ You can use this connector for  instances on Azure Database for PostgreSQL using
   This is currently supported through SSH tunneling.
   Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
 
-2. In your Azure PostgreSQL instance's server parameters, [set `wal_level` to `logical`](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical#pre-requisites-for-logical-replication-and-logical-decoding) to enable logical replication.
+2. In your Azure PostgreSQL instance's support parameters, [set replication to logical](https://docs.microsoft.com/en-us/azure/postgresql/single-server/concepts-logical#set-up-your-server) to enable logical replication.
 
-3. In the PostgreSQL client, run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table and publication.
+3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions.
 
 ```sql
 CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
-GRANT pg_read_all_data TO flow_capture;
+```
+   1. If using PostgreSQL v14 or later:
+
+   ```sql
+   GRANT pg_read_all_data TO flow_capture;
+   ```
+
+   2. If using an earlier version:
+
+   ```sql
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
+       GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
+      GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
+
+   ```
+   where `<others>` lists all schemas that will be captured from.
+    :::info
+    If an even more restricted set of permissions is desired, you can also grant SELECT on
+    just the specific table(s) which should be captured from. The ‘information_schema’ and
+    ‘pg_catalog’ access is required for stream auto-discovery, but not for capturing already
+    configured streams.
+    :::
+
+3. Set up the watermarks table and publication.
+
+```sql
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
 GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
 GRANT SELECT ON information_schema.columns, information_schema.tables, pg_catalog.pg_attribute, pg_catalog.pg_class, pg_catalog.pg_index, pg_catalog.pg_namespace TO flow_capture;
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-CREATE PUBLICATION flow_publication FOR ALL TABLES;
+CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
 ```
 
 4. Configure your connector as described in the [configuration](#configuration) section above,
