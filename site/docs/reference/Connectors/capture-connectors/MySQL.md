@@ -173,21 +173,73 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 ### Google Cloud SQL
 
-This connector should support capturing from MySQL on Google Cloud, however this may require Google Cloud-specific mechanisms for configuring permissions and/or binlog retention. We do not have verified setup instructions at this time.
+You can use this connector for MySQL instances on Google Cloud SQL using the following setup instructions.
 
-As an alternative, you can create a [read replica outside of Google cloud](https://cloud.google.com/sql/docs/mysql/replication#external-read-replicas).
-The replica can be treated as a standard MySQL instance.
+#### Setup
 
-1. [Set up an external replica](https://cloud.google.com/sql/docs/mysql/replication/configure-external-replica).
+1. You'll need to configure secure access to the database to enable the Flow capture.
+  Estuary recommends SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
 
-2. Follow the [standard setup instructions](#setup) for this connector.
+2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
+to `2592000`.
+
+3. Using [Google Cloud Shell](https://cloud.google.com/sql/docs/mysql/connect-instance-cloud-shell) or your preferred client, create the watermarks table.
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+
+4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
 
 ### Azure Database for MySQL
 
-This connector should support capturing from Azure Database for MySQL, however this may require Azure-specific mechanisms for configuring permissions and/or binlog retention. We do not have verified setup instructions at this time.
 
-Contact your account manager or [Estuary support](mailto:support@estuary.dev) for help using a third-party connector.
-Note that third party connectors will require you to [create a read replica](https://docs.microsoft.com/en-us/azure/mysql/howto-read-replicas-portal).
+You can use this connector for MySQL instances on Azure Database for MySQL using the following setup instructions.
+
+#### Setup
+
+1. You'll need to configure secure access to the database to enable the Flow capture.
+  Estuary recommends SSH tunneling to allow this.
+  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+
+2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
+to `2592000`.
+
+3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client, create the watermarks table.
+
+:::tip
+Your username must be specified in the format `username@servername`.
+:::
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+
+4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
 
 ## Troubleshooting Capture Errors
 

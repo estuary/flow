@@ -19,12 +19,18 @@ basic configuration options.
 
 2. Referencing the config files and shell output, collect the following information:
 
-   * The **SSH endpoint** for the SSH server, formatted as `ssh://user@hostname[:port]`. This may look like the any of following:
+  * The SSH **user**, which will be used to log into the SSH server, for example, `sshuser`. You may choose to create a new
+  user for this workflow.
+  * The **SSH endpoint** for the SSH server, formatted as `ssh://user@hostname[:port]`. This may look like the any of following:
      * `ssh://sshuser@ec2-198-21-98-1.compute-1.amazonaws.com`
      * `ssh://sshuser@198.21.98.1`
      * `ssh://sshuser@198.21.98.1:22`
-   * The SSH **user**, which will be used to log into the SSH server, for example, `sshuser`. You may choose to create a new
-  user for this workflow.
+     :::info Hint
+     The [SSH default port is 22](https://www.ssh.com/academy/ssh/port).
+     Depending on where your server is hosted, you may not be required to specify a port,
+     but we recommend specifying `:22` in all cases to ensure a connection can be made.
+     :::
+
 
 3. In the `.ssh` subdirectory of your user home directory,
    look for the PEM file that contains the private SSH key. Check that it starts with `-----BEGIN RSA PRIVATE KEY-----`,
@@ -116,7 +122,7 @@ Note the generated address.
 6. Find and note the host and port for your capture or materialization endpoint.
   :::tip
   For database instances hosted in Google Cloud SQL, you can find the host in the Cloud Console as Public IP Address.
-  Use `5432` as the port.
+  Use `5432` as the port for PostgreSQL, and `3306` for MySQL.
   :::
 
 7. Choose an open port on your localhost from which you'll connect to the SSH server.
@@ -153,7 +159,7 @@ note that instructions for other database engines may be different.
 
 4. Find and note the host and port for your capture or materialization endpoint.
   :::tip
-  For database instances hosted in Azure, you can find the host as Server Name, and the port under Connection Strings (usually `5432`).
+  For database instances hosted in Azure, you can find the host as Server Name, and the port under Connection Strings (`5432` for PostgreSQL and `3306` for MySql).
   :::
 
 5. Choose an open port on your localhost from which you'll connect to the SSH server.
@@ -163,6 +169,11 @@ note that instructions for other database engines may be different.
 After you've completed the prerequisites, you should have the following parameters:
 
 * **SSH Endpoint** / `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://user@hostname[:port]`
+     :::info Hint
+     The [SSH default port is 22](https://www.ssh.com/academy/ssh/port).
+     Depending on where your server is hosted, you may not be required to specify a port,
+     but we recommend specifying `:22` in all cases to ensure a connection can be made.
+     :::
 * **Private Key** / `privateKey`: the contents of the PEM file
 * **Forward Host** / `forwardHost`: the capture or materialization endpoint's host
 * **Forward Port** / `forwardPort`: the capture or materialization endpoint's port
