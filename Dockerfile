@@ -195,4 +195,3 @@ WORKDIR /home/agent
 COPY --chown=agent:agent scripts/healthcheck.sh /home/agent/healthcheck.sh
 COPY --chown=agent:agent scripts/entrypoint.sh /home/agent/entrypoint.sh
 ENTRYPOINT [ "/home/agent/entrypoint.sh" ]
-CMD '/usr/local/bin/agent'
