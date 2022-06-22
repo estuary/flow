@@ -3,6 +3,33 @@
 	"dockerComposeFile": "docker-compose.yaml",
 	"service": "develop",
 	"workspaceFolder": "/workspace",
+	// For feature descriptions and documentation, see:
+	// https://code.visualstudio.com/docs/remote/containers#_dev-container-features-preview
+	"features": {
+		// Use a non-root "flow" user with sudo.
+		"common": {
+			"username": "flow"
+		},
+		// Always use latest Go.
+		"golang": "latest",
+		// Always use latest Rust.
+		"rust": {
+			"version": "latest",
+			"profile": "default"
+		},
+		// Always use latest Node.
+		"node": {
+			"version": "lts"
+		},
+		// The repo uses LFS.
+		"git-lfs": "latest",
+		// Enable docker-from-docker.
+		"docker-from-docker": {
+			"version": "latest",
+			"moby": true,
+			"dockerDashComposeVersion": "v1"
+		}
+	},
 	// Set default container specific settings.json values on container create.
 	"settings": {
 		// Integrate the empty docker-compose database into VSCode.
@@ -16,39 +43,21 @@
 				"previewLimit": 50,
 				"server": "localhost",
 				"username": "flow"
-			},
-			{
-				"database": "control_development",
-				"driver": "PostgreSQL",
-				"name": "Control DB",
-				"password": "flow",
-				"port": 5432,
-				"previewLimit": 50,
-				"server": "localhost",
-				"username": "flow"
 			}
 		],
 		// Add extra CGO configuration required for the vscode-go extension to build
 		// the project through IDE-driven interactions, like running tests and analysis.
 		// Yes, these `testEnvVars` vs `toolsEnvVars` blocks are identical.
 		"go.testEnvVars": {
-			"CGO_LDFLAGS": "-L /workspaces/flow/target/release -L /workspaces/flow/target/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
-			"CGO_CFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include",
-			"CGO_CPPFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include"
+			"CGO_LDFLAGS": "-L /workspaces/flow/target/x86_64-unknown-linux-gnu/release -L /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
+			"CGO_CFLAGS": "-I /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp/include",
+			"CGO_CPPFLAGS": "-I /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp/include"
 		},
 		"go.toolsEnvVars": {
-			"CGO_LDFLAGS": "-L /workspaces/flow/target/release -L /workspaces/flow/target/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
-			"CGO_CFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include",
-			"CGO_CPPFLAGS": "-I /workspaces/flow/target/release/librocksdb-exp/include"
-		},
-		// Set a default terminal to use.
-		"terminal.integrated.profiles.linux": {
-			"bash": {
-				"path": "bash",
-				"icon": "terminal-bash"
-			},
-		},
-		"terminal.integrated.defaultProfile.linux": "bash",
+			"CGO_LDFLAGS": "-L /workspaces/flow/target/x86_64-unknown-linux-gnu/release -L /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm",
+			"CGO_CFLAGS": "-I /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp/include",
+			"CGO_CPPFLAGS": "-I /workspaces/flow/target/x86_64-unknown-linux-gnu/release/librocksdb-exp/include"
+		}
 	},
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
@@ -84,7 +93,6 @@
 	// We're using a base image which is compatible with our CI runner,
 	// and thus use the same make target.
 	"postCreateCommand": "make extra-ci-runner-setup && go mod download && make package",
-	// This user matches the user that's created inside the flow image
-	"remoteUser": "flow",
-	"overrideCommand": false
+	// This user matches the user that's created inside the build image.
+	"remoteUser": "flow"
 }
