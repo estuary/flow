@@ -1,5 +1,6 @@
 use super::{jobs, logs, Handler, Id};
 
+use crate::connector_tags::LOCAL_IMAGE_TAG;
 use agent_sql::discover::Row;
 use agent_sql::CatalogType;
 use anyhow::Context;
@@ -92,19 +93,21 @@ impl DiscoverHandler {
             ));
         }
 
-        // Pull the image.
-        let pull = jobs::run(
-            "pull",
-            &self.logs_tx,
-            row.logs_token,
-            tokio::process::Command::new("docker")
-                .arg("pull")
-                .arg(&image_composed),
-        )
-        .await?;
+        if row.image_tag != LOCAL_IMAGE_TAG {
+            // Pull the image.
+            let pull = jobs::run(
+                "pull",
+                &self.logs_tx,
+                row.logs_token,
+                tokio::process::Command::new("docker")
+                    .arg("pull")
+                    .arg(&image_composed),
+            )
+            .await?;
 
-        if !pull.success() {
-            return Ok((row.id, JobStatus::PullFailed));
+            if !pull.success() {
+                return Ok((row.id, JobStatus::PullFailed));
+            }
         }
 
         // Fetch its discover output.

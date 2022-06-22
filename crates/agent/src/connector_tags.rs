@@ -54,6 +54,11 @@ impl Handler for TagHandler {
     }
 }
 
+/// This tag is used for local development of connectors. Any images having this tag will not be
+/// pulled from a registry, so that developers can simply `docker build` and then update
+/// connector_tags without having to push to a registry.
+pub const LOCAL_IMAGE_TAG: &str = ":local";
+
 impl TagHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
     async fn process(
@@ -71,19 +76,21 @@ impl TagHandler {
         );
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
-        // Pull the image.
-        let pull = jobs::run(
-            "pull",
-            &self.logs_tx,
-            row.logs_token,
-            tokio::process::Command::new("docker")
-                .arg("pull")
-                .arg(&image_composed),
-        )
-        .await?;
+        if row.image_tag != LOCAL_IMAGE_TAG {
+            // Pull the image.
+            let pull = jobs::run(
+                "pull",
+                &self.logs_tx,
+                row.logs_token,
+                tokio::process::Command::new("docker")
+                    .arg("pull")
+                    .arg(&image_composed),
+            )
+            .await?;
 
-        if !pull.success() {
-            return Ok((row.tag_id, JobStatus::PullFailed));
+            if !pull.success() {
+                return Ok((row.tag_id, JobStatus::PullFailed));
+            }
         }
 
         // Fetch its connector specification.
