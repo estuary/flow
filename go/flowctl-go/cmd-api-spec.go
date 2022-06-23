@@ -33,14 +33,6 @@ type apiSpec struct {
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 }
 
-type imageConfig struct {
-	Labels map[string]string `json:"Labels"`
-}
-
-type imageInspect struct {
-	Config imageConfig `json:"Config"`
-}
-
 const FLOW_RUNTIME_PROTOCOL_KEY = "FLOW_RUNTIME_PROTOCOL"
 
 func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
@@ -53,33 +45,28 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 		return specResponse{}, err
 	}
 
-	// This might be a local image and might fail because of that
-	// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
-	err = connector.PullRemoteImage(ctx, cmd.Image, ops.StdLogger())
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"error": err,
-		}).Info("pull remote image does not succeed.")
+	var imageMeta []struct {
+		Config *struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
 	}
-	inspectOutput, err := connector.InspectImage(ctx, cmd.Image)
-	if err != nil {
-		return specResponse{}, fmt.Errorf("inspecting image %w", err)
-	}
-	var parsedInspects []imageInspect
-	err = json.Unmarshal(inspectOutput, &parsedInspects)
-	if err != nil {
-		return specResponse{}, fmt.Errorf("parsing inspect image %w", err)
-	}
-	labels := parsedInspects[0].Config.Labels
 
-	if protocol_key, ok := labels[FLOW_RUNTIME_PROTOCOL_KEY]; ok {
-		if protocol_key == "materialize" {
-			return cmd.specMaterialization(ctx, endpointSpec)
-		} else if protocol_key == "capture" {
-			return cmd.specCapture(ctx, endpointSpec)
-		} else {
-			return specResponse{}, fmt.Errorf("image labels specify unknown protocol %s=%s", FLOW_RUNTIME_PROTOCOL_KEY, protocol_key)
-		}
+	if err = connector.PullImage(ctx, cmd.Image); err != nil {
+		return specResponse{}, err
+	} else if o, err := connector.InspectImage(ctx, cmd.Image); err != nil {
+		return specResponse{}, err
+	} else if err = json.Unmarshal(o, &imageMeta); err != nil {
+		return specResponse{}, fmt.Errorf("parsing inspect image %w", err)
+	} else if len(imageMeta) == 0 || imageMeta[0].Config == nil {
+		return specResponse{}, fmt.Errorf("inspected image metadata is malformed: %s", string(o))
+	}
+
+	if protocol, ok := imageMeta[0].Config.Labels[FLOW_RUNTIME_PROTOCOL_KEY]; protocol == "materialize" {
+		return cmd.specMaterialization(ctx, endpointSpec)
+	} else if protocol == "capture" {
+		return cmd.specCapture(ctx, endpointSpec)
+	} else if ok {
+		return specResponse{}, fmt.Errorf("image labels specify unknown protocol %s=%s", FLOW_RUNTIME_PROTOCOL_KEY, protocol)
 	} else if strings.HasPrefix(cmd.Image, "ghcr.io/estuary/materialize-") {
 		// For backward compatibility with old images that do not have the labels
 		return cmd.specMaterialization(ctx, endpointSpec)

@@ -149,7 +149,7 @@ func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[s
 	entry.Time = ts
 	for key, val := range fields {
 		var deser interface{}
-		if err := json.Unmarshal(val, &deser); err != nil {
+		if err := json.Unmarshal(val, &deser); err == nil {
 			entry.Data[key] = deser
 		}
 	}
