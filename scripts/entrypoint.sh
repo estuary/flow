@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+set -e
 cd /home/agent
 wget https://github.com/estuary/flow/releases/download/dev/flow-x86-linux.tar.gz
 mkdir -p /home/agent/.bin
