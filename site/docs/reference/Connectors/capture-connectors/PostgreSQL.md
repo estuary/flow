@@ -1,5 +1,5 @@
 ---
-sidebar_position: 12
+sidebar_position: 14
 ---
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
@@ -41,7 +41,7 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 ```
 2. Assign the appropriate role.
     1. If using PostgreSQL v14 or later:
-    
+
     ```sql
     GRANT pg_read_all_data TO flow_capture;
     ```

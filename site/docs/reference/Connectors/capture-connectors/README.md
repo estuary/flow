@@ -14,6 +14,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Amazon S3
   * [Configuration](./amazon-s3.md)
   * Package — ghcr.io/estuary/source-s3:dev
+* Amplitude
+  * [Configuration](./amplitude.md)
+  * Package - ghcr.io/estuary/airbyte-source-amplitude:dev
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/source-kafka:dev
@@ -35,6 +38,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/airbyte-source-hubspot:dev
+* Intercom
+  * [Configuration](./intercom.md)
+  * Package - ghcr.io/estuary/airbyte-source-intercom:dev
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/airbyte-source-mailchimp:dev
@@ -44,3 +50,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
+* Stripe
+  * [Configuration](./stripe.md)
+  * Package - ghcr.io/estuary/airbyte-source-stripe:dev
+* Zendesk Support
+  * [Configuration](./zendesk-support.md)
+  * Package - ghcr.io/estuary/airbyte-source-zendesk-support:dev
