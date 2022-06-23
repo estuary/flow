@@ -2,25 +2,55 @@ use crate::errors::Error;
 use crate::libs::json::{create_root_schema, remove_subobject};
 use network_tunnel::interface::NetworkTunnelConfig;
 
-use schemars::schema::{RootSchema, Schema};
+use schemars::schema::{RootSchema, Schema, SchemaObject};
+use schemars::visit::{visit_root_schema, visit_schema_object, Visitor};
 use serde_json::value::RawValue;
 use tokio::sync::oneshot::{self, Receiver};
 use tokio::time::timeout;
 
 pub struct NetworkTunnel {}
 pub const NETWORK_TUNNEL_KEY: &str = "networkTunnel";
+pub const ENDPOINT_ADDRESS_KEY: &str = "address";
+
+// The RemoveForwardHost visitor is used to conditionally remove some of
+// the SSH Forwarding config properties if (and only if) we detect that the
+// underlying connector has an 'address' property which makes them redundant.
+//
+// There are very few ways of *conditionally* including/excluding a struct
+// field from the generated JSON schemas, so using a visitor to remove them
+// after the fact was the best way of accomplishing this.
+#[derive(Debug, Clone)]
+pub struct RemoveSSHForwardHost;
+impl Visitor for RemoveSSHForwardHost {
+    fn visit_schema_object(&mut self, schema: &mut SchemaObject) {
+        if let Some(metadata) = &schema.metadata {
+            if metadata.title == Some("SSH Tunnel".to_string()) {
+                if let Some(obj) = &mut schema.object {
+                    obj.properties.remove("forwardHost");
+                    obj.properties.remove("forwardPort");
+                    obj.properties.remove("localPort");
+                }
+            }
+        }
+        visit_schema_object(self, schema);
+    }
+}
 
 impl NetworkTunnel {
     pub fn extend_endpoint_schema(
         endpoint_spec_schema: Box<RawValue>,
     ) -> Result<Box<RawValue>, Error> {
-        let network_tunnel_schema = create_root_schema::<NetworkTunnelConfig>();
-
+        let mut network_tunnel_schema = create_root_schema::<NetworkTunnelConfig>();
         let mut modified_schema: RootSchema = serde_json::from_str(endpoint_spec_schema.get())?;
         if let Some(ref mut o) = &mut modified_schema.schema.object {
             if o.as_ref().properties.contains_key(NETWORK_TUNNEL_KEY) {
                 return Err(Error::DuplicatedKeyError(NETWORK_TUNNEL_KEY));
             }
+
+            if o.as_ref().properties.contains_key(ENDPOINT_ADDRESS_KEY) {
+                visit_root_schema(&mut RemoveSSHForwardHost, &mut network_tunnel_schema);
+            }
+
             o.as_mut().properties.insert(
                 NETWORK_TUNNEL_KEY.to_string(),
                 Schema::Object(network_tunnel_schema.schema),
