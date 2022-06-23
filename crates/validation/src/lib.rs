@@ -57,8 +57,8 @@ pub async fn validate<D: Drivers>(
 
     let compiled_schemas = match tables::Resource::compile_all_json_schemas(resources) {
         Ok(c) => c,
-        Err(err) => {
-            Error::from(err).push(root_scope, &mut errors);
+        Err(_) => {
+            Error::SchemaBuild.push(root_scope, &mut errors);
 
             return tables::Validations {
                 errors,

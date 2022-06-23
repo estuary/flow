@@ -181,8 +181,8 @@ pub enum Error {
         rhs_scope: Url,
     },
 
-    #[error(transparent)]
-    SchemaBuild(#[from] json::schema::build::Error),
+    #[error("one or more JSON schemas has errors which prevent further validation checks")]
+    SchemaBuild,
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]

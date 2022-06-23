@@ -57,21 +57,24 @@ where
     let output_path = directory.join(&config.build_id);
     let db = rusqlite::Connection::open(&output_path).context("failed to open catalog database")?;
 
-    if config.typescript_generate || config.typescript_compile || config.typescript_package {
+    // Generate TypeScript package? Generation should always succeed if the input catalog is valid.
+    if all_tables.errors.is_empty()
+        && (config.typescript_generate || config.typescript_compile || config.typescript_package)
+    {
         if let Err(err) = generate_npm_package(&all_tables, &directory)
             .context("failed to generate TypeScript package")
         {
             all_tables.errors.insert_row(&root_url, err);
         }
     }
-
-    if !all_tables.errors.is_empty() {
-        // Skip TypeScript compilation / packaging if catalog errors were encountered.
-    } else if !config.typescript_compile && !config.typescript_package {
-        // Skip TypeScript compilation / packaging if not configured.
-    } else if let Err(err) = compile_npm(&directory) {
-        all_tables.errors.insert_row(&root_url, err);
-    } else if config.typescript_package {
+    // Compile TypeScript? This may fail due to a user-caused error.
+    if all_tables.errors.is_empty() && (config.typescript_compile || config.typescript_package) {
+        if let Err(err) = compile_npm(&directory) {
+            all_tables.errors.insert_row(&root_url, err);
+        }
+    }
+    // Package TypeScript?
+    if all_tables.errors.is_empty() && config.typescript_package {
         let npm_resources = pack_npm(&directory).context("failed to pack TypeScript package")?;
         tables::persist_tables(&db, &[&npm_resources]).context("failed to persist NPM package")?;
     }
@@ -240,12 +243,7 @@ fn npm_cmd(package_dir: &std::path::Path, args: &[&str]) -> Result<(), anyhow::E
         .context("failed to spawn `npm` command")?;
 
     if !status.success() {
-        anyhow::bail!(
-            "npm command {:?}, in directory {:?}, failed with status {:?}",
-            args,
-            package_dir,
-            status
-        );
+        anyhow::bail!("npm command {:?} failed with {}", args.join(" "), status);
     }
 
     Ok(())
