@@ -424,7 +424,7 @@ fn stream_to_recommended_name(stream: &str) -> String {
         .map(|chunk| {
             chunk
                 .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '.')
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '.' || *c == '_')
                 .collect()
         })
         .filter(|c: &String| !c.is_empty())
