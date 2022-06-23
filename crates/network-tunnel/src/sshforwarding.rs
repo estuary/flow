@@ -77,7 +77,7 @@ fn port_schema(title: &str, description: &str) -> schemars::schema::Schema {
         "description": description,
         "type": "integer",
         "minimum": 1_i32,
-        "maximum": 65536_i32
+        "maximum": 65535_i32
     }))
     .unwrap()
 }
