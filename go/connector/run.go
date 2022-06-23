@@ -7,19 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
 )
 
 type Protocol int
@@ -29,8 +26,8 @@ const (
 	Materialize
 )
 
+// proxyCommand returns a ProxyCommand of crates/connector_proxy/src/main.rs
 func (c Protocol) proxyCommand() string {
-	// Corresponding to the ProxyCommand specified in crates/connector_proxy/src/main.rs
 	switch c {
 	case Capture:
 		return "proxy-flow-capture"
@@ -41,18 +38,7 @@ func (c Protocol) proxyCommand() string {
 	}
 }
 
-const imageInspectJsonFileName = "image_inspect.json"
-
 // Run the given Docker |image| with |args|.
-//
-// Any |jsonFiles| are mounted into the container under "/tmp".
-// Files often contain credentials: rather than using regular files,
-// which persist and may be accessed throughout the life of the invocation,
-// RunConnector uses named FIFOs which may be read just once.
-// Callers must also be aware that the bytes referenced by |jsonFiles| are
-// zero'd as soon as they're written into the pipe. This prevents copies of
-// credentials from unnecessarily lingering in the current process heap while
-// the connector invocation runs.
 //
 // |writeLoop| is called with a Writer that's connected to the container's stdin.
 // The callback should produce input into the Writer, and then return when all
@@ -64,19 +50,45 @@ const imageInspectJsonFileName = "image_inspect.json"
 // If |writeLoop| or |output| return an error, or if the context is cancelled,
 // the container is sent a SIGTERM and the error is returned.
 //
-// If the container exits with a non-zero status, an error is returned containing
-// a bounded prefix of the container's stderr output.
+// If the container exits with a non-zero status then an error is returned
+// containing a portion of the container's stderr output.
+//
+// Run is docker-from-docker friendly: it does require that files written to
+// $TMPDIR may be mounted into and read by the container, but does not mount
+// any other paths.
 func Run(
 	ctx context.Context,
 	image string,
 	protocol Protocol,
 	networkName string,
 	args []string,
-	jsonFiles map[string]json.RawMessage,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
 ) error {
+	var tmpProxy, tmpInspect *os.File
+
+	// Copy `flowConnectorProxy` binary to $TMPDIR, from where it may be
+	// mounted into the connector.
+	if rPath, err := pkgbin.Locate(flowConnectorProxy); err != nil {
+		return fmt.Errorf("finding %q binary: %w", flowConnectorProxy, err)
+	} else if r, err := os.Open(rPath); err != nil {
+		return fmt.Errorf("opening %s: %w", rPath, err)
+	} else if tmpProxy, err = copyToTempFile(r, 0555); err != nil {
+		return fmt.Errorf("copying %s to tmpfile: %w", rPath, err)
+	}
+	defer os.Remove(tmpProxy.Name())
+
+	// Pull and inspect the image, saving its output for mounting within the container.
+	if err := PullImage(ctx, image); err != nil {
+		return err
+	} else if out, err := InspectImage(ctx, image); err != nil {
+		return err
+	} else if tmpInspect, err = copyToTempFile(bytes.NewReader(out), 0444); err != nil {
+		return fmt.Errorf("writing image inspect output: %w", err)
+	}
+	defer os.Remove(tmpInspect.Name())
+
 	var imageArgs = []string{
 		"docker",
 		"run",
@@ -86,6 +98,7 @@ func Run(
 		"--init",
 		// --interactive causes docker run to attach and proxy stdin to the container.
 		"--interactive",
+		// Remove the docker container upon its exit.
 		"--rm",
 		// Tell docker not to persist any container stdout/stderr output.
 		// Containers may write _lots_ of output to std streams, and docker's
@@ -96,120 +109,28 @@ func Run(
 		// that running `docker logs` to see the output of a connector will not
 		// work. This is acceptable, since all of the stderr output is logged
 		// into the ops collections.
-		"--log-driver",
-		"none",
-	}
-
-	if networkName != "" {
-		imageArgs = append(imageArgs, fmt.Sprintf("--network=%s", networkName))
-	}
-
-	var tempdir, err = ioutil.TempDir("", "connector-files")
-	if err != nil {
-		return fmt.Errorf("creating tempdir: %w", err)
-	}
-	defer os.RemoveAll(tempdir)
-
-	if connectorProxyPath, err := prepareFlowConnectorProxyBinary(tempdir); err != nil {
-		return fmt.Errorf("prepare flow connector proxy binary: %w", err)
-	} else {
-		imageArgs = append(imageArgs,
-			"--entrypoint", connectorProxyPath,
-			"--mount", fmt.Sprintf("type=bind,source=%[1]s,target=%[1]s", connectorProxyPath),
-		)
-	}
-
-	if err := PullRemoteImage(ctx, image, logger); err != nil {
-		// This might be a local image. Log an error and keep going.
-		// If the image does not exist locally, the inspectImage will return an error and terminate the workflow.
-		logger.Log(logrus.InfoLevel, logrus.Fields{
-			"error": err,
-		}, "pull remote image does not succeed.")
-	}
-
-	if inspectOutput, err := InspectImage(ctx, image); err != nil {
-		return fmt.Errorf("inspect image: %w", err)
-	} else {
-		if jsonFiles == nil {
-			jsonFiles = map[string]json.RawMessage{imageInspectJsonFileName: inspectOutput}
-
-		} else {
-			jsonFiles[imageInspectJsonFileName] = inspectOutput
-		}
-	}
-
-	args = append([]string{
-		fmt.Sprintf("--image-inspect-json-path=/tmp/%s", imageInspectJsonFileName),
-		fmt.Sprintf("--log.level=%s", ops.LogrusToFlowLevel(logger.Level()).String()),
+		"--log-driver", "none",
+		// Network to which the container should attach.
+		"--network", networkName,
+		// The entrypoint into a connector is always `flow-connector-proxy`,
+		// which will delegate to the actual entrypoint of the connector.
+		"--entrypoint", "/flow-connector-proxy",
+		// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
+		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
+		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+		image,
+		// Arguments following `image` are arguments of the connector proxy and not of docker:
+		"--image-inspect-json-path=/image-inspect.json",
+		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
 		protocol.proxyCommand(),
-	}, args...)
-
-	for name, data := range jsonFiles {
-		var hostPath = filepath.Join(tempdir, name)
-		var containerPath = filepath.Join("/tmp", name)
-
-		if err := unix.Mkfifo(hostPath, 0644); err != nil {
-			return fmt.Errorf("creating fifo %s: %w", hostPath, err)
-		}
-		imageArgs = append(imageArgs,
-			"--mount",
-			fmt.Sprintf("type=bind,source=%s,target=%s", hostPath, containerPath))
-
-		// |timeout| must account for startup delays due to image pulls.
-		// TODO(johnny): run `docker pull` first if this is a problem.
-		go func(hostPath string, data []byte) {
-			if err := fifoSend(hostPath, data, time.Minute); err != nil {
-				logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err, "hostPath": hostPath},
-					"failed to send connector input")
-			}
-		}(hostPath, data)
 	}
-	args = append(append(imageArgs, image), args...)
 
-	return runCommand(ctx, args, writeLoop, output, logger)
-}
-
-// fifoSend writes |data| into a named FIFO at |path| with a |timeout|.
-// |data| is zeroed once it's fully written or an error occurs.
-func fifoSend(path string, data []byte, timeout time.Duration) error {
-
-	// A badly-behaved connector can naively cause us to block indefinitely:
-	// * If the connector never opens the file then OpenFile will hang.
-	// * If the connector opens but doesn't read the file then Write will hang.
-	//
-	// We guard against the first by opening the file for reading ourselves after
-	// |timeout|, to ensure the pipe is matched and the call is unblocked.
-	// We guard guard against the latter by using SetWriteDeadline.
-	//
-	// See: https://github.com/golang/go/issues/33050
-
-	var timer = time.AfterFunc(timeout, func() {
-		if f, err := os.OpenFile(path, os.O_RDONLY, os.ModeNamedPipe); err == nil {
-			f.Close()
-		}
+	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
+		ops.LogSourceField: image,
+		"operation":        strings.Join(args, " "),
 	})
-	var deadline = time.Now().Add(timeout)
 
-	defer func() {
-		timer.Stop()
-		ZeroBytes(data)
-	}()
-
-	var w, err = os.OpenFile(path, os.O_WRONLY, os.ModeNamedPipe)
-	if err != nil {
-		return fmt.Errorf("opening FIFO for writing: %w", err)
-	}
-	defer w.Close()
-
-	if err = w.SetWriteDeadline(deadline); err != nil {
-		return fmt.Errorf("setting FIFO write deadline: %w", err)
-	} else if _, err = w.Write(data); err != nil {
-		return fmt.Errorf("writing to FIFO: %w", err)
-	} else if err = w.Close(); err != nil {
-		return fmt.Errorf("closing FIFO: %w", err)
-	}
-
-	return nil
+	return runCommand(ctx, append(imageArgs, args...), writeLoop, output, logger)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -250,6 +171,8 @@ func runCommand(
 		fe.onError(writeLoop(wc))
 	}()
 
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
+
 	// Decode and forward connector stdout to |output|, but intercept a
 	// returned error to cancel our context and report through |fe|.
 	// If we didn't cancel, then the connector would run indefinitely.
@@ -261,14 +184,9 @@ func runCommand(
 			return err
 		},
 	}
-	logger.Log(logrus.InfoLevel, logrus.Fields{
-		"args": args,
-	}, "invoking connector")
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
-	cmd.Stderr = &connectorStderr{
-		delegate: stderrForwarder,
-	}
+	cmd.Stderr = &connectorStderr{delegate: stderrForwarder}
 
+	logger.Log(logrus.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
 	if err := cmd.Start(); err != nil {
 		fe.onError(fmt.Errorf("starting connector: %w", err))
 	}
@@ -280,16 +198,14 @@ func runCommand(
 		<-ctx.Done()
 		logger.Log(logrus.DebugLevel, nil, "sending termination signal to connector")
 		if sigErr := signal(syscall.SIGTERM); sigErr != nil && sigErr != os.ErrProcessDone {
-			// I haven't seen any evidence that sending the signal ever fails for any other reason
-			// than the child has already exited. But this is here just to help track down any
-			// potential issues with cleaning up connector processes.
-			logger.Log(logrus.WarnLevel, logrus.Fields{"error": sigErr}, "failed to send signal to container process")
+			logger.Log(logrus.WarnLevel, logrus.Fields{"error": sigErr},
+				"failed to send signal to container process")
 		}
 	}(cmd.Process.Signal)
 
 	err = cmd.Wait()
 	var closeErr = cmd.Stdout.(io.Closer).Close()
-	// Ignore error on closeing stderr because it's already logged by the forwarder
+	// Ignore error on closing stderr because it's already logged by the forwarder
 	_ = stderrForwarder.Close()
 
 	if err == nil {
@@ -298,9 +214,7 @@ func runCommand(
 	} else if ctx.Err() == nil {
 		// Expect a clean exit if the context wasn't cancelled.
 		// Log the raw error, since we've already logged everything that was printed to stderr.
-		logger.Log(logrus.ErrorLevel, logrus.Fields{
-			"error": err,
-		}, "running connector failed")
+		logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
 		fe.onError(fmt.Errorf("%w with stderr:\n\n%s",
 			err, cmd.Stderr.(*connectorStderr).buffer.String()))
 	} else {
@@ -459,91 +373,6 @@ func (o *protoOutput) decode(p []byte) ([]byte, error) {
 	return p, nil
 }
 
-// NewJSONOutput returns an io.WriterCloser for use as
-// the stdout handler of a connector. Its Write function parses
-// connector output as newline-delimited JSON records using the
-// provided initialization and post-decoding callbacks. If the
-// json decoding returns an error, then `onDecodeError` will be
-// invoked with the entire line and the error that was returned
-// by the decoder. If it returns nil, then processing will continue.
-func NewJSONOutput(
-	newRecord func() interface{},
-	onDecode func(interface{}) error,
-	onDecodeError func([]byte, error) error,
-) io.WriteCloser {
-
-	return &jsonOutput{
-		newRecord:       newRecord,
-		onDecodeSuccess: onDecode,
-		onDecodeError:   onDecodeError,
-	}
-}
-
-type jsonOutput struct {
-	rem             []byte
-	newRecord       func() interface{}
-	onDecodeSuccess func(interface{}) error
-	onDecodeError   func([]byte, error) error
-}
-
-func (o *jsonOutput) Write(p []byte) (int, error) {
-	var n = len(p)
-
-	var newlineIndex = bytes.IndexByte(p, '\n')
-	for newlineIndex >= 0 {
-		var line = p[:newlineIndex]
-		if len(o.rem) > 0 {
-			line = append(o.rem, line...)
-		}
-		line = bytes.TrimSpace(line)
-		if err := o.parse(line); err != nil {
-			return 0, err
-		}
-		p = p[newlineIndex+1:]
-		o.rem = o.rem[:0]
-		newlineIndex = bytes.IndexByte(p, '\n')
-	}
-
-	if len(o.rem)+len(p) > maxMessageSize {
-		return 0, fmt.Errorf("message is too large (%d bytes without a newline)", len(o.rem)+len(p))
-	}
-
-	// Preserve any remainder of p, since another newline is expected in a subsequent write
-	if len(p) > 0 {
-		o.rem = append(o.rem, p...)
-	}
-
-	return n, nil
-}
-
-func (o *jsonOutput) parse(chunk []byte) error {
-	var dec = json.NewDecoder(bytes.NewReader(chunk))
-	dec.DisallowUnknownFields()
-
-	for {
-		var rec = o.newRecord()
-
-		if err := dec.Decode(rec); err == io.EOF {
-			return nil
-		} else if err != nil {
-			// Technically, we might have successfully parsed a portion of this line already, and
-			// that portion would also be included in the chunk we pass here (and thus possibly
-			// logged). Calling dec.InputOffset won't help us here because the decode could have
-			// failed even though the input contained valid json tokens.
-			return o.onDecodeError(chunk, err)
-		} else if err = o.onDecodeSuccess(rec); err != nil {
-			return err
-		}
-	}
-}
-
-func (o *jsonOutput) Close() error {
-	if len(o.rem) != 0 {
-		return fmt.Errorf("connector stdout closed without a final newline: %q", string(o.rem))
-	}
-	return nil
-}
-
 type firstError struct {
 	err error
 	mu  sync.Mutex
@@ -565,38 +394,40 @@ func (fe *firstError) unwrap() error {
 	return fe.err
 }
 
-const maxStderrBytes = 4096
-const maxMessageSize = 1 << 23 // 8 MB.
-
-func PullRemoteImage(ctx context.Context, image string, logger ops.Logger) error {
-	var combinedOutput, err = exec.CommandContext(ctx, "docker", "pull", image).CombinedOutput()
-	logger.Log(logrus.TraceLevel, nil, fmt.Sprintf("output from docker pull: %s", combinedOutput))
-	if err != nil {
-		return fmt.Errorf("pull image: %w", err)
+// PullImage to local cache unless the tag is `:local-test-tag`, which is expected to be local.
+func PullImage(ctx context.Context, image string) error {
+	// Pull the image if it's not expected to be local.
+	if strings.HasSuffix(image, ":local-test-tag") {
+		// Don't pull images having this tag.
+	} else if _, err := exec.CommandContext(ctx, "docker", "pull", image).Output(); err != nil {
+		return fmt.Errorf("pull of container image %q failed: %w", image, err)
 	}
 	return nil
 }
 
+// InspectImage and return its Docker-compatible metadata JSON encoding.
 func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
-	if output, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
-		return nil, fmt.Errorf("inspect image: %w", err)
+	if o, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
+		return nil, fmt.Errorf("inspection of container image %q failed: %w", image, err)
 	} else {
-		return output, nil
+		return o, nil
 	}
 }
 
+func copyToTempFile(r io.Reader, mode os.FileMode) (*os.File, error) {
+	tmp, err := os.CreateTemp("", "connector")
+	if err != nil {
+		return nil, fmt.Errorf("creating tempfile: %w", err)
+	} else if _, err = io.Copy(tmp, r); err != nil {
+		return nil, fmt.Errorf("copying to tempfile %s: %w", tmp.Name(), err)
+	} else if err = tmp.Close(); err != nil {
+		return nil, fmt.Errorf("closing tempfile %s: %w", tmp.Name(), err)
+	} else if err = os.Chmod(tmp.Name(), mode); err != nil {
+		return nil, fmt.Errorf("chmod of tempfile %s: %w", tmp.Name(), err)
+	}
+	return tmp, nil
+}
+
+const maxStderrBytes = 4096
+const maxMessageSize = 1 << 23 // 8 MB.
 const flowConnectorProxy = "flow-connector-proxy"
-
-func prepareFlowConnectorProxyBinary(tempdir string) (string, error) {
-	var connectorProxyPath = filepath.Join(tempdir, "connector_proxy")
-
-	if path, err := pkgbin.Locate(flowConnectorProxy); err != nil {
-		return "", fmt.Errorf("finding %q binary: %w", flowConnectorProxy, err)
-	} else if input, err := ioutil.ReadFile(path); err != nil {
-		return "", fmt.Errorf("read connector proxy binary from source: %w", err)
-	} else if err = ioutil.WriteFile(connectorProxyPath, input, 0751); err != nil {
-		return "", fmt.Errorf("write connector proxy binary: %w", err)
-	}
-
-	return connectorProxyPath, nil
-}
