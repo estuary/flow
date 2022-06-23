@@ -34,12 +34,16 @@ pub struct SshForwardingConfig {
     /// Private key to connect to the remote SSH server.
     #[schemars(schema_with = "private_key_schema")]
     pub private_key: String,
-    /// Host name to connect from the remote SSH server to the remote destination (e.g. DB) via internal network.
+    /// The hostname of the remote destination (e.g. the database server).
+    #[serde(default)]
     pub forward_host: String,
-    /// Port of the remote destination.
+    /// The port of the remote destination (e.g. the database server).
+    #[serde(default)]
     #[schemars(schema_with = "forward_port_schema")]
     pub forward_port: u16,
-    /// Local port to start the SSH tunnel.
+    /// The local port which will be connected to the remote host/port over an SSH tunnel.
+    /// This should match the port that's used in your basic connector configuration.
+    #[serde(default)]
     #[schemars(schema_with = "local_port_schema")]
     pub local_port: u16,
 }
@@ -59,7 +63,7 @@ fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
 fn forward_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     port_schema(
         "Forward Port",
-        "The port number that the data source is listening on",
+        "The port of the remote destination (e.g. the database server)",
     )
 }
 
