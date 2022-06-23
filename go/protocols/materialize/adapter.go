@@ -201,6 +201,8 @@ func (a *adapterStreamServer) Send(m *TransactionResponse) error {
 	return nil
 }
 
+func (a *adapterStreamServer) SendMsg(m interface{}) error { return a.Send(m.(*TransactionResponse)) }
+
 func (a *adapterStreamServer) Recv() (*TransactionRequest, error) {
 	if m, ok := <-a.rx; ok {
 		return m.TransactionRequest, m.Error
@@ -223,4 +225,3 @@ func (a *adapterStreamServer) RecvMsg(m interface{}) error {
 func (a *adapterStreamServer) SetHeader(metadata.MD) error  { panic("not implemented") }
 func (a *adapterStreamServer) SendHeader(metadata.MD) error { panic("not implemented") }
 func (a *adapterStreamServer) SetTrailer(metadata.MD)       { panic("not implemented") }
-func (a *adapterStreamServer) SendMsg(m interface{}) error  { panic("not implemented") } // Use Send().

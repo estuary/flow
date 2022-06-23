@@ -20,10 +20,11 @@ func TestBuildCatalog(t *testing.T) {
 		CaptureDriverFn:     capture.NewDriver,
 		MaterializeDriverFn: materialize.NewDriver,
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "fixture",
-			Directory:  t.TempDir(),
-			Source:     "file:///build.flow.yaml",
-			SourceType: pf.ContentType_CATALOG,
+			BuildId:          "fixture",
+			Directory:        t.TempDir(),
+			Source:           "file:///build.flow.yaml",
+			SourceType:       pf.ContentType_CATALOG,
+			ConnectorNetwork: "bridge",
 		}}
 	require.NoError(t, BuildCatalog(args))
 

@@ -96,6 +96,16 @@ func (m *ValidateResponse_Binding) Validate() error {
 	return nil
 }
 
+// Validate returns an error if the ApplyRequest is malformed.
+func (m *ApplyRequest) Validate() error {
+	if err := m.Capture.Validate(); err != nil {
+		return pb.ExtendContext(err, "Capture")
+	}
+
+	// DryRun cannot have a validation error.
+	return nil
+}
+
 // Validate returns an error if the Documents isn't well-formed.
 func (m *Documents) Validate() error {
 	if len(m.DocsJson) == 0 {

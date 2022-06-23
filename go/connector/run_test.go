@@ -3,109 +3,15 @@ package connector
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"os"
-	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/io"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
-
-func TestJSONRecordBreaks(t *testing.T) {
-	var all []string
-	var errors []string
-
-	var s = &jsonOutput{
-		newRecord: func() interface{} { return new(string) },
-		onDecodeSuccess: func(i interface{}) error {
-			all = append(all, *i.(*string))
-			return nil
-		},
-		onDecodeError: func(b []byte, _ error) error {
-			errors = append(errors, string(b))
-			return nil
-		},
-	}
-
-	var w = func(p string) {
-		var n, err = s.Write([]byte(p))
-		require.Equal(t, len(p), n)
-		require.NoError(t, err)
-	}
-
-	var verify = func(v []string) {
-		require.Equal(t, v, all)
-		all = nil
-	}
-	var verifyErrors = func(expect ...string) {
-		require.Equal(t, expect, errors)
-		errors = nil
-	}
-
-	// Single line.
-	w("\"one\"\n")
-	// Multiple writes for one line.
-	w("\"two")
-	w("three")
-	w("four\"\n")
-	// a line that can't be parsed into a string
-	w("123.45\n")
-	// Multiple linebreaks in one write.
-	w("\"five\"\n\"six\"\n\"seven\"\n")
-
-	verify([]string{"one", "twothreefour", "five", "six", "seven"})
-	verifyErrors("123.45")
-
-	// Worst-case line breaks.
-	w("\"one")
-	w("two\"\n\"three\"\n\"four")
-	w("five\"\n\"six\"\n\"seven")
-
-	verify([]string{"onetwo", "three", "fourfive", "six"})
-
-	w("eight\"\n\"")
-	w("nine\"")
-	w("\n")
-	verify([]string{"seveneight", "nine"})
-
-	// Invalid json in the middle of valid json. This is kind of a weird corner case, where the
-	// entire line will get logged because the invalid portion was in the middle of it.
-	w("\"uno\"dos\"tres\"\n")
-	verify([]string{"uno"})
-	verifyErrors("\"uno\"dos\"tres\"")
-
-	// A Close on a newline is okay.
-	require.NoError(t, s.Close())
-	// But a Close with partial data errors.
-	w("\"extra")
-	require.EqualError(t, s.Close(),
-		"connector stdout closed without a final newline: \"\\\"extra\"")
-
-	// Attempting to process a too-large message errors.
-	var manyOnes = bytes.Repeat([]byte("1"), maxMessageSize/2)
-
-	// First one works (not at threshold yet).
-	_, err := s.Write([]byte(manyOnes))
-	require.NoError(t, err)
-	// Second does not.
-	_, err = s.Write([]byte(manyOnes))
-	require.EqualError(t, err, "message is too large (8388614 bytes without a newline)")
-
-	// If onDecode errors, it's returned.
-	var errFixture = fmt.Errorf("error!")
-	s.onDecodeSuccess = func(i interface{}) error { return errFixture }
-
-	_, err = s.Write([]byte("\"\n"))
-	require.Equal(t, errFixture, err)
-}
 
 func TestProtoRecordBreaks(t *testing.T) {
 	var fixture bytes.Buffer
@@ -198,46 +104,6 @@ func TestProtoRecordBreaks(t *testing.T) {
 	var n, err = s.Write([]byte{0xff, 0xff, 0xff, 0xff})
 	require.EqualError(t, err, "message is too large: 4294967295")
 	require.Equal(t, 0, n)
-}
-
-func TestFIFOFiles(t *testing.T) {
-	// Verify the garden path of a ready reader.
-	var path = filepath.Join(t.TempDir(), "test-fifo")
-	require.NoError(t, unix.Mkfifo(path, 0644))
-
-	var wg sync.WaitGroup
-	var recovered string
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		var f, err = os.OpenFile(path, os.O_RDONLY, os.ModeNamedPipe)
-		require.NoError(t, err)
-
-		b, err := ioutil.ReadAll(f)
-		require.NoError(t, err)
-		require.NoError(t, f.Close())
-
-		recovered = string(b)
-	}()
-
-	var input = []byte("hello")
-	require.NoError(t, fifoSend(path, input, time.Minute))
-	wg.Wait()
-	require.Equal(t, "hello", recovered)
-
-	// Expect input was zeroed.
-	require.Equal(t, []byte{0, 0, 0, 0, 0}, input)
-
-	// Again, but this time there is no reader.
-	// Expect fifoSend doesn't block and returns an error.
-	input = []byte("world")
-	require.Regexp(t, "writing to FIFO: write .*: i\\/o timeout",
-		fifoSend(path, input, time.Millisecond).Error())
-
-	// Input was zeroed on error as well.
-	require.Equal(t, []byte{0, 0, 0, 0, 0}, input)
 }
 
 func TestStderrCapture(t *testing.T) {
