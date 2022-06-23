@@ -34,27 +34,21 @@ impl NetworkTunnel {
     // Start the network tunnel. The receiver rx will be dropped to indicate the network tunnel
     // is ready to accept requests.
     async fn start_network_tunnel(
-        config: NetworkTunnelConfig,
+        mut network_tunnel: Box<dyn network_tunnel::networktunnel::NetworkTunnel>,
         rx: Receiver<()>,
-    ) -> Result<(), Error> {
-        let mut network_tunnel = config.new_tunnel();
-        tokio::task::spawn(async move {
-            let result: Result<(), Error> = match network_tunnel.prepare().await {
-                Ok(()) => {
-                    drop(rx);
-                    network_tunnel.start_serve().await.map_err(Into::into)
-                }
-                Err(e) => Err(e.into()),
-            };
-
-            if let Err(ref err) = result {
-                tracing::error!(error=?err, "failed starting network tunnel.");
-                std::process::exit(1);
+    ) {
+        let result: Result<(), Error> = match network_tunnel.prepare().await {
+            Ok(()) => {
+                drop(rx);
+                network_tunnel.start_serve().await.map_err(Into::into)
             }
-        })
-        .await?;
+            Err(e) => Err(e.into()),
+        };
 
-        Ok(())
+        if let Err(ref err) = result {
+            tracing::error!(error=?err, "failed starting network tunnel.");
+            std::process::exit(1);
+        }
     }
 
     pub async fn consume_network_tunnel_config(
@@ -76,9 +70,11 @@ impl NetworkTunnel {
 
         tracing::info!("starting network tunnel");
         let (mut tx, rx) = oneshot::channel();
-        tokio::spawn(Self::start_network_tunnel(network_tunnel_config, rx));
 
         // TODO: Refact the network-tunnel and remove the timeout logic here after all connectors are converted to work with connector-proxy.
+        let mut network_tunnel = network_tunnel_config.new_tunnel();
+        let endpoint_spec = network_tunnel.adjust_endpoint_spec(endpoint_spec)?;
+        tokio::spawn(Self::start_network_tunnel(network_tunnel, rx));
 
         // Block for at most 6 seconds for network tunnel to be prepared. This
         // is one second longer than the SSH client is given, so in the common
