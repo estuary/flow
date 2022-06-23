@@ -17,6 +17,7 @@ base64="*"
 futures="*"
 openssl-sys = { version = "*", features = ['vendored'] }
 openssl="*"
+rand = "*"
 schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

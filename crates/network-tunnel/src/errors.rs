@@ -12,5 +12,11 @@ pub enum Error {
     DecodeError(#[from] DecodeError),
 
     #[error("SSH forwarding network tunnel exit with non-zero exit code {0}")]
-    TunnelExitNonZero(String)
+    TunnelExitNonZero(String),
+
+    #[error("network tunnel requested, but no destination address was found in the endpoint configuration")]
+    MissingDestinationAddress,
+
+    #[error("malformed destination address {0}")]
+    BadDestinationAddress(String),
 }
