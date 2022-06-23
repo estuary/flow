@@ -1,10 +1,7 @@
 use crate::errors::Error;
 
-use serde::{Deserialize, Serialize};
 use std::process::{ExitStatus, Stdio};
-use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::time::timeout;
 
 pub const READY: &[u8] = "READY\n".as_bytes();
 
@@ -43,13 +40,6 @@ pub fn check_exit_status(message: &str, result: std::io::Result<ExitStatus>) -> 
     }
 }
 
-// For storing the entrypoint and args to start a delayed connector.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub struct CommandConfig {
-    pub entrypoint: String,
-    pub args: Vec<String>,
-}
 // Instead of starting the connector directly, `invoke_connector_delayed` starts a
 // shell process that reads a first line, and then starts the connector. This is to allow
 // time for us to write down configuration files for Airbyte connectors before starting them up.
@@ -69,32 +59,11 @@ pub fn invoke_connector_delayed(entrypoint: String, args: Vec<String>) -> Result
         Stdio::piped(),
         Stdio::inherit(),
         "sh",
-        &vec![
+        &[
             "-c".to_string(),
             format!("read -r connector_proxy_dummy_var && exec {entrypoint} {flat_args}"),
         ],
     )
-}
-
-pub async fn read_ready<R: AsyncRead + std::marker::Unpin>(reader: &mut R) -> Result<(), Error> {
-    let mut ready_buf: Vec<u8> = vec![0; READY.len()];
-    match timeout(
-        std::time::Duration::from_secs(1),
-        reader.read_exact(&mut ready_buf),
-    )
-    .await
-    {
-        Ok(_) => {
-            if &ready_buf == READY {
-                Ok(())
-            } else {
-                Err(Error::NotReady("received unexpected bytes."))
-            }
-        }
-        Err(_) => Err(Error::NotReady(
-            "timeout: reading from delayed-connector process wrapper.",
-        )),
-    }
 }
 
 // A more flexible API for starting the connector.
