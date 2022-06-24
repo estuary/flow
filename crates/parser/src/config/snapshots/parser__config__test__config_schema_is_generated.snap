@@ -356,10 +356,6 @@ expression: schema
                       "const": "\u001e"
                     },
                     {
-                      "title": "Null (0x00)",
-                      "const": "\u0000"
-                    },
-                    {
                       "title": "Auto",
                       "const": null
                     }
