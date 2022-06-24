@@ -3,10 +3,7 @@ mod testutil;
 use std::fs;
 use std::path::PathBuf;
 
-use parser::{
-    character_separated::{AdvancedCsvConfig, Quote},
-    Format, JsonPointer, ParseConfig,
-};
+use parser::{Format, JsonPointer, ParseConfig};
 use serde_json::{json, Value};
 use testutil::{input_for_file, run_test};
 
@@ -26,7 +23,7 @@ fn w3c_extended_log_file_is_parsed() {
     let config = ParseConfig {
         // Explicit format is required, since there's no file extension that's associated with
         // this format.
-        format: Format::W3cExtendedLog(()).into(),
+        format: Format::W3cExtendedLog(Default::default()).into(),
         ..Default::default()
     };
     let input = input_for_file("tests/examples/w3c-extended-log");
