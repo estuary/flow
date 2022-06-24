@@ -80,8 +80,11 @@ impl NetworkTunnel {
 
         // TODO: Refact the network-tunnel and remove the timeout logic here after all connectors are converted to work with connector-proxy.
 
-        // Block for at most 5 seconds for network tunnel to be prepared.
-        if let Err(_) = timeout(std::time::Duration::from_secs(5), tx.closed()).await {
+        // Block for at most 6 seconds for network tunnel to be prepared. This
+        // is one second longer than the SSH client is given, so in the common
+        // case of an unresponsive SSH server the timeout should come from that.
+        if let Err(_) = timeout(std::time::Duration::from_secs(6), tx.closed()).await {
+            tracing::error!("network tunnel timeout expired before startup finished");
             return Err(Error::ChannelTimeoutError);
         };
 
