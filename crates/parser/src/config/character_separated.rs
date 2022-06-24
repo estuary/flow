@@ -71,10 +71,6 @@ impl EnumSelection for LineEnding {
     fn schema_title() -> &'static str {
         "Line Ending"
     }
-
-    fn schema_description() -> &'static str {
-        "Character that separates rows"
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, EnumIter)]
@@ -99,11 +95,6 @@ impl EnumSelection for Escape {
 
     fn schema_title() -> &'static str {
         "Escape Character"
-    }
-
-    fn schema_description() -> &'static str {
-        // TODO: improve escape description
-        "Optional escape character when parsing values."
     }
 }
 
@@ -132,10 +123,6 @@ impl EnumSelection for Quote {
 
     fn schema_title() -> &'static str {
         "Quote Character"
-    }
-
-    fn schema_description() -> &'static str {
-        "Character used to quote values, usually a double quote (\")."
     }
 }
 
@@ -200,9 +187,5 @@ impl EnumSelection for Delimiter {
 
     fn schema_title() -> &'static str {
         "Delimiter"
-    }
-
-    fn schema_description() -> &'static str {
-        "Character that separates the column values within each row"
     }
 }
