@@ -642,6 +642,7 @@ dependencies = [
  "futures",
  "futures-core",
  "futures-util",
+ "insta",
  "libc",
  "network-tunnel",
  "prost",

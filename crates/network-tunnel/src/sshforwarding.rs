@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const ENDPOINT_ADDRESS_KEY: &str = "address";
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[schemars(
     title = "SSH Tunnel",
     description = "Connect to your system through an SSH server that acts as a bastion host for your network."
