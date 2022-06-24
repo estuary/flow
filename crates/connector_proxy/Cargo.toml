@@ -35,3 +35,6 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "*", features = ["io"] }
 tracing = "*"
 validator = { version = "*", features = ["derive"] }
+
+[dev-dependencies]
+insta = "*"
