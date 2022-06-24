@@ -49,8 +49,6 @@ pub enum LineEnding {
     LF,
     #[serde(rename = "\x1E")]
     RecordSeparator,
-    #[serde(rename = "\0")]
-    Null,
 }
 
 impl EnumSelection for LineEnding {
@@ -60,7 +58,6 @@ impl EnumSelection for LineEnding {
             LineEnding::CR => "CR (\\r)",
             LineEnding::LF => "LF (\\n)",
             LineEnding::RecordSeparator => "Record Separator (0x1E)",
-            LineEnding::Null => "Null (0x00)",
         }
     }
 
