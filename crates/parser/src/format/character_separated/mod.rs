@@ -61,7 +61,13 @@ fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<Quote> {
 /// Applies a not-quite-best-effort heuristic to determine a delimiter character that can hopefully
 /// work to parse the CSV file that has a prefix of `peeked` bytes. This implementation is super
 /// basic. It just counts the occurrences of common delimiters and returns the one with the most.
-/// A more sophisticated method would be to split on the line ending
+/// A more sophisticated method would be to split on the line ending and look at the frequency of
+/// characters per line.
+///
+/// This function never returns an error, even if no delimiter characters are observed. This is to
+/// deal with the case of a CSV with a single column, which would never contain a delimiter. In
+/// this case, we will return the null delimiter because we need to use _something_. But the goal
+/// is to allow parsing a single-column csv without any special configuration.
 fn detect_delimiter(peeked: &[u8]) -> Delimiter {
     let mut delims = Vec::<(Delimiter, usize)>::new();
     for candidate in Delimiter::iter() {
@@ -77,7 +83,6 @@ fn detect_delimiter(peeked: &[u8]) -> Delimiter {
     delims.sort_by_key(|elem| (peeked.len() - elem.1 as usize, elem.0.byte_value()));
 
     let best = delims.first().unwrap();
-    // TODO: consider returning an error if the best delimiter still has 0 occurrences
     tracing::debug!(delimiter = best.0.string_title(), "detected delimiter");
     best.0
 }
@@ -499,6 +504,25 @@ mod test {
             .collect::<Result<Vec<_>, ParseError>>()
             .expect("output fail");
         assert_eq!(vec![json!({"a": "fo,o", "b": "bar", "c": "baz"}),], results);
+    }
+
+    #[test]
+    fn single_column_csv_is_parsed() {
+        // When a CSV contains only a single column, it will not contain any delimiter characters,
+        // and detect_delimiter will need to gracefully handle this.
+        let csv = test_input("h\na\nb\nc\nd");
+        let results = new_csv_parser(Default::default())
+            .parse(csv)
+            .expect("parse failed")
+            .collect::<Result<Vec<_>, ParseError>>()
+            .expect("output fail");
+        let expected = vec![
+            json!({"h": "a"}),
+            json!({"h": "b"}),
+            json!({"h": "c"}),
+            json!({"h": "d"}),
+        ];
+        assert_eq!(expected, results);
     }
 
     #[test]
