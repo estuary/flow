@@ -15,15 +15,15 @@ expression: schema
       "oneOf": [
         {
           "title": "GZip",
-          "const": "Gzip"
+          "const": "gzip"
         },
         {
           "title": "Zip Archive",
-          "const": "ZipArchive"
+          "const": "zip"
         },
         {
           "title": "None",
-          "const": "None"
+          "const": "none"
         },
         {
           "title": "Auto",

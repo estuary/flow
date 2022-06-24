@@ -382,11 +382,14 @@ impl Serialize for EmptyConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, EnumIter)]
 pub enum Compression {
     /// Corresponds to the .gz file extension.
+    #[serde(rename = "gzip")]
     Gzip,
     /// Corresponds to the .zip file extension.
+    #[serde(rename = "zip")]
     ZipArchive,
     /// Do not try to decompress, even if the file has an extension that indicates that it's
     /// compressed.
+    #[serde(rename = "none")]
     None,
 }
 
@@ -597,7 +600,7 @@ mod test {
                 "auto": {}
             },
             "filename": "tha-file",
-            "compression": "None",
+            "compression": "none",
         });
 
         let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
@@ -624,7 +627,7 @@ mod test {
                 }
             },
             "filename": "tha-file",
-            "compression": "None",
+            "compression": "zip",
         });
 
         let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
@@ -640,7 +643,7 @@ mod test {
                 error_threshold: None,
             })
             .into(),
-            compression: Compression::None.into(),
+            compression: Compression::ZipArchive.into(),
             filename: Some("tha-file".to_string()),
             ..Default::default()
         };
