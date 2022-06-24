@@ -137,4 +137,49 @@ mod test {
 
         assert_eq!(result.get(), json!({"x": true}).to_string());
     }
+
+    #[test]
+    fn test_extended_endpoint_schema() {
+        let schema = serde_json::from_value(json!({
+            "$schema": "http://json-schema.org/draft-04/schema#",
+            "type": "object",
+            "title": "Generic Database Connection Spec",
+            "required": ["address", "credentials"],
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "title": "Server Address",
+                    "description": "The host or host:port at which the database can be reached.",
+                },
+                "credentials": {
+                  "type": "string",
+                  "description": "Some login credentials or something.",
+                  "secret": true,
+                },
+            }
+        }))
+        .unwrap();
+        insta::assert_json_snapshot!(NetworkTunnel::extend_endpoint_schema(schema).unwrap());
+
+        let schema = serde_json::from_value(json!({
+            "$schema": "http://json-schema.org/draft-04/schema#",
+            "type": "object",
+            "title": "Generic Database Connection Spec",
+            "required": ["credentials", "hostname"],
+            "properties": {
+                "credentials": {
+                  "type": "string",
+                  "description": "Some login credentials or something.",
+                  "secret": true,
+                },
+                "hostname": {
+                    "type": "string",
+                    "title": "Server Hostname",
+                    "description": "The hostname at which the server can be reached.",
+                },
+            }
+        }))
+        .unwrap();
+        insta::assert_json_snapshot!(NetworkTunnel::extend_endpoint_schema(schema).unwrap());
+    }
 }
