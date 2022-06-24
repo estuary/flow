@@ -6,7 +6,7 @@ use super::networktunnel::NetworkTunnel;
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Child;
 use tokio::process::Command;
 
@@ -117,6 +117,13 @@ impl NetworkTunnel for SshForwarding {
         let forward_host = &self.config.forward_host;
         let forward_port = self.config.forward_port;
 
+        tracing::info!(
+            "ssh forwarding local port {} to remote host {}:{}",
+            local_port,
+            forward_host,
+            forward_port
+        );
+
         tracing::debug!("spawning ssh tunnel");
         let mut child = Command::new("ssh")
             .args(vec![
@@ -127,6 +134,9 @@ impl NetworkTunnel for SshForwarding {
                 // This is necessary unless we also ask for the public key from users
                 "-o".to_string(),
                 "StrictHostKeyChecking no".to_string(),
+                // Ask the client to time out after 5 seconds
+                "-o".to_string(),
+                "ConnectTimeout=5".to_string(),
                 // Pass the private key
                 "-i".to_string(),
                 temp_key_path.into_os_string().into_string().unwrap(),
@@ -142,39 +152,39 @@ impl NetworkTunnel for SshForwarding {
 
         // Read stderr of SSH until we find a signal message that
         // the ports are open and we are ready to serve requests
-        let mut stderr = child.stderr.take().unwrap();
-        let mut last_line = String::new();
-
-        tracing::debug!("listening on ssh tunnel stderr");
-        loop {
-            let mut buffer = [0; 64];
-
-            let n = stderr.read(&mut buffer).await?;
-
-            if n == 0 {
-                tracing::debug!("received empty output from ssh tunnel, breaking out");
-                break;
-            }
-
-            let read_str = std::str::from_utf8(&buffer).unwrap();
-            last_line.push_str(read_str);
-            tracing::debug!("ssh stderr: {}", &last_line);
-
-            // OpenSSH will enter interactive session after tunnelling has been
-            // successful
-            if last_line.contains("Entering interactive session.") {
-                tracing::debug!("ssh tunnel is listening & ready for serving requests");
-                break;
-            }
-            let split_by_newline: Vec<_> = last_line.split('\n').collect();
-            last_line = split_by_newline
-                .last()
-                .map(|s| s.to_string())
-                .unwrap_or(String::new());
-        }
-
+        let stderr = child.stderr.take().unwrap();
+        let mut lines = BufReader::new(stderr).lines();
         self.process = Some(child);
 
+        tracing::debug!("listening on ssh tunnel stderr");
+        while let Some(line) = lines.next_line().await? {
+            // OpenSSH will enter interactive session after tunnelling has been
+            // successful
+            if line.contains("Entering interactive session.") {
+                tracing::debug!("ssh tunnel is listening & ready for serving requests");
+                return Ok(());
+            }
+
+            // Otherwise apply a little bit of intelligence to translate OpenSSH
+            // log messages to appropriate connector_proxy log levels.
+            if line.starts_with("debug1:") {
+                tracing::debug!("ssh: {}", &line);
+            } else if line.starts_with("Warning: Permanently added") {
+                tracing::debug!("ssh: {}", &line);
+            } else if line.contains("Permission denied") {
+                tracing::error!("ssh: {}", &line);
+            } else if line.contains("Network is unreachable") {
+                tracing::error!("ssh: {}", &line);
+            } else {
+                tracing::info!("ssh: {}", &line);
+            }
+        }
+
+        // This function's job was just to launch the SSH tunnel and wait until
+        // it's ready to serve traffic. If stderr closes unexpectedly we treat
+        // this as a probably-erroneous form of 'success', and rely on the later
+        // `start_serve` exit code checking to report a failure.
+        tracing::error!("unexpected end of output from ssh tunnel");
         Ok(())
     }
 
@@ -187,7 +197,7 @@ impl NetworkTunnel for SshForwarding {
                 message = "network tunnel ssh exit with non-zero code."
             );
 
-            return Err(Error::TunnelExitNonZero(format!("{:#?}", exit_status)))
+            return Err(Error::TunnelExitNonZero(format!("{:#?}", exit_status)));
         }
 
         Ok(())
