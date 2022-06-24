@@ -137,7 +137,6 @@ impl Parser for CsvParser {
             LineEnding::CR => Terminator::Any(b'\r'),
             LineEnding::LF => Terminator::Any(b'\n'),
             LineEnding::RecordSeparator => Terminator::Any(0x1E),
-            LineEnding::Null => Terminator::Any(0),
         };
         builder.terminator(terminator);
 
