@@ -3,7 +3,6 @@ use crate::input::Input;
 use avro_rs::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
 use chrono::{NaiveDateTime, NaiveTime};
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::io;
 
 pub struct AvroParser;

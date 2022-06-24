@@ -22,7 +22,6 @@ pub trait EnumSelection: Sized + Clone + DeserializeOwned + Serialize {
     fn possible_values() -> Vec<Self>;
 
     fn schema_title() -> &'static str;
-    fn schema_description() -> &'static str;
 }
 
 const AUTO: &str = "Auto";
@@ -93,7 +92,6 @@ impl<T: EnumSelection> JsonSchema for DefaultNullIsAutomatic<T> {
 
         serde_json::from_value(serde_json::json!({
             "title": T::schema_title(),
-            "description": T::schema_description(),
             "oneOf": variants,
             "default": null,
         }))
@@ -124,10 +122,6 @@ where
 
     fn schema_title() -> &'static str {
         T::schema_title()
-    }
-
-    fn schema_description() -> &'static str {
-        T::schema_description()
     }
 }
 
@@ -228,10 +222,6 @@ impl EnumSelection for EncodingRef {
     fn schema_title() -> &'static str {
         "Encoding"
     }
-
-    fn schema_description() -> &'static str {
-        "The "
-    }
 }
 
 impl EncodingRef {
@@ -287,24 +277,55 @@ impl JsonPointer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, EnumIter)]
-#[serde(tag = "type", content = "config")]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum Format {
-    /// TODO: description for auto
-    Auto(()),
+    /// Attempt to determine the format automatically, based on the file extension or associated
+    /// content-type.
+    #[serde(rename = "auto")]
+    #[schemars(title = "Auto")]
+    Auto(EmptyConfig),
+
+    /// Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)
+    #[serde(rename = "avro")]
+    #[schemars(title = "Avro")]
+    Avro(EmptyConfig),
+
     /// JSON objects separated by whitespace, typically a single newline. This format works for
     /// JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have
     /// at least one character of whitespace between them.
-    #[serde(rename = "JSON")]
-    Json(()),
-    /// Comma-separated values
-    #[serde(rename = "CSV")]
+    #[serde(rename = "json")]
+    #[schemars(title = "JSON")]
+    Json(EmptyConfig),
+
+    /// Character Separated Values, such as comma-separated, tab-separated, etc.
+    #[serde(rename = "csv")]
+    #[schemars(title = "CSV")]
     Csv(character_separated::AdvancedCsvConfig),
+
     /// A W3C Extended Log file, as defined by the working group draft at:
     /// https://www.w3.org/TR/WD-logfile.html
-    W3cExtendedLog(()),
-    /// Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)
-    Avro(()),
+    #[serde(rename = "w3cExtendedLog")]
+    #[schemars(title = "W3C Extended Log")]
+    W3cExtendedLog(EmptyConfig),
+}
+
+impl fmt::Display for Format {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Format::Auto(_) => "auto",
+            Format::Avro(_) => "avro",
+            Format::Json(_) => "json",
+            Format::Csv(_) => "csv",
+            Format::W3cExtendedLog(_) => "w3cExtendedLog",
+        };
+        f.write_str(s)
+    }
+}
+
+impl Default for Format {
+    fn default() -> Format {
+        Format::Auto(EmptyConfig)
+    }
 }
 
 impl Format {
@@ -314,73 +335,47 @@ impl Format {
             _ => false,
         }
     }
-
-    pub fn non_auto(&self) -> Option<&Format> {
-        Some(self).filter(|f| !f.is_auto())
+    pub fn non_auto(&self) -> Option<Format> {
+        match self {
+            Format::Auto(_) => None,
+            _ => Some(self.clone()),
+        }
     }
 }
 
-impl Default for Format {
-    fn default() -> Self {
-        Format::Auto(())
-    }
-}
-
-impl JsonSchema for Format {
+/// This value is always an empty JSON object.
+#[derive(Default, PartialEq, Clone, Debug)]
+pub struct EmptyConfig;
+impl JsonSchema for EmptyConfig {
     fn schema_name() -> String {
-        String::from("Format")
+        String::from("empty object")
     }
 
     fn json_schema(_gen: &mut gen::SchemaGenerator) -> schemagen::Schema {
-        serde_json::from_value(serde_json::json!({
-            "title": "Format",
-            "order": 0,
-            "description": "Determines how to parse files",
-            "default": {"type": "Auto"},
-            "type": "object",
-            "properties": {
-                "type": {
-                    "oneOf": [
-                        {"title": "Auto", "const": "Auto"},
-                        {"title": "CSV", "const": "CSV"},
-                        {"title": "JSON", "const": "JSON"},
-                        {"title": "Avro", "const": "Avro"},
-                        {"title": "W3C Extended Log", "const": "W3cExtendedLog"},
-                    ]
-                }
-            }
-        }))
-        .unwrap()
+        serde_json::from_value(serde_json::json!({"type": "object", "default": {}})).unwrap()
     }
 }
 
-impl EnumSelection for Format {
-    fn string_title(&self) -> &'static str {
-        match self {
-            Format::Auto(_) => "Auto",
-            Format::Json(_) => "JSON",
-            Format::Csv(_) => "CSV",
-            Format::W3cExtendedLog(_) => "W3C Extended Log",
-            Format::Avro(_) => "Avro",
-        }
-    }
-
-    fn possible_values() -> Vec<Self> {
-        Format::iter().collect()
-    }
-
-    fn schema_title() -> &'static str {
-        "Format"
-    }
-
-    fn schema_description() -> &'static str {
-        "How to parse the files"
+impl<'de> de::Deserialize<'de> for EmptyConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // ignore any properties that happen to be there.
+        let _ = serde_json::value::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+        Ok(EmptyConfig)
     }
 }
 
-impl fmt::Display for Format {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.string_title())
+impl Serialize for EmptyConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        let s = serializer.serialize_map(Some(0))?;
+        s.end()
     }
 }
 
@@ -422,10 +417,6 @@ impl EnumSelection for Compression {
 
     fn schema_title() -> &'static str {
         "Compression"
-    }
-
-    fn schema_description() -> &'static str {
-        "Determines how to decompress the file"
     }
 }
 
@@ -565,28 +556,12 @@ pub enum ConfigError {
     InvalidErrorThreshold(u64),
 }
 
-#[derive(Debug, Clone)]
-pub struct RemoveDefaultNull {}
-
-impl schemars::visit::Visitor for RemoveDefaultNull {
-    fn visit_schema_object(&mut self, schema: &mut schemars::schema::SchemaObject) {
-        schemars::visit::visit_schema_object(self, schema);
-
-        if let Some(metadata) = &mut schema.metadata {
-            if let Some(serde_json::Value::Null) = &metadata.default {
-                metadata.default = None;
-            }
-        }
-    }
-}
-
 impl ParseConfig {
     /// Returns the generated json schema for the configuration file.
     pub fn json_schema() -> schemars::schema::RootSchema {
         let mut settings = schemars::gen::SchemaSettings::draft07();
         settings.option_add_null_type = false;
         settings.inline_subschemas = true;
-        //settings.visitors.push(Box::new(RemoveDefaultNull {}));
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<ParseConfig>()
     }
@@ -616,11 +591,31 @@ mod test {
     }
 
     #[test]
-    fn config_is_deserialized() {
+    fn auto_config_is_deserialized() {
         let c1 = json!({
             "format": {
-                "type": "CSV",
-                "config": {
+                "auto": {}
+            },
+            "filename": "tha-file",
+            "compression": "None",
+        });
+
+        let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
+
+        let expected = ParseConfig {
+            format: Format::Auto(EmptyConfig),
+            compression: Compression::None.into(),
+            filename: Some("tha-file".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(expected, r1);
+    }
+
+    #[test]
+    fn csv_config_is_deserialized() {
+        let c1 = json!({
+            "format": {
+                "csv": {
                     "delimiter": ",",
                     "lineEnding": "\n",
                     "quote": "'",

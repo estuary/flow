@@ -1,6 +1,6 @@
-mod avro;
-mod character_separated;
-mod json;
+pub mod avro;
+pub mod character_separated;
+pub mod json;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -109,11 +109,11 @@ pub fn parse(
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
     match format {
-        Format::Auto(()) => character_separated::new_csv_parser(Default::default()),
-        Format::Json(()) => json::new_parser(),
+        Format::Auto(_) => character_separated::new_csv_parser(Default::default()),
+        Format::Json(_) => json::new_parser(),
         Format::Csv(csv_config) => character_separated::new_csv_parser(csv_config),
-        Format::W3cExtendedLog(()) => character_separated::new_w3c_extended_log_parser(),
-        Format::Avro(()) => avro::new_parser(),
+        Format::W3cExtendedLog(_) => character_separated::new_w3c_extended_log_parser(),
+        Format::Avro(_) => avro::new_parser(),
     }
 }
 
@@ -189,8 +189,8 @@ fn determine_format(config: &ParseConfig) -> Option<Format> {
 
 fn format_for_content_type(content_type: &str) -> Option<Format> {
     match content_type {
-        "application/json" => Some(Format::Json(())),
-        "text/json" => Some(Format::Json(())),
+        "application/json" => Some(Format::Json(Default::default())),
+        "text/json" => Some(Format::Json(Default::default())),
         "text/csv" => Some(Format::Csv(Default::default())),
         "text/tab-separated-values" => Some(Format::Csv(Default::default())),
         _ => None,
@@ -199,10 +199,10 @@ fn format_for_content_type(content_type: &str) -> Option<Format> {
 
 fn format_for_file_extension(extension: &str) -> Option<Format> {
     match extension {
-        "jsonl" | "json" => Some(Format::Json(())),
+        "jsonl" | "json" => Some(Format::Json(Default::default())),
         "csv" => Some(Format::Csv(Default::default())),
         "tsv" => Some(Format::Csv(Default::default())),
-        "avro" => Some(Format::Avro(())),
+        "avro" => Some(Format::Avro(Default::default())),
         _ => None,
     }
 }
@@ -331,7 +331,7 @@ mod test {
             content_type: Some("xml or something lol".to_string()),
             ..Default::default()
         };
-        assert_format_eq(Some(Format::Json(())), &conf);
+        assert_format_eq(Some(Format::Json(Default::default())), &conf);
         conf.filename = Some("nope.jason".to_string());
         assert_format_eq(None, &conf);
     }
@@ -343,9 +343,9 @@ mod test {
             content_type: Some("application/json".to_string()),
             ..Default::default()
         };
-        assert_format_eq(Some(Format::Json(())), &conf);
+        assert_format_eq(Some(Format::Json(Default::default())), &conf);
         conf.content_type = Some("text/json".to_string());
-        assert_format_eq(Some(Format::Json(())), &conf);
+        assert_format_eq(Some(Format::Json(Default::default())), &conf);
         conf.content_type = Some("wat".to_string());
         assert_format_eq(None, &conf);
     }

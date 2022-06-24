@@ -32,40 +32,383 @@ expression: schema
       ]
     },
     "format": {
-      "title": "Format",
       "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
       "default": {
-        "config": null,
-        "type": "Auto"
+        "auto": {}
       },
-      "type": "object",
-      "properties": {
-        "type": {
-          "oneOf": [
-            {
-              "title": "Auto",
-              "const": "Auto"
-            },
-            {
-              "title": "CSV",
-              "const": "CSV"
-            },
-            {
-              "title": "JSON",
-              "const": "JSON"
-            },
-            {
-              "title": "Avro",
-              "const": "Avro"
-            },
-            {
-              "title": "W3C Extended Log",
-              "const": "W3cExtendedLog"
+      "oneOf": [
+        {
+          "title": "Auto",
+          "description": "Attempt to determine the format automatically, based on the file extension or associated content-type.",
+          "type": "object",
+          "required": [
+            "auto"
+          ],
+          "properties": {
+            "auto": {
+              "default": {},
+              "type": "object"
             }
-          ]
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "Avro",
+          "description": "Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)",
+          "type": "object",
+          "required": [
+            "avro"
+          ],
+          "properties": {
+            "avro": {
+              "default": {},
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "JSON",
+          "description": "JSON objects separated by whitespace, typically a single newline. This format works for JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have at least one character of whitespace between them.",
+          "type": "object",
+          "required": [
+            "json"
+          ],
+          "properties": {
+            "json": {
+              "default": {},
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "CSV",
+          "description": "Character Separated Values, such as comma-separated, tab-separated, etc.",
+          "type": "object",
+          "required": [
+            "csv"
+          ],
+          "properties": {
+            "csv": {
+              "type": "object",
+              "properties": {
+                "delimiter": {
+                  "title": "Delimiter",
+                  "description": "The delimiter that separates values within each row. Only single-byte delimiters are supported.",
+                  "default": null,
+                  "oneOf": [
+                    {
+                      "title": "Comma (,)",
+                      "const": ","
+                    },
+                    {
+                      "title": "Pipe (|)",
+                      "const": "|"
+                    },
+                    {
+                      "title": "Space (0x20)",
+                      "const": " "
+                    },
+                    {
+                      "title": "Semicolon (;)",
+                      "const": ";"
+                    },
+                    {
+                      "title": "Tab (0x09)",
+                      "const": "\t"
+                    },
+                    {
+                      "title": "Vertical Tab (0x0B)",
+                      "const": "\u000b"
+                    },
+                    {
+                      "title": "Unit Separator (0x1F)",
+                      "const": "\u001f"
+                    },
+                    {
+                      "title": "SOH (0x01)",
+                      "const": "\u0001"
+                    },
+                    {
+                      "title": "Auto",
+                      "const": null
+                    }
+                  ]
+                },
+                "encoding": {
+                  "title": "Encoding",
+                  "description": "The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label.",
+                  "default": null,
+                  "oneOf": [
+                    {
+                      "title": "UTF-8",
+                      "const": "UTF-8"
+                    },
+                    {
+                      "title": "UTF-16LE",
+                      "const": "UTF-16LE"
+                    },
+                    {
+                      "title": "UTF-16BE",
+                      "const": "UTF-16BE"
+                    },
+                    {
+                      "title": "IBM866",
+                      "const": "IBM866"
+                    },
+                    {
+                      "title": "ISO-8859-2",
+                      "const": "ISO-8859-2"
+                    },
+                    {
+                      "title": "ISO-8859-3",
+                      "const": "ISO-8859-3"
+                    },
+                    {
+                      "title": "ISO-8859-4",
+                      "const": "ISO-8859-4"
+                    },
+                    {
+                      "title": "ISO-8859-5",
+                      "const": "ISO-8859-5"
+                    },
+                    {
+                      "title": "ISO-8859-6",
+                      "const": "ISO-8859-6"
+                    },
+                    {
+                      "title": "ISO-8859-7",
+                      "const": "ISO-8859-7"
+                    },
+                    {
+                      "title": "ISO-8859-8",
+                      "const": "ISO-8859-8"
+                    },
+                    {
+                      "title": "ISO-8859-8-I",
+                      "const": "ISO-8859-8-I"
+                    },
+                    {
+                      "title": "ISO-8859-10",
+                      "const": "ISO-8859-10"
+                    },
+                    {
+                      "title": "ISO-8859-13",
+                      "const": "ISO-8859-13"
+                    },
+                    {
+                      "title": "ISO-8859-14",
+                      "const": "ISO-8859-14"
+                    },
+                    {
+                      "title": "ISO-8859-15",
+                      "const": "ISO-8859-15"
+                    },
+                    {
+                      "title": "ISO-8859-16",
+                      "const": "ISO-8859-16"
+                    },
+                    {
+                      "title": "KOI8-R",
+                      "const": "KOI8-R"
+                    },
+                    {
+                      "title": "KOI8-U",
+                      "const": "KOI8-U"
+                    },
+                    {
+                      "title": "macintosh",
+                      "const": "macintosh"
+                    },
+                    {
+                      "title": "windows-874",
+                      "const": "windows-874"
+                    },
+                    {
+                      "title": "windows-1250",
+                      "const": "windows-1250"
+                    },
+                    {
+                      "title": "windows-1251",
+                      "const": "windows-1251"
+                    },
+                    {
+                      "title": "windows-1252",
+                      "const": "windows-1252"
+                    },
+                    {
+                      "title": "windows-1253",
+                      "const": "windows-1253"
+                    },
+                    {
+                      "title": "windows-1254",
+                      "const": "windows-1254"
+                    },
+                    {
+                      "title": "windows-1255",
+                      "const": "windows-1255"
+                    },
+                    {
+                      "title": "windows-1256",
+                      "const": "windows-1256"
+                    },
+                    {
+                      "title": "windows-1257",
+                      "const": "windows-1257"
+                    },
+                    {
+                      "title": "windows-1258",
+                      "const": "windows-1258"
+                    },
+                    {
+                      "title": "x-mac-cyrillic",
+                      "const": "x-mac-cyrillic"
+                    },
+                    {
+                      "title": "GBK",
+                      "const": "GBK"
+                    },
+                    {
+                      "title": "gb18030",
+                      "const": "gb18030"
+                    },
+                    {
+                      "title": "Big5",
+                      "const": "Big5"
+                    },
+                    {
+                      "title": "EUC-JP",
+                      "const": "EUC-JP"
+                    },
+                    {
+                      "title": "ISO-2022-JP",
+                      "const": "ISO-2022-JP"
+                    },
+                    {
+                      "title": "Shift_JIS",
+                      "const": "Shift_JIS"
+                    },
+                    {
+                      "title": "EUC-KR",
+                      "const": "EUC-KR"
+                    },
+                    {
+                      "title": "Auto",
+                      "const": null
+                    }
+                  ]
+                },
+                "errorThreshold": {
+                  "title": "Error Threshold",
+                  "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
+                  "default": null,
+                  "type": "integer",
+                  "maximum": 100.0,
+                  "minimum": 0.0
+                },
+                "escape": {
+                  "title": "Escape Character",
+                  "description": "The escape character, used to escape quotes within fields.",
+                  "default": null,
+                  "oneOf": [
+                    {
+                      "title": "Backslash (\\)",
+                      "const": "\\"
+                    },
+                    {
+                      "title": "Disable Escapes",
+                      "const": ""
+                    },
+                    {
+                      "title": "Auto",
+                      "const": null
+                    }
+                  ]
+                },
+                "headers": {
+                  "description": "Manually specified headers, which can be used in cases where the file itself doesn't contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here.",
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "lineEnding": {
+                  "title": "Line Ending",
+                  "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
+                  "default": null,
+                  "oneOf": [
+                    {
+                      "title": "CRLF (\\r\\n) (Windows)",
+                      "const": "\r\n"
+                    },
+                    {
+                      "title": "CR (\\r)",
+                      "const": "\r"
+                    },
+                    {
+                      "title": "LF (\\n)",
+                      "const": "\n"
+                    },
+                    {
+                      "title": "Record Separator (0x1E)",
+                      "const": "\u001e"
+                    },
+                    {
+                      "title": "Null (0x00)",
+                      "const": "\u0000"
+                    },
+                    {
+                      "title": "Auto",
+                      "const": null
+                    }
+                  ]
+                },
+                "quote": {
+                  "title": "Quote Character",
+                  "description": "The character used to quote fields.",
+                  "default": null,
+                  "oneOf": [
+                    {
+                      "title": "Double Quote (\")",
+                      "const": "\""
+                    },
+                    {
+                      "title": "Single Quote (')",
+                      "const": "'"
+                    },
+                    {
+                      "title": "Disable Quoting",
+                      "const": ""
+                    },
+                    {
+                      "title": "Auto",
+                      "const": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "W3C Extended Log",
+          "description": "A W3C Extended Log file, as defined by the working group draft at: https://www.w3.org/TR/WD-logfile.html",
+          "type": "object",
+          "required": [
+            "w3cExtendedLog"
+          ],
+          "properties": {
+            "w3cExtendedLog": {
+              "default": {},
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
         }
-      },
-      "order": 0
+      ]
     }
   }
 }
