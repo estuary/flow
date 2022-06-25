@@ -120,11 +120,13 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 
 	if c.spec.EndpointType == pf.EndpointType_INGEST {
 		// Create a PushServer for the specification.
-		c.delegate, err = pc.NewPushServer(c.taskTerm.ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
+		// Careful! Don't assign directly to c.delegate because (*pc.PushServer)(nil) != nil
+		var pushServer, err = pc.NewPushServer(c.taskTerm.ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
 		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
+		} else {
+			c.delegate = pushServer
 		}
-
 	} else {
 		// Establish driver connection and start Pull RPC.
 		conn, err := capture.NewDriver(
@@ -139,7 +141,8 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 
 		// Open a Pull RPC stream for the capture under this context.
-		c.delegate, err = pc.OpenPull(
+		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
+		pullClient, err := pc.OpenPull(
 			c.taskTerm.ctx,
 			conn,
 			loadDriverCheckpoint(c.store),
@@ -151,6 +154,8 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		)
 		if err != nil {
 			return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
+		} else {
+			c.delegate = pullClient
 		}
 	}
 
