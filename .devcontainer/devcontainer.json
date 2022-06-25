@@ -3,33 +3,6 @@
 	"dockerComposeFile": "docker-compose.yaml",
 	"service": "develop",
 	"workspaceFolder": "/workspace",
-	// For feature descriptions and documentation, see:
-	// https://code.visualstudio.com/docs/remote/containers#_dev-container-features-preview
-	"features": {
-		// Use a non-root "flow" user with sudo.
-		"common": {
-			"username": "flow"
-		},
-		// Always use latest Go.
-		"golang": "latest",
-		// Always use latest Rust.
-		"rust": {
-			"version": "latest",
-			"profile": "default"
-		},
-		// Always use latest Node.
-		"node": {
-			"version": "lts"
-		},
-		// The repo uses LFS.
-		"git-lfs": "latest",
-		// Enable docker-from-docker.
-		"docker-from-docker": {
-			"version": "latest",
-			"moby": true,
-			"dockerDashComposeVersion": "v1"
-		}
-	},
 	// Set default container specific settings.json values on container create.
 	"settings": {
 		// Integrate the empty docker-compose database into VSCode.
