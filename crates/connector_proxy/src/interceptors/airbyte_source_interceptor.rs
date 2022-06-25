@@ -12,8 +12,9 @@ use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airb
 
 use bytes::Bytes;
 use proto_flow::capture::{
-    discover_response, validate_response, DiscoverRequest, DiscoverResponse, Documents,
-    PullRequest, PullResponse, SpecRequest, SpecResponse, ValidateRequest, ValidateResponse,
+    discover_response, validate_response, ApplyRequest, ApplyResponse, DiscoverRequest,
+    DiscoverResponse, Documents, PullRequest, PullResponse, SpecRequest, SpecResponse,
+    ValidateRequest, ValidateResponse,
 };
 use proto_flow::flow::{DriverCheckpoint, Slice};
 use std::collections::HashMap;
@@ -61,14 +62,13 @@ impl AirbyteSourceInterceptor {
             let message = get_airbyte_response(in_stream, |m| m.spec.is_some()).await?;
             let spec = message.spec.unwrap();
 
-            let mut resp = SpecResponse::default();
-            resp.endpoint_spec_schema_json = spec.connection_specification.to_string();
-            resp.resource_spec_schema_json =
-                serde_json::to_string_pretty(&create_root_schema::<ResourceSpec>())?;
-            if let Some(url) = spec.documentation_url {
-                resp.documentation_url = url;
-            }
-            encode_message(&resp)
+            encode_message(&SpecResponse {
+                endpoint_spec_schema_json: spec.connection_specification.to_string(),
+                resource_spec_schema_json: serde_json::to_string_pretty(&create_root_schema::<
+                    ResourceSpec,
+                >())?,
+                documentation_url: spec.documentation_url.unwrap_or_default(),
+            })
         }))
     }
 
@@ -179,6 +179,23 @@ impl AirbyteSourceInterceptor {
         }))
     }
 
+    fn adapt_apply_request_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async {
+            get_decoded_message::<ApplyRequest>(in_stream).await?;
+            Ok(Bytes::from(READY))
+        }))
+    }
+
+    fn adapt_apply_response_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async {
+            // TODO(johnny): Due to the current factoring, we invoke the connector with `spec`
+            // and discard its response. This is a bit silly.
+            _ = get_airbyte_response(in_stream, |m| m.spec.is_some()).await?;
+
+            encode_message(&ApplyResponse::default())
+        }))
+    }
+
     fn adapt_pull_request_stream(
         &mut self,
         config_file_path: String,
@@ -271,9 +288,17 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        let airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
+        // Respond first with Opened.
+        let opened = stream::once(async {
+            encode_message(&PullResponse {
+                opened: Some(Default::default()),
+                ..Default::default()
+            })
+        });
 
-        Box::pin(stream::try_unfold(
+        // Then stream airbyte messages converted to the native protocol.
+        let airbyte_message_stream = Box::pin(stream_airbyte_responses(in_stream));
+        let airbyte_message_stream = stream::try_unfold(
             (stream_to_binding, airbyte_message_stream),
             |(stb, mut stream)| async move {
                 let message = match stream.next().await {
@@ -287,27 +312,23 @@ impl AirbyteSourceInterceptor {
                 if let Some(state) = message.state {
                     resp.checkpoint = Some(DriverCheckpoint {
                         driver_checkpoint_json: state.data.get().as_bytes().to_vec(),
-                        rfc7396_merge_patch: match state.merge {
-                            Some(m) => m,
-                            None => false,
-                        },
+                        rfc7396_merge_patch: state.merge.unwrap_or(false),
                     });
 
                     Ok(Some((encode_message(&resp)?, (stb, stream))))
                 } else if let Some(record) = message.record {
                     let stream_to_binding = stb.lock().await;
-                    let binding =
-                        stream_to_binding
-                            .get(&record.stream)
-                            .ok_or(create_custom_error(&format!(
-                                "connector record with unknown stream {}",
-                                record.stream
-                            )))?;
+                    let binding = stream_to_binding.get(&record.stream).ok_or_else(|| {
+                        create_custom_error(&format!(
+                            "connector record with unknown stream {}",
+                            record.stream
+                        ))
+                    })?;
                     let arena = record.data.get().as_bytes().to_vec();
                     let arena_len: u32 = arena.len() as u32;
                     resp.documents = Some(Documents {
                         binding: *binding as u32,
-                        arena: arena,
+                        arena,
                         docs_json: vec![Slice {
                             begin: 0,
                             end: arena_len,
@@ -319,7 +340,9 @@ impl AirbyteSourceInterceptor {
                     raise_err("unexpected pull response.")
                 }
             },
-        ))
+        );
+
+        Box::pin(opened.chain(airbyte_message_stream))
     }
 
     fn input_file_path(&mut self, file_name: &str) -> String {
@@ -346,6 +369,9 @@ impl AirbyteSourceInterceptor {
             FlowCaptureOperation::Spec => vec!["spec"],
             FlowCaptureOperation::Discover => vec!["discover", "--config", &config_file_path],
             FlowCaptureOperation::Validate => vec!["check", "--config", &config_file_path],
+            // TODO(johnny): These are effective no-ops, but as-written must invoke the connector.
+            // We should refactor this.
+            FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => vec!["spec"],
             FlowCaptureOperation::Pull => {
                 vec![
                     "read",
@@ -357,8 +383,6 @@ impl AirbyteSourceInterceptor {
                     &state_file_path,
                 ]
             }
-
-            _ => return Err(Error::UnexpectedOperation(op.to_string())),
         };
 
         let airbyte_args: Vec<String> = airbyte_args.into_iter().map(Into::into).collect();
@@ -384,6 +408,11 @@ impl AirbyteSourceInterceptor {
                 Arc::clone(&self.validate_request),
                 in_stream,
             )),
+            // TODO(johnny): These are effective no-ops, but as-written must invoke the connector.
+            // We should refactor this.
+            FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
+                Ok(self.adapt_apply_request_stream(in_stream))
+            }
             FlowCaptureOperation::Pull => Ok(self.adapt_pull_request_stream(
                 config_file_path,
                 catalog_file_path,
@@ -391,8 +420,6 @@ impl AirbyteSourceInterceptor {
                 Arc::clone(&self.stream_to_binding),
                 in_stream,
             )),
-
-            _ => Err(Error::UnexpectedOperation(op.to_string())),
         }
     }
 
@@ -408,10 +435,12 @@ impl AirbyteSourceInterceptor {
                 Ok(self
                     .adapt_validate_response_stream(Arc::clone(&self.validate_request), in_stream))
             }
+            FlowCaptureOperation::ApplyUpsert | FlowCaptureOperation::ApplyDelete => {
+                Ok(self.adapt_apply_response_stream(in_stream))
+            }
             FlowCaptureOperation::Pull => {
                 Ok(self.adapt_pull_response_stream(Arc::clone(&self.stream_to_binding), in_stream))
             }
-            _ => Err(Error::UnexpectedOperation(op.to_string())),
         }
     }
 }
