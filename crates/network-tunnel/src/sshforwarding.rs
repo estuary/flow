@@ -175,6 +175,8 @@ impl NetworkTunnel for SshForwarding {
                 tracing::error!("ssh: {}", &line);
             } else if line.contains("Network is unreachable") {
                 tracing::error!("ssh: {}", &line);
+            } else if line.contains("Connection timed out") {
+                tracing::error!("ssh: {}", &line);
             } else {
                 tracing::info!("ssh: {}", &line);
             }
@@ -184,7 +186,7 @@ impl NetworkTunnel for SshForwarding {
         // it's ready to serve traffic. If stderr closes unexpectedly we treat
         // this as a probably-erroneous form of 'success', and rely on the later
         // `start_serve` exit code checking to report a failure.
-        tracing::error!("unexpected end of output from ssh tunnel");
+        tracing::warn!("unexpected end of output from ssh tunnel");
         Ok(())
     }
 
