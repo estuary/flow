@@ -269,8 +269,7 @@ catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gaz
 
 .PHONY: end-to-end-test
 end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
-	cd tests; \
-	PATH="${PATH}:${PKGDIR}/bin" ./run-all.sh
+	./tests/run-all.sh
 
 flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go
 	${PKGDIR}/bin/flowctl json-schema > $@
