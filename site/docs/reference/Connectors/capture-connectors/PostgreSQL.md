@@ -74,11 +74,19 @@ ALTER SYSTEM SET wal_level = logical;
 ```
 5. Restart PostgreSQL to allow the WAL level change to take effect.
 
+## Backfills and performance considerations
+
+When the a PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+
+This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
+However, you may find it appropriate to skip the backfill, especially for extremely large tables.
+
+In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
+
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the PostgreSQL source connector.
-
 
 ### Properties
 
@@ -91,6 +99,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Password | Password for the specified database user. | string | Required |
 | `/advanced/publicationName` | Publication name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
+| `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
 | `/advanced/slotName` | Slot name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
 | `/advanced/watermarksTable` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
 
