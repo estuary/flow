@@ -8,7 +8,7 @@ This connector captures data from a Mailchimp account.
 
 Three data resources are supported, each of which is mapped to a Flow collection: lists, campaigns, and email activity.
 
-[`ghcr.io/estuary/airbyte-source-mailchimp:dev`](https://ghcr.io/estuary/airbyte-source-mailchimp:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-mailchimp:dev`](https://ghcr.io/estuary/source-mailchimp:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/mailchimp),
@@ -68,7 +68,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-mailchimp:dev
+        image: ghcr.io/estuary/source-mailchimp:dev
           config:
             credentials:
               auth_type: apikey

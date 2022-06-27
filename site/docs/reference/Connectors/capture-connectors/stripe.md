@@ -2,7 +2,7 @@
 
 This connector captures data from Stripe into Flow collections.
 
-[`ghcr.io/estuary/airbyte-source-stripe:dev`](https://ghcr.io/estuary/airbyte-source-stripe:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-stripe:dev`](https://ghcr.io/estuary/source-stripe:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/stripe/),
@@ -85,7 +85,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-stripe:dev
+        image: ghcr.io/estuary/source-stripe:dev
         config:
             account_id: 00000000
             client_secret: <secret>

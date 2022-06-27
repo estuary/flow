@@ -6,7 +6,7 @@ sidebar_position: 9
 
 This connector captures data from a Google Sheets spreadsheet.
 
-[`ghcr.io/estuary/airbyte-source-google-sheets:dev`](https://ghcr.io/estuary/airbyte-source-google-sheets:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-google-sheets:dev`](https://ghcr.io/estuary/source-google-sheets:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-sheets),
@@ -87,7 +87,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-google-sheets:dev
+        image: ghcr.io/estuary/source-google-sheets:dev
         config:
             credentials:
               auth_type: Service

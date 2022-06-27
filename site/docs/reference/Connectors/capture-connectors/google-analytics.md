@@ -6,7 +6,7 @@ sidebar_position: 7
 
 This connector captures data from a view in Google Analytics 4.
 
-[`ghcr.io/estuary/airbyte-source-google-analytics-v4:dev`](https://ghcr.io/estuary/airbyte-source-google-analytics-v4:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-v4),
@@ -148,7 +148,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-google-analytics-v4:dev
+        image: ghcr.io/estuary/source-google-analytics-v4:dev
           config:
             view_id: 000000000
             start_date: 2022-03-01

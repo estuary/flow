@@ -2,7 +2,7 @@
 
 This connector captures data from Zendesk into Flow collections.
 
-[`ghcr.io/estuary/airbyte-source-zendesk-support:dev`](https://ghcr.io/estuary/airbyte-source-zendesk-support:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-zendesk-support:dev`](https://ghcr.io/estuary/source-zendesk-support:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/zendesk-support/),
@@ -70,7 +70,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-zendesk-support:dev
+        image: ghcr.io/estuary/source-zendesk-support:dev
         config:
             credentials:
               api_token: <secret>

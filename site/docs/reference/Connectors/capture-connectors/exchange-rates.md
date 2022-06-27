@@ -8,7 +8,7 @@ This connector captures data from the [Exchange Rates API](https://exchangerates
 It creates a Flow collection with daily exchange rate data for a variety of supported currencies.
 This simple connector is useful for educational and demonstration purposes.
 
-[`ghcr.io/estuary/airbyte-source-exchange-rates:dev`](https://ghcr.io/estuary/airbyte-source-exchange-rates:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/exchangeratesapi),
@@ -50,7 +50,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-exchange-rates:dev
+        image: ghcr.io/estuary/source-exchange-rates:dev
         config:
             base: EUR
             access_key: <secret>
