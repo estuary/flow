@@ -6,7 +6,7 @@ sidebar_position: 3
 
 This connector captures data from Amplitude into Flow collections.
 
-[`ghcr.io/estuary/airbyte-source-amplitude:dev`](https://ghcr.io/estuary/airbyte-source-amplitude:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-amplitude:dev`](https://ghcr.io/estuary/source-amplitude:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/amplitude/),
@@ -58,7 +58,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-amplitude:dev
+        image: ghcr.io/estuary/source-amplitude:dev
         config:
             api_key: <secret>
             secret_key: <secret>

@@ -16,34 +16,34 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * Package — ghcr.io/estuary/source-s3:dev
 * Amplitude
   * [Configuration](./amplitude.md)
-  * Package - ghcr.io/estuary/airbyte-source-amplitude:dev
+  * Package - ghcr.io/estuary/source-amplitude:dev
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/source-kafka:dev
 * Exchange Rates API
   * [Configuration](./exchange-rates.md)
-  * Package - ghcr.io/estuary/airbyte-source-exchange-rates:dev
+  * Package - ghcr.io/estuary/source-exchange-rates:dev
 * Facebook Marketing
   * [Configuration](./facebook-marketing.md)
-  * Package - ghcr.io/estuary/airbyte-source-facebook-marketing:dev
+  * Package - ghcr.io/estuary/source-facebook-marketing:dev
 * Google Analytics
   * [Configuration](./google-analytics.md)
-  * Package - ghcr.io/estuary/airbyte-source-google-analytics-v4:dev
+  * Package - ghcr.io/estuary/source-google-analytics-v4:dev
 * Google Cloud Storage
   * [Configuration](./gcs.md)
   * Package — ghcr.io/estuary/source-gcs:dev
 * Google Sheets
   * [Configuration](./google-sheets.md)
-  * Package - ghcr.io/estuary/airbyte-source-google-sheets:dev
+  * Package - ghcr.io/estuary/source-google-sheets:dev
 * Hubspot
   * [Configuration](./hubspot.md)
-  * Package - ghcr.io/estuary/airbyte-source-hubspot:dev
+  * Package - ghcr.io/estuary/source-hubspot:dev
 * Intercom
   * [Configuration](./intercom.md)
-  * Package - ghcr.io/estuary/airbyte-source-intercom:dev
+  * Package - ghcr.io/estuary/source-intercom:dev
 * Mailchimp
   * [Configuration](./mailchimp.md)
-  * Package - ghcr.io/estuary/airbyte-source-mailchimp:dev
+  * Package - ghcr.io/estuary/source-mailchimp:dev
 * MySQL
   * [Configuration](./MySQL.md)
   * Package - ghcr.io/estuary/source-mysql:dev
@@ -52,7 +52,7 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * Package — ghcr.io/estuary/source-postgres:dev
 * Stripe
   * [Configuration](./stripe.md)
-  * Package - ghcr.io/estuary/airbyte-source-stripe:dev
+  * Package - ghcr.io/estuary/source-stripe:dev
 * Zendesk Support
   * [Configuration](./zendesk-support.md)
-  * Package - ghcr.io/estuary/airbyte-source-zendesk-support:dev
+  * Package - ghcr.io/estuary/source-zendesk-support:dev

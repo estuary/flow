@@ -6,7 +6,7 @@ sidebar_position: 11
 
 This connector captures data from Intercom into Flow collections.
 
-[`ghcr.io/estuary/airbyte-source-intercom:dev`](https://ghcr.io/estuary/airbyte-source-intercom:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-intercom:dev`](https://ghcr.io/estuary/source-intercom:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/intercom/),
@@ -63,7 +63,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-intercom:dev
+        image: ghcr.io/estuary/source-intercom:dev
         config:
             access_token: <secret>
             start_date: 2022-06-18T00:00:00Z

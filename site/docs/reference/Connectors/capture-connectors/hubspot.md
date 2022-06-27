@@ -6,7 +6,7 @@ sidebar_position: 10
 
 This connector captures data from a Hubspot account.
 
-[`ghcr.io/estuary/airbyte-source-hubspot:dev`](https://ghcr.io/estuary/airbyte-source-hubspot:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/hubspot),
@@ -105,7 +105,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/airbyte-source-hubspot:dev
+        image: ghcr.io/estuary/source-hubspot:dev
           config:
             credentials:
               credentials_title: API Key Credentials
