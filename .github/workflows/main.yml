@@ -97,9 +97,6 @@ jobs:
     runs-on: ubuntu-20.04
     needs: [flowctl, musl]
 
-    env:
-      PGPASSWORD: flow
-
     services:
       postgres:
         image: postgres:latest
