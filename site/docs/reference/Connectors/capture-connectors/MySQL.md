@@ -48,6 +48,15 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
 
+## Backfills and performance considerations
+
+When the a MySQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+
+This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
+However, you may find it appropriate to skip the backfill, especially for extremely large tables.
+
+In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
+
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the MySQL source connector.
@@ -64,6 +73,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
 | `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
 | `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
+| `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need. | boolean |  |
 
 #### Bindings
