@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/connector"
@@ -124,6 +125,8 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 func (cmd apiSpec) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Minute)
+	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
 		"config":    cmd,
@@ -132,7 +135,7 @@ func (cmd apiSpec) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
-	var resp, err = cmd.execute(context.Background())
+	var resp, err = cmd.execute(ctx)
 	if err != nil {
 		return err
 	}

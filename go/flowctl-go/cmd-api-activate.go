@@ -210,6 +210,8 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 func (cmd apiActivate) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), executeTimeout)
+	defer cancelFn()
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
@@ -218,7 +220,7 @@ func (cmd apiActivate) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
-	return cmd.execute(context.Background())
+	return cmd.execute(ctx)
 }
 
 func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJournalClient, *pb.Header_Etcd, error) {
