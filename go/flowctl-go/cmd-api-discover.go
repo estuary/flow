@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow/ops"
@@ -65,6 +66,8 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Minute)
+	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
 		"config":    cmd,
@@ -73,7 +76,7 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
-	var resp, err = cmd.execute(context.Background())
+	var resp, err = cmd.execute(ctx)
 	if err != nil {
 		return err
 	}

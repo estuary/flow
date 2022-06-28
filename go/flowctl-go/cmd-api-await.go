@@ -108,6 +108,8 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 func (cmd apiAwait) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), executeTimeout)
+	defer cancelFn()
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
@@ -116,5 +118,5 @@ func (cmd apiAwait) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
-	return cmd.execute(context.Background())
+	return cmd.execute(ctx)
 }
