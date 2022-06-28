@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
@@ -96,6 +97,8 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 func (cmd apiBuild) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), executeTimeout)
+	defer cancelFn()
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
@@ -103,7 +106,7 @@ func (cmd apiBuild) Execute(_ []string) error {
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
 
-	return cmd.execute(context.Background())
+	return cmd.execute(ctx)
 }
 
 func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
@@ -127,3 +130,5 @@ func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
 var green = color.New(color.FgGreen).SprintFunc()
 var yellow = color.New(color.FgYellow).SprintFunc()
 var red = color.New(color.FgRed).SprintFunc()
+
+const executeTimeout = time.Minute * 5

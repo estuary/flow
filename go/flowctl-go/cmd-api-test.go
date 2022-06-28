@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/protocols/catalog"
@@ -138,6 +139,8 @@ func (cmd apiTest) execute(ctx context.Context) error {
 func (cmd apiTest) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Minute)
+	defer cancelFn()
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
@@ -146,7 +149,7 @@ func (cmd apiTest) Execute(_ []string) error {
 	}).Info("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
-	return cmd.execute(context.Background())
+	return cmd.execute(ctx)
 }
 
 func (cmd apiTest) snapshot(verify testing.FailedVerifies) error {
