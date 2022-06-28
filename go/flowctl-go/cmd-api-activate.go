@@ -37,7 +37,7 @@ type apiActivate struct {
 	DryRun         bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	InitialSplits  int                   `long:"initial-splits" default:"1" description:"When creating new tasks, the number of initial key splits to use"`
 	Names          []string              `long:"name" description:"Name of task or collection to activate. May be repeated many times"`
-	Network        string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network        string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	NoWait         bool                  `long:"no-wait" description:"Don't wait for all activated shards to become ready (PRIMARY)"`
 	Log            mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics    mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
