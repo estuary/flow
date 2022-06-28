@@ -89,6 +89,12 @@ func Run(
 	}
 	defer os.Remove(tmpInspect.Name())
 
+	// If `networkName` is undefined, use an explicit of "bridge".
+	// This is docker run's default behavior if --network is not provided.
+	if networkName == "" {
+		networkName = "bridge"
+	}
+
 	var imageArgs = []string{
 		"docker",
 		"run",
