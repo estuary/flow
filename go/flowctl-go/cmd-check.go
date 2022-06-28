@@ -13,7 +13,7 @@ import (
 
 type cmdCheck struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`

@@ -27,7 +27,7 @@ type cmdDiscover struct {
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Prefix      string                `long:"prefix" default:"acmeCo" description:"Prefix of generated catalog entities. For example, an organization or company name."`
 	Directory   string                `long:"directory" description:"Output directory for catalog source files. Defaults to --prefix"`
 }

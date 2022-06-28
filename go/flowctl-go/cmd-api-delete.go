@@ -27,7 +27,7 @@ type apiDelete struct {
 	Consumer       mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	DryRun         bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	Names          []string              `long:"name" description:"Name of task or collection to activate. May be repeated many times"`
-	Network        string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network        string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Log            mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics    mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }

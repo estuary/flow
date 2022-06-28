@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
-	"fmt"
 
-	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/materialize"
 	pc "github.com/estuary/flow/go/protocols/capture"
@@ -30,7 +30,7 @@ type apiSpec struct {
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 }
 
 type imageConfig struct {
@@ -58,7 +58,7 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 	err = connector.PullRemoteImage(ctx, cmd.Image, ops.StdLogger())
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"error":    err,
+			"error": err,
 		}).Info("pull remote image does not succeed.")
 	}
 	inspectOutput, err := connector.InspectImage(ctx, cmd.Image)

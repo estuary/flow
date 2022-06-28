@@ -20,7 +20,7 @@ import (
 type cmdTempDataPlane struct {
 	BrokerPort   uint16                `long:"broker-port" default:"8080" description:"Port bound by Gazette broker"`
 	ConsumerPort uint16                `long:"consumer-port" default:"9000" description:"Port bound by Flow consumer"`
-	Network      string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network      string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Poll         bool                  `long:"poll" description:"Poll connectors, rather than running them continuously. Required in order to use 'flowctl api poll'"`
 	Sigterm      bool                  `long:"sigterm" hidden:"true" description:"Send SIGTERM rather than SIGKILL on exit"`
 	Tempdir      string                `long:"tempdir" description:"Directory for data plane files. If not set, a temporary directory is created and then deleted upon exit"`
@@ -197,13 +197,15 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--consumer.watch-delay", "0ms", // Speed test execution.
 		"--etcd.address", etcdAddr,
 		"--flow.builds-root", buildsRoot,
-		"--flow.network", cmd.Network,
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,
 	}
 	if cmd.Poll {
 		args = append(args, "--flow.poll")
+	}
+	if cmd.Network != "" {
+		args = append(args, "--flow.network", cmd.Network)
 	}
 
 	var out = exec.CommandContext(ctx, args[0], args[1:]...)

@@ -18,7 +18,7 @@ type cmdDeploy struct {
 	Broker      mbp.ClientConfig      `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 	Consumer    mbp.ClientConfig      `group:"Consumer" namespace:"consumer" env-namespace:"CONSUMER"`
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
-	Network     string                `long:"network" default:"host" description:"The Docker network that connector containers are given access to."`
+	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Cleanup     bool                  `long:"wait-and-cleanup" description:"Keep running after deploy until Ctrl-C. Then, delete the deployment from the dataplane."`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
