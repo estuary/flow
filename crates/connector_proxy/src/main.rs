@@ -95,7 +95,9 @@ async fn main() {
             tracing::error!(error = ?err, message = "connector-proxy failed");
             std::process::exit(1);
         }
-        Ok(()) => {}
+        Ok(()) => {
+            tracing::info!(message = "connector-proxy exiting");
+        }
     }
 }
 

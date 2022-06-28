@@ -22,6 +22,7 @@ pub fn check_exit_status(message: &str, result: std::io::Result<ExitStatus>) -> 
     match result {
         Ok(status) => {
             if status.success() {
+                tracing::info!("{} exited without error", message);
                 Ok(())
             } else {
                 match status.code() {
