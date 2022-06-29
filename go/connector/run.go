@@ -400,10 +400,10 @@ func (fe *firstError) unwrap() error {
 	return fe.err
 }
 
-// PullImage to local cache unless the tag is `:local-test-tag`, which is expected to be local.
+// PullImage to local cache unless the tag is `:local`, which is expected to be local.
 func PullImage(ctx context.Context, image string) error {
 	// Pull the image if it's not expected to be local.
-	if strings.HasSuffix(image, ":local-test-tag") {
+	if strings.HasSuffix(image, ":local") {
 		// Don't pull images having this tag.
 	} else if _, err := exec.CommandContext(ctx, "docker", "pull", image).Output(); err != nil {
 		return fmt.Errorf("pull of container image %q failed: %w", image, err)
