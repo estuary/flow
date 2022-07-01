@@ -7,6 +7,7 @@ export type Lambda = (source: Document, register?: Document, previous?: Document
 import { Derivation as acmeBankBalances } from '../../examples/acmeBank.flow';
 import { Derivation as examplesCitiBikeIdleBikes } from '../../examples/citi-bike/idle-bikes.flow';
 import { Derivation as examplesCitiBikeLastSeen } from '../../examples/citi-bike/last-seen.flow';
+import { Derivation as examplesCitiBikeRides } from '../../examples/citi-bike/transform-csv-rides';
 import { Derivation as examplesCitiBikeRidesAndRelocations } from '../../examples/citi-bike/rides-and-relocations.flow';
 import { Derivation as examplesCitiBikeStations } from '../../examples/citi-bike/stations.flow';
 import { Derivation as examplesNetTraceServices } from '../../examples/net-trace/services.flow';
@@ -37,6 +38,7 @@ import { Derivation as temperatureAverages } from '../../examples/temp-sensors/f
 const __acmeBankBalances: acmeBankBalances = new acmeBankBalances();
 const __examplesCitiBikeIdleBikes: examplesCitiBikeIdleBikes = new examplesCitiBikeIdleBikes();
 const __examplesCitiBikeLastSeen: examplesCitiBikeLastSeen = new examplesCitiBikeLastSeen();
+const __examplesCitiBikeRides: examplesCitiBikeRides = new examplesCitiBikeRides();
 const __examplesCitiBikeRidesAndRelocations: examplesCitiBikeRidesAndRelocations =
     new examplesCitiBikeRidesAndRelocations();
 const __examplesCitiBikeStations: examplesCitiBikeStations = new examplesCitiBikeStations();
@@ -78,6 +80,9 @@ const routes: { [path: string]: Lambda | undefined } = {
     ) as Lambda,
     '/derive/examples/citi-bike/last-seen/locationFromRide/Publish':
         __examplesCitiBikeLastSeen.locationFromRidePublish.bind(__examplesCitiBikeLastSeen) as Lambda,
+    '/derive/examples/citi-bike/rides/fromCsvRides/Publish': __examplesCitiBikeRides.fromCsvRidesPublish.bind(
+        __examplesCitiBikeRides,
+    ) as Lambda,
     '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update':
         __examplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(__examplesCitiBikeRidesAndRelocations) as Lambda,
     '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish':
