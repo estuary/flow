@@ -1,7 +1,7 @@
 // Generated from collection schema examples/citi-bike/last-seen.flow.yaml?ptr=/collections/examples~1citi-bike~1last-seen/schema.
 // Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen.
 export type Document = {
-    bike_id: /* Unique identifier for this bike */ number;
+    bike_id: number;
     last: /* Station and time at which a trip began or ended */ {
         station: /* A Citi Bike Station */ {
             geo?: /* Location of this station Geographic Location as Latitude & Longitude */ {
