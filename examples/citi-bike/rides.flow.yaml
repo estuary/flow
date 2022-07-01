@@ -1,34 +1,13 @@
+import: [ csv-rides.flow.yaml ]
+
 collections:
   examples/citi-bike/rides:
     key: [/bike_id, /begin/timestamp]
     schema: ride.schema.yaml
-    # Define projections for each CSV header name used in the source dataset.
-    projections:
-      bikeid: /bike_id
-      birth year: /birth_year
-      end station id: /end/station/id
-      end station latitude: /end/station/geo/latitude
-      end station longitude: /end/station/geo/longitude
-      end station name: /end/station/name
-      start station id: /begin/station/id
-      start station latitude: /begin/station/geo/latitude
-      start station longitude: /begin/station/geo/longitude
-      start station name: /begin/station/name
-      start time: /begin/timestamp
-      starttime: /begin/timestamp
-      stop time: /end/timestamp
-      stoptime: /end/timestamp
-      tripduration: /duration_seconds
-      usertype: /user_type
+    derivation:
+      transform:
+        fromCsvRides:
+          source: { name: examples/citi-bike/csv-rides }
+          publish: { lambda: typescript }
+      typescript: { module: transform-csv-rides.ts }
 
-captures:
-  examples/citi-bike/rides-from-s3:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-s3:dev
-        config: rides.config.yaml
-    bindings:
-      - resource:
-          stream: tripdata/JC-201703
-          syncMode: incremental
-        target: examples/citi-bike/rides
