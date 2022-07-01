@@ -21,7 +21,6 @@ To use this connector, either your GCS bucket must be public, or you must have a
 You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the GCS source connector.
 
-
 :::tip
 You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket
 in a way that emulates a directory structure.
@@ -34,17 +33,77 @@ and informs how the capture will behave in production.
 To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
 :::
 
+### Parsing cloud storage data
+
+Cloud storage platforms like GCS can support a wider variety of file types
+than other data source systems. For each of these file types, Flow must parse
+and translate data into collections with defined fields and JSON schemas.
+
+To ensure the correctness of this process for each capture,
+you must provide information about the type and shape of the data in your bucket.
+
+The parser configuration is part of the [endpoint configuration](#endpoint) for this connector.
+It includes:
+
+* **Compression**: Specify how the bucket contents are compressed.
+If no compression type is specified, the connector will try to determine the compression type automatically.
+Options are **zip** an **gzip**.
+
+* **Format**: Specify the data format, which determines how it will be parsed.
+Options are:
+
+   * **Auto**: If no format is specified, the connector will try to determine it automatically.
+   * **Avro**
+   * **CSV**
+   * **JSON**
+   * **W3C Extended Log**
+
+   :::info
+   At this time, Flow only supports GCS captures with data of a single file type.
+   Support for multiple file types, which can be configured on a per-binding basis,
+   will be added in the future.
+
+   For now, use a prefix in the endpoint configuration to limit the scope of each capture to data of a single file type.
+   :::
+
+Only CSV data requires further configuration. When capturing CSV data, you must specify:
+
+* **Delimiter**
+* **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
+* Optionally, an **Error threshold**, as an acceptable percentage of errors.
+* **Escape characters**
+* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
+* **Line ending** values
+* **Quote character**
+
+Descriptions of these properties are included in the [table below](#endpoint).
+
 ### Properties
 
 #### Endpoint
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
 | **`/bucket`** | Bucket | Name of the Google Cloud Storage bucket | string | Required |
-| `/googleCredentials` | Google service account | Contents of the service account JSON file. Required unless the bucket is public.| string |  |
+| `/googleCredentials` | Google Service Account | Service account JSON key to use as Application Default Credentials | string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
-| `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
+| `/parser` | Parser Configuration | Configures how files are parsed | object |  |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
+| `/parser/format` |  | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"auto":{}}` |
+| `/parser/format/auto` | Auto |  | object | `{}` |
+| `/parser/format/avro` | Avro |  | object | `{}` |
+| `/parser/format/csv` | CSV |  | object |  |
+| `/parser/format/csv/delimiter` | Delimiter | The delimiter that separates values within each row. Only single-byte delimiters are supported. | null, string | `null` |
+| `/parser/format/csv/encoding` | Encoding | The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label. | null, string | `null` |
+| `/parser/format/csv/errorThreshold` | Error Threshold | Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts. | integer | `null` |
+| `/parser/format/csv/escape` | Escape Character | The escape character, used to escape quotes within fields. | null, string | `null` |
+| `/parser/format/csv/headers` | Headers | Manually specified headers, which can be used in cases where the file itself doesn&#x27;t contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here. | array | `[]` |
+| `/parser/format/csv/lineEnding` | Line Ending | The value that terminates a line. Only single-byte values are supported, with the exception of &quot;&#x5C;r&#x5C;n&quot; (CRLF), which will accept lines terminated by either a carriage return, a newline, or both. | null, string | `null` |
+| `/parser/format/csv/quote` | Quote Character | The character used to quote fields. | null, string | `null` |
+| `/parser/format/json` | JSON |  | object | `{}` |
+| `/parser/format/w3cExtendedLog` | W3C Extended Log |  | object | `{}` |
+| `/prefix` | Prefix | Prefix within the bucket to capture from | string |  |
 
 #### Bindings
 
@@ -75,6 +134,16 @@ captures:
             "token_uri": "https://accounts.google.com/o/oauth2/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/service-account-email"
+          parser:
+            compression: zip
+            format: csv
+              csv:
+                delimiter: ,
+                encoding: utf-8
+                errorThreshold: 5
+                headers: [ID, username, first_name, last_name]
+                lineEnding: \r
+                quote: "
     bindings:
       - resource:
           stream: my-bucket/${PREFIX}
