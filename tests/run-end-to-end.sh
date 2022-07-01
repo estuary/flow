@@ -53,6 +53,7 @@ ${FLOWCTL} api build \
     --build-id ${BUILD_ID} \
     --directory ${TESTDIR}/builds \
     --log.level info \
+    --network host \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
     1>$TESTDIR/build.out 2>&1
