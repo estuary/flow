@@ -419,6 +419,50 @@ message MaterializationSpec {
   protocol.JournalSpec recovery_log_template = 6;
 }
 
+// OAuth2Spec describes an OAuth2 provider
+message OAuth2Spec {
+  // Name of the OAuth2 provider
+  string provider = 1;
+
+  // The templates below have a set of variables available to them, the variables available
+  // everywhere are:
+  // ClientId: OAuth2 provider client id
+  // ClientSecret: OAuth2 provider client secret
+  // RedirectURI: OAuth2 provider client registered redirect URI
+  // State: the state parameter
+  //
+  // Variables available in Access Token request:
+  // Code: the code resulting from the suthorization step used to fetch the token
+  //
+  // Variables available on Refresh Token request:
+  // RefreshToken: the refresh token
+
+
+  // Template for authorization URL, this is the first step of the OAuth2 flow where the user
+  // is redirected to the OAuth2 provider to authorize access to their account
+  string auth_url_template = 2;
+
+  // Template for access token URL, this is the second step of the OAuth2 flow, where we request
+  // an access token from the provider
+  string access_token_url_template = 3;
+
+  // The POST body of the access_token request
+  string access_token_body_json = 4 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "accessTokenBody"
+  ];
+
+  // Template for refresh token URL, some providers require that the access token be
+  // refreshed.
+  string refresh_token_url_template = 5;
+
+  // The POST body of the refresh_token request
+  string refresh_token_body_json = 6 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "refreshTokenBody"
+  ];
+}
+
 // TestSpec describes a catalog test.
 message TestSpec {
   // Name of this test.

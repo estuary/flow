@@ -157,6 +157,9 @@ message SpecResponse {
   ];
   // URL for connector's documention.
   string documentation_url = 3;
+
+  // OAuth2 spec
+  flow.OAuth2Spec oauth2_spec = 4;
 }
 
 // DiscoverRequest is the request type of the Discover RPC.
