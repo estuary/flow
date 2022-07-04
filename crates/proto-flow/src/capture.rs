@@ -23,6 +23,9 @@ pub struct SpecResponse {
     /// URL for connector's documention.
     #[prost(string, tag="3")]
     pub documentation_url: ::prost::alloc::string::String,
+    /// OAuth2 spec
+    #[prost(message, optional, tag="4")]
+    pub oauth2_spec: ::core::option::Option<super::flow::OAuth2Spec>,
 }
 /// DiscoverRequest is the request type of the Discover RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]

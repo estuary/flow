@@ -459,6 +459,44 @@ pub mod materialization_spec {
         pub shuffle: ::core::option::Option<super::Shuffle>,
     }
 }
+/// OAuth2Spec describes an OAuth2 provider
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OAuth2Spec {
+    /// Name of the OAuth2 provider
+    #[prost(string, tag="1")]
+    pub provider: ::prost::alloc::string::String,
+    // The templates below have a set of variables available to them, the variables available
+    // everywhere are:
+    // ClientId: OAuth2 provider client id
+    // ClientSecret: OAuth2 provider client secret
+    // RedirectURI: OAuth2 provider client registered redirect URI
+    // State: the state parameter
+    //
+    // Variables available in Access Token request:
+    // Code: the code resulting from the suthorization step used to fetch the token
+    //
+    // Variables available on Refresh Token request:
+    // RefreshToken: the refresh token
+
+    /// Template for authorization URL, this is the first step of the OAuth2 flow where the user
+    /// is redirected to the OAuth2 provider to authorize access to their account
+    #[prost(string, tag="2")]
+    pub auth_url_template: ::prost::alloc::string::String,
+    /// Template for access token URL, this is the second step of the OAuth2 flow, where we request
+    /// an access token from the provider
+    #[prost(string, tag="3")]
+    pub access_token_url_template: ::prost::alloc::string::String,
+    /// The POST body of the access_token request
+    #[prost(string, tag="4")]
+    pub access_token_body_json: ::prost::alloc::string::String,
+    /// Template for refresh token URL, some providers require that the access token be
+    /// refreshed.
+    #[prost(string, tag="5")]
+    pub refresh_token_url_template: ::prost::alloc::string::String,
+    /// The POST body of the refresh_token request
+    #[prost(string, tag="6")]
+    pub refresh_token_body_json: ::prost::alloc::string::String,
+}
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TestSpec {

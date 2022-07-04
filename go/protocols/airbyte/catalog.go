@@ -232,8 +232,9 @@ type Spec struct {
 	// SupportsDBT is not currently used or supported by Flow or estuary-developed
 	// connectors
 	SupportsDBT bool `json:"supportsDBT,omitempty"`
-	// AuthSpecification is not currently used or supported by Flow or estuary-developed
-	// connectors, and it is deprecated in the airbyte spec.
+	// AuthSpecification is currently used by Flow for specifying the OAuth2Spec
+	// part of SpecResponse in flow protocol, which allows for OAuth2 authorization
+	// for connectors
 	AuthSpecification json.RawMessage `json:"authSpecification,omitempty"`
 	// AdvancedAuth is not currently used or supported by Flow or estuary-developed
 	// connectors.
