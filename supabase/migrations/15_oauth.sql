@@ -21,8 +21,8 @@ grant select(id, detail, external_url, image_name, open_graph_raw, open_graph_pa
 -- The new OAuth2Spec part of SpecResponse for connectors should also be persisted
 -- see https://github.com/estuary/flow/pull/570/files
 
-alter table if exists connector_tags
+alter table if exists connectors
     add column oauth2_spec json_obj;
 
-comment on column connector_tags.oauth2_spec is
+comment on column connectors.oauth2_spec is
   'OAuth2 specification of the connector';
