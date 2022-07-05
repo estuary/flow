@@ -424,18 +424,21 @@ message OAuth2Spec {
   // Name of the OAuth2 provider
   string provider = 1;
 
-  // The templates below have a set of variables available to them, the variables available
-  // everywhere are:
-  // ClientId: OAuth2 provider client id
-  // ClientSecret: OAuth2 provider client secret
-  // RedirectURI: OAuth2 provider client registered redirect URI
-  // State: the state parameter
+  // The templates below are handlebars templates and have a set of variables
+  // available to them, the variables available everywhere are:
+  // client_id: OAuth2 provider client id
+  // redirect_uri: OAuth2 provider client registered redirect URI
+  //
+  // Variables available in Auth URL request:
+  // state: the state parameter
   //
   // Variables available in Access Token request:
-  // Code: the code resulting from the suthorization step used to fetch the token
+  // code: the code resulting from the suthorization step used to fetch the token
+  // client_secret: OAuth2 provider client secret
   //
   // Variables available on Refresh Token request:
-  // RefreshToken: the refresh token
+  // refresh_token: the refresh token
+  // client_secret: OAuth2 provider client secret
 
 
   // Template for authorization URL, this is the first step of the OAuth2 flow where the user
