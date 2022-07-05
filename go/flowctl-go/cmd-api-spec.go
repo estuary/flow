@@ -25,6 +25,7 @@ type specResponse struct {
 	DocumentationURL   string          `json:"documentationURL"`
 	EndpointSpecSchema json.RawMessage `json:"endpointSpecSchema"`
 	ResourceSpecSchema json.RawMessage `json:"resourceSpecSchema"`
+	Oauth2Spec         *flow.OAuth2Spec `json:"oauth2Spec"`
 }
 
 type apiSpec struct {
@@ -96,6 +97,7 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 		DocumentationURL:   resp.DocumentationUrl,
 		EndpointSpecSchema: resp.EndpointSpecSchemaJson,
 		ResourceSpecSchema: resp.ResourceSpecSchemaJson,
+		Oauth2Spec:         resp.Oauth2Spec,
 	}, nil
 }
 
