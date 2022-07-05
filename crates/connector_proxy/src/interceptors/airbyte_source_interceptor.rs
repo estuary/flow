@@ -61,12 +61,14 @@ impl AirbyteSourceInterceptor {
         Box::pin(stream::once(async {
             let message = get_airbyte_response(in_stream, |m| m.spec.is_some()).await?;
             let spec = message.spec.unwrap();
+            let auth_spec = spec.auth_specification.map(|s| serde_json::from_str(s.get())).transpose()?;
 
             encode_message(&SpecResponse {
                 endpoint_spec_schema_json: spec.connection_specification.to_string(),
                 resource_spec_schema_json: serde_json::to_string_pretty(&create_root_schema::<
                     ResourceSpec,
                 >())?,
+                oauth2_spec: auth_spec,
                 documentation_url: spec.documentation_url.unwrap_or_default(),
             })
         }))
