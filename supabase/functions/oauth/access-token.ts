@@ -44,12 +44,25 @@ export async function accessToken(req: Record<string, any>) {
     ...params
   });
 
+  let headers = {};
+  if (oauth2_spec.accessTokenHeaders) {
+    const headersTemplate = Handlebars.compile(oauth2_spec.accessTokenHeaders);
+    headers = JSON.parse(headersTemplate({
+      redirect_uri,
+      client_id : oauth2_client_id,
+      client_secret : oauth2_client_secret,
+      config,
+      ...params
+    }));
+  }
+
   const response = await fetch(url, {
     method : "POST",
     body : body,
     headers : {
       accept : "application/json",
       "content-type" : "application/json",
+      ...headers
     }
   });
 
