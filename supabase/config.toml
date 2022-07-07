@@ -39,7 +39,9 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 seconds (one
 # week).
-jwt_expiry = 3600
+# We set this to the max value for running locally, just because it's annoying to keep refreshing
+# the token with the CLI
+jwt_expiry = 604800
 # Allow/disallow new user signups to your project.
 enable_signup = true
 
