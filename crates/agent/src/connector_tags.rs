@@ -145,12 +145,14 @@ impl TagHandler {
             #[serde(rename = "type")]
             protocol: String,
             resource_spec_schema: Box<RawValue>,
+            oauth2_spec: Box<RawValue>,
         }
         let Spec {
             documentation_url,
             endpoint_spec_schema,
             protocol,
             resource_spec_schema,
+            oauth2_spec,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
         agent_sql::connector_tags::update_tag_fields(
@@ -162,6 +164,12 @@ impl TagHandler {
             txn,
         )
         .await?;
+
+        agent_sql::connector_tags::update_oauth2_spec(
+            row.connector_id,
+            oauth2_spec,
+            txn,
+        ).await?;
 
         return Ok((row.tag_id, JobStatus::Success));
     }
