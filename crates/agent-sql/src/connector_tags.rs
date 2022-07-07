@@ -87,6 +87,27 @@ pub async fn update_open_graph_raw(
     Ok(())
 }
 
+pub async fn update_oauth2_spec(
+    connector_id: Id,
+    oauth2_spec: Box<RawValue>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"update connectors set
+            oauth2_spec = $2,
+            updated_at = clock_timestamp()
+        where id = $1
+        returning 1 as "must_exist";
+        "#,
+        connector_id as Id,
+        Json(oauth2_spec) as Json<Box<RawValue>>,
+    )
+    .fetch_one(txn)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn update_tag_fields(
     tag_id: Id,
     documentation_url: String,
