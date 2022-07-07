@@ -465,18 +465,21 @@ pub struct OAuth2Spec {
     /// Name of the OAuth2 provider
     #[prost(string, tag="1")]
     pub provider: ::prost::alloc::string::String,
-    // The templates below have a set of variables available to them, the variables available
-    // everywhere are:
-    // ClientId: OAuth2 provider client id
-    // ClientSecret: OAuth2 provider client secret
-    // RedirectURI: OAuth2 provider client registered redirect URI
-    // State: the state parameter
+    // The templates below are handlebars templates and have a set of variables
+    // available to them, the variables available everywhere are:
+    // client_id: OAuth2 provider client id
+    // redirect_uri: OAuth2 provider client registered redirect URI
+    //
+    // Variables available in Auth URL request:
+    // state: the state parameter
     //
     // Variables available in Access Token request:
-    // Code: the code resulting from the suthorization step used to fetch the token
+    // code: the code resulting from the suthorization step used to fetch the token
+    // client_secret: OAuth2 provider client secret
     //
     // Variables available on Refresh Token request:
-    // RefreshToken: the refresh token
+    // refresh_token: the refresh token
+    // client_secret: OAuth2 provider client secret
 
     /// Template for authorization URL, this is the first step of the OAuth2 flow where the user
     /// is redirected to the OAuth2 provider to authorize access to their account
@@ -489,13 +492,19 @@ pub struct OAuth2Spec {
     /// The POST body of the access_token request
     #[prost(string, tag="4")]
     pub access_token_body_json: ::prost::alloc::string::String,
+    /// Headers for the access_token request
+    #[prost(string, tag="5")]
+    pub access_token_headers_json: ::prost::alloc::string::String,
     /// Template for refresh token URL, some providers require that the access token be
     /// refreshed.
-    #[prost(string, tag="5")]
+    #[prost(string, tag="6")]
     pub refresh_token_url_template: ::prost::alloc::string::String,
     /// The POST body of the refresh_token request
-    #[prost(string, tag="6")]
+    #[prost(string, tag="7")]
     pub refresh_token_body_json: ::prost::alloc::string::String,
+    /// Headers for the refresh_token request
+    #[prost(string, tag="8")]
+    pub refresh_token_headers_json: ::prost::alloc::string::String,
 }
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]

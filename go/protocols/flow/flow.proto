@@ -455,14 +455,26 @@ message OAuth2Spec {
     json_name = "accessTokenBody"
   ];
 
+  // Headers for the access_token request
+  string access_token_headers_json = 5 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "accessTokenHeaders"
+  ];
+
   // Template for refresh token URL, some providers require that the access token be
   // refreshed.
-  string refresh_token_url_template = 5;
+  string refresh_token_url_template = 6;
 
   // The POST body of the refresh_token request
-  string refresh_token_body_json = 6 [
+  string refresh_token_body_json = 7 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "refreshTokenBody"
+  ];
+
+  // Headers for the refresh_token request
+  string refresh_token_headers_json = 8 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "refreshTokenHeaders"
   ];
 }
 
