@@ -444,6 +444,10 @@ impl ErrorThreshold {
         }
     }
 
+    pub fn is_zero(&self) -> bool {
+        self.max_percent == 0
+    }
+
     pub fn exceeded(&self, test_percent: u8) -> bool {
         test_percent >= self.max_percent
     }
@@ -489,7 +493,6 @@ impl schemars::JsonSchema for ErrorThreshold {
         serde_json::from_value(serde_json::json!({
             "type": "integer",
             "title": "Error Threshold",
-            "description": "The percentage of malformed rows which can be encountered without halting the parsing process. Only the most recent 1000 rows are used to calculate the error rate.",
             "default": 0,
             "minimum": 0,
             "maximum": 100,
@@ -644,7 +647,7 @@ mod test {
                 escape: Escape::Backslash.into(),
                 encoding: EncodingRef("windows-1252").into(),
                 headers: Vec::new(),
-                error_threshold: None,
+                error_threshold: Default::default(),
             })
             .into(),
             compression: Compression::ZipArchive.into(),

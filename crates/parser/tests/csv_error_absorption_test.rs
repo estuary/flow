@@ -8,7 +8,7 @@ use testutil::run_test;
 #[test]
 fn no_tolerance_for_errors_test() {
     let mut csv = EphemeralCsv::default();
-    let config = csv.parse_config(None);
+    let config = csv.parse_config(Default::default());
 
     csv.write_rows(1, &|_i| "n,n_squared".to_owned());
     csv.write_rows(500, &|i| format!("{},{}", i, i * i));
@@ -23,7 +23,7 @@ fn no_tolerance_for_errors_test() {
 #[test]
 fn smaller_than_window_test() {
     let mut csv = EphemeralCsv::default();
-    let config = csv.parse_config(ErrorThreshold::new(10).unwrap().into());
+    let config = csv.parse_config(ErrorThreshold::new(10).unwrap());
 
     csv.write_rows(1, &|_i| "n,n_squared".to_owned());
     csv.write_rows(500, &|i| format!("{},{}", i, i * i));
@@ -111,7 +111,7 @@ impl EphemeralCsv {
         }
     }
 
-    fn parse_config(&self, error_threshold: Option<ErrorThreshold>) -> ParseConfig {
+    fn parse_config(&self, error_threshold: ErrorThreshold) -> ParseConfig {
         ParseConfig {
             filename: Some("data.csv".to_owned()),
             format: Format::Csv(character_separated::AdvancedCsvConfig {

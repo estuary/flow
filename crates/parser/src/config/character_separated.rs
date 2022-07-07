@@ -36,7 +36,7 @@ pub struct AdvancedCsvConfig {
     /// Allows a percentage of errors to be ignored without failing the entire
     /// parsing process. When this limit is exceeded, parsing halts.
     #[serde(default)]
-    pub error_threshold: Option<ErrorThreshold>,
+    pub error_threshold: ErrorThreshold,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, EnumIter, IntoStaticStr)]
