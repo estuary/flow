@@ -145,7 +145,7 @@ impl TagHandler {
             #[serde(rename = "type")]
             protocol: String,
             resource_spec_schema: Box<RawValue>,
-            oauth2_spec: Box<RawValue>,
+            oauth2_spec: Option<Box<RawValue>>,
         }
         let Spec {
             documentation_url,
@@ -165,11 +165,13 @@ impl TagHandler {
         )
         .await?;
 
-        agent_sql::connector_tags::update_oauth2_spec(
-            row.connector_id,
-            oauth2_spec,
-            txn,
-        ).await?;
+        if let Some(oauth2_spec) = oauth2_spec {
+            agent_sql::connector_tags::update_oauth2_spec(
+                row.connector_id,
+                oauth2_spec,
+                txn,
+            ).await?;
+        }
 
         return Ok((row.tag_id, JobStatus::Success));
     }
