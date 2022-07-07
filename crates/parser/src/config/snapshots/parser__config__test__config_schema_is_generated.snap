@@ -306,7 +306,7 @@ expression: schema
                 "errorThreshold": {
                   "title": "Error Threshold",
                   "description": "Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts.",
-                  "default": null,
+                  "default": 0,
                   "type": "integer",
                   "maximum": 100.0,
                   "minimum": 0.0

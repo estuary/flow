@@ -192,8 +192,11 @@ impl Parser for CsvParser {
         let columns = resolve_headers(headers, CSV_NULLS);
 
         let csv_output = CsvOutput::new(columns, reader);
-        let iterator = if let Some(threshold) = self.config.error_threshold {
-            Box::new(ParseErrorBuffer::new(csv_output, threshold)) as Output
+        let iterator = if !self.config.error_threshold.is_zero() {
+            Box::new(ParseErrorBuffer::new(
+                csv_output,
+                self.config.error_threshold,
+            )) as Output
         } else {
             Box::new(csv_output) as Output
         };
