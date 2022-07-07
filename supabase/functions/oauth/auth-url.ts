@@ -1,11 +1,11 @@
 import {createClient} from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from 'https://esm.sh/handlebars';
 
-export async function authURL(req: {connector_id: string}) {
+export async function authURL(req: {connector_id: string; config : object}) {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!,
                                 Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
 
-  const {connector_id} = req;
+  const {connector_id, config} = req;
 
   const {data, error} = await supabase.from('connectors')
                             .select('oauth2_client_id,oauth2_spec')
@@ -20,12 +20,13 @@ export async function authURL(req: {connector_id: string}) {
 
   const {oauth2_spec, oauth2_client_id} = data;
 
-  // TODO: let frontend handle state
-  const state = btoa(`${Math.random().toString()}/${connector_id}`);
+  const state = btoa(JSON.stringify(
+      {verification_token : Math.random().toString(), connector_id}));
   const redirect_uri = "https://dashboard.estuary.dev/oauth";
 
   const template = Handlebars.compile(oauth2_spec.authUrlTemplate);
-  const url = template({state, redirect_uri, client_id : oauth2_client_id});
+  const url =
+      template({state, redirect_uri, client_id : oauth2_client_id, config});
 
   return new Response(
       JSON.stringify({"url" : url}),
