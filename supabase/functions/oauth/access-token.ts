@@ -2,13 +2,13 @@ import {serve} from "https://deno.land/std@0.131.0/http/server.ts"
 import {createClient} from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from 'https://esm.sh/handlebars';
 
-export async function accessToken(req: {state: string; code : string}) {
+export async function accessToken(req: Record<string, any>) {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!,
                                 Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
-  const {state, code} = req;
+  const {state, config, ...params} = req;
 
-  const decodedState = atob(state);
-  const connector_id = decodedState.split('/')[1];
+  const decodedState = JSON.parse(atob(state));
+  const {connector_id} = decodedState;
 
   const {data, error} =
       await supabase.from('connectors')
@@ -28,22 +28,21 @@ export async function accessToken(req: {state: string; code : string}) {
 
   const urlTemplate = Handlebars.compile(oauth2_spec.accessTokenUrlTemplate);
   const url = urlTemplate({
-    code,
     redirect_uri,
     client_id : oauth2_client_id,
-    client_secret : oauth2_client_secret
+    client_secret : oauth2_client_secret,
+    config,
+    ...params
   });
-  console.log(url);
 
   const bodyTemplate = Handlebars.compile(oauth2_spec.accessTokenBody);
   const body = bodyTemplate({
-    code,
     redirect_uri,
     client_id : oauth2_client_id,
-    client_secret : oauth2_client_secret
+    client_secret : oauth2_client_secret,
+    config,
+    ...params
   });
-
-  console.log(body);
 
   const response = await fetch(url, {
     method : "POST",
