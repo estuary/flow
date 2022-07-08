@@ -41,7 +41,6 @@ comment on column connectors.oauth2_spec is
   'OAuth2 specification of the connector';
 
 -- don't expose details of open_graph raw responses & patching and oauth2 secret
-revoke select on table connectors from authenticated;
 -- authenticated may select other columns for all connectors connectors.
 grant select(id, detail, updated_at, created_at, image_name, external_url, open_graph, oauth2_client_id) on table connectors to authenticated;
 
