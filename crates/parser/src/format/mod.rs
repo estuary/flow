@@ -268,6 +268,7 @@ fn compression_from_content_type(content_type: &str) -> Option<Compression> {
         .and_then(|ct| match ct.essence_str() {
             "application/gzip" => Some(Compression::Gzip),
             "application/zip" => Some(Compression::ZipArchive),
+            "application/zstd" => Some(Compression::Zstd),
             _ => None,
         })
 }
@@ -276,6 +277,7 @@ fn compression_from_filename(filename: &str) -> Option<Compression> {
     extensions(filename).find_map(|ext| match ext {
         "gz" => Some(Compression::Gzip),
         "zip" => Some(Compression::ZipArchive),
+        "zst" => Some(Compression::Zstd),
         _ => None,
     })
 }
