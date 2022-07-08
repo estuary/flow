@@ -40,7 +40,7 @@ func NewJSWorker(packageTgz []byte) (*JSWorker, error) {
 	cmd.Dir = tempdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	cmd.SysProcAttr = JSWorkerSysProcAttr()
 
 	if err = cmd.Run(); err != nil {
 		return nil, fmt.Errorf("install NPM package: %w", err)
@@ -97,7 +97,7 @@ func StartCmdAndReadReady(dir, socketPath string, setpgid bool, args ...string) 
 	cmd.Stderr = &readyWriter{delegate: os.Stderr, ch: readyCh}
 
 	// Deliver a SIGTERM to the process if this thread should die uncleanly.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	cmd.SysProcAttr = JSWorkerSysProcAttr()
 	// Place child its own process group so that terminal SIGINT isn't
 	// delivered from the terminal.
 	cmd.SysProcAttr.Setpgid = setpgid

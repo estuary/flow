@@ -8,9 +8,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
-	"syscall"
 	"unsafe"
 
 	"github.com/estuary/flow/go/flow/ops"
@@ -46,24 +44,17 @@ func newService(
 	drop func(*C.Channel),
 	logPublisher ops.Logger,
 ) (*service, error) {
-	// We use a direct syscall here instead of `os.Pipe` because we need to ensure that _only_ the
-	// Rust side closes the file. `os.Pipe` returns `os.File`s, which will always close themselves
-	// when they are garbage collected, so we cannot create a `File` for the writer without it being
-	// closed by Go. The syscall returns raw file descriptors, though, which does exactly what we
-	// want. The syscall here was modeled after the one from `os.Pipe`.
-	var pipeFileDescriptors [2]int
-	var err = syscall.Pipe2(pipeFileDescriptors[0:], syscall.O_CLOEXEC)
+	var logReader, wDescriptor, err = Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("creating loging pipe: %w", err)
 	}
-	var logReader = os.NewFile(uintptr(pipeFileDescriptors[0]), "|0")
 
 	// We don't expect our rust services to ever log in a format other than JSON. If they do, then
 	// we'll forward the text logs at the warning level so that someone notices, since it's likely
 	// that there's some problem.
 	var textLogLevel = logrus.WarnLevel
 	go ops.ForwardLogs(typeName, textLogLevel, logReader, logPublisher)
-	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(pipeFileDescriptors[1]))
+	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(wDescriptor))
 
 	serviceCreatedCounter.WithLabelValues(typeName).Inc()
 	var svc = &service{

@@ -10,16 +10,26 @@ NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
 CARGO_TARGET_DIR ?= target
-RUSTBIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-gnu/release
+UNAME := $(shell uname)
 
 # Unfortunately, cargo's build cache get's completely invalidated when you switch between the
 # default target and an explicit --target argument. We work around this by setting an explicit
-# target of x86_64-unknown-linux-gnu in .cargo/config. Thus, when running `cargo build` (without an
-# explicit --target), the artifacts will be output to target/x86_64-unknown-linux-gnu/. This allows
+# target. Thus, when running `cargo build` (without an
+# explicit --target), the artifacts will be output to target/$TARGET/. This allows
 # developers to omit the --target in most cases, and still be able to run make commands that can use
 # the same build cache.
 # See: https://github.com/rust-lang/cargo/issues/8899
+ifeq ($(UNAME),Darwin)
+export CARGO_BUILD_TARGET=aarch64-apple-darwin
+PACKAGE_ARCH=arm64-darwin
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+else
+export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
+PACKAGE_ARCH=x86-linux
+endif
+RUSTBIN = ${CARGO_TARGET_DIR}/${CARGO_BUILD_TARGET}/release
 RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
+
 # Location to place intermediate files and output artifacts
 # during the build process. Note the go tool ignores directories
 # with leading '.' or '_'.
@@ -28,8 +38,8 @@ WORKDIR  = $(realpath .)/.build
 PKGDIR = ${WORKDIR}/package
 
 # Etcd release we pin within Flow distributions.
-ETCD_VERSION = v3.4.13
-ETCD_SHA256 = 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
+ETCD_VERSION = v3.5.4
+ETCD_LINUX_SHA256 = b1091166153df1ee0bb29b47fb1943ef0ddf0cd5d07a8fe69827580a08134def
 
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
 # with `protoc` invocations
@@ -87,18 +97,34 @@ go-protobufs: $(GO_PROTO_TARGETS)
 
 # `etcd` is used for testing, and packaged as a release artifact.
 ${PKGDIR}/bin/etcd:
-	curl -L -o /tmp/etcd.tgz \
-			https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
-		&& echo "${ETCD_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
-		&& tar --extract \
-			--file /tmp/etcd.tgz \
-			--directory /tmp/ \
-		&& mkdir -p ${PKGDIR}/bin/ \
-		&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${PKGDIR}/bin/ \
-		&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-		&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
-		&& rm /tmp/etcd.tgz \
-		&& $@ --version
+	# For now we are using an unofficial built binary. Once the official binary for darwin arm64 is released we should
+	# switch to use that: https://github.com/etcd-io/etcd/issues/14001
+	if [ "$(UNAME)" == "Darwin" ]; then \
+		curl -L -o /tmp/etcd.tgz \
+										https://github.com/UniversalShipping/etcd/releases/download/${ETCD_VERSION}/etcd-binaries-darwin-arm64.tar.gz \
+						&& tar --extract \
+										--file /tmp/etcd.tgz \
+										--directory /tmp/ \
+						&& mkdir -p ${PKGDIR}/bin/ \
+						&& mv /tmp/bin/etcd /tmp/bin/etcdctl ${PKGDIR}/bin/ \
+						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
+						&& rm -r /tmp/bin/ \
+						&& rm /tmp/etcd.tgz \
+						&& $@ --version; \
+	else \
+		curl -L -o /tmp/etcd.tgz \
+										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
+						&& echo "${ETCD_LINUX_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
+						&& tar --extract \
+										--file /tmp/etcd.tgz \
+										--directory /tmp/ \
+						&& mkdir -p ${PKGDIR}/bin/ \
+						&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${PKGDIR}/bin/ \
+						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
+						&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
+						&& rm /tmp/etcd.tgz \
+						&& $@ --version; \
+	fi; \
 
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
@@ -181,12 +207,12 @@ rust-binaries: $(RUST_TARGETS)
 .PHONY: musl-binaries
 musl-binaries: $(MUSL_TARGETS)
 
-${PKGDIR}/flow-x86-linux.tar.gz: $(RUST_TARGETS) $(MUSL_TARGETS)
+${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: $(RUST_TARGETS) $(MUSL_TARGETS)
 	rm -f $@
-	cd ${PKGDIR}/bin && tar -zcf ../flow-x86-linux.tar.gz *
+	cd ${PKGDIR}/bin && tar -zcf ../flow-$(PACKAGE_ARCH).tar.gz *
 
 .PHONY: package
-package: ${PKGDIR}/flow-x86-linux.tar.gz
+package: ${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz
 
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
