@@ -22,6 +22,10 @@ expression: schema
           "const": "zip"
         },
         {
+          "title": "Zstandard",
+          "const": "zstd"
+        },
+        {
           "title": "None",
           "const": "none"
         },
