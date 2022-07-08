@@ -97,7 +97,7 @@ func (cmd *cmdTempDataPlane) start(ctx context.Context, tempdir string) (etcdAdd
 
 	for _, cmd := range []*exec.Cmd{cmd.etcd, cmd.gazette, cmd.consumer} {
 		// Deliver a SIGTERM to the process if this thread should die uncleanly.
-		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+		cmd.SysProcAttr = SysProcAttr()
 		// Place child its own process group, so that terminal SIGINT isn't delivered
 		// from the terminal and so that we may close leases properly.
 		cmd.SysProcAttr.Setpgid = true
