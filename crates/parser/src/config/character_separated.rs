@@ -18,9 +18,9 @@ pub struct AdvancedCsvConfig {
     #[serde(default)]
     pub delimiter: DefaultNullIsAutomatic<Delimiter>,
     #[serde(default)]
-    /// The value that terminates a line. Only single-byte values are supported, withe the
+    /// The value that terminates a line. Only single-byte values are supported, with the
     /// exception of "\r\n" (CRLF), which will accept lines terminated by
-    /// _either_ a carriage return, a newline, or both.
+    /// either a carriage return, a newline, or both.
     pub line_ending: DefaultNullIsAutomatic<LineEnding>,
     /// The character used to quote fields.
     #[serde(default)]
