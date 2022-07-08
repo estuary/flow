@@ -3,12 +3,15 @@
 create table connectors (
   like internal._model including all,
 
-  external_url      text not null,
-  image_name        text unique not null,
-  open_graph        jsonb_obj
+  external_url         text not null,
+  image_name           text unique not null,
+  open_graph           jsonb_obj
     generated always as (internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)) stored,
-  open_graph_raw    jsonb_obj,
-  open_graph_patch  jsonb_obj,
+  open_graph_raw       jsonb_obj,
+  open_graph_patch     jsonb_obj,
+  oauth2_client_id     text,
+  oauth2_client_secret text,
+  oauth2_spec          jsonb_obj,
   --
   constraint "image_name must be a container image without a tag"
     check (image_name ~ '^(?:.+/)?([^:]+)$')
@@ -30,11 +33,17 @@ comment on column connectors.open_graph_raw is
   'Open-graph metadata as returned by the external_url';
 comment on column connectors.open_graph_patch is
   'Patches to open-graph metadata, as a JSON merge patch';
+comment on column connectors.oauth2_client_id is
+  'oauth client id';
+comment on column connectors.oauth2_client_secret is
+  'oauth client secret';
+comment on column connectors.oauth2_spec is
+  'OAuth2 specification of the connector';
 
--- authenticated may select all connectors.
-grant select  on table connectors to authenticated;
--- But don't expose details of open_graph raw responses & patching.
-revoke select (open_graph_raw, open_graph_patch) on table connectors from authenticated;
+-- don't expose details of open_graph raw responses & patching and oauth2 secret
+revoke select on table connectors from authenticated;
+-- authenticated may select other columns for all connectors connectors.
+grant select(id, detail, updated_at, created_at, image_name, external_url, open_graph, oauth2_client_id) on table connectors to authenticated;
 
 
 -- TODO(johnny): Here's the plan for open graph:

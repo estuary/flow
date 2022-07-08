@@ -15,7 +15,7 @@ comment on column connectors.oauth2_client_secret
 -- The client secret must not be accessible by clients, and only priviledged
 -- services must be able to access such secret.
 revoke select on connectors from authenticated;
-grant select(id, detail, external_url, image_name, open_graph_raw, open_graph_patch, open_graph, created_at, updated_at, oauth2_client_id) on connectors to authenticated;
+grant select(id, detail, external_url, image_name, open_graph, created_at, updated_at, oauth2_client_id) on connectors to authenticated;
 
 
 -- The new OAuth2Spec part of SpecResponse for connectors should also be persisted
