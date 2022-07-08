@@ -387,6 +387,9 @@ pub enum Compression {
     /// Corresponds to the .zip file extension.
     #[serde(rename = "zip")]
     ZipArchive,
+    /// Zstandard compression, corresponds to the .zst file extension
+    #[serde(rename = "zstd")]
+    Zstd,
     /// Do not try to decompress, even if the file has an extension that indicates that it's
     /// compressed.
     #[serde(rename = "none")]
@@ -410,6 +413,7 @@ impl EnumSelection for Compression {
         match *self {
             Compression::Gzip => "GZip",
             Compression::ZipArchive => "Zip Archive",
+            Compression::Zstd => "Zstandard",
             Compression::None => "None",
         }
     }

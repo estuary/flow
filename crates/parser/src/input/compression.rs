@@ -16,6 +16,8 @@ pub fn detect_compression(prefix: &[u8]) -> Option<Compression> {
         Some(Compression::Gzip)
     } else if prefix.starts_with(&[0x50, 0x4B, 0x03, 0x04]) {
         Some(Compression::ZipArchive)
+    } else if prefix.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+        Some(Compression::Zstd)
     } else {
         None
     }
@@ -25,6 +27,7 @@ pub fn decompress_input(input: Input, compression: Compression) -> Result<Input,
     match compression {
         Compression::ZipArchive => decompress_zip_archive(input.into_file()?).map(Input::Stream),
         Compression::Gzip => decompress_gzip(input.into_stream()).map(Input::Stream),
+        Compression::Zstd => decompress_zstd(input.into_stream()).map(Input::Stream),
         Compression::None => Ok(input),
     }
 }
@@ -37,6 +40,11 @@ pub enum CompressionError {
     ZipArchive(#[from] ZipError),
     #[error("failed to decompress content using compression format: {0}")]
     InvalidCompression(Compression),
+}
+
+fn decompress_zstd(stream: Box<dyn Read>) -> Result<Box<dyn Read>, CompressionError> {
+    let reader = zstd::stream::read::Decoder::new(stream)?;
+    Ok(Box::new(reader))
 }
 
 fn decompress_gzip(stream: Box<dyn Read>) -> Result<Box<dyn Read>, CompressionError> {
