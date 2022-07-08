@@ -340,7 +340,7 @@ expression: schema
                 },
                 "lineEnding": {
                   "title": "Line Ending",
-                  "description": "The value that terminates a line. Only single-byte values are supported, withe the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by _either_ a carriage return, a newline, or both.",
+                  "description": "The value that terminates a line. Only single-byte values are supported, with the exception of \"\\r\\n\" (CRLF), which will accept lines terminated by either a carriage return, a newline, or both.",
                   "default": null,
                   "oneOf": [
                     {
