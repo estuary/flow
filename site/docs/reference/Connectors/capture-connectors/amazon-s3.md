@@ -32,51 +32,6 @@ and informs how the capture will behave in production.
 To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
 :::
 
-### Parsing cloud storage data
-
-Cloud storage platforms like S3 can support a wider variety of file types
-than other data source systems. For each of these file types, Flow must parse
-and translate data into collections with defined fields and JSON schemas.
-
-To ensure the correctness of this process for each capture,
-you must provide information about the type and shape of the data in your bucket.
-
-The parser configuration is part of the [endpoint configuration](#endpoint) for this connector.
-It includes:
-
-* **Compression**: Specify how the bucket contents are compressed.
-If no compression type is specified, the connector will try to determine the compression type automatically.
-Options are **zip** an **gzip**.
-
-* **Format**: Specify the data format, which determines how it will be parsed.
-Options are:
-
-   * **Auto**: If no format is specified, the connector will try to determine it automatically.
-   * **Avro**
-   * **CSV**
-   * **JSON**
-   * **W3C Extended Log**
-
-   :::info
-   At this time, Flow only supports S3 captures with data of a single file type.
-   Support for multiple file types, which can be configured on a per-binding basis,
-   will be added in the future.
-
-   For now, use a prefix in the endpoint configuration to limit the scope of each capture to data of a single file type.
-   :::
-
-Only CSV data requires further configuration. When capturing CSV data, you must specify:
-
-* **Delimiter**
-* **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
-* Optionally, an **Error threshold**, as an acceptable percentage of errors.
-* **Escape characters**
-* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
-* **Line ending** values
-* **Quote character**
-
-Descriptions of these properties are included in the [table below](#endpoint).
-
 ### Properties
 
 #### Endpoint
@@ -128,12 +83,12 @@ captures:
             compression: zip
             format: csv
               csv:
-                delimiter: ,
+                delimiter: ","
                 encoding: utf-8
                 errorThreshold: 5
                 headers: [ID, username, first_name, last_name]
-                lineEnding: \r
-                quote: "
+                lineEnding: ""\r"
+                quote: """
           region: "us-east-1"
     bindings:
       - resource:
@@ -146,3 +101,51 @@ captures:
 Your capture definition may be more complex, with additional bindings for different S3 prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+### Advanced: Parsing cloud storage data
+
+Cloud storage platforms like S3 can support a wider variety of file types
+than other data source systems. For each of these file types, Flow must parse
+and translate data into collections with defined fields and JSON schemas.
+
+By default, the parser will automatically detect the type and shape of the data in your bucket,
+so you won't need to change the parser configuration for most captures.
+
+However, the automatic detection may be incorrect in some cases.
+To fix or prevent this, you can provide explicit information in the parser configuration,
+which is part of the [endpoint configuration](#endpoint) for this connector.
+
+The parser configuration includes:
+
+* **Compression**: Specify how the bucket contents are compressed.
+If no compression type is specified, the connector will try to determine the compression type automatically.
+Options are **zip**, **gzip**, and **none**.
+
+* **Format**: Specify the data format, which determines how it will be parsed.
+Options are:
+
+   * **Auto**: If no format is specified, the connector will try to determine it automatically.
+   * **Avro**
+   * **CSV**
+   * **JSON**
+   * **W3C Extended Log**
+
+   :::info
+   At this time, Flow only supports S3 captures with data of a single file type.
+   Support for multiple file types, which can be configured on a per-binding basis,
+   will be added in the future.
+
+   For now, use a prefix in the endpoint configuration to limit the scope of each capture to data of a single file type.
+   :::
+
+Only CSV data requires further configuration. When capturing CSV data, you must specify:
+
+* **Delimiter**
+* **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
+* Optionally, an **Error threshold**, as an acceptable percentage of errors.
+* **Escape characters**
+* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
+* **Line ending** values
+* **Quote character**
+
+Descriptions of these properties are included in the [table above](#endpoint).
