@@ -17,6 +17,7 @@ dependencies = [
  "insta",
  "itertools",
  "models",
+ "proto-flow 0.0.0",
  "reqwest",
  "rusqlite",
  "scopeguard",
@@ -78,6 +79,46 @@ name = "anyhow"
 version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb07d2053ccdbe10e2af2995a2f116c1330396493dc1269f6a91d0ae82e19704"
+
+[[package]]
+name = "assemble"
+version = "0.0.0"
+source = "git+https://github.com/estuary/flow?branch=master#6e8e83ebd8ff73f4817223cb476e16ed03f8091e"
+dependencies = [
+ "bytes",
+ "doc",
+ "itertools",
+ "json",
+ "labels",
+ "lazy_static",
+ "models",
+ "percent-encoding",
+ "proto-flow 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "proto-gazette 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "regex",
+ "serde",
+ "serde_json",
+ "superslice",
+ "tables",
+ "thiserror",
+ "tracing",
+ "typescript",
+ "url",
+]
+
+[[package]]
+name = "assert_cmd"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93ae1ddd39efd67689deb1979d80bad3bf7f2b09c6e6117c8d1f2443b5e2f83e"
+dependencies = [
+ "bstr",
+ "doc-comment",
+ "predicates",
+ "predicates-core",
+ "predicates-tree",
+ "wait-timeout",
+]
 
 [[package]]
 name = "async-trait"
@@ -547,6 +588,42 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
+name = "flowctl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "assert_cmd",
+ "bytes",
+ "clap",
+ "comfy-table",
+ "dirs",
+ "doc",
+ "futures",
+ "itertools",
+ "labels",
+ "models",
+ "postgrest",
+ "proto-flow 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "reqwest",
+ "serde",
+ "serde-transcode",
+ "serde_json",
+ "serde_yaml",
+ "sources",
+ "superslice",
+ "tables",
+ "tempfile",
+ "time 0.3.11",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid 1.1.2",
+ "validation",
+]
 
 [[package]]
 name = "fnv"
@@ -1551,15 +1628,17 @@ dependencies = [
  "prost",
 ]
 
+
 [[package]]
 name = "proto-build"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#aa59c03c61c20cd7540393e64d4956c4781158ae"
+source = "git+https://github.com/estuary/flow?branch=master#6e8e83ebd8ff73f4817223cb476e16ed03f8091e"
+
 
 [[package]]
 name = "proto-flow"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#aa59c03c61c20cd7540393e64d4956c4781158ae"
+source = "git+https://github.com/estuary/flow?branch=master#6e8e83ebd8ff73f4817223cb476e16ed03f8091e"
 dependencies = [
  "bytes",
  "pbjson",
@@ -1567,8 +1646,22 @@ dependencies = [
  "pbjson-types",
  "prost",
  "prost-build",
- "proto-build",
- "proto-gazette",
+ "proto-build 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "proto-gazette 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "serde",
+]
+
+[[package]]
+name = "proto-gazette"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
+ "prost",
+ "prost-build",
+ "proto-build 0.0.0",
  "serde",
 ]
 
@@ -1583,7 +1676,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "prost-build",
- "proto-build",
+ "proto-build 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
  "serde",
 ]
 
@@ -1969,6 +2062,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "sources"
+version = "0.0.0"
+source = "git+https://github.com/estuary/flow?branch=master#6e8e83ebd8ff73f4817223cb476e16ed03f8091e"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "base64",
+ "bytes",
+ "doc",
+ "futures",
+ "json",
+ "models",
+ "proto-flow 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "schemars",
+ "serde",
+ "serde-transcode",
+ "serde_json",
+ "serde_yaml",
+ "tables",
+ "thiserror",
+ "tracing",
+ "url",
+ "yaml-merge-keys",
+]
+
+[[package]]
 name = "sqlformat"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2124,8 +2243,8 @@ dependencies = [
  "models",
  "pathfinding",
  "prost",
- "proto-flow",
- "proto-gazette",
+ "proto-flow 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "proto-gazette 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2469,6 +2588,35 @@ name = "uuid"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd6469f4314d5f1ffec476e05f17cc9a78bc7a27a6a857842170bdf8d6f98d2f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "validation"
+version = "0.0.0"
+source = "git+https://github.com/estuary/flow?branch=master#6e8e83ebd8ff73f4817223cb476e16ed03f8091e"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "bytes",
+ "doc",
+ "futures",
+ "itertools",
+ "json",
+ "labels",
+ "lazy_static",
+ "models",
+ "proto-flow 0.0.0 (git+https://github.com/estuary/flow?branch=master)",
+ "regex",
+ "serde_json",
+ "strsim",
+ "superslice",
+ "tables",
+ "thiserror",
+ "tracing",
+ "url",
+]
 
 [[package]]
 name = "validator"

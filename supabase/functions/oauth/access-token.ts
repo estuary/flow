@@ -35,7 +35,8 @@ export async function accessToken(req: Record<string, any>) {
     ...params
   });
 
-  const bodyTemplate = Handlebars.compile(oauth2_spec.accessTokenBody);
+  const bodyTemplate =
+      Handlebars.compile(JSON.stringify(oauth2_spec.accessTokenBody));
   const body = bodyTemplate({
     redirect_uri,
     client_id : oauth2_client_id,
@@ -46,7 +47,8 @@ export async function accessToken(req: Record<string, any>) {
 
   let headers = {};
   if (oauth2_spec.accessTokenHeaders) {
-    const headersTemplate = Handlebars.compile(oauth2_spec.accessTokenHeaders);
+    const headersTemplate =
+        Handlebars.compile(JSON.stringify(oauth2_spec.accessTokenHeaders));
     headers = JSON.parse(headersTemplate({
       redirect_uri,
       client_id : oauth2_client_id,
