@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gogo/protobuf/jsonpb"
 	"os"
 	"strings"
 	"time"
@@ -25,7 +27,7 @@ type specResponse struct {
 	DocumentationURL   string          `json:"documentationURL"`
 	EndpointSpecSchema json.RawMessage `json:"endpointSpecSchema"`
 	ResourceSpecSchema json.RawMessage `json:"resourceSpecSchema"`
-	Oauth2Spec         *flow.OAuth2Spec `json:"oauth2Spec"`
+	Oauth2Spec         json.RawMessage `json:"oauth2Spec"`
 }
 
 type apiSpec struct {
@@ -92,12 +94,21 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 		return specResponse{}, err
 	}
 
+	var oauth2Spec bytes.Buffer
+	if resp.Oauth2Spec != nil {
+		// Serialize OAuth2Spec using canonical proto JSON
+		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, resp.Oauth2Spec)
+		if err != nil {
+			return specResponse{}, err
+		}
+	}
+
 	return specResponse{
 		Type:               "capture",
 		DocumentationURL:   resp.DocumentationUrl,
 		EndpointSpecSchema: resp.EndpointSpecSchemaJson,
 		ResourceSpecSchema: resp.ResourceSpecSchemaJson,
-		Oauth2Spec:         resp.Oauth2Spec,
+		Oauth2Spec:         oauth2Spec.Bytes(),
 	}, nil
 }
 
