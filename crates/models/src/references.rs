@@ -12,15 +12,7 @@ use validator::{Validate, ValidationError, ValidationErrors};
 // and a *very* restricted set of other allowed punctuation symbols.
 // Compare to Gazette's ValidateToken and TokenSymbols:
 // https://github.com/gazette/core/blob/master/broker/protocol/validator.go#L52
-
-// TODO(johnny): This is what we would *actually* like TOKEN_CHAR to be:
-// const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Digit}\-_\.";
-//
-// At the moment this is held up by:
-// https://github.com/redhat-developer/yaml-language-server/issues/554
-// Without reasonable IDE support the user experience is very broken.
-// So, we're using a broken ASCII-centric version for the moment. Bleh.
-const TOKEN_CHAR: &'static str = r"a-zA-Z0-9\-_\.";
+const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Digit}\-_\.";
 // SPACE_CHAR is a space character.
 // TODO(johnny): this ought to be \p{Z} rather than ' '.
 const SPACE_CHAR: &'static str = r" ";
@@ -122,14 +114,11 @@ macro_rules! string_reference_types {
                         "",
                         ValidationError {
                             code: "regex mismatch".into(),
-                            message: None,
-                            params: vec![
-                                ("pattern".into(), json!($Regex.to_string())),
-                                ("value".into(), json!(s)),
-                                ("unmatched".into(), json!(unmatched)),
-                            ]
-                            .into_iter()
-                            .collect(),
+                            message: Some(format!(
+                                "{} doesn't match pattern {} (unmatched portion is: {})",
+                                s, $Regex.to_string(), unmatched,
+                            ).into()),
+                            params: std::collections::HashMap::new(),
                         },
                     );
                     Err(errors)
