@@ -38,12 +38,27 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
-| `/awsAccessKeyId` | AWS access key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-access-key-id"` |
-| `/awsSecretAccessKey` | AWS secret access key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string | `"example-aws-secret-access-key"` |
-| **`/bucket`** | Bucket | Name of the S3 bucket. | string | Required |
-| `/endpoint` | AWS endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS. | string |  |
-| `/matchKeys` | Match keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
+| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
+| `/awsSecretAccessKey` | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
+| **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
+| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
+| `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
+| `/parser` | Parser Configuration | Configures how files are parsed | object |  |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
+| `/parser/format` |  | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"auto":{}}` |
+| `/parser/format/auto` |  |  | object | `{}` |
+| `/parser/format/avro` |  |  | object | `{}` |
+| `/parser/format/csv` |  |  | object |  |
+| `/parser/format/csv/delimiter` | Delimiter | The delimiter that separates values within each row. Only single-byte delimiters are supported. | null, string | `null` |
+| `/parser/format/csv/encoding` | Encoding | The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label. | null, string | `null` |
+| `/parser/format/csv/errorThreshold` | Error Threshold | Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts. | integer | `null` |
+| `/parser/format/csv/escape` | Escape Character | The escape character, used to escape quotes within fields. | null, string | `null` |
+| `/parser/format/csv/headers` |  | Manually specified headers, which can be used in cases where the file itself doesn&#x27;t contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here. | array | `[]` |
+| `/parser/format/csv/lineEnding` | Line Ending | The value that terminates a line. Only single-byte values are supported, with the exception of &quot;&#x5C;r&#x5C;n&quot; (CRLF), which will accept lines terminated by either a carriage return, a newline, or both. | null, string | `null` |
+| `/parser/format/csv/quote` | Quote Character | The character used to quote fields. | null, string | `null` |
+| `/parser/format/json` |  |  | object | `{}` |
+| `/parser/format/w3cExtendedLog` |  |  | object | `{}` |
 | `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
 | **`/region`** | AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string | Required, `"us-east-1"` |
 
@@ -64,6 +79,16 @@ captures:
         image: ghcr.io/estuary/source-s3:dev
         config:
           bucket: "my-bucket"
+          parser:
+            compression: zip
+            format: csv
+              csv:
+                delimiter: ","
+                encoding: utf-8
+                errorThreshold: 5
+                headers: [ID, username, first_name, last_name]
+                lineEnding: ""\r"
+                quote: """
           region: "us-east-1"
     bindings:
       - resource:
@@ -76,3 +101,51 @@ captures:
 Your capture definition may be more complex, with additional bindings for different S3 prefixes within the same bucket.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+### Advanced: Parsing cloud storage data
+
+Cloud storage platforms like S3 can support a wider variety of file types
+than other data source systems. For each of these file types, Flow must parse
+and translate data into collections with defined fields and JSON schemas.
+
+By default, the parser will automatically detect the type and shape of the data in your bucket,
+so you won't need to change the parser configuration for most captures.
+
+However, the automatic detection may be incorrect in some cases.
+To fix or prevent this, you can provide explicit information in the parser configuration,
+which is part of the [endpoint configuration](#endpoint) for this connector.
+
+The parser configuration includes:
+
+* **Compression**: Specify how the bucket contents are compressed.
+If no compression type is specified, the connector will try to determine the compression type automatically.
+Options are **zip**, **gzip**, and **none**.
+
+* **Format**: Specify the data format, which determines how it will be parsed.
+Options are:
+
+   * **Auto**: If no format is specified, the connector will try to determine it automatically.
+   * **Avro**
+   * **CSV**
+   * **JSON**
+   * **W3C Extended Log**
+
+   :::info
+   At this time, Flow only supports S3 captures with data of a single file type.
+   Support for multiple file types, which can be configured on a per-binding basis,
+   will be added in the future.
+
+   For now, use a prefix in the endpoint configuration to limit the scope of each capture to data of a single file type.
+   :::
+
+Only CSV data requires further configuration. When capturing CSV data, you must specify:
+
+* **Delimiter**
+* **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
+* Optionally, an **Error threshold**, as an acceptable percentage of errors.
+* **Escape characters**
+* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
+* **Line ending** values
+* **Quote character**
+
+Descriptions of these properties are included in the [table above](#endpoint).
