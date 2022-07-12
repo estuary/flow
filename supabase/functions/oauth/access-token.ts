@@ -1,6 +1,7 @@
 import {serve} from "https://deno.land/std@0.131.0/http/server.ts"
 import {createClient} from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from 'https://esm.sh/handlebars';
+import jsonpointer from 'https://esm.sh/jsonpointer.js';
 
 export async function accessToken(req: Record<string, any>) {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!,
@@ -68,8 +69,16 @@ export async function accessToken(req: Record<string, any>) {
     }
   });
 
+  const accessTokenResponseMap = oauth2_spec.accessTokenResponseMap || {};
+
+  let responseData = await response.json();
+  for (const key in accessTokenResponseMap) {
+    responseData[key] =
+        jsonpointer.get(responseData, accessTokenResponseMap[key])
+  }
+
   return new Response(
-      JSON.stringify(await response.json()),
+      JSON.stringify(responseData),
       {
         headers : {"Content-Type" : "application/json"},
         status : response.status
