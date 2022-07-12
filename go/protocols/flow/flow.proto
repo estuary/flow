@@ -433,20 +433,20 @@ message OAuth2Spec {
   // state: the state parameter
   //
   // Variables available in Access Token request:
-  // code: the code resulting from the suthorization step used to fetch the token
-  // client_secret: OAuth2 provider client secret
+  // code: the code resulting from the suthorization step used to fetch the
+  // token client_secret: OAuth2 provider client secret
   //
   // Variables available on Refresh Token request:
   // refresh_token: the refresh token
   // client_secret: OAuth2 provider client secret
 
-
-  // Template for authorization URL, this is the first step of the OAuth2 flow where the user
-  // is redirected to the OAuth2 provider to authorize access to their account
+  // Template for authorization URL, this is the first step of the OAuth2 flow
+  // where the user is redirected to the OAuth2 provider to authorize access to
+  // their account
   string auth_url_template = 2;
 
-  // Template for access token URL, this is the second step of the OAuth2 flow, where we request
-  // an access token from the provider
+  // Template for access token URL, this is the second step of the OAuth2 flow,
+  // where we request an access token from the provider
   string access_token_url_template = 3;
 
   // The POST body of the access_token request
@@ -461,20 +461,40 @@ message OAuth2Spec {
     json_name = "accessTokenHeaders"
   ];
 
-  // Template for refresh token URL, some providers require that the access token be
-  // refreshed.
-  string refresh_token_url_template = 6;
+  // A json map that maps the response from the OAuth provider for Access Token
+  // request to keys in the connector endpoint configuration.
+  // If the connector supports refresh tokens, must include `refresh_token` and
+  // `expires_in`. If this mapping is not provided, the keys from the response
+  // are passed as-is to the connector config.
+  string access_token_response_map_json = 6 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "accessTokenResponseMap"
+  ];
+
+  // Template for refresh token URL, some providers require that the access
+  // token be refreshed.
+  string refresh_token_url_template = 7;
 
   // The POST body of the refresh_token request
-  string refresh_token_body_json = 7 [
+  string refresh_token_body_json = 8 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "refreshTokenBody"
   ];
 
   // Headers for the refresh_token request
-  string refresh_token_headers_json = 8 [
+  string refresh_token_headers_json = 9 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "refreshTokenHeaders"
+  ];
+
+  // A json map that maps the response from the OAuth provider for Refresh Token
+  // request to keys in the connector endpoint configuration.
+  // If the connector supports refresh tokens, must include `refresh_token` and
+  // `expires_in`. If this mapping is not provided, the keys from the response
+  // are passed as-is to the connector config.
+  string refresh_token_response_map_json = 10 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "refreshTokenResponseMap"
   ];
 }
 
@@ -647,7 +667,7 @@ message ExtractAPI {
     // JSON schema to validate non-ACK documents against.
     // If empty then schema validation is not performed.
     string schema_json = 2
-      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+        [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Field JSON pointers to extract from documents and return as packed
     // tuples.
     repeated string field_ptrs = 3;
@@ -684,7 +704,7 @@ message CombineAPI {
     // JSON schema against which documents are to be validated,
     // and which provides reduction annotations.
     string schema_json = 1
-      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+        [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Composite key used to group documents to be combined, specified as one or
     // more JSON-Pointers indicating a message location to extract.
     // If empty, all request documents are combined into a single response
