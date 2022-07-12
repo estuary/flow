@@ -8,11 +8,11 @@ use validator::{Validate, ValidationError, ValidationErrors};
 // This module contains types which are references to other entities
 // within the catalog. They use the newtype pattern for strong type safety.
 
-// TOKEN_CHAR is a string production which allows Unicode letters and digits,
+// TOKEN_CHAR is a string production which allows Unicode letters and numbers,
 // and a *very* restricted set of other allowed punctuation symbols.
 // Compare to Gazette's ValidateToken and TokenSymbols:
 // https://github.com/gazette/core/blob/master/broker/protocol/validator.go#L52
-const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Digit}\-_\.";
+const TOKEN_CHAR: &'static str = r"\p{Letter}\p{Number}\-_\.";
 // SPACE_CHAR is a space character.
 // TODO(johnny): this ought to be \p{Z} rather than ' '.
 const SPACE_CHAR: &'static str = r" ";
@@ -246,7 +246,7 @@ mod test {
         for (case, expect) in [
             ("valid", true),
             ("no/slashes", false),
-            //("Прик.0_люче-ния", true),
+            ("Прик.0੫_люче-ния", true),
             ("no spaces", false),
             ("", false),
             ("/", false),
@@ -267,7 +267,7 @@ mod test {
             ("valid/1", true),
             ("valid/one/va_lid", true),
             ("valid-1/valid/2/th.ree", true),
-            //("Приключения/Foo", true),
+            ("Приключения/੫൬/Foo", true),
             ("/bad/leading/slash", false),
             ("bad/trailing/slash/", false),
             ("bad-middle//slash", false),
@@ -291,7 +291,7 @@ mod test {
             ("valid/1/", true),
             ("valid/one/va_lid/", true),
             ("valid-1/valid/2/th.ree/", true),
-            //("Приключения/Foo/", true),
+            ("Приключе႘ния/Foo/", true),
             ("/bad/leading/slash", false),
             ("bad-middle//slash", false),
             ("", true),
@@ -314,7 +314,7 @@ mod test {
             ("", true), // Document root.
             ("missing/leading/slash", false),
             ("/double//slash", false),
-            //("/Прик/0/люче-ния", true),
+            ("/Прик/0/люче-ния", true),
             ("/with/esc~0ape", true),
             ("/bad/esc~ape", false),
             ("/", false),
