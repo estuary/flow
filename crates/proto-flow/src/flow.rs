@@ -474,19 +474,20 @@ pub struct OAuth2Spec {
     // state: the state parameter
     //
     // Variables available in Access Token request:
-    // code: the code resulting from the suthorization step used to fetch the token
-    // client_secret: OAuth2 provider client secret
+    // code: the code resulting from the suthorization step used to fetch the
+    // token client_secret: OAuth2 provider client secret
     //
     // Variables available on Refresh Token request:
     // refresh_token: the refresh token
     // client_secret: OAuth2 provider client secret
 
-    /// Template for authorization URL, this is the first step of the OAuth2 flow where the user
-    /// is redirected to the OAuth2 provider to authorize access to their account
+    /// Template for authorization URL, this is the first step of the OAuth2 flow
+    /// where the user is redirected to the OAuth2 provider to authorize access to
+    /// their account
     #[prost(string, tag="2")]
     pub auth_url_template: ::prost::alloc::string::String,
-    /// Template for access token URL, this is the second step of the OAuth2 flow, where we request
-    /// an access token from the provider
+    /// Template for access token URL, this is the second step of the OAuth2 flow,
+    /// where we request an access token from the provider
     #[prost(string, tag="3")]
     pub access_token_url_template: ::prost::alloc::string::String,
     /// The POST body of the access_token request
@@ -495,16 +496,30 @@ pub struct OAuth2Spec {
     /// Headers for the access_token request
     #[prost(string, tag="5")]
     pub access_token_headers_json: ::prost::alloc::string::String,
-    /// Template for refresh token URL, some providers require that the access token be
-    /// refreshed.
+    /// A json map that maps the response from the OAuth provider for Access Token
+    /// request to keys in the connector endpoint configuration.
+    /// If the connector supports refresh tokens, must include `refresh_token` and
+    /// `expires_in`. If this mapping is not provided, the keys from the response
+    /// are passed as-is to the connector config.
     #[prost(string, tag="6")]
+    pub access_token_response_map_json: ::prost::alloc::string::String,
+    /// Template for refresh token URL, some providers require that the access
+    /// token be refreshed.
+    #[prost(string, tag="7")]
     pub refresh_token_url_template: ::prost::alloc::string::String,
     /// The POST body of the refresh_token request
-    #[prost(string, tag="7")]
+    #[prost(string, tag="8")]
     pub refresh_token_body_json: ::prost::alloc::string::String,
     /// Headers for the refresh_token request
-    #[prost(string, tag="8")]
+    #[prost(string, tag="9")]
     pub refresh_token_headers_json: ::prost::alloc::string::String,
+    /// A json map that maps the response from the OAuth provider for Refresh Token
+    /// request to keys in the connector endpoint configuration.
+    /// If the connector supports refresh tokens, must include `refresh_token` and
+    /// `expires_in`. If this mapping is not provided, the keys from the response
+    /// are passed as-is to the connector config.
+    #[prost(string, tag="10")]
+    pub refresh_token_response_map_json: ::prost::alloc::string::String,
 }
 /// TestSpec describes a catalog test.
 #[derive(Clone, PartialEq, ::prost::Message)]
