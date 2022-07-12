@@ -2,6 +2,7 @@ import {serve} from "https://deno.land/std@0.131.0/http/server.ts"
 
 import {accessToken} from './access-token.ts';
 import {authURL} from './auth-url.ts';
+import {encryptConfig} from './encrypt-config.ts';
 
 console.log("Hello from Functions!")
 
@@ -13,6 +14,9 @@ serve(async (req) => {
   }
   else if (request.operation == 'access-token') {
     return accessToken(request);
+  }
+  else if (request.operation == 'encrypt-config') {
+    return encryptConfig(request);
   }
   else {
     return new Response(
