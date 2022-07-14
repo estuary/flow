@@ -27,6 +27,8 @@ pub enum Command {
     /// requesty --body. As with `get`, you may pass optional query
     /// parameters.
     Rpc(Rpc),
+    /// Bundle catalog sources into a flattened and inlined catalog.
+    Bundle(Bundle),
 }
 
 #[derive(Debug, clap::Args)]
@@ -54,11 +56,20 @@ pub struct Rpc {
     body: String,
 }
 
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Bundle {
+    /// Path or URL to a Flow catalog file to bundle.
+    #[clap(long)]
+    source: String,
+}
+
 impl Advanced {
     pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::Get(get) => do_get(&cfg, get).await,
             Command::Rpc(rpc) => do_rpc(&cfg, rpc).await,
+            Command::Bundle(bundle) => do_bundle(&cfg, bundle).await,
         }
     }
 }
@@ -83,6 +94,12 @@ async fn do_rpc(
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
+    Ok(())
+}
+
+pub async fn do_bundle(_cfg: &config::Config, Bundle { source }: &Bundle) -> anyhow::Result<()> {
+    let catalog = crate::source::bundle(source).await?;
+    serde_json::to_writer_pretty(std::io::stdout(), &catalog)?;
     Ok(())
 }
 
