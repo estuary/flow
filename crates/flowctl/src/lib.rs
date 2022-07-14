@@ -10,6 +10,7 @@ mod config;
 mod draft;
 mod poll;
 mod raw;
+mod source;
 mod typescript;
 
 use poll::poll_while_queued;
