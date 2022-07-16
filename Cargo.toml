@@ -14,7 +14,7 @@ sources = { git = "https://github.com/estuary/flow", branch = "master" }
 tables = { git = "https://github.com/estuary/flow", branch = "master" }
 validation = { git = "https://github.com/estuary/flow", branch = "master" }
 
-postgrest = { git = "https://github.com/jgraettinger/postgrest-rs", branch = "johnny/patches" }
+postgrest = { git = "https://github.com/estuary/postgrest-rs", branch = "johnny/patches" }
 
 anyhow = "*"
 bytes = "*"
@@ -23,7 +23,7 @@ comfy-table = "*"
 dirs = "*"
 futures = "*"
 itertools = "*"
-reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
+reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 serde_yaml = "*"
