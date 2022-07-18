@@ -113,7 +113,8 @@ func (r *parserStdout) Write(p []byte) (int, error) {
 		p = p[pivot+1:]
 	}
 
-	if err := r.onLines(lines); err != nil {
+	err := r.onLines(lines)
+	if err != nil {
 		r.onError(err)
 	}
 
@@ -122,5 +123,7 @@ func (r *parserStdout) Write(p []byte) (int, error) {
 	r.rem = append(r.rem, p...)
 	r.scratch = lines[:0]
 
-	return n, nil
+	// Returns the err value from onLines. This may not be nil, but we want to
+	// adjust the rem/scratch before bailing.
+	return n, err
 }
