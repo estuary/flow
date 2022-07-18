@@ -117,6 +117,10 @@ Run tests of an activated catalog
 Monitor a catalog's dataflow execution in the data-plane, and exit when it finishes.
 `, &apiAwait{})
 
+	addCmd(apis, "build-extract", "Wait for a catalog's dataflow to complete", `
+Monitor a catalog's dataflow execution in the data-plane, and exit when it finishes.
+`, &apiBuildExtract{})
+
 	addCmd(apis, "delete", "Delete from a built Flow catalog", `
 Delete tasks and collections of a built Flow catalog.
 `, &apiDelete{})
