@@ -119,7 +119,7 @@ The parser configuration includes:
 
 * **Compression**: Specify how the bucket contents are compressed.
 If no compression type is specified, the connector will try to determine the compression type automatically.
-Options are **zip**, **gzip**, and **none**.
+Options are **zip**, **gzip**, **zstd**, and **none**.
 
 * **Format**: Specify the data format, which determines how it will be parsed.
 Options are:
