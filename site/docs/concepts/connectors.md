@@ -309,12 +309,12 @@ or add the `networkTunnel` stanza directly to the YAML, as shown below.
 
 #### Sample
 
-```yaml title="materialize-postgres-ssh-tunnel.flow.yaml"
-materializations:
-  acmeCo/postgres-materialize-ssh:
+```yaml title="source-postgres-ssh-tunnel.flow.yaml"
+captures:
+  acmeCo/postgres-capture-ssh:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/source-postgres:dev
         config:
           address: 127.0.0.1:5432
           database: flow

@@ -1,7 +1,7 @@
 # Configure connections with SSH tunneling
 
 Flow connects to certain types of endpoints — generally databases — using their IP address and port.
-To keep this connection secure, you can configure [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding.
+For added security, you can configure [SSH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), also known as port forwarding.
 You configure this in the `networkTunnel` section of applicable capture or materialization definitions, but
 before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
 
@@ -150,7 +150,7 @@ After you've completed the prerequisites, you should have the following paramete
      Depending on where your server is hosted, you may not be required to specify a port,
      but we recommend specifying `:22` in all cases to ensure a connection can be made.
 
-* **Private Key** / `privateKey`: the contents of the PEM file
+* **Private Key** / `privateKey`: the contents of the SSH private key file
 
 Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
 in the web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
