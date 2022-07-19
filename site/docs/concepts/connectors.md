@@ -316,27 +316,15 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
-          # When using a proxy like SSH tunneling, set to localhost
-          host: localhost
-          # Specify an open port on your local machine to connect to the proxy.
-          port: 15432
+          address: 127.0.0.1:5432
           database: flow
           user: flow_user
           password: secret
           networkTunnel:
             sshForwarding:
-              # Port on the local machine from which you'll connect to the SSH server.
-              # If a port is specified elsewhere in the connector configuration, it must match.
-              localPort: 15432
-              # Host or IP address of the final endpoint to which you’ll
-              # connect via tunneling from the SSH server
-              forwardHost: 127.0.0.1
-              # Port of the final endpoint to which you’ll connect via
-              # tunneling from the SSH server.
-              forwardPort: 5432
               # Location of the remote SSH server that supports tunneling.
               # Formatted as ssh://user@hostname[:port].
-              sshEndpoint: ssh://sshUser@198.21.98.1
+              sshEndpoint: ssh://sshUser@198.21.98.1:22
               # Private key to connect to the SSH server, formatted as multiline plaintext.
               # Use the YAML literal block style with the indentation indicator.
               # See https://yaml-multiline.info/ for details.

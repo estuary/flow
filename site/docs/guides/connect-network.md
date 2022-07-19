@@ -1,8 +1,9 @@
 # Configure connections with SSH tunneling
 
-Depending on your enterprise network security, you may need to use [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding, to allow Flow
-to securely access your endpoint. This is configured within a capture or materialization definition, but
-before you can do this, you'll need a properly configured SSH server on your internal network or cloud hosting platform.
+Flow connects to certain types of endpoints — generally databases — using their IP address and port.
+To keep this connection secure, you can configure [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding.
+You configure this in the `networkTunnel` section of applicable capture or materialization definitions, but
+before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
 
 This guide includes setup steps for popular cloud platforms,
 as well as generalized setup that provides a basic roadmap for on-premise servers or other cloud platforms.
@@ -48,13 +49,10 @@ basic configuration options.
   They'll allow the connector to do the same.
 
 5. Configure your internal network to allow the SSH server to access your capture or materialization endpoint.
-  Note the internal **host** and **port**; these are necessary to open the connection.
 
 6. Configure your network to expose the SSH server endpoint to external traffic. The method you use
    depends on your organization's IT policies. Currently, Estuary doesn't provide a list of static IPs for
    whitelisting purposes, but if you require one, [contact Estuary support](mailto:support@estuary.dev).
-
-7. Choose an open port on your localhost from which you'll connect to the SSH server.
 
 ## Setup for AWS
 
@@ -84,13 +82,6 @@ setting the user name to `ec2-user`.
 
 5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
 
-6. Find and note the host and port for your capture or materialization endpoint.
-  :::tip
-  For database instances hosted in Amazon RDS, you can find these in the RDS console as Endpoint and Port.
-  :::
-
-7. Choose an open port on your localhost from which you'll connect to the SSH server.
-
 ## Setup for Google Cloud
 
 To allow SSH tunneling to a database instance hosted on Google Cloud, you must set up a virtual machine (VM).
@@ -118,14 +109,6 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
 
 5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
 Note the generated address.
-
-6. Find and note the host and port for your capture or materialization endpoint.
-  :::tip
-  For database instances hosted in Google Cloud SQL, you can find the host in the Cloud Console as Public IP Address.
-  Use `5432` as the port for PostgreSQL, and `3306` for MySQL.
-  :::
-
-7. Choose an open port on your localhost from which you'll connect to the SSH server.
 
 ## Setup for Azure
 
@@ -157,34 +140,17 @@ To allow SSH tunneling to a database instance hosted on Azure, you'll need to cr
 Instructions for Azure Database For PostgreSQL can be found [here](https://docs.microsoft.com/en-us/azure/postgresql/howto-manage-vnet-using-portal);
 note that instructions for other database engines may be different.
 
-4. Find and note the host and port for your capture or materialization endpoint.
-  :::tip
-  For database instances hosted in Azure, you can find the host as Server Name, and the port under Connection Strings (`5432` for PostgreSQL and `3306` for MySql).
-  :::
-
-5. Choose an open port on your localhost from which you'll connect to the SSH server.
-
 ## Configuration
 
 After you've completed the prerequisites, you should have the following parameters:
 
-* **SSH Endpoint** / `sshEndpoint`: the SSH server's hostname, or public IP address, formatted as `ssh://user@hostname[:port]`
-     :::info Hint
+* **SSH Endpoint** / `sshEndpoint`: the remote SSH server's hostname, or public IP address, formatted as `ssh://user@hostname[:port]`
+
      The [SSH default port is 22](https://www.ssh.com/academy/ssh/port).
      Depending on where your server is hosted, you may not be required to specify a port,
      but we recommend specifying `:22` in all cases to ensure a connection can be made.
-     :::
+
 * **Private Key** / `privateKey`: the contents of the PEM file
-* **Forward Host** / `forwardHost`: the capture or materialization endpoint's host
-* **Forward Port** / `forwardPort`: the capture or materialization endpoint's port
-* **Local Port** / `localPort`: the port on the localhost used to connect to the SSH server
 
-1. Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
-  in a web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
-
-2. Proxies like SSH are always run on an open port on your localhost,
-so you'll need to re-configure other fields in your capture or materialization definition.
-
-   1. Set the connector's host property to match `localhost` in the SSH configuration.
-
-   2. If the connector has a `port` property, set it to the same value as `localPort` in the SSH configuration.
+Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
+in the web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
