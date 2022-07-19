@@ -181,6 +181,8 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
 
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
 ### Google Cloud SQL
 
 You can use this connector for MySQL instances on Google Cloud SQL using the following setup instructions.
@@ -212,9 +214,10 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
+5. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
+Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ### Azure Database for MySQL
-
 
 You can use this connector for MySQL instances on Azure Database for MySQL using the following setup instructions.
 
@@ -250,6 +253,9 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
+
+4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
+Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Troubleshooting Capture Errors
 
