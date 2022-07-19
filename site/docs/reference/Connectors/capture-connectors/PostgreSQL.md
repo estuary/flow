@@ -177,11 +177,12 @@ and set up the watermarks table and publication.
   CREATE PUBLICATION flow_publication FOR ALL TABLES;
   ```
 
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
 4. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `proxy` stanza to enable the SSH tunnel.
+including the additional `networkTunnel` configuration to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the SSH `forwardHost` and `forwardPort` in the [RDS console](https://console.aws.amazon.com/rds/) as the Endpoint and Port, respectively.
 
 ### Google Cloud SQL
 
@@ -216,16 +217,17 @@ and set up the watermarks table and publication.
   CREATE PUBLICATION flow_publication FOR ALL TABLES;
   ```
 
-4. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `proxy` stanza to enable the SSH tunnel, if using.
+4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
+Together, you'll use the host:port as the `address` property when you configure the connector.
+
+5. Configure your connector as described in the [configuration](#configuration) section above,
+including the additional `networkTunnel` configuration to enable the SSH tunnel, if using.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the `forwardHost` under Public IP Address.
-The `forwardPort` is always `5432`.
 
 ### Azure Database for PostgreSQL
 
-You can use this connector for  instances on Azure Database for PostgreSQL using the following setup instructions.
+You can use this connector for instances on Azure Database for PostgreSQL using the following setup instructions.
 
 #### Setup
 
@@ -273,11 +275,13 @@ GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
 CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
 ```
 
-4. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `proxy` stanza to enable the SSH tunnel.
+4. Note the instance's host under Server name, and the port under Connection Strings (usually `5432`).
+Together, you'll use the host:port as the `address` property when you configure the connector.
+
+5. Configure your connector as described in the [configuration](#configuration) section above,
+including the additional `networkTunnel` configuration to enable the SSH tunnel.
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
-You can find the host as Server Name, and the port under Connection Strings (usually `5432`).
 
 ## TOASTed values
 
