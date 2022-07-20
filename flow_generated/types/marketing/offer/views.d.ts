@@ -1,3 +1,4 @@
+
 // Generated from collection schema examples/marketing/schema.yaml#/$defs/view.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1offer~1views.
 export type Document = /* Event which captures a user's view of a marketing offer. */ {
@@ -6,3 +7,4 @@ export type Document = /* Event which captures a user's view of a marketing offe
     user_id: string;
     view_id: string;
 };
+

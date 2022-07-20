@@ -1,3 +1,4 @@
+
 // Generated from collection schema examples/citi-bike/ride.schema.yaml.
 // Referenced from examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides.
 export type Document = /* Ride within the Citi Bike system */ {
@@ -27,20 +28,27 @@ export type Document = /* Ride within the Citi Bike system */ {
         timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | 'Customer' | 'Subscriber';
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | "Customer" | "Subscriber";
 };
+
 
 // Generated from derivation register schema examples/citi-bike/rides.flow.yaml?ptr=/collections/examples~1citi-bike~1rides/derivation/register/schema.
 // Referenced from examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides/derivation.
 export type Register = unknown;
 
+
 // Generated from transform fromCsvRides as a re-export of collection examples/citi-bike/csv-rides.
 // Referenced from examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides/derivation/transform/fromCsvRides."
-import { Document as FromCsvRidesSource } from './csv-rides';
-export { Document as FromCsvRidesSource } from './csv-rides';
+import { Document as FromCsvRidesSource } from "./csv-rides";
+export { Document as FromCsvRidesSource } from "./csv-rides";
+
 
 // Generated from derivation examples/citi-bike/rides.flow.yaml#/collections/examples~1citi-bike~1rides/derivation.
 // Required to be implemented by examples/citi-bike/transform-csv-rides.ts.
 export interface IDerivation {
-    fromCsvRidesPublish(source: FromCsvRidesSource, register: Register, previous: Register): Document[];
+    fromCsvRidesPublish(
+        source: FromCsvRidesSource,
+        register: Register,
+        previous: Register,
+    ): Document[];
 }

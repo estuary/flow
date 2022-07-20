@@ -1,11 +1,14 @@
+
 // Generated from $anchor schema examples/stock-stats/schemas/L1-tick.schema.yaml#PriceAndSize."
 export type PriceAndSize = {
     price: /* Dollar price. */ number;
     size: /* Number of shares. */ number;
 };
 
+
 // Generated from $anchor schema examples/stock-stats/schemas/L1-tick.schema.yaml#Security."
 export type Security = /* Market security ticker name. */ string;
+
 
 // Generated from $anchor schema examples/stock-stats/schemas/daily-stat.schema.yaml#PriceStats."
 export type PriceStats = {
@@ -15,8 +18,10 @@ export type PriceStats = {
     low?: number;
 };
 
+
 // Generated from $anchor schema examples/stock-stats/schemas/exchange.schema.yaml#Exchange."
-export type Exchange = /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
+export type Exchange = /* Enum of market exchange codes. */ "NASDAQ" | "NYSE" | "SEHK";
+
 
 // Generated from collection schema examples/stock-stats/schemas/daily-stat.schema.yaml.
 // Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats.
@@ -39,14 +44,16 @@ export type Document = /* Daily statistics of a market security. */ {
     volume?: /* Total number of shares transacted. */ number;
 };
 
+
 // Generated from derivation register schema examples/stock-stats/flow.yaml?ptr=/collections/stock~1daily-stats/derivation/register/schema.
 // Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type Register = unknown;
 
+
 // Generated from transform fromTicks source schema examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/withRequired.
 // Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation/transform/fromTicks.
 export type FromTicksSource = /* Level-one market tick of a security. */ {
-    _meta?: Record<string, unknown>;
+    "_meta"?: Record<string, unknown>;
     ask: /* Lowest current offer to sell security. */ {
         price: /* Dollar price. */ number;
         size: /* Number of shares. */ number;
@@ -55,7 +62,7 @@ export type FromTicksSource = /* Level-one market tick of a security. */ {
         price: /* Dollar price. */ number;
         size: /* Number of shares. */ number;
     };
-    exchange: /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
+    exchange: /* Enum of market exchange codes. */ "NASDAQ" | "NYSE" | "SEHK";
     last: /* Completed transaction which generated this tick. */ {
         price: /* Dollar price. */ number;
         size: /* Number of shares. */ number;
@@ -65,8 +72,13 @@ export type FromTicksSource = /* Level-one market tick of a security. */ {
     [k: string]: Record<string, unknown> | boolean | string | null | undefined;
 };
 
+
 // Generated from derivation examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 // Required to be implemented by examples/stock-stats/flow.ts.
 export interface IDerivation {
-    fromTicksPublish(source: FromTicksSource, register: Register, previous: Register): Document[];
+    fromTicksPublish(
+        source: FromTicksSource,
+        register: Register,
+        previous: Register,
+    ): Document[];
 }
