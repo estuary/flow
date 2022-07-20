@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/shopping/user.schema.yaml.
 // Referenced from examples/shopping/users.flow.yaml#/collections/examples~1shopping~1users.
 export type Document = /* A user who may buy things from our site */ {
@@ -6,4 +5,3 @@ export type Document = /* A user who may buy things from our site */ {
     id: number;
     name: string;
 };
-

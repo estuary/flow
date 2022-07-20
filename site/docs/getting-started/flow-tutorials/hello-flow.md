@@ -33,7 +33,7 @@ These instructions assume you've [set up a development environment](../installat
 All cutting-edge word count projects should have tests.
 Let's make sure the words are, um, counted. Run the following:
 ```console
-$ flowctl test --source word-counts.flow.yaml
+$ flowctl-admin test --source word-counts.flow.yaml
 ```
 Wait until you see:
 ```console
@@ -48,7 +48,7 @@ Your test performed as expected; now you can deploy the catalog.
 
 Start a local, temporary Flow data plane:
 ```console
-$ flowctl temp-data-plane
+$ flowctl-admin temp-data-plane
 ```
 
 A data plane is a long-lived, multi-tenant, scale-out component that
@@ -65,7 +65,7 @@ Now, deploy the catalog to your data plane by running:
 ```console
 $ export BROKER_ADDRESS=http://localhost:8080
 $ export CONSUMER_ADDRESS=http://localhost:9000
-$ flowctl deploy --wait-and-cleanup --source flow.yaml
+$ flowctl-admin deploy --wait-and-cleanup --source flow.yaml
 ```
 
 After a moment, you'll see:

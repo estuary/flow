@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/net-trace/pairs.flow.yaml?ptr=/collections/examples~1net-trace~1pairs/schema.
 // Referenced from examples/net-trace/pairs.flow.yaml#/collections/examples~1net-trace~1pairs.
 export type Document = {
@@ -22,4 +21,3 @@ export type Document = {
     };
     timestamp: string;
 };
-

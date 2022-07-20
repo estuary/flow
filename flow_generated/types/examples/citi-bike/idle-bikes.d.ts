@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/citi-bike/idle-bikes.flow.yaml?ptr=/collections/examples~1citi-bike~1idle-bikes/schema.
 // Referenced from examples/citi-bike/idle-bikes.flow.yaml#/collections/examples~1citi-bike~1idle-bikes.
 export type Document = {
@@ -16,33 +15,23 @@ export type Document = {
     };
 };
 
-
 // Generated from derivation register schema examples/citi-bike/idle-bikes.flow.yaml?ptr=/collections/examples~1citi-bike~1idle-bikes/derivation/register/schema.
 // Referenced from examples/citi-bike/idle-bikes.flow.yaml#/collections/examples~1citi-bike~1idle-bikes/derivation.
 export type Register = string | null;
 
-
 // Generated from transform delayedRides as a re-export of collection examples/citi-bike/rides.
 // Referenced from examples/citi-bike/idle-bikes.flow.yaml#/collections/examples~1citi-bike~1idle-bikes/derivation/transform/delayedRides."
-import { Document as DelayedRidesSource } from "./rides";
-export { Document as DelayedRidesSource } from "./rides";
-
+import { Document as DelayedRidesSource } from './rides';
+export { Document as DelayedRidesSource } from './rides';
 
 // Generated from transform liveRides as a re-export of collection examples/citi-bike/rides.
 // Referenced from examples/citi-bike/idle-bikes.flow.yaml#/collections/examples~1citi-bike~1idle-bikes/derivation/transform/liveRides."
-import { Document as LiveRidesSource } from "./rides";
-export { Document as LiveRidesSource } from "./rides";
-
+import { Document as LiveRidesSource } from './rides';
+export { Document as LiveRidesSource } from './rides';
 
 // Generated from derivation examples/citi-bike/idle-bikes.flow.yaml#/collections/examples~1citi-bike~1idle-bikes/derivation.
 // Required to be implemented by examples/citi-bike/idle-bikes.flow.ts.
 export interface IDerivation {
-    delayedRidesPublish(
-        source: DelayedRidesSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
-    liveRidesUpdate(
-        source: LiveRidesSource,
-    ): Register[];
+    delayedRidesPublish(source: DelayedRidesSource, register: Register, previous: Register): Document[];
+    liveRidesUpdate(source: LiveRidesSource): Register[];
 }

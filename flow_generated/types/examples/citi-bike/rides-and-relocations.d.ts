@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/citi-bike/rides-and-relocations.flow.yaml?ptr=/collections/examples~1citi-bike~1rides-and-relocations/schema.
 // Referenced from examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations.
 export type Document = /* Ride within the Citi Bike system */ {
@@ -29,9 +28,8 @@ export type Document = /* Ride within the Citi Bike system */ {
     };
     gender?: /* Gender of the rider (Zero=unknown; 1=male; 2=female) */ 0 | 1 | 2;
     relocation?: true;
-    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | "Customer" | "Subscriber";
+    user_type?: /* Subscriber, or pay-as-you-go Customer */ null | 'Customer' | 'Subscriber';
 };
-
 
 // Generated from derivation register schema examples/citi-bike/ride.schema.yaml#/$defs/terminus.
 // Referenced from examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
@@ -47,22 +45,14 @@ export type Register = /* Station and time at which a trip began or ended */ {
     timestamp: /* Timestamp as YYYY-MM-DD HH:MM:SS.F in UTC */ string;
 };
 
-
 // Generated from transform fromRides as a re-export of collection examples/citi-bike/rides.
 // Referenced from examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation/transform/fromRides."
-import { Document as FromRidesSource } from "./rides";
-export { Document as FromRidesSource } from "./rides";
-
+import { Document as FromRidesSource } from './rides';
+export { Document as FromRidesSource } from './rides';
 
 // Generated from derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 // Required to be implemented by examples/citi-bike/rides-and-relocations.flow.ts.
 export interface IDerivation {
-    fromRidesUpdate(
-        source: FromRidesSource,
-    ): Register[];
-    fromRidesPublish(
-        source: FromRidesSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
+    fromRidesUpdate(source: FromRidesSource): Register[];
+    fromRidesPublish(source: FromRidesSource, register: Register, previous: Register): Document[];
 }

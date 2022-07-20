@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/citi-bike/last-seen.flow.yaml?ptr=/collections/examples~1citi-bike~1last-seen/schema.
 // Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen.
 export type Document = {
@@ -16,24 +15,17 @@ export type Document = {
     };
 };
 
-
 // Generated from derivation register schema examples/citi-bike/last-seen.flow.yaml?ptr=/collections/examples~1citi-bike~1last-seen/derivation/register/schema.
 // Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation.
 export type Register = unknown;
 
-
 // Generated from transform locationFromRide as a re-export of collection examples/citi-bike/rides.
 // Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation/transform/locationFromRide."
-import { Document as LocationFromRideSource } from "./rides";
-export { Document as LocationFromRideSource } from "./rides";
-
+import { Document as LocationFromRideSource } from './rides';
+export { Document as LocationFromRideSource } from './rides';
 
 // Generated from derivation examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation.
 // Required to be implemented by examples/citi-bike/last-seen.flow.ts.
 export interface IDerivation {
-    locationFromRidePublish(
-        source: LocationFromRideSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
+    locationFromRidePublish(source: LocationFromRideSource, register: Register, previous: Register): Document[];
 }
