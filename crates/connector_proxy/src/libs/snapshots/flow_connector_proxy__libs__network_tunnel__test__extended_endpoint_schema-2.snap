@@ -1,6 +1,6 @@
 ---
 source: crates/connector_proxy/src/libs/network_tunnel.rs
-assertion_line: 181
+assertion_line: 156
 expression: "NetworkTunnel::extend_endpoint_schema(schema).unwrap()"
 ---
 {
@@ -21,66 +21,6 @@ expression: "NetworkTunnel::extend_endpoint_schema(schema).unwrap()"
       "title": "Server Hostname",
       "description": "The hostname at which the server can be reached.",
       "type": "string"
-    },
-    "networkTunnel": {
-      "title": "Network Tunneling",
-      "description": "Setup a network tunnel to access systems on a private network",
-      "oneOf": [
-        {
-          "title": "SSH Forwarding",
-          "type": "object",
-          "properties": {
-            "sshForwarding": {
-              "title": "SSH Tunnel",
-              "description": "Connect to your system through an SSH server that acts as a bastion host for your network.",
-              "type": "object",
-              "required": [
-                "privateKey",
-                "sshEndpoint"
-              ],
-              "properties": {
-                "forwardHost": {
-                  "description": "The hostname of the remote destination (e.g. the database server).",
-                  "default": "",
-                  "type": "string"
-                },
-                "forwardPort": {
-                  "title": "Forward Port",
-                  "description": "The port of the remote destination (e.g. the database server).",
-                  "default": 0,
-                  "type": "integer",
-                  "maximum": 65535.0,
-                  "minimum": 1.0
-                },
-                "localPort": {
-                  "title": "Local Port",
-                  "description": "The local port which will be connected to the remote host/port over an SSH tunnel. This should match the port that's used in your basic connector configuration.",
-                  "default": 0,
-                  "type": "integer",
-                  "maximum": 65535.0,
-                  "minimum": 1.0
-                },
-                "privateKey": {
-                  "title": "SSH Private Key",
-                  "description": "Private key to connect to the remote SSH server.",
-                  "type": "string",
-                  "multiline": true,
-                  "secret": true
-                },
-                "sshEndpoint": {
-                  "description": "Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]",
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        {
-          "title": "Disabled",
-          "type": "null"
-        }
-      ],
-      "advanced": true
     }
   }
 }
