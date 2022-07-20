@@ -1,9 +1,9 @@
 name: Flowctl release
 
-# Run whenever a github release is created
+# Run whenever a github release is published
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   release_binaries:
@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ matrix.config.os }} # we run a build per os
     env:
       ASSET_NAME: ${{ matrix.config.assetName }}
+      # build.rs reads this env variable and uses to set the value that's printed by flowctl --version
+      FLOWCTL_RELEASE_VERSION: ${{ github.event.release.tag_name }}
     strategy:
       fail-fast: false
       matrix:

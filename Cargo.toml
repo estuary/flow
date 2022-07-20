@@ -1,6 +1,8 @@
 [package]
 name = "flowctl"
-version = "0.1.0"
+# The version here is ignored for release builds. During releases, this is instead set by the env
+# variable FLOWCTL_RELEASE_VERSION, based on the git tag.
+version = "0.1.0-dev"
 edition = "2021"
 
 [dependencies]

@@ -4,19 +4,19 @@ use anyhow::Context;
 use clap::Parser;
 use proto_flow::flow;
 
-mod raw;
 mod auth;
 mod catalog;
 mod config;
 mod draft;
 mod poll;
+mod raw;
 mod typescript;
 
 use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
-#[clap(author, about)]
+#[clap(author, about, version)]
 pub struct Cli {
     /// Configuration profile to use.
     ///
