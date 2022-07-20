@@ -6,7 +6,19 @@
 
 **Download the binary for your OS**
 
-TODO: add links once releases are built
+- All Mac systems with MacOS 11 (Big Sur) or later, including both Intel and M1 Macs: 
+  [Download here](https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos)
+- Linux (x86-64 only), all distributions:
+  [Download here](https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux)
+
+Make the file executable, rename it, and put it somewhere on your `PATH`, for example:
+
+```console
+chmod +x ~/Downloads/flowctl-multiarch-macos
+mv ~/Downloads/flowctl-multiarch-macos /usr/local/bin/flowctl
+```
+
+Verify that it's working by running `flowctl --version`.
 
 ### Use the `flowctl` CLI:
 
