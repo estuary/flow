@@ -36,15 +36,16 @@ pub struct SshForwardingConfig {
     pub private_key: String,
     /// The hostname of the remote destination (e.g. the database server).
     #[serde(default)]
+    #[schemars(skip)]
     pub forward_host: String,
     /// The port of the remote destination (e.g. the database server).
     #[serde(default)]
-    #[schemars(schema_with = "forward_port_schema")]
+    #[schemars(skip)]
     pub forward_port: u16,
     /// The local port which will be connected to the remote host/port over an SSH tunnel.
     /// This should match the port that's used in your basic connector configuration.
     #[serde(default)]
-    #[schemars(schema_with = "local_port_schema")]
+    #[schemars(skip)]
     pub local_port: u16,
 }
 
@@ -56,28 +57,6 @@ fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
         // This annotation is interpreted by the UI to render this as a multiline input.
         "multiline": true,
         "secret": true
-    }))
-    .unwrap()
-}
-
-fn forward_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    port_schema(
-        "Forward Port",
-        "The port of the remote destination (e.g. the database server)",
-    )
-}
-
-fn local_port_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    port_schema("Local Port", "The local port number to use for the tunnel, which should match the port that's used in your base connector configuration")
-}
-
-fn port_schema(title: &str, description: &str) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "title": title,
-        "description": description,
-        "type": "integer",
-        "minimum": 1_i32,
-        "maximum": 65535_i32
     }))
     .unwrap()
 }
