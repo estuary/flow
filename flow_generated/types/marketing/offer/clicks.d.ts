@@ -1,3 +1,4 @@
+
 // Generated from collection schema examples/marketing/schema.yaml#/$defs/click.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1offer~1clicks.
 export type Document = /* Event which captures a user's click of a marketing offer. */ {
@@ -6,3 +7,4 @@ export type Document = /* Event which captures a user's click of a marketing off
     user_id: string;
     view_id: string;
 };
+

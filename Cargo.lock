@@ -966,7 +966,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "flowctl"
+name = "flowctl-admin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
