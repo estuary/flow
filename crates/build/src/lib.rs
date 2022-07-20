@@ -58,8 +58,11 @@ where
     let db = rusqlite::Connection::open(&output_path).context("failed to open catalog database")?;
 
     if config.typescript_generate || config.typescript_compile || config.typescript_package {
-        generate_npm_package(&all_tables, &directory)
-            .context("failed to generate TypeScript package")?;
+        if let Err(err) = generate_npm_package(&all_tables, &directory)
+            .context("failed to generate TypeScript package")
+        {
+            all_tables.errors.insert_row(&root_url, err);
+        }
     }
 
     if !all_tables.errors.is_empty() {
