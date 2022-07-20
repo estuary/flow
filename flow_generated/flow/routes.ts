@@ -1,3 +1,4 @@
+
 // Document is a relaxed signature for a Flow document of any kind.
 export type Document = unknown;
 // Lambda is a relaxed signature implemented by all Flow transformation lambdas.
@@ -39,16 +40,14 @@ const __acmeBankBalances: acmeBankBalances = new acmeBankBalances();
 const __examplesCitiBikeIdleBikes: examplesCitiBikeIdleBikes = new examplesCitiBikeIdleBikes();
 const __examplesCitiBikeLastSeen: examplesCitiBikeLastSeen = new examplesCitiBikeLastSeen();
 const __examplesCitiBikeRides: examplesCitiBikeRides = new examplesCitiBikeRides();
-const __examplesCitiBikeRidesAndRelocations: examplesCitiBikeRidesAndRelocations =
-    new examplesCitiBikeRidesAndRelocations();
+const __examplesCitiBikeRidesAndRelocations: examplesCitiBikeRidesAndRelocations = new examplesCitiBikeRidesAndRelocations();
 const __examplesCitiBikeStations: examplesCitiBikeStations = new examplesCitiBikeStations();
 const __examplesNetTraceServices: examplesNetTraceServices = new examplesNetTraceServices();
 const __examplesReKeyStableEvents: examplesReKeyStableEvents = new examplesReKeyStableEvents();
 const __examplesSegmentMemberships: examplesSegmentMemberships = new examplesSegmentMemberships();
 const __examplesSegmentProfiles: examplesSegmentProfiles = new examplesSegmentProfiles();
 const __examplesSegmentToggles: examplesSegmentToggles = new examplesSegmentToggles();
-const __examplesShoppingCartUpdatesWithProducts: examplesShoppingCartUpdatesWithProducts =
-    new examplesShoppingCartUpdatesWithProducts();
+const __examplesShoppingCartUpdatesWithProducts: examplesShoppingCartUpdatesWithProducts = new examplesShoppingCartUpdatesWithProducts();
 const __examplesShoppingCarts: examplesShoppingCarts = new examplesShoppingCarts();
 const __examplesShoppingPurchases: examplesShoppingPurchases = new examplesShoppingPurchases();
 const __examplesSourceSchemaRestrictive: examplesSourceSchemaRestrictive = new examplesSourceSchemaRestrictive();
@@ -78,85 +77,99 @@ const routes: { [path: string]: Lambda | undefined } = {
     '/derive/examples/citi-bike/idle-bikes/liveRides/Update': __examplesCitiBikeIdleBikes.liveRidesUpdate.bind(
         __examplesCitiBikeIdleBikes,
     ) as Lambda,
-    '/derive/examples/citi-bike/last-seen/locationFromRide/Publish':
-        __examplesCitiBikeLastSeen.locationFromRidePublish.bind(__examplesCitiBikeLastSeen) as Lambda,
+    '/derive/examples/citi-bike/last-seen/locationFromRide/Publish': __examplesCitiBikeLastSeen.locationFromRidePublish.bind(
+        __examplesCitiBikeLastSeen,
+    ) as Lambda,
     '/derive/examples/citi-bike/rides/fromCsvRides/Publish': __examplesCitiBikeRides.fromCsvRidesPublish.bind(
         __examplesCitiBikeRides,
     ) as Lambda,
-    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update':
-        __examplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(__examplesCitiBikeRidesAndRelocations) as Lambda,
-    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish':
-        __examplesCitiBikeRidesAndRelocations.fromRidesPublish.bind(__examplesCitiBikeRidesAndRelocations) as Lambda,
+    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update': __examplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(
+        __examplesCitiBikeRidesAndRelocations,
+    ) as Lambda,
+    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish': __examplesCitiBikeRidesAndRelocations.fromRidesPublish.bind(
+        __examplesCitiBikeRidesAndRelocations,
+    ) as Lambda,
     '/derive/examples/citi-bike/stations/ridesAndMoves/Publish': __examplesCitiBikeStations.ridesAndMovesPublish.bind(
         __examplesCitiBikeStations,
     ) as Lambda,
     '/derive/examples/net-trace/services/fromPairs/Publish': __examplesNetTraceServices.fromPairsPublish.bind(
         __examplesNetTraceServices,
     ) as Lambda,
-    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Update':
-        __examplesReKeyStableEvents.fromAnonymousEventsUpdate.bind(__examplesReKeyStableEvents) as Lambda,
-    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Publish':
-        __examplesReKeyStableEvents.fromAnonymousEventsPublish.bind(__examplesReKeyStableEvents) as Lambda,
-    '/derive/examples/re-key/stable_events/fromIdMappings/Update':
-        __examplesReKeyStableEvents.fromIdMappingsUpdate.bind(__examplesReKeyStableEvents) as Lambda,
-    '/derive/examples/re-key/stable_events/fromIdMappings/Publish':
-        __examplesReKeyStableEvents.fromIdMappingsPublish.bind(__examplesReKeyStableEvents) as Lambda,
-    '/derive/examples/segment/memberships/fromSegmentation/Publish':
-        __examplesSegmentMemberships.fromSegmentationPublish.bind(__examplesSegmentMemberships) as Lambda,
-    '/derive/examples/segment/profiles/fromSegmentation/Publish':
-        __examplesSegmentProfiles.fromSegmentationPublish.bind(__examplesSegmentProfiles) as Lambda,
+    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Update': __examplesReKeyStableEvents.fromAnonymousEventsUpdate.bind(
+        __examplesReKeyStableEvents,
+    ) as Lambda,
+    '/derive/examples/re-key/stable_events/fromAnonymousEvents/Publish': __examplesReKeyStableEvents.fromAnonymousEventsPublish.bind(
+        __examplesReKeyStableEvents,
+    ) as Lambda,
+    '/derive/examples/re-key/stable_events/fromIdMappings/Update': __examplesReKeyStableEvents.fromIdMappingsUpdate.bind(
+        __examplesReKeyStableEvents,
+    ) as Lambda,
+    '/derive/examples/re-key/stable_events/fromIdMappings/Publish': __examplesReKeyStableEvents.fromIdMappingsPublish.bind(
+        __examplesReKeyStableEvents,
+    ) as Lambda,
+    '/derive/examples/segment/memberships/fromSegmentation/Publish': __examplesSegmentMemberships.fromSegmentationPublish.bind(
+        __examplesSegmentMemberships,
+    ) as Lambda,
+    '/derive/examples/segment/profiles/fromSegmentation/Publish': __examplesSegmentProfiles.fromSegmentationPublish.bind(
+        __examplesSegmentProfiles,
+    ) as Lambda,
     '/derive/examples/segment/toggles/fromSegmentation/Update': __examplesSegmentToggles.fromSegmentationUpdate.bind(
         __examplesSegmentToggles,
     ) as Lambda,
     '/derive/examples/segment/toggles/fromSegmentation/Publish': __examplesSegmentToggles.fromSegmentationPublish.bind(
         __examplesSegmentToggles,
     ) as Lambda,
-    '/derive/examples/shopping/cartUpdatesWithProducts/cartUpdates/Publish':
-        __examplesShoppingCartUpdatesWithProducts.cartUpdatesPublish.bind(
-            __examplesShoppingCartUpdatesWithProducts,
-        ) as Lambda,
-    '/derive/examples/shopping/cartUpdatesWithProducts/products/Update':
-        __examplesShoppingCartUpdatesWithProducts.productsUpdate.bind(
-            __examplesShoppingCartUpdatesWithProducts,
-        ) as Lambda,
-    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Update':
-        __examplesShoppingCarts.cartUpdatesWithProductsUpdate.bind(__examplesShoppingCarts) as Lambda,
-    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Publish':
-        __examplesShoppingCarts.cartUpdatesWithProductsPublish.bind(__examplesShoppingCarts) as Lambda,
+    '/derive/examples/shopping/cartUpdatesWithProducts/cartUpdates/Publish': __examplesShoppingCartUpdatesWithProducts.cartUpdatesPublish.bind(
+        __examplesShoppingCartUpdatesWithProducts,
+    ) as Lambda,
+    '/derive/examples/shopping/cartUpdatesWithProducts/products/Update': __examplesShoppingCartUpdatesWithProducts.productsUpdate.bind(
+        __examplesShoppingCartUpdatesWithProducts,
+    ) as Lambda,
+    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Update': __examplesShoppingCarts.cartUpdatesWithProductsUpdate.bind(
+        __examplesShoppingCarts,
+    ) as Lambda,
+    '/derive/examples/shopping/carts/cartUpdatesWithProducts/Publish': __examplesShoppingCarts.cartUpdatesWithProductsPublish.bind(
+        __examplesShoppingCarts,
+    ) as Lambda,
     '/derive/examples/shopping/carts/clearAfterPurchase/Update': __examplesShoppingCarts.clearAfterPurchaseUpdate.bind(
         __examplesShoppingCarts,
     ) as Lambda,
-    '/derive/examples/shopping/carts/clearAfterPurchase/Publish':
-        __examplesShoppingCarts.clearAfterPurchasePublish.bind(__examplesShoppingCarts) as Lambda,
+    '/derive/examples/shopping/carts/clearAfterPurchase/Publish': __examplesShoppingCarts.clearAfterPurchasePublish.bind(
+        __examplesShoppingCarts,
+    ) as Lambda,
     '/derive/examples/shopping/purchases/carts/Update': __examplesShoppingPurchases.cartsUpdate.bind(
         __examplesShoppingPurchases,
     ) as Lambda,
-    '/derive/examples/shopping/purchases/purchaseActions/Publish':
-        __examplesShoppingPurchases.purchaseActionsPublish.bind(__examplesShoppingPurchases) as Lambda,
-    '/derive/examples/source-schema/restrictive/fromPermissive/Publish':
-        __examplesSourceSchemaRestrictive.fromPermissivePublish.bind(__examplesSourceSchemaRestrictive) as Lambda,
+    '/derive/examples/shopping/purchases/purchaseActions/Publish': __examplesShoppingPurchases.purchaseActionsPublish.bind(
+        __examplesShoppingPurchases,
+    ) as Lambda,
+    '/derive/examples/source-schema/restrictive/fromPermissive/Publish': __examplesSourceSchemaRestrictive.fromPermissivePublish.bind(
+        __examplesSourceSchemaRestrictive,
+    ) as Lambda,
     '/derive/examples/wiki/pages/rollUpEdits/Publish': __examplesWikiPages.rollUpEditsPublish.bind(
         __examplesWikiPages,
     ) as Lambda,
     '/derive/marketing/clicks-with-views/indexViews/Update': __marketingClicksWithViews.indexViewsUpdate.bind(
         __marketingClicksWithViews,
     ) as Lambda,
-    '/derive/marketing/clicks-with-views/joinClickWithIndexedViews/Publish':
-        __marketingClicksWithViews.joinClickWithIndexedViewsPublish.bind(__marketingClicksWithViews) as Lambda,
+    '/derive/marketing/clicks-with-views/joinClickWithIndexedViews/Publish': __marketingClicksWithViews.joinClickWithIndexedViewsPublish.bind(
+        __marketingClicksWithViews,
+    ) as Lambda,
     '/derive/marketing/purchase-with-offers/indexClicks/Update': __marketingPurchaseWithOffers.indexClicksUpdate.bind(
         __marketingPurchaseWithOffers,
     ) as Lambda,
     '/derive/marketing/purchase-with-offers/indexViews/Update': __marketingPurchaseWithOffers.indexViewsUpdate.bind(
         __marketingPurchaseWithOffers,
     ) as Lambda,
-    '/derive/marketing/purchase-with-offers/joinPurchaseWithViewsAndClicks/Publish':
-        __marketingPurchaseWithOffers.joinPurchaseWithViewsAndClicksPublish.bind(
-            __marketingPurchaseWithOffers,
-        ) as Lambda,
-    '/derive/marketing/views-with-campaign/indexCampaigns/Update':
-        __marketingViewsWithCampaign.indexCampaignsUpdate.bind(__marketingViewsWithCampaign) as Lambda,
-    '/derive/marketing/views-with-campaign/joinViewWithIndexedCampaign/Publish':
-        __marketingViewsWithCampaign.joinViewWithIndexedCampaignPublish.bind(__marketingViewsWithCampaign) as Lambda,
+    '/derive/marketing/purchase-with-offers/joinPurchaseWithViewsAndClicks/Publish': __marketingPurchaseWithOffers.joinPurchaseWithViewsAndClicksPublish.bind(
+        __marketingPurchaseWithOffers,
+    ) as Lambda,
+    '/derive/marketing/views-with-campaign/indexCampaigns/Update': __marketingViewsWithCampaign.indexCampaignsUpdate.bind(
+        __marketingViewsWithCampaign,
+    ) as Lambda,
+    '/derive/marketing/views-with-campaign/joinViewWithIndexedCampaign/Publish': __marketingViewsWithCampaign.joinViewWithIndexedCampaignPublish.bind(
+        __marketingViewsWithCampaign,
+    ) as Lambda,
     '/derive/patterns/inner-join/fromInts/Update': __patternsInnerJoin.fromIntsUpdate.bind(
         __patternsInnerJoin,
     ) as Lambda,
@@ -181,7 +194,9 @@ const routes: { [path: string]: Lambda | undefined } = {
     '/derive/patterns/outer-join/fromStrings/Publish': __patternsOuterJoin.fromStringsPublish.bind(
         __patternsOuterJoin,
     ) as Lambda,
-    '/derive/patterns/sums-db/fromInts/Publish': __patternsSumsDb.fromIntsPublish.bind(__patternsSumsDb) as Lambda,
+    '/derive/patterns/sums-db/fromInts/Publish': __patternsSumsDb.fromIntsPublish.bind(
+        __patternsSumsDb,
+    ) as Lambda,
     '/derive/patterns/sums-register/fromInts/Update': __patternsSumsRegister.fromIntsUpdate.bind(
         __patternsSumsRegister,
     ) as Lambda,
@@ -203,7 +218,9 @@ const routes: { [path: string]: Lambda | undefined } = {
     '/derive/soak/set-ops/sets-register/onOperation/Publish': __soakSetOpsSetsRegister.onOperationPublish.bind(
         __soakSetOpsSetsRegister,
     ) as Lambda,
-    '/derive/stock/daily-stats/fromTicks/Publish': __stockDailyStats.fromTicksPublish.bind(__stockDailyStats) as Lambda,
+    '/derive/stock/daily-stats/fromTicks/Publish': __stockDailyStats.fromTicksPublish.bind(
+        __stockDailyStats,
+    ) as Lambda,
     '/derive/temperature/averages/fromReadings/Publish': __temperatureAverages.fromReadingsPublish.bind(
         __temperatureAverages,
     ) as Lambda,

@@ -1,5 +1,5 @@
 use clap::Parser;
-use flowctl::{run_subcommand, Flowctl};
+use flowctl_admin::{run_subcommand, Flowctl};
 
 fn main() {
     // calling parse will automatically handle --help and --version flags that were provided as

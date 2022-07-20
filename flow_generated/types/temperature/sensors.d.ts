@@ -1,3 +1,4 @@
+
 // Generated from collection schema examples/temp-sensors/schemas.yaml#/$defs/sensor.
 // Referenced from examples/temp-sensors/flow.yaml#/collections/temperature~1sensors.
 export type Document = /* A sensor that produces temperature readings */ {
@@ -5,7 +6,8 @@ export type Document = /* A sensor that produces temperature readings */ {
     location?: /* GeoJSON Point The precise geographic location of the sensor */ {
         bbox?: number[];
         coordinates: number[];
-        type: 'Point';
+        type: "Point";
     };
     locationName?: /* Human readable name of the sensor location */ string;
 };
+

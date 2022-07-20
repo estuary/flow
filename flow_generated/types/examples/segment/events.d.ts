@@ -1,8 +1,10 @@
+
 // Generated from $anchor schema examples/segment/event.schema.yaml#Segment."
 export type Segment = {
     name: /* Name of the segment, scoped to the vendor ID. */ string;
     vendor: /* Vendor ID of the segment. */ number;
 };
+
 
 // Generated from collection schema examples/segment/event.schema.yaml.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1events.
@@ -17,3 +19,4 @@ export type Document = /* A segment event adds or removes a user into a segment.
     user: /* User ID. */ string;
     value?: /* Associated value of the segmentation. */ string;
 };
+

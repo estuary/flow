@@ -157,9 +157,9 @@ ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h &:
 ${RUSTBIN}/librocks-exp/librocksdb.a:
 	cargo build --release --locked -p librocks-exp
 
-.PHONY: ${RUSTBIN}/flowctl
-${RUSTBIN}/flowctl:
-	cargo build --release --locked -p flowctl
+.PHONY: ${RUSTBIN}/flowctl-admin
+${RUSTBIN}/flowctl-admin:
+	cargo build --release --locked -p flowctl-admin
 
 # Statically linked binaries using MUSL:
 
@@ -189,7 +189,7 @@ ${RUST_MUSL_BIN}/flow-schemalate:
 
 RUST_TARGETS = \
 	${PKGDIR}/bin/etcd \
-	${PKGDIR}/bin/flowctl \
+	${PKGDIR}/bin/flowctl-admin \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
@@ -217,8 +217,8 @@ package: ${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
-	cp ${RUSTBIN}/flowctl $@
+${PKGDIR}/bin/flowctl-admin: ${RUSTBIN}/flowctl-admin | ${PKGDIR}
+	cp ${RUSTBIN}/flowctl-admin $@
 
 # The following binaries are statically linked, so come from a different subdirectory
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
@@ -284,21 +284,21 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go
+go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: catalog-test
-catalog-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
-	${PKGDIR}/bin/flowctl test --source examples/local-sqlite.flow.yaml $(ARGS)
+catalog-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+	${PKGDIR}/bin/flowctl-admin test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+end-to-end-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./tests/run-all.sh
 
-flow.schema.json: | ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flowctl-go
-	${PKGDIR}/bin/flowctl json-schema > $@
+flow.schema.json: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
+	${PKGDIR}/bin/flowctl-admin json-schema > $@
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you
