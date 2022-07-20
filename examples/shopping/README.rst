@@ -30,7 +30,7 @@ We can apply our collection to a local Flow instance by running:
 
 .. code-block:: console
 
-    $ flowctl build && flowctl develop
+    $ flowctl-admin build && flowctl-admin develop
 
 Now that it's applied, we'll leave that terminal running and open a new one to simulate some
 users being added.
@@ -89,7 +89,7 @@ We can run the tests using:
 
 .. code-block:: console
 
-    $ flowctl build && flowctl test
+    $ flowctl-admin build && flowctl-admin test
 
 Next Steps
 ~~~~~~~~~~

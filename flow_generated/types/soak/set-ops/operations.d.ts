@@ -1,4 +1,3 @@
-
 // Generated from $anchor schema examples/soak-tests/set-ops/schema.yaml#Output."
 export type Output = /* Output merges expected and actual values for a given stream */ {
     appliedAdd?: number;
@@ -17,7 +16,6 @@ export type Output = /* Output merges expected and actual values for a given str
     timestamp?: string;
 };
 
-
 // Generated from collection schema examples/soak-tests/set-ops/schema.yaml#/$defs/operation.
 // Referenced from examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1operations.
 export type Document = /* Mutates a set and provides the values that are expected after this operation is applied */ {
@@ -29,9 +27,8 @@ export type Document = /* Mutates a set and provides the values that are expecte
     ones: number;
     op: number;
     timestamp: string;
-    type: "add" | "remove";
+    type: 'add' | 'remove';
     values: {
         [k: string]: number;
     };
 };
-

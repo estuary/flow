@@ -1,7 +1,7 @@
 use assert_cmd::{assert::Assert, Command};
 use tempfile::tempdir;
 
-const FLOWCTL: &str = "flowctl";
+const FLOWCTL: &str = "flowctl-admin";
 
 #[test]
 fn combine_produces_help_message() {

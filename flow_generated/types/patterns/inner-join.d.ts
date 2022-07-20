@@ -1,10 +1,8 @@
-
 // Generated from $anchor schema examples/derive-patterns/schema.yaml#Int."
 export type Int = /* A document that holds an integer */ {
     Int: number;
     Key: string;
 };
-
 
 // Generated from $anchor schema examples/derive-patterns/schema.yaml#Join."
 export type Join = /* Document for join examples */ {
@@ -13,13 +11,11 @@ export type Join = /* Document for join examples */ {
     RHS?: string[];
 };
 
-
 // Generated from $anchor schema examples/derive-patterns/schema.yaml#String."
 export type String = /* A document that holds a string */ {
     Key: string;
     String: string;
 };
-
 
 // Generated from collection schema examples/derive-patterns/join-inner.flow.yaml?ptr=/collections/patterns~1inner-join/schema.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join.
@@ -29,7 +25,6 @@ export type Document = /* Document for join examples */ {
     RHS?: string[];
 };
 
-
 // Generated from derivation register schema examples/derive-patterns/schema.yaml#Join.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
 export type Register = /* Document for join examples */ {
@@ -38,36 +33,21 @@ export type Register = /* Document for join examples */ {
     RHS?: string[];
 };
 
-
 // Generated from transform fromInts as a re-export of collection patterns/ints.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation/transform/fromInts."
-import { Document as FromIntsSource } from "./ints";
-export { Document as FromIntsSource } from "./ints";
-
+import { Document as FromIntsSource } from './ints';
+export { Document as FromIntsSource } from './ints';
 
 // Generated from transform fromStrings as a re-export of collection patterns/strings.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation/transform/fromStrings."
-import { Document as FromStringsSource } from "./strings";
-export { Document as FromStringsSource } from "./strings";
-
+import { Document as FromStringsSource } from './strings';
+export { Document as FromStringsSource } from './strings';
 
 // Generated from derivation examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
 // Required to be implemented by examples/derive-patterns/join-inner.flow.ts.
 export interface IDerivation {
-    fromIntsUpdate(
-        source: FromIntsSource,
-    ): Register[];
-    fromIntsPublish(
-        source: FromIntsSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
-    fromStringsUpdate(
-        source: FromStringsSource,
-    ): Register[];
-    fromStringsPublish(
-        source: FromStringsSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
+    fromIntsUpdate(source: FromIntsSource): Register[];
+    fromIntsPublish(source: FromIntsSource, register: Register, previous: Register): Document[];
+    fromStringsUpdate(source: FromStringsSource): Register[];
+    fromStringsPublish(source: FromStringsSource, register: Register, previous: Register): Document[];
 }

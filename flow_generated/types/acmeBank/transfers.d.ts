@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/acmeBank.flow.yaml?ptr=/collections/acmeBank~1transfers/schema.
 // Referenced from examples/acmeBank.flow.yaml#/collections/acmeBank~1transfers.
 export type Document = {
@@ -7,4 +6,3 @@ export type Document = {
     recipient: string;
     sender: string;
 };
-
