@@ -131,7 +131,7 @@ $ docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_sta
 
 Start a Flow data plane on your machine:
 ```console
-$ flowctl temp-data-plane
+$ flowctl-admin temp-data-plane
 export BROKER_ADDRESS=http://localhost:8080
 export CONSUMER_ADDRESS=http://localhost:9000
 ```
@@ -140,7 +140,7 @@ In another tab, apply the exported `BROKER_ADDRESS` and `CONSUMER_ADDRESS`,
 and save the example to `flow.yaml`. Then apply it to the data plane:
 
 ```console
-$ flowctl deploy --source flow.yaml
+$ flowctl-admin deploy --source flow.yaml
 ```
 
 You'll see a table created and loaded within your PostgreSQL server.

@@ -1,10 +1,8 @@
-
 // Generated from $anchor schema examples/segment/event.schema.yaml#Segment."
 export type Segment = {
     name: /* Name of the segment, scoped to the vendor ID. */ string;
     vendor: /* Vendor ID of the segment. */ number;
 };
-
 
 // Generated from collection schema examples/segment/flow.yaml?ptr=/collections/examples~1segment~1toggles/schema.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1toggles.
@@ -31,7 +29,6 @@ export type Document = /* A segment event adds or removes a user into a segment.
     value?: /* Associated value of the segmentation. */ string;
 };
 
-
 // Generated from derivation register schema examples/segment/flow.yaml?ptr=/collections/examples~1segment~1toggles/derivation/register/schema.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation.
 export type Register = {
@@ -49,22 +46,14 @@ export type Register = {
     firstAdd?: true;
 };
 
-
 // Generated from transform fromSegmentation as a re-export of collection examples/segment/events.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation/transform/fromSegmentation."
-import { Document as FromSegmentationSource } from "./events";
-export { Document as FromSegmentationSource } from "./events";
-
+import { Document as FromSegmentationSource } from './events';
+export { Document as FromSegmentationSource } from './events';
 
 // Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1toggles/derivation.
 // Required to be implemented by examples/segment/toggles.ts.
 export interface IDerivation {
-    fromSegmentationUpdate(
-        source: FromSegmentationSource,
-    ): Register[];
-    fromSegmentationPublish(
-        source: FromSegmentationSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
+    fromSegmentationUpdate(source: FromSegmentationSource): Register[];
+    fromSegmentationPublish(source: FromSegmentationSource, register: Register, previous: Register): Document[];
 }

@@ -1,4 +1,3 @@
-
 // Generated from $anchor schema examples/soak-tests/set-ops/schema.yaml#Output."
 export type Output = /* Output merges expected and actual values for a given stream */ {
     appliedAdd?: number;
@@ -16,7 +15,6 @@ export type Output = /* Output merges expected and actual values for a given str
     id: number;
     timestamp?: string;
 };
-
 
 // Generated from collection schema examples/soak-tests/set-ops/schema.yaml#/$defs/output.
 // Referenced from examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register.
@@ -37,7 +35,6 @@ export type Document = /* Output merges expected and actual values for a given s
     timestamp?: string;
 };
 
-
 // Generated from derivation register schema examples/soak-tests/set-ops/schema.yaml#/$defs/outputWithReductions.
 // Referenced from examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
 export type Register = /* Output merges expected and actual values for a given stream */ {
@@ -57,22 +54,14 @@ export type Register = /* Output merges expected and actual values for a given s
     timestamp?: string;
 };
 
-
 // Generated from transform onOperation as a re-export of collection soak/set-ops/operations.
 // Referenced from examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation/transform/onOperation."
-import { Document as OnOperationSource } from "./operations";
-export { Document as OnOperationSource } from "./operations";
-
+import { Document as OnOperationSource } from './operations';
+export { Document as OnOperationSource } from './operations';
 
 // Generated from derivation examples/soak-tests/set-ops/flow.yaml#/collections/soak~1set-ops~1sets-register/derivation.
 // Required to be implemented by examples/soak-tests/set-ops/sets-register.ts.
 export interface IDerivation {
-    onOperationUpdate(
-        source: OnOperationSource,
-    ): Register[];
-    onOperationPublish(
-        source: OnOperationSource,
-        register: Register,
-        previous: Register,
-    ): Document[];
+    onOperationUpdate(source: OnOperationSource): Register[];
+    onOperationPublish(source: OnOperationSource, register: Register, previous: Register): Document[];
 }

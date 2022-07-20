@@ -1,4 +1,3 @@
-
 // Generated from collection schema examples/wiki/edits.flow.yaml?ptr=/collections/examples~1wiki~1edits/schema.
 // Referenced from examples/wiki/edits.flow.yaml#/collections/examples~1wiki~1edits.
 export type Document = {
@@ -9,4 +8,3 @@ export type Document = {
     page: string;
     time: string;
 };
-
