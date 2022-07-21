@@ -499,7 +499,10 @@ expression: schema
             }
           }
         }
-      ]
+      ],
+      "discriminator": {
+        "propertyName": "name"
+      }
     }
   }
 }
