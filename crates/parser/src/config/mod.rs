@@ -342,6 +342,15 @@ impl Format {
             _ => Some(self.clone()),
         }
     }
+
+    fn schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        let mut schema = gen.subschema_for::<Format>().into_object();
+        schema.extensions.insert(
+            "discriminator".to_string(),
+            serde_json::json!({"propertyName": "name"}),
+        );
+        schema.into()
+    }
 }
 
 /// This value is always an empty JSON object.
@@ -516,6 +525,7 @@ pub struct ParseConfig {
     /// Determines how to parse the contents. The default, 'Auto', will try to determine the format
     /// automatically based on the file extension or MIME type, if available.
     #[serde(default)]
+    #[schemars(schema_with = "Format::schema")]
     pub format: Format,
 
     /// Determines how to decompress the contents. The default, 'Auto', will try to determine the
