@@ -35,7 +35,7 @@ pub async fn build_catalog(
     let build_id = format!("{pub_id}");
     let db_path = builds_dir.join(&build_id);
 
-    let job = jobs::run(
+    let build_job = jobs::run(
         "build",
         logs_tx,
         logs_token,
@@ -62,24 +62,12 @@ pub async fn build_catalog(
     .await
     .with_context(|| format!("building catalog in {builds_dir:?}"))?;
 
-    let db = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
-
-    let mut errors = tables::Errors::new();
-    errors.load_all(&db).context("loading build errors")?;
-
-    if !job.success() && errors.is_empty() {
-        anyhow::bail!("build_job exited with failure but errors is empty");
-    }
-
-    // Persist the build.
+    // Persist the build before we do anything else.
     let dest_url = builds_root.join(&pub_id.to_string())?;
 
     // The gsutil job needs to access the GOOGLE_APPLICATION_CREDENTIALS environment variable, so
     // we cannot use `jobs::run` here.
-    let job = jobs::run_without_removing_env(
+    let persist_job = jobs::run_without_removing_env(
         "persist",
         &logs_tx,
         logs_token,
@@ -91,8 +79,21 @@ pub async fn build_catalog(
     .await
     .with_context(|| format!("persisting build sqlite DB {db_path:?}"))?;
 
-    if !job.success() {
+    if !persist_job.success() {
         anyhow::bail!("persist of {db_path:?} exited with an error");
+    }
+
+    // Inspect the database for build errors.
+    let db = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+
+    let mut errors = tables::Errors::new();
+    errors.load_all(&db).context("loading build errors")?;
+
+    if !build_job.success() && errors.is_empty() {
+        anyhow::bail!("build_job exited with failure but errors is empty");
     }
 
     Ok(errors
