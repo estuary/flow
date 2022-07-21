@@ -15,22 +15,27 @@ expression: schema
       "oneOf": [
         {
           "title": "GZip",
+          "default": "gzip",
           "const": "gzip"
         },
         {
           "title": "Zip Archive",
+          "default": "zip",
           "const": "zip"
         },
         {
           "title": "Zstandard",
+          "default": "zstd",
           "const": "zstd"
         },
         {
           "title": "None",
+          "default": "none",
           "const": "none"
         },
         {
           "title": "Auto",
+          "default": null,
           "const": null
         }
       ]
@@ -38,7 +43,8 @@ expression: schema
     "format": {
       "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
       "default": {
-        "auto": {}
+        "config": {},
+        "name": "auto"
       },
       "oneOf": [
         {
@@ -46,55 +52,71 @@ expression: schema
           "description": "Attempt to determine the format automatically, based on the file extension or associated content-type.",
           "type": "object",
           "required": [
-            "auto"
+            "config",
+            "name"
           ],
           "properties": {
-            "auto": {
+            "config": {
               "default": {},
               "type": "object"
+            },
+            "name": {
+              "default": "auto",
+              "type": "string",
+              "const": "auto"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "title": "Avro",
           "description": "Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)",
           "type": "object",
           "required": [
-            "avro"
+            "config",
+            "name"
           ],
           "properties": {
-            "avro": {
+            "config": {
               "default": {},
               "type": "object"
+            },
+            "name": {
+              "default": "avro",
+              "type": "string",
+              "const": "avro"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "title": "JSON",
           "description": "JSON objects separated by whitespace, typically a single newline. This format works for JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have at least one character of whitespace between them.",
           "type": "object",
           "required": [
-            "json"
+            "config",
+            "name"
           ],
           "properties": {
-            "json": {
+            "config": {
               "default": {},
               "type": "object"
+            },
+            "name": {
+              "default": "json",
+              "type": "string",
+              "const": "json"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "title": "CSV",
           "description": "Character Separated Values, such as comma-separated, tab-separated, etc.",
           "type": "object",
           "required": [
-            "csv"
+            "config",
+            "name"
           ],
           "properties": {
-            "csv": {
+            "config": {
               "type": "object",
               "properties": {
                 "delimiter": {
@@ -104,38 +126,47 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "Comma (,)",
+                      "default": ",",
                       "const": ","
                     },
                     {
                       "title": "Pipe (|)",
+                      "default": "|",
                       "const": "|"
                     },
                     {
                       "title": "Space (0x20)",
+                      "default": " ",
                       "const": " "
                     },
                     {
                       "title": "Semicolon (;)",
+                      "default": ";",
                       "const": ";"
                     },
                     {
                       "title": "Tab (0x09)",
+                      "default": "\t",
                       "const": "\t"
                     },
                     {
                       "title": "Vertical Tab (0x0B)",
+                      "default": "\u000b",
                       "const": "\u000b"
                     },
                     {
                       "title": "Unit Separator (0x1F)",
+                      "default": "\u001f",
                       "const": "\u001f"
                     },
                     {
                       "title": "SOH (0x01)",
+                      "default": "\u0001",
                       "const": "\u0001"
                     },
                     {
                       "title": "Auto",
+                      "default": null,
                       "const": null
                     }
                   ]
@@ -147,158 +178,197 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "UTF-8",
+                      "default": "UTF-8",
                       "const": "UTF-8"
                     },
                     {
                       "title": "UTF-16LE",
+                      "default": "UTF-16LE",
                       "const": "UTF-16LE"
                     },
                     {
                       "title": "UTF-16BE",
+                      "default": "UTF-16BE",
                       "const": "UTF-16BE"
                     },
                     {
                       "title": "IBM866",
+                      "default": "IBM866",
                       "const": "IBM866"
                     },
                     {
                       "title": "ISO-8859-2",
+                      "default": "ISO-8859-2",
                       "const": "ISO-8859-2"
                     },
                     {
                       "title": "ISO-8859-3",
+                      "default": "ISO-8859-3",
                       "const": "ISO-8859-3"
                     },
                     {
                       "title": "ISO-8859-4",
+                      "default": "ISO-8859-4",
                       "const": "ISO-8859-4"
                     },
                     {
                       "title": "ISO-8859-5",
+                      "default": "ISO-8859-5",
                       "const": "ISO-8859-5"
                     },
                     {
                       "title": "ISO-8859-6",
+                      "default": "ISO-8859-6",
                       "const": "ISO-8859-6"
                     },
                     {
                       "title": "ISO-8859-7",
+                      "default": "ISO-8859-7",
                       "const": "ISO-8859-7"
                     },
                     {
                       "title": "ISO-8859-8",
+                      "default": "ISO-8859-8",
                       "const": "ISO-8859-8"
                     },
                     {
                       "title": "ISO-8859-8-I",
+                      "default": "ISO-8859-8-I",
                       "const": "ISO-8859-8-I"
                     },
                     {
                       "title": "ISO-8859-10",
+                      "default": "ISO-8859-10",
                       "const": "ISO-8859-10"
                     },
                     {
                       "title": "ISO-8859-13",
+                      "default": "ISO-8859-13",
                       "const": "ISO-8859-13"
                     },
                     {
                       "title": "ISO-8859-14",
+                      "default": "ISO-8859-14",
                       "const": "ISO-8859-14"
                     },
                     {
                       "title": "ISO-8859-15",
+                      "default": "ISO-8859-15",
                       "const": "ISO-8859-15"
                     },
                     {
                       "title": "ISO-8859-16",
+                      "default": "ISO-8859-16",
                       "const": "ISO-8859-16"
                     },
                     {
                       "title": "KOI8-R",
+                      "default": "KOI8-R",
                       "const": "KOI8-R"
                     },
                     {
                       "title": "KOI8-U",
+                      "default": "KOI8-U",
                       "const": "KOI8-U"
                     },
                     {
                       "title": "macintosh",
+                      "default": "macintosh",
                       "const": "macintosh"
                     },
                     {
                       "title": "windows-874",
+                      "default": "windows-874",
                       "const": "windows-874"
                     },
                     {
                       "title": "windows-1250",
+                      "default": "windows-1250",
                       "const": "windows-1250"
                     },
                     {
                       "title": "windows-1251",
+                      "default": "windows-1251",
                       "const": "windows-1251"
                     },
                     {
                       "title": "windows-1252",
+                      "default": "windows-1252",
                       "const": "windows-1252"
                     },
                     {
                       "title": "windows-1253",
+                      "default": "windows-1253",
                       "const": "windows-1253"
                     },
                     {
                       "title": "windows-1254",
+                      "default": "windows-1254",
                       "const": "windows-1254"
                     },
                     {
                       "title": "windows-1255",
+                      "default": "windows-1255",
                       "const": "windows-1255"
                     },
                     {
                       "title": "windows-1256",
+                      "default": "windows-1256",
                       "const": "windows-1256"
                     },
                     {
                       "title": "windows-1257",
+                      "default": "windows-1257",
                       "const": "windows-1257"
                     },
                     {
                       "title": "windows-1258",
+                      "default": "windows-1258",
                       "const": "windows-1258"
                     },
                     {
                       "title": "x-mac-cyrillic",
+                      "default": "x-mac-cyrillic",
                       "const": "x-mac-cyrillic"
                     },
                     {
                       "title": "GBK",
+                      "default": "GBK",
                       "const": "GBK"
                     },
                     {
                       "title": "gb18030",
+                      "default": "gb18030",
                       "const": "gb18030"
                     },
                     {
                       "title": "Big5",
+                      "default": "Big5",
                       "const": "Big5"
                     },
                     {
                       "title": "EUC-JP",
+                      "default": "EUC-JP",
                       "const": "EUC-JP"
                     },
                     {
                       "title": "ISO-2022-JP",
+                      "default": "ISO-2022-JP",
                       "const": "ISO-2022-JP"
                     },
                     {
                       "title": "Shift_JIS",
+                      "default": "Shift_JIS",
                       "const": "Shift_JIS"
                     },
                     {
                       "title": "EUC-KR",
+                      "default": "EUC-KR",
                       "const": "EUC-KR"
                     },
                     {
                       "title": "Auto",
+                      "default": null,
                       "const": null
                     }
                   ]
@@ -318,14 +388,17 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "Backslash (\\)",
+                      "default": "\\",
                       "const": "\\"
                     },
                     {
                       "title": "Disable Escapes",
+                      "default": "",
                       "const": ""
                     },
                     {
                       "title": "Auto",
+                      "default": null,
                       "const": null
                     }
                   ]
@@ -345,22 +418,27 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "CRLF (\\r\\n) (Windows)",
+                      "default": "\r\n",
                       "const": "\r\n"
                     },
                     {
                       "title": "CR (\\r)",
+                      "default": "\r",
                       "const": "\r"
                     },
                     {
                       "title": "LF (\\n)",
+                      "default": "\n",
                       "const": "\n"
                     },
                     {
                       "title": "Record Separator (0x1E)",
+                      "default": "\u001e",
                       "const": "\u001e"
                     },
                     {
                       "title": "Auto",
+                      "default": null,
                       "const": null
                     }
                   ]
@@ -372,41 +450,54 @@ expression: schema
                   "oneOf": [
                     {
                       "title": "Double Quote (\")",
+                      "default": "\"",
                       "const": "\""
                     },
                     {
                       "title": "Single Quote (')",
+                      "default": "'",
                       "const": "'"
                     },
                     {
                       "title": "Disable Quoting",
+                      "default": "",
                       "const": ""
                     },
                     {
                       "title": "Auto",
+                      "default": null,
                       "const": null
                     }
                   ]
                 }
               }
+            },
+            "name": {
+              "default": "csv",
+              "type": "string",
+              "const": "csv"
             }
-          },
-          "additionalProperties": false
+          }
         },
         {
           "title": "W3C Extended Log",
           "description": "A W3C Extended Log file, as defined by the working group draft at: https://www.w3.org/TR/WD-logfile.html",
           "type": "object",
           "required": [
-            "w3cExtendedLog"
+            "config",
+            "name"
           ],
           "properties": {
-            "w3cExtendedLog": {
+            "config": {
               "default": {},
               "type": "object"
+            },
+            "name": {
+              "default": "w3cExtendedLog",
+              "type": "string",
+              "const": "w3cExtendedLog"
             }
-          },
-          "additionalProperties": false
+          }
         }
       ]
     }

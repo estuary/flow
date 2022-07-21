@@ -278,6 +278,7 @@ impl JsonPointer {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "name", content = "config")]
 pub enum Format {
     /// Attempt to determine the format automatically, based on the file extension or associated
     /// content-type.
@@ -566,12 +567,40 @@ pub enum ConfigError {
     InvalidErrorThreshold(u64),
 }
 
+/// A `schemars::visit::Visitor` that sets a `default` for all values that are `const`. Also
+/// normalizes any schemas with `enum: ["singleValue"]` to `const: "singleValue"`, which is needed
+/// by the estuary UI in order to render properly.
+#[derive(Debug, Clone)]
+struct ConstDefaultSchemaVisitor;
+impl schemars::visit::Visitor for ConstDefaultSchemaVisitor {
+    fn visit_schema_object(&mut self, schema: &mut schemagen::SchemaObject) {
+        schemars::visit::visit_schema_object(self, schema);
+
+        if schema.enum_values.as_ref().map(|v| v.len()) == Some(1) {
+            let value = schema.enum_values.take().unwrap().pop().unwrap();
+            schema.const_value = Some(value);
+        }
+
+        if let Some(const_val) = schema.const_value.as_ref() {
+            if schema.metadata.is_none() {
+                schema.metadata = Some(Default::default());
+            }
+            if let Some(md) = schema.metadata.as_mut() {
+                if md.default.is_none() {
+                    md.default = Some(const_val.clone());
+                }
+            }
+        }
+    }
+}
+
 impl ParseConfig {
     /// Returns the generated json schema for the configuration file.
     pub fn json_schema() -> schemars::schema::RootSchema {
         let mut settings = schemars::gen::SchemaSettings::draft07();
         settings.option_add_null_type = false;
         settings.inline_subschemas = true;
+        settings = settings.with_visitor(ConstDefaultSchemaVisitor);
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<ParseConfig>()
     }
@@ -601,10 +630,43 @@ mod test {
     }
 
     #[test]
+    fn config_serde_round_trip() {
+        let config = ParseConfig {
+            format: Format::Csv(AdvancedCsvConfig::default()),
+            add_record_offset: Some("/foo".into()),
+            compression: Compression::Gzip.into(),
+            filename: Some("a file.json".into()),
+            ..Default::default()
+        };
+        let ser = serde_json::to_value(config.clone()).expect("serialization failed");
+        let end: ParseConfig = serde_json::from_value(ser).expect("deser failed");
+        assert_eq!(config, end);
+    }
+
+    #[test]
+    fn config_is_deserialized_using_default_format() {
+        let c1 = json!({
+            "filename": "tha-file",
+            "compression": "none",
+        });
+
+        let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
+
+        let expected = ParseConfig {
+            format: Format::Auto(EmptyConfig),
+            compression: Compression::None.into(),
+            filename: Some("tha-file".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(expected, r1);
+    }
+
+    #[test]
     fn auto_config_is_deserialized() {
         let c1 = json!({
             "format": {
-                "auto": {}
+                "name": "auto",
+                "config": {}
             },
             "filename": "tha-file",
             "compression": "none",
@@ -625,7 +687,8 @@ mod test {
     fn csv_config_is_deserialized() {
         let c1 = json!({
             "format": {
-                "csv": {
+                "name": "csv",
+                "config": {
                     "delimiter": ",",
                     "lineEnding": "\n",
                     "quote": "'",
