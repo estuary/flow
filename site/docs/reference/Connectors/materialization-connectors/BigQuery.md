@@ -22,7 +22,7 @@ To avoid running up against this limit, you should set the minimum transaction t
 or a minimum value of 1 minute. You do this by configuring the materialization's [task shard](../../Configuring-task-shards.md). This causes an apparent delay in the materialization, but is necessary to prevent error.
 This also makes transactions more efficient, which reduces costs in BigQuery, especially for large datasets.
 
-Instructions to set the minimum transaction time are detailed [below](#shard-configuration)
+Instructions to set the minimum transaction time are detailed [below](#shard-configuration).
 
 ## Prerequisites
 
@@ -99,8 +99,8 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 ### Shard configuration
 
 :::info Beta
-Controls for this workflow will be added to the Flow web app's UI in the future.
-For now, you must edit the materialization config manually, either in the web app or using the CLI
+UI controls for this workflow will be added to the Flow web app soon.
+For now, you must edit the materialization config manually, either in the web app or using the CLI.
 :::
 
 To avoid exceeding your BigQuery tables' daily operation limits as discussed in [Performance considerations](#performance-considerations),
@@ -110,15 +110,15 @@ complete the following steps when configuring your materialization:
 create a draft materialization. Don't publish it yet.
 
 2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization at the same indentation level as `endpoint` and `resource`.
-Set the `minTxnDuration` property to at least `1m` (we recommend`2m`).
+Set the `minTxnDuration` property to at least `1m` (we recommend `2m`).
 In the web app, you do this in the catalog editor.
 
-```yaml
-shards:
-  minTxnDuration: 2m
-```
+   ```yaml
+   shards:
+     minTxnDuration: 2m
+   ```
 
-A full sample is included [below](#sample).
+   A full sample is included [below](#sample).
 
 3. Continue to test and publish the materialization.
 
@@ -127,18 +127,16 @@ A full sample is included [below](#sample).
 ```yaml
 materializations:
   ${PREFIX}/${mat_name}:
-	  endpoint:
-  	    connector:
-    	    config:
-              project_id: our-bigquery-project
-              dataset: materialized-data
-              region: US
-              bucket: our-gcs-bucket
-              bucket_path: bucket-path/
-              credentials_json: SSBqdXN0IHdhbm5hIHRlbGwgeW91IGhvdyBJJ20gZmVlbGluZwpHb3R0YSBtYWtlIHlvdSB1bmRlcnN0YW5kCk5ldmVyIGdvbm5hIGdpdmUgeW91IHVwCk5ldmVyIGdvbm5hIGxldCB5b3UgZG93bgpOZXZlciBnb25uYSBydW4gYXJvdW5kIGFuZCBkZXNlcnQgeW91Ck5ldmVyIGdvbm5hIG1ha2UgeW91IGNyeQpOZXZlciBnb25uYSBzYXkgZ29vZGJ5ZQpOZXZlciBnb25uYSB0ZWxsIGEgbGllIGFuZCBodXJ0IHlvdQ==
-    	    image: ghcr.io/estuary/materialize-bigquery:dev
-	# If you have multiple collections you need to materialize, add a binding for each one
-    # to ensure complete data flow-through
+    endpoint:
+      connector:
+        config:
+          project_id: our-bigquery-project
+          dataset: materialized-data
+          region: US
+          bucket: our-gcs-bucket
+          bucket_path: bucket-path/
+          credentials_json: SSBqdXN0IHdhbm5hIHRlbGwgeW91IGhvdyBJJ20gZmVlbGluZwpHb3R0YSBtYWtlIHlvdSB1bmRlcnN0YW5kCk5ldmVyIGdvbm5hIGdpdmUgeW91IHVwCk5ldmVyIGdvbm5hIGxldCB5b3UgZG93bgpOZXZlciBnb25uYSBydW4gYXJvdW5kIGFuZCBkZXNlcnQgeW91Ck5ldmVyIGdvbm5hIG1ha2UgeW91IGNyeQpOZXZlciBnb25uYSBzYXkgZ29vZGJ5ZQpOZXZlciBnb25uYSB0ZWxsIGEgbGllIGFuZCBodXJ0IHlvdQ==
+        image: ghcr.io/estuary/materialize-bigquery:dev
     bindings:
   	- resource:
       	table: ${table_name}

@@ -21,7 +21,7 @@ This is done automatically for you depending on the size of your task.
 Shard splitting doesn't require downtime; your task will continue to run as normal
 on the old shard until the split occurs and then shift seamlessly to the new, split shards.
 
-This process is repeated as needed until your required throughput is achieved.
+Flow repeats this process as needed until your required throughput is achieved.
 
 ## Transactions
 

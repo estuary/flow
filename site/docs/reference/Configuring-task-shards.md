@@ -25,24 +25,24 @@ For more information about these controls and when you might need to use them, s
 ```yaml
 materializations:
   acmeCo/snowflake-materialization:
-	  endpoint:
-  	    connector:
-    	    config:
-              account: acmeCo
-              database: acmeCo_db
-              password: secret
-              cloud_provider: aws
-              region: us-east-1
-              schema: acmeCo_flow_schema
-              user: snowflake_user
-              warehouse: acmeCo_warehouse
-    	    image: ghcr.io/estuary/materialize-snowflake:dev
+    endpoint:
+      connector:
+        config:
+          account: acmeCo
+          database: acmeCo_db
+          password: secret
+          cloud_provider: aws
+          region: us-east-1
+          schema: acmeCo_flow_schema
+          user: snowflake_user
+          warehouse: acmeCo_warehouse
+        image: ghcr.io/estuary/materialize-snowflake:dev
     bindings:
-  	- resource:
-      	table: anvils
+    - resource:
+        table: anvils
       source: acmeCo/anvils
     shards:
       logLevel: debug
       minTxnDuration: 30s
-      maxTxnDuration: 10m
+      maxTxnDuration: 4m
 ```
