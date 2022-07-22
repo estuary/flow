@@ -17,11 +17,12 @@ https://gazette.readthedocs.io/en/latest/consumers-concepts.html#shards).
 
 When a task is first created, it is initialized with a single shard.
 Later and as required, shards may be split into two shards.
-This is done automatically for you depending on the size of your task.
+This is done by the service operator on your behalf, depending on the size of your task.
 Shard splitting doesn't require downtime; your task will continue to run as normal
 on the old shard until the split occurs and then shift seamlessly to the new, split shards.
 
-Flow repeats this process as needed until your required throughput is achieved.
+This process can be repeated as needed until your required throughput is achieved.
+If you have questions about how shards are split for your tasks, contact your Estuary account representative.
 
 ## Transactions
 
