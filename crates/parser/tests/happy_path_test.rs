@@ -23,7 +23,7 @@ fn w3c_extended_log_file_is_parsed() {
     let config = ParseConfig {
         // Explicit format is required, since there's no file extension that's associated with
         // this format.
-        format: Format::W3cExtendedLog(Default::default()).into(),
+        format: Format::W3cExtendedLog.into(),
         ..Default::default()
     };
     let input = input_for_file("tests/examples/w3c-extended-log");

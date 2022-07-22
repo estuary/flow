@@ -278,25 +278,25 @@ impl JsonPointer {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "name", content = "config")]
+#[serde(tag = "type", content = "config")]
 pub enum Format {
     /// Attempt to determine the format automatically, based on the file extension or associated
     /// content-type.
     #[serde(rename = "auto")]
     #[schemars(title = "Auto")]
-    Auto(EmptyConfig),
+    Auto,
 
     /// Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)
     #[serde(rename = "avro")]
     #[schemars(title = "Avro")]
-    Avro(EmptyConfig),
+    Avro,
 
     /// JSON objects separated by whitespace, typically a single newline. This format works for
     /// JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have
     /// at least one character of whitespace between them.
     #[serde(rename = "json")]
     #[schemars(title = "JSON")]
-    Json(EmptyConfig),
+    Json,
 
     /// Character Separated Values, such as comma-separated, tab-separated, etc.
     #[serde(rename = "csv")]
@@ -307,17 +307,17 @@ pub enum Format {
     /// https://www.w3.org/TR/WD-logfile.html
     #[serde(rename = "w3cExtendedLog")]
     #[schemars(title = "W3C Extended Log")]
-    W3cExtendedLog(EmptyConfig),
+    W3cExtendedLog,
 }
 
 impl fmt::Display for Format {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            Format::Auto(_) => "auto",
-            Format::Avro(_) => "avro",
-            Format::Json(_) => "json",
+            Format::Auto => "auto",
+            Format::Avro => "avro",
+            Format::Json => "json",
             Format::Csv(_) => "csv",
-            Format::W3cExtendedLog(_) => "w3cExtendedLog",
+            Format::W3cExtendedLog => "w3cExtendedLog",
         };
         f.write_str(s)
     }
@@ -325,29 +325,48 @@ impl fmt::Display for Format {
 
 impl Default for Format {
     fn default() -> Format {
-        Format::Auto(EmptyConfig)
+        Format::Auto
     }
 }
 
 impl Format {
     pub fn is_auto(&self) -> bool {
         match self {
-            Format::Auto(_) => true,
+            Format::Auto => true,
             _ => false,
         }
     }
     pub fn non_auto(&self) -> Option<Format> {
         match self {
-            Format::Auto(_) => None,
+            Format::Auto => None,
             _ => Some(self.clone()),
         }
     }
 
+    /// Customizes the generated schema for Format to make it work better in the UI.
+    /// Format still derives `JsonSchema`, and this function delegates to that impl.
+    /// This function is used by setting `schema_with` on the property in ParseConfig.
     fn schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         let mut schema = gen.subschema_for::<Format>().into_object();
+        // The UI doesn't handle the case where a schema specifies both `type` and `const`,
+        // and technically it's redundant to have both. So we remove the `type` property from the
+        // `type` of each variant.
+        for subschema in schema.subschemas().one_of.as_mut().unwrap().iter_mut() {
+            if let schemars::schema::Schema::Object(ref mut os) = subschema {
+                let name_schema = os
+                    .object()
+                    .properties
+                    .get_mut("type")
+                    .expect("subschema must have type property");
+                if let schemars::schema::Schema::Object(ref mut name_obj) = name_schema {
+                    name_obj.instance_type = None;
+                }
+            }
+        }
+        schema.object().required.insert("type".to_string());
         schema.extensions.insert(
             "discriminator".to_string(),
-            serde_json::json!({"propertyName": "name"}),
+            serde_json::json!({"propertyName": "type"}),
         );
         schema.into()
     }
@@ -663,7 +682,7 @@ mod test {
         let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
 
         let expected = ParseConfig {
-            format: Format::Auto(EmptyConfig),
+            format: Format::Auto,
             compression: Compression::None.into(),
             filename: Some("tha-file".to_string()),
             ..Default::default()
@@ -672,32 +691,53 @@ mod test {
     }
 
     #[test]
-    fn auto_config_is_deserialized() {
+    fn basic_configs_are_deserialized_without_format_config() {
+        // We use adjacently tagged enums to represent the config. This means that any variant
+        // values, like `AdvancedCsvConfig`, cannot use `#[serde(default)]`. If a variant contains
+        // a config object, it must be present in the JSON. This means that we cannot add
+        // configuration to a format that currently has none, or else old configs that are missing
+        // the `config` property will suddently fail to deserialize. This test is here to fail in
+        // the case that someone adds a config object to a variant that currently has none.
+        // If you're here because this is failing, fear not. There's a way to fix it. Add a custom
+        // `Deserialize` impl for `Format` that deserializes the `config` using two passes. One the
+        // first pass, deserialize it into a `Value` or `RawValue`. Then, once the target variant
+        // (and thus the target type of `config`) is known, deserialize that as the typed value.
+        let types = ["json", "auto", "avro", "w3cExtendedLog"];
+        for ty in types {
+            let config = json!({
+                "format": {
+                    "type": ty,
+                }
+            });
+            let result = serde_json::from_value::<ParseConfig>(config);
+            assert!(
+                result.is_ok(),
+                "format type '{}' failed to deserialize with result: {:?}",
+                ty,
+                result
+            );
+        }
+    }
+
+    // Just documenting what might otherwise be surprising behavior.
+    #[test]
+    fn csv_config_cannot_be_deserialized_without_config_object() {
         let c1 = json!({
             "format": {
-                "name": "auto",
-                "config": {}
+                "type": "csv",
             },
             "filename": "tha-file",
-            "compression": "none",
+            "compression": "zip",
         });
 
-        let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
-
-        let expected = ParseConfig {
-            format: Format::Auto(EmptyConfig),
-            compression: Compression::None.into(),
-            filename: Some("tha-file".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(expected, r1);
+        serde_json::from_value::<ParseConfig>(c1).expect_err("expected deserialization error");
     }
 
     #[test]
     fn csv_config_is_deserialized() {
         let c1 = json!({
             "format": {
-                "name": "csv",
+                "type": "csv",
                 "config": {
                     "delimiter": ",",
                     "lineEnding": "\n",

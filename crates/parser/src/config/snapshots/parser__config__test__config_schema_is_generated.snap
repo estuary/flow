@@ -43,8 +43,7 @@ expression: schema
     "format": {
       "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
       "default": {
-        "config": {},
-        "name": "auto"
+        "type": "auto"
       },
       "oneOf": [
         {
@@ -52,17 +51,11 @@ expression: schema
           "description": "Attempt to determine the format automatically, based on the file extension or associated content-type.",
           "type": "object",
           "required": [
-            "config",
-            "name"
+            "type"
           ],
           "properties": {
-            "config": {
-              "default": {},
-              "type": "object"
-            },
-            "name": {
+            "type": {
               "default": "auto",
-              "type": "string",
               "const": "auto"
             }
           }
@@ -72,17 +65,11 @@ expression: schema
           "description": "Avro object container files, as defined by the [avro spec](https://avro.apache.org/docs/current/spec.html#Object+Container+Files)",
           "type": "object",
           "required": [
-            "config",
-            "name"
+            "type"
           ],
           "properties": {
-            "config": {
-              "default": {},
-              "type": "object"
-            },
-            "name": {
+            "type": {
               "default": "avro",
-              "type": "string",
               "const": "avro"
             }
           }
@@ -92,17 +79,11 @@ expression: schema
           "description": "JSON objects separated by whitespace, typically a single newline. This format works for JSONL (a.k.a. JSON-newline), but also for any stream of JSON objects, as long as they have at least one character of whitespace between them.",
           "type": "object",
           "required": [
-            "config",
-            "name"
+            "type"
           ],
           "properties": {
-            "config": {
-              "default": {},
-              "type": "object"
-            },
-            "name": {
+            "type": {
               "default": "json",
-              "type": "string",
               "const": "json"
             }
           }
@@ -113,7 +94,7 @@ expression: schema
           "type": "object",
           "required": [
             "config",
-            "name"
+            "type"
           ],
           "properties": {
             "config": {
@@ -472,9 +453,8 @@ expression: schema
                 }
               }
             },
-            "name": {
+            "type": {
               "default": "csv",
-              "type": "string",
               "const": "csv"
             }
           }
@@ -484,24 +464,21 @@ expression: schema
           "description": "A W3C Extended Log file, as defined by the working group draft at: https://www.w3.org/TR/WD-logfile.html",
           "type": "object",
           "required": [
-            "config",
-            "name"
+            "type"
           ],
           "properties": {
-            "config": {
-              "default": {},
-              "type": "object"
-            },
-            "name": {
+            "type": {
               "default": "w3cExtendedLog",
-              "type": "string",
               "const": "w3cExtendedLog"
             }
           }
         }
       ],
+      "required": [
+        "type"
+      ],
       "discriminator": {
-        "propertyName": "name"
+        "propertyName": "type"
       }
     }
   }
