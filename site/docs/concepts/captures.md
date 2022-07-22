@@ -77,8 +77,16 @@ If you see a connector you'd like to prioritize for access in the Flow web app, 
 
 ### Discovery
 
-Flow offers a CLI tool `flowctl discover --image connector/image:tag` which
-provides a guided workflow for creating a correctly configured capture.
+To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
+
+To begin discovery, you tell Flow the connector you'd like to use and basic information about the endpoint.
+Flow automatically stubs out the capture configuration for you. It identifies one or more
+**resources** — tables, data streams, or the equivalent — and generates **bindings** so that each will be mapped to a
+data collection in Flow.
+
+You may then modify the generated configuration as needed before publishing the capture.
+
+For detailed steps, see the [guide to create a dataflow in the web app](../guides/create-dataflow.md#create-a-capture).
 
 ## Push captures
 

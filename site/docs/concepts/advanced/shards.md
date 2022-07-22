@@ -1,11 +1,5 @@
 # Task shards
 
-:::tip
-Task shards are an advanced concept of Flow.
-You can use Flow without knowing the details of shards,
-but this section may help you better understand how Flow works.
-:::
-
 Catalog [tasks](../README.md#tasks) — captures, derivations, and materializations —
 are executed by one or more task **shards**.
 
@@ -22,24 +16,35 @@ https://gazette.readthedocs.io/en/latest/consumers-concepts.html#shards).
 ## Shard splits
 
 When a task is first created, it is initialized with a single shard.
-Later and as required, a shard can be split into two shards.
-Once initiated, the split may require up to a few minutes to complete,
-but it doesn't require downtime and the selected shard continues
-to run until the split occurs.
+Later and as required, shards may be split into two shards.
+This is done automatically for you depending on the size of your task.
+Shard splitting doesn't require downtime; your task will continue to run as normal
+on the old shard until the split occurs and then shift seamlessly to the new, split shards.
 
-This process can be repeated as needed until your required throughput is achieved.
+This process is repeated as needed until your required throughput is achieved.
 
-:::caution TODO
-This section is incomplete.
-See `flowctl shards split --help` for further details.
-:::
+## Transactions
+
+Shards process messages in dynamic **transactions**.
+
+Whenever a message is ready to be processed by the task (when new documents appear at the source endpoint or collection),
+a new transaction is initiated.
+The transaction will continue so long as further messages are available for processing.
+When no more messages are immediately available, the transaction closes.
+A new transaction is started whenever the next message is available.
+
+In general, shorter transaction durations decrease latency, while longer transaction durations
+increase efficiency.
+Flow automatically balances these two extremes to optimize each task,
+but it may be useful in some cases to control transaction duration.
+For example, materializations to large analytical warehouses may benefit from longer transactions,
+which can reduce cost by performing more data reduction before landing data in the warehouse.
+Some endpoint systems, like [BigQuery](../../reference/Connectors/materialization-connectors/BigQuery.md#performance-considerations), limit the number of table operations you can perform.
+Longer transaction durations ensure that you don't exceed these limits.
+
+You can set the minimum and maximum transaction duration in a task's [shards configuration](../../reference/Configuring-task-shards.md).
 
 ## Recovery logs
-
-:::info
-Shard stores and associated states are transparent to you, the Flow user.
-This section is informational only, to provide a sense of how Flow works.
-:::
 
 All task shards have associated state, which is managed in the shard's store.
 

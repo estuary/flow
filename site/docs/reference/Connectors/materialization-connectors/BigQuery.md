@@ -11,6 +11,19 @@ The tables in the bucket act as a temporary staging area for data storage and re
 
 [`ghcr.io/estuary/materialize-bigquery:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-bigquery) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
+## Performance considerations
+
+Like other Estuary connectors, this is a real-time connector that materializes documents using continuous [transactions](../../../concepts/advanced/shards.md#transactions).
+However, in practice, there are speed limitations.
+Standard BigQuery tables are [limited to 1500 operations per day](https://cloud.google.com/bigquery/quotas#standard_tables).
+This means that the connector is limited 1500 transactions per day.
+
+To avoid running up against this limit, you should set the minimum transaction time to a recommended value of 2 minutes,
+or a minimum value of 1 minute. You do this by configuring the materialization's [task shard](../../Configuring-task-shards.md). This causes an apparent delay in the materialization, but is necessary to prevent error.
+This also makes transactions more efficient, which reduces costs in BigQuery, especially for large datasets.
+
+Instructions to set the minimum transaction time are detailed [below](#shard-configuration)
+
 ## Prerequisites
 
 To use this connector, you'll need:
@@ -25,7 +38,6 @@ To use this connector, you'll need:
 
     See [Setup](#setup) for detailed steps to set up your service account.
 * At least one Flow collection
-
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -51,7 +63,6 @@ During account creation:
    ```
 
    You'll use the resulting string when you configure the connector.
-
 
 ## Configuration
 
@@ -85,6 +96,32 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 | **`/table`** | Table | Table name. | string | Required |
 | `/delta_updates` | Delta updates. | Whether to use standard or [delta updates](#delta-updates) | boolean | false |
 
+### Shard configuration
+
+:::info Beta
+Controls for this workflow will be added to the Flow web app's UI in the future.
+For now, you must edit the materialization config manually, either in the web app or using the CLI
+:::
+
+To avoid exceeding your BigQuery tables' daily operation limits as discussed in [Performance considerations](#performance-considerations),
+complete the following steps when configuring your materialization:
+
+1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the flowctl CLI,
+create a draft materialization. Don't publish it yet.
+
+2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization at the same indentation level as `endpoint` and `resource`.
+Set the `minTxnDuration` property to at least `1m` (we recommend`2m`).
+In the web app, you do this in the catalog editor.
+
+```yaml
+shards:
+  minTxnDuration: 2m
+```
+
+A full sample is included [below](#sample).
+
+3. Continue to test and publish the materialization.
+
 ### Sample
 
 ```yaml
@@ -105,7 +142,9 @@ materializations:
     bindings:
   	- resource:
       	table: ${table_name}
-    source: ${PREFIX}/${source_collection}
+      source: ${PREFIX}/${source_collection}
+    shards:
+      minTxnDuration: 2m
 ```
 
 ## Delta updates

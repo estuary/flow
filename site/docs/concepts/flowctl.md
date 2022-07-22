@@ -4,20 +4,18 @@ sidebar_position: 5
 # flowctl
 
 There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
-With flowctl, you can work on drafts and active catalogs created in the webapp with a
+With flowctl, you can work on drafts and active catalogs created in the web app with a
 higher degree of control.
-You can also authenticate Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md).
+You can also authorize Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md).
 
 flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
 
 ## Installation
 
-:::info Beta
-Simplified installation is coming soon.
+flowctl binaries for MacOS and Linux can be found [here](https://go.estuary.dev/flowctl).
 
-For now, you can [contact Estuary support](mailto:support@estuary.dev) for access.
-:::
+Download the correct binary, make it executable, and add it to your `PATH`.
 
 ## flowctl subcommands
 
