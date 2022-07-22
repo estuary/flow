@@ -13,6 +13,9 @@ CONSUMER_PORT=9000
 export BROKER_ADDRESS=http://localhost:$BROKER_PORT
 export CONSUMER_ADDRESS=http://localhost:$CONSUMER_PORT
 
+# The kms key used by the local config-encryption. All of estuary engineering should have access to this key.
+TEST_KMS_KEY=projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing
+
 function log() {
     echo -e "$@" 1>&2
 }
@@ -54,6 +57,11 @@ function project_dir() {
     else
         echo "$ANIMATED_CARNIVAL_PARENT_DIR/$project"
     fi
+}
+
+function start_config_encryption() {
+    cd "$(project_dir 'config-encryption')"
+    must_run cargo run -- --gcp-kms "$TEST_KMS_KEY"
 }
 
 function start_ui() {
@@ -114,6 +122,9 @@ case "$1" in
         ;;
     control-plane-agent)
         start_control_plane_agent
+        ;;
+    config-encryption)
+        start_config_encryption
         ;;
     *)
         bail "Invalid argument: '$1'"
