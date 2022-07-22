@@ -65,6 +65,7 @@ supabase -v
 * A local checkout of [github.com/estuary/flow](github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
 * A local checkout of [github.com/estuary/data-plane-gateway](github.com/estuary/data-plane-gateway).
 * A local checkout of [github.com/estuary/ui](github.com/estuary/ui).
+* A local checkout of [github.com/estuary/config-encryption](github.com/estuary/config-encryption).
 * A local checkout of this repository.
 
 ### Start Supabase:

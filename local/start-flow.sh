@@ -65,7 +65,7 @@ log "Created new tmux session called '$SESSION'"
 # tmux seems to always create a window automatically
 tmux send-keys -t "=${SESSION}:=terminal" 'echo Use this terminal for whatever you want' Enter
 
-flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway")
+flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway" "config-encryption")
 for component in ${flow_components[@]}; do
     start_component "$component"
 done
