@@ -699,7 +699,7 @@ mod test {
         // the `config` property will suddently fail to deserialize. This test is here to fail in
         // the case that someone adds a config object to a variant that currently has none.
         // If you're here because this is failing, fear not. There's a way to fix it. Add a custom
-        // `Deserialize` impl for `Format` that deserializes the `config` using two passes. One the
+        // `Deserialize` impl for `Format` that deserializes the `config` using two passes. On the
         // first pass, deserialize it into a `Value` or `RawValue`. Then, once the target variant
         // (and thus the target type of `config`) is known, deserialize that as the typed value.
         let types = ["json", "auto", "avro", "w3cExtendedLog"];
