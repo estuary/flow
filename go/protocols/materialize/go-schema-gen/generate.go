@@ -3,7 +3,7 @@ package schemagen
 import (
 	"reflect"
 
-	"github.com/alecthomas/jsonschema"
+	"github.com/invopop/jsonschema"
 )
 
 /// WARNING: This file is copied from github.com/estuary/connectors/go-schema-gen/generate.go.
@@ -27,15 +27,15 @@ func GenerateSchema(title string, configObject interface{}) *jsonschema.Schema {
 	schema.AdditionalProperties = nil // Unset means additional properties are permitted on the root object, as they should be
 	schema.Definitions = nil          // Since no references are used, these definitions are just noise
 	schema.Title = title
-	fixSchemaFlagBools(schema.Type, "secret", "advanced", "multiline")
+	fixSchemaFlagBools(schema, "secret", "advanced", "multiline")
 	return schema
 }
 
-func fixSchemaFlagBools(t *jsonschema.Type, flagKeys ...string) {
+func fixSchemaFlagBools(t *jsonschema.Schema, flagKeys ...string) {
 	if t.Properties != nil {
 		for _, key := range t.Properties.Keys() {
 			if p, ok := t.Properties.Get(key); ok {
-				if p, ok := p.(*jsonschema.Type); ok {
+				if p, ok := p.(*jsonschema.Schema); ok {
 					fixSchemaFlagBools(p, flagKeys...)
 				}
 			}
