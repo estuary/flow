@@ -54,18 +54,11 @@ The Control Plane issues access tokens via the `gateway_auth_token` function whi
 
 You'll need:
 
-* An installation of the [Supabase CLI](https://github.com/supabase/cli/releases). Grab the latest release (currently 0.25):
-
-```console
-wget https://github.com/supabase/cli/releases/download/v0.25.0/supabase_0.25.0_linux_amd64.deb
-sudo dpkg -i supabase_0.25.0_linux_amd64.deb
-supabase -v
-```
-
-* A local checkout of [github.com/estuary/flow](github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
-* A local checkout of [github.com/estuary/data-plane-gateway](github.com/estuary/data-plane-gateway).
-* A local checkout of [github.com/estuary/ui](github.com/estuary/ui).
-* A local checkout of [github.com/estuary/config-encryption](github.com/estuary/config-encryption).
+* An installation of the [Supabase CLI](https://github.com/supabase/cli). Follow the installation instructions to install the latest version.
+* A local checkout of [github.com/estuary/flow](https://github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
+* A local checkout of [github.com/estuary/data-plane-gateway](https://github.com/estuary/data-plane-gateway).
+* A local checkout of [github.com/estuary/ui](https://github.com/estuary/ui).
+* A local checkout of [github.com/estuary/config-encryption](https://github.com/estuary/config-encryption).
 * A local checkout of this repository.
 
 ### Start Supabase:
