@@ -20,13 +20,12 @@ Use the below properties to configure a Postgres materialization, which will dir
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| `/database` | Database | Name of the logical database to materialize to. | string |  |
-| **`/host`** | Host | Host name of the database. | string | Required |
-| **`/password`** | Password | Password for the specified database user. | string | Required |
-| `/port` | Port | Port on which to connect to the database. | integer |  |
-| **`/user`** | User | Database user to connect as. | string | Required |
+| Property        | Title    | Description                                     | Type    | Required/Default |
+|-----------------|----------|-------------------------------------------------|---------|------------------|
+| `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
+| **`/address`**  | Address  | Host and port of the database                   | string  | Required         |
+| **`/password`** | Password | Password for the specified database user.       | string  | Required         |
+| **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
 
 #### Bindings
 
@@ -44,9 +43,8 @@ materializations:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
           database: flow
-          host: localhost
+          address: localhost:5432
           password: flow
-          port: 5432
           user: flow
     bindings:
       - resource:
