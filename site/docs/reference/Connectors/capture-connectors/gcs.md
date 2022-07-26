@@ -44,7 +44,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 | `/googleCredentials` | Google Service Account | Service account JSON key to use as Application Default Credentials | string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
 | `/parser` | Parser Configuration | Configures how files are parsed | object |  |
-| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | string | `auto` |
 | `/parser/format` |  | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"auto":{}}` |
 | `/parser/format/auto` | Auto |  | object | `{}` |
 | `/parser/format/avro` | Avro |  | object | `{}` |

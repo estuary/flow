@@ -35,6 +35,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Google Sheets
   * [Configuration](./google-sheets.md)
   * Package - ghcr.io/estuary/source-google-sheets:dev
+* HTTP file
+  * [Configuration](./http-file.md)
+  * Package - ghcr.io/estuary/source-http-file:dev
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/source-hubspot:dev
