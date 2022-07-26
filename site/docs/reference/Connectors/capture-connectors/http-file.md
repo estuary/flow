@@ -30,6 +30,13 @@ If necessary, you can specify the correct file type, compression, and other prop
 ## Prerequisites
 
 To use this connector, you'll need the URL to an HTTP endpoint that hosts data of one of the supported types.
+The HTTP endpoint must support [`HEAD`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) HTTP requests, and the response to this request must include a [`Last-Modified`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Last-Modified) header.
+
+:::tip
+You can send a test `HEAD` request using Curl with the `-I` parameter, for example:
+`curl -I https://my-site.com/my_hosted_dataset.json.zip`
+Use [this online tool](https://reqbin.com/req/c-tmyvmbgu/curl-head-request-example) to easily do so in your browser.
+:::
 
 Some HTTP endpoints require credentials for access.
 If this is the case, have your username and password ready.
