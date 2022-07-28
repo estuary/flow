@@ -1,63 +1,43 @@
 ---
 sidebar_position: 1
-description: Get set up to run Flow for local development.
 ---
 
-# Setting up a development environment
+# Registration and setup
 
-:::info
-The Flow runtime is available for non-commercial use under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL).
+Estuary Flow is a hosted web application that also offers a robust CLI.
 
-This section of documentation is designed to get you acquainted with using Flow in a local development environment.
-It includes setup guidance and a quick but powerful tutorial.
+Flow is currently in private beta. Essentially, this means that it's available to you, but new sign-ups are personally reviewed by our team.
 
-Should you choose to self-host Flow using a cloud provider of your choice, note that setup is _not_ covered in this documentation.
-Refer to the [GitHub repository](https://github.com/estuary/flow) or the [Estuary Slack](https://join.slack.com/t/estuary-dev/shared_invite/zt-86nal6yr-VPbv~YfZE9Q~6Zl~gmZdFQ).
+## Get started with the Flow web application
 
-If you're using the Flow web application, see the [guide](../guides/create-dataflow.md) to get started.
+You can sign up to get started as a Flow trial user by visiting the web application [here](https://go.estuary.dev/dashboard).
+
+Once you've signed up with your personal information, an Estuary team member will be in touch to activate your account and discuss your business use-case, if applicable.
+
+## Get started with the Flow CLI
+
+After your account has been activated through the [web app](#get-started-with-the-flow-web-application), you can begin to work with your data flows from the command line.
+This is not required, but it enables more advanced workflows or might simply be your preference.
+
+Flow has a single binary, flowctl. You can download it [here](https://go.estuary.dev/flowctl).
+
+[Learn more about using flowctl.](../concepts/flowctl.md)
+
+## Self-hosting Flow
+
+The Flow runtime is available for non-commercial use under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Flow using a cloud provider of your choice.
+
+:::caution Beta
+Setup for self-hosting is not covered in this documentation, and full support is not guaranteed at this time.
+We recommend using the [hosted version of Flow](#get-started-with-the-flow-web-application) for the best experience.
+If you'd still like to self-host, refer to the [GitHub repository](https://github.com/estuary/flow) or the [Estuary Slack](https://join.slack.com/t/estuary-dev/shared_invite/zt-86nal6yr-VPbv~YfZE9Q~6Zl~gmZdFQ).
 :::
 
-Flow includes a [**devcontainer**](https://code.visualstudio.com/docs/remote/containers), which provides a nice development experience using a self-contained Docker-based environment. This is an easy way to get a great development experience using Flow, with auto-completion and an ideal setup for your catalog. There are currently two ways to set this up: virtually, using GitHub Codespaces, and locally, using VS Code and Docker on your machine.
+## What's next?
 
-## Using GitHub Codespaces
+Start using Flow with these recommended resources.
 
-[GitHub codespaces](https://github.com/features/codespaces) provides VM-backed, portable development environments that are ideal for getting started with Flow in minutes. Currently, Codespaces is available to GitHub Teams and Enterprise customers, as well as individuals enrolled in the beta. If you have access, this is the preferred method — setting up a devcontainer in Codespaces is much quicker than doing so locally.
+* **[Create your first data flow](../guides/create-dataflow.md)**:
+Follow this guide to create your first data flow in the Flow web app, while learning essential flow concepts.
 
-Visit the [Flow Template repository](https://github.com/estuary/flow-template), click **Code**, and choose **New Codespace**.
-
-The VM spins up within a minute or two, and you can immediately begin developing and testing. The template includes a PostgreSQL database for this purpose.
-
-## Using Visual Studio Code locally
-
-If you don't have access to Codespaces, or prefer local development, use this method to create a local environment.
-
-Download and install the following prerequisites:
-
-* [Docker](https://www.docker.com/get-started)
-* [VS Code](https://code.visualstudio.com)
-* VS Code [Remote Containers extension](https://code.visualstudio.com/docs/remote/containers)
-
-#### Create a Git repository from the Flow Template <a href="#create-a-git-repository-from-the-flow-template" id="create-a-git-repository-from-the-flow-template"></a>
-
-Visit the [Flow Template repository](https://github.com/estuary/flow-template) on GitHub, click on **Use this template**, and proceed to create your repository.
-
-#### Open in VS Code <a href="#open-in-vs-code" id="open-in-vs-code"></a>
-
-Clone your repository locally and open it in VS Code. You'll see a popup in the lower right corner asking if you'd like to re-open the repository in a container. Click **Re-open in container**. It may take several minutes to download components and build the container.
-
-## Test your environment
-
-Regardless of the method you used, first test everything is working as expected. The repository contains a sample project, which includes a test. (It also serves as a quick tutorial, which we recommend as a next step).
-
-In a terminal window, run:
-```console
-flowctl test --source word-counts.flow.yaml
-```
-Verify that it returns:
-```console
-Ran 1 tests, 1 passed, 0 failed
-```
-
-You're now ready to start using Flow!
-
-[Proceed to the Flow introductory tutorial](flow-tutorials/hello-flow.md).
+* **[High level concepts](../concepts/README.md)**: Start here to learn more about important Flow terms.

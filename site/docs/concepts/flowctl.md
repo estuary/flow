@@ -1,21 +1,26 @@
 ---
 sidebar_position: 5
 ---
+import Mermaid from '@theme/Mermaid';
+
 # flowctl
 
 There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
-With flowctl, you can work on drafts and active catalogs created in the web app with a
-higher degree of control.
-You can also authorize Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md).
+flowctl gives you more direct control over the files and directories that comprise your data flows' **catalogs**.
+You can work with any catalog to which you have [access](../reference/authentication.md), regardless of whether it was created from the command line or in the web app.
+
+You can also authorize Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
 
 flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
 
-## Installation
+## Installation and setup
 
 flowctl binaries for MacOS and Linux can be found [here](https://go.estuary.dev/flowctl).
 
-Download the correct binary, make it executable, and add it to your `PATH`.
+1. Download the correct binary, make it executable, and add it to your `PATH`.
+
+2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
 ## flowctl subcommands
 
@@ -32,48 +37,59 @@ It's also how you provision Flow roles and users. Learn more about [authenticati
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 
-* `flowctl --help` lists top-level flowctl subcommands
+* `flowctl --help` lists top-level flowctl subcommands.
 
-* `flowctl catalog --help` lists subcommands of `catalog`
+* `flowctl catalog --help` lists subcommands of `catalog`.
 
-## Build directory
+## Working with catalog drafts
 
-When building Flow catalogs, `flowctl` uses a **build directory**
-which is typically the root directory of your project, and is controlled by flag `--directory`.
-Within this directory, `flowctl` creates a number of files and sub-directories.
-Except where noted, it's recommended that these outputs be committed within your GitOps project.
+`flowctl draft` allows you to work with Flow catalog specifications and deploy changes.
+Because you must work with catalog specifications in the draft state prior to deployment, `draft` is an essential flowctl subcommand that you'll use often.
 
-* `flow_generated/`: ♻
+With `draft`, you:
+
+* Create new drafts or convert active catalogs into drafts.
+* Pull a draft created in the web app or on the command line into your current working directory.
+* Develop the draft locally.
+* Author your local changes to the draft. This is equivalent to syncing changes.
+* Test and publish the draft to activate the catalog.
+
+
+<Mermaid chart={`
+	graph LR;
+    a((Start));
+    s[Selected, synced draft];
+    d[Local draft];
+    c[Active catalog];
+    s-- flowctl draft develop -->d;
+    d-- flowctl draft author -->s;
+    s-- flowctl draft publish -->c;
+    a-- flowctl draft select -->s;
+    d-- Work locally -->d;
+`}/>
+
+## Development directories
+
+Most of the work you perform with flowctl takes place remotely on Estuary infrastructure.
+You'll only see files locally when you are actively developing a draft.
+
+These files are created automatically within your current working directory.
+
+They typically include:
+
+* `flow.yaml`:
+  The main specification file that imports all other catalog specifications in the current draft. As part of local development, you may add new specifications that you create as imports.
+* `flow_generated/`:
   Directory of generated files, including TypeScript classes and interfaces.
   See [TypeScript code generation](#typescript-code-generation).
-
-* `dist/`: ♻
-  Holds JavaScript and source map files produced during TypeScript compilation.
-  `dist/` should be added to your `.gitignore`.
-
-* `node_modules/`: ♻
-  Location where `npm` will download your TypeScript dependencies.
-  `node_modules/` should be added to your `.gitignore`.
-
-* `package.json` and `package-lock.json`: ♻
+* `estuary/`:
+  Directory of the draft's current specifications. Its contents will vary, but it may contain various YAML files and subdirectories.
+* `package.json` and `package-lock.json`: 
   Files used by `npm` to manage dependencies and your catalog's associated JavaScript project.
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
-  [npmDependencies](import.md#npm-dependencies)
-  of your catalog source files.
-
-* `.eslintrc.js`: ⚓
-  Configures the TypeScript linter that's run as part of the catalog build process.
-  Linting supplements TypeScript compilation to catch additional common mistakes and errors at build time.
-
-* `.prettierrc.js`: ⚓
-  Configures the formatter that's used to format your TypeScript files.
-
-:::info Legend
-⚓: Generated only if it does not exist. Never modified or deleted by `flowctl`.
-
-♻: `flowctl` re-generates and overwrites contents.
-:::}
+  [npmDependencies](derivations.md#npm-dependencies)
+  of your catalog source files, if any exist.
 
 ### TypeScript code generation
 

@@ -6,10 +6,16 @@ sidebar_position: 6
 The YAML files that comprise a catalog specification may include an `import` section.
 This is what allows you to organize your catalog spec across multiple
 interlinked files.
-When a catalog is deployed, the imported resources are treated as part of the file
+
+A common convention for a given catalog specification is to have a single top-level YAML
+file which imports all the others.
+When you [work locally using use `flowctl draft`,](../concepts/flowctl.md#working-with-drafts),
+Flow automatically generates such a top-level file.
+
+When a catalog is published, the imported resources are treated as part of the file
 into which they are imported.
 
-The `import` section is structured as a list of partial or absolute URLs,
+The `import` section is structured as a list of partial or absolute URIs,
 which Flow always evaluates relative to the base directory of the current source file.
 For example, these are possible imports within a collection:
 
@@ -26,7 +32,7 @@ to be imported by another,
 and [`flowctl`](flowctl.md) can even directly build remote sources:
 
 ```bash
-# Test an example from the flow-template repository.
+# Test an example from a GitHub repository.
 $ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-template/main/word-counts.flow.yaml
 ```
 
