@@ -100,11 +100,10 @@ materializations:
           # Try this by standing up a local PostgreSQL database.
           # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
           # (Use host: host.docker.internal when running Docker for Windows/Mac).
-          host: localhost
+          address: localhost:5432
           password: password
           database: postgres
           user: postgres
-          port: 5432
     bindings:
       # Flow creates a 'citi_rides' table for us and keeps it up to date.
       - source: examples/citi-bike/rides

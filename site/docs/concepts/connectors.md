@@ -93,11 +93,10 @@ materializations:
         image: ghcr.io/estuary/materialize-postgres:dev
         # 2: Provide endpoint configuration that the connector requires.
         config:
-          host: localhost
+          address: localhost:5432
           password: password
           database: postgres
           user: postgres
-          port: 5432
     bindings:
       - source: acmeCo/products/anvils
         # 3: Provide resource configuration for the binding between the Flow
@@ -138,11 +137,10 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
-          host: localhost
+          address: localhost:5432
           password: password
           database: postgres
           user: postgres
-          port: 5432
       bindings: []
 ```
 
@@ -160,11 +158,10 @@ materializations:
 ```
 
 ```yaml title="my.config.yaml"
-host: localhost
+address: localhost:5432
 password: password
 database: postgres
 user: postgres
-port: 5432
 ```
 
 </TabItem>

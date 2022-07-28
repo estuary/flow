@@ -1,5 +1,4 @@
-host: localhost
-port: 16666
+address: localhost:16666
 user: flow
 password: flow
 database: flow
