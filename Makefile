@@ -104,7 +104,7 @@ go-protobufs: $(GO_PROTO_TARGETS)
 ${PKGDIR}/bin/etcd:
 	# For Apple M1 we are currently using an unofficial built binary. Once the official binary for
 	# M1 is released we should switch to use that: https://github.com/etcd-io/etcd/issues/14001
-	if [ "$(UNAME)" == "Darwin arm" ]; then \
+	if [ "$(UNAME)" = "Darwin arm" ]; then \
 		curl -L -o /tmp/etcd.tgz \
 										https://github.com/UniversalShipping/etcd/releases/download/${ETCD_VERSION}/etcd-binaries-darwin-arm64.tar.gz \
 						&& tar --extract \
@@ -116,7 +116,7 @@ ${PKGDIR}/bin/etcd:
 						&& rm -r /tmp/bin/ \
 						&& rm /tmp/etcd.tgz \
 						&& $@ --version; \
-	elif [ "$(UNAME)" == "Darwin i386" ]; then \
+	elif [ "$(UNAME)" = "Darwin i386" ]; then \
 		curl -L -o /tmp/etcd.zip \
 										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-darwin-amd64.zip \
 						&& echo "${ETCD_DARWIN_AMD64_SHA256} /tmp/etcd.zip" | sha256sum -c - \
