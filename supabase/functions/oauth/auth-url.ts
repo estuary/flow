@@ -1,37 +1,54 @@
-import {createClient} from "https://esm.sh/@supabase/supabase-js";
-import Handlebars from 'https://esm.sh/handlebars';
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
+import Handlebars from "https://esm.sh/handlebars";
+import { corsHeaders } from "../_shared/cors.ts";
 
-export async function authURL(req: {connector_id: string; config : object}) {
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!,
-                                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
+export async function authURL(req: {
+  connector_id: string;
+  config: object;
+  redirect_uri?: string;
+}) {
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
 
-  const {connector_id, config} = req;
+  const { connector_id, config, redirect_uri } = req;
 
-  const {data, error} = await supabase.from('connectors')
-                            .select('oauth2_client_id,oauth2_spec')
-                            .eq('id', connector_id)
-                            .single();
+  const { data, error } = await supabase
+    .from("connectors")
+    .select("oauth2_client_id,oauth2_spec")
+    .eq("id", connector_id)
+    .single();
 
   if (error != null) {
-    return new Response(
-        JSON.stringify(error),
-        {headers : {"Content-Type" : "application/json"}, status : 400});
+    return new Response(JSON.stringify(error), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 400,
+    });
   }
 
-  const {oauth2_spec, oauth2_client_id} = data;
+  const { oauth2_spec, oauth2_client_id } = data;
 
-  const state = btoa(JSON.stringify(
-      {verification_token : Math.random().toString(), connector_id}));
-  const redirect_uri = "https://dashboard.estuary.dev/oauth";
+  const state = btoa(
+    JSON.stringify({
+      verification_token: Math.random().toString(),
+      connector_id,
+    })
+  );
 
   const template = Handlebars.compile(oauth2_spec.authUrlTemplate);
-  const url =
-      template({state, redirect_uri, client_id : oauth2_client_id, config});
+  const url = encodeURI(
+    template({
+      state,
+      redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
+      client_id: oauth2_client_id,
+      config,
+    })
+  );
 
-  return new Response(
-      JSON.stringify({"url" : url}),
-      {headers : {"Content-Type" : "application/json"}},
-  )
+  return new Response(JSON.stringify({ url: url, state }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 // To invoke:
