@@ -2,6 +2,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import { corsHeaders } from "../_shared/cors.ts";
 
+const generateUniqueRandomKey = () => {
+  const validChars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let array = new Uint8Array(40) as any;
+  window.crypto.getRandomValues(array);
+  array = array.map((x: number) =>
+    validChars.codePointAt(x % validChars.length)
+  );
+  return String.fromCharCode.apply(null, array);
+};
+
 export async function authURL(req: {
   connector_id: string;
   config: object;
@@ -33,20 +44,18 @@ export async function authURL(req: {
   const finalState = btoa(
     JSON.stringify({
       ...(state ?? {}),
-      verification_token: Math.random().toString(),
+      verification_token: generateUniqueRandomKey(),
       connector_id,
     })
   );
 
   const template = Handlebars.compile(oauth2_spec.authUrlTemplate);
-  const url = encodeURI(
-    template({
-      finalState,
-      redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
-      client_id: oauth2_client_id,
-      config,
-    })
-  );
+  const url = template({
+    state: finalState,
+    redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
+    client_id: oauth2_client_id,
+    config,
+  });
 
   return new Response(JSON.stringify({ url: url, state: finalState }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
