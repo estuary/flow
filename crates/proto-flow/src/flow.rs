@@ -462,7 +462,9 @@ pub mod materialization_spec {
 /// OAuth2Spec describes an OAuth2 provider
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OAuth2Spec {
-    /// Name of the OAuth2 provider
+    /// Name of the OAuth2 provider. This is a machine-readable key and must stay
+    /// consistent. One example use case is to map providers to their respective
+    /// style of buttons in the UI
     #[prost(string, tag="1")]
     pub provider: ::prost::alloc::string::String,
     // The templates below are handlebars templates and have a set of variables
@@ -471,7 +473,17 @@ pub struct OAuth2Spec {
     // redirect_uri: OAuth2 provider client registered redirect URI
     //
     // Variables available in Auth URL request:
-    // state: the state parameter
+    // state: the state parameter: this parameter is used to prevent attacks
+    // against our users. the parameter must be generated randomly and not
+    // guessable. It must be associated with a user session, and we must check in
+    // our redirect URI that the state we receive from the OAuth provider is the
+    // same as the one we passed in. Scenario: user A can initiate an OAuth2 flow,
+    // and send the OAuth Provider's Login URL to another person, user B. Once
+    // this other person logs in through the OAuth2 Provider, they will be
+    // redirected, and if there is no state check, we will authorise user A
+    // to access user B's account. With the state check, the state will not be
+    // available in user B's session, and therefore the state check will fail,
+    // preventing the attack.
     //
     // Variables available in Access Token request:
     // code: the code resulting from the suthorization step used to fetch the
