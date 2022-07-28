@@ -10,8 +10,7 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
-          host: localhost
-          port: 2345
+          address: localhost:2345
           user: flow
           password: flow
           database: flow
