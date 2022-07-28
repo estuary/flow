@@ -15,11 +15,11 @@ serve(async (req) => {
   }
 
   const request = await req.json();
-  if (request.operation == "auth-url") {
+  if (request.operation === "auth-url") {
     return authURL(request);
-  } else if (request.operation == "access-token") {
+  } else if (request.operation === "access-token") {
     return accessToken(request);
-  } else if (request.operation == "encrypt-config") {
+  } else if (request.operation === "encrypt-config") {
     return encryptConfig(request);
   } else {
     return new Response(JSON.stringify({ error: "unknown_operation" }), {
