@@ -56,20 +56,9 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials/password` | Password | Password, if required to access the HTTP endpoint. | string |  |
 | `/credentials/user` | User | Username, if required to access the HTTP endpoint. | string |  |
 | `/parser` | Parser Configuration | Configures how files are parsed | object |  |
-| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | string | `auto` |
-| `/parser/format` |  | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"auto":{}}` |
-| `/parser/format/auto` |  |  | object | `{}` |
-| `/parser/format/avro` |  |  | object | `{}` |
-| `/parser/format/csv` |  |  | object |  |
-| `/parser/format/csv/delimiter` | Delimiter | The delimiter that separates values within each row. Only single-byte delimiters are supported. | null, string | `null` |
-| `/parser/format/csv/encoding` | Encoding | The character encoding of the source file. If unspecified, then the parser will make a best-effort guess based on peeking at a small portion of the beginning of the file. If known, it is best to specify. Encodings are specified by their WHATWG label. | null, string | `null` |
-| `/parser/format/csv/errorThreshold` | Error Threshold | Allows a percentage of errors to be ignored without failing the entire parsing process. When this limit is exceeded, parsing halts. | integer | `0` |
-| `/parser/format/csv/escape` | Escape Character | The escape character, used to escape quotes within fields. | null, string | `null` |
-| `/parser/format/csv/headers` |  | Manually specified headers, which can be used in cases where the file itself doesn&#x27;t contain a header row. If specified, then the parser will assume that the first row is data, not column names, and the column names given here will be used. The column names will be matched with the columns in the file by the order in which they appear here. | array | `[]` |
-| `/parser/format/csv/lineEnding` | Line Ending | The value that terminates a line. Only single-byte values are supported, with the exception of &quot;&#x5C;r&#x5C;n&quot; (CRLF), which will accept lines terminated by either a carriage return, a newline, or both. | null, string | `null` |
-| `/parser/format/csv/quote` | Quote Character | The character used to quote fields. | null, string | `null` |
-| `/parser/format/json` |  |  | object | `{}` |
-| `/parser/format/w3cExtendedLog` |  |  | object | `{}` |
+| `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
+| `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
+| `/parser/format/type` | Type |  | string |  |
 | **`/url`** | HTTP File URL | A valid HTTP url for downloading the source file. | string | Required |
 
 #### Bindings
@@ -89,6 +78,17 @@ captures:
         image: ghcr.io/estuary/source-http-file:dev
         config:
           url: https://my-site.com/my_hosted_dataset.json.zip
+          parser:
+            compression: zip
+            format:
+              type: csv
+              config:
+                delimiter: ","
+                encoding: UTF-8
+                errorThreshold: 5
+                headers: [ID, username, first_name, last_name]
+                lineEnding: "\\r"
+                quote: "\""
     bindings:
       - resource:
           stream: my_hosted_dataset.json.zip
@@ -108,7 +108,7 @@ so you won't need to change the parser configuration for most captures.
 
 However, the automatic detection may be incorrect in some cases.
 To fix or prevent this, you can provide explicit information in the parser configuration,
-which is part of the [endpoint configuration](#endpoint) for this connector.
+which is part of the endpoint configuration for this connector.
 
 The parser configuration includes:
 
@@ -130,14 +130,43 @@ Options are:
    * **JSON**
    * **W3C Extended Log**
 
-Only CSV data requires further configuration. When capturing CSV data, you must specify:
+#### CSV configuration
 
-* **Delimiter**
+Only CSV data allows further configuration. When capturing CSV data, you may additionally specify:
+
+* **Delimiter**. Options are:
+  * Comma (`","`)
+  * Pipe (`"|"`)
+  * Space (`"0x20"`)
+  * Semicolon (`";"`)
+  * Tab (`"0x09"`)
+  * Vertical tab (`"0x0B"`)
+  * Unit separator (`"0x1F"`)
+  * SOH (`"0x01"`)
+  * Auto
+
 * **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
-* Optionally, an **Error threshold**, as an acceptable percentage of errors.
-* **Escape characters**
-* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
-* **Line ending** values
-* **Quote character**
 
-Descriptions of these properties are included in the [table above](#endpoint).
+* Optionally, an **Error threshold**, as an acceptable percentage of errors.
+
+* **Escape characters**. Options are:
+  * Backslash (`"\\"`)
+  * Disable escapes (`""`)
+  * Auto
+
+* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
+
+* **Line ending** values
+  * CRLF (`"\\r\\n"`) (Windows)
+  * CR (`"\\r"`)
+  * LF (`"\\n"`)
+  * Record Separator (`"0x1E"`)
+  * Auto
+  
+* **Quote character**
+  * Double Quote (`"\""`)
+  * Single Quote (`"`)
+  * Disable Quoting (`""`)
+  * Auto
+
+The YAML sample [above](#sample) includes these fields.
