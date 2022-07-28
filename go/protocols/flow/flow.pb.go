@@ -1375,7 +1375,9 @@ var xxx_messageInfo_MaterializationSpec_Binding proto.InternalMessageInfo
 
 // OAuth2Spec describes an OAuth2 provider
 type OAuth2Spec struct {
-	// Name of the OAuth2 provider
+	// Name of the OAuth2 provider. This is a machine-readable key and must stay
+	// consistent. One example use case is to map providers to their respective
+	// style of buttons in the UI
 	Provider string `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	// Template for authorization URL, this is the first step of the OAuth2 flow
 	// where the user is redirected to the OAuth2 provider to authorize access to
