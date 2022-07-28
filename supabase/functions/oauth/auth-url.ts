@@ -6,13 +6,14 @@ export async function authURL(req: {
   connector_id: string;
   config: object;
   redirect_uri?: string;
+  state?: object;
 }) {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const { connector_id, config, redirect_uri } = req;
+  const { connector_id, config, redirect_uri, state } = req;
 
   const { data, error } = await supabase
     .from("connectors")
@@ -29,8 +30,9 @@ export async function authURL(req: {
 
   const { oauth2_spec, oauth2_client_id } = data;
 
-  const state = btoa(
+  const finalState = btoa(
     JSON.stringify({
+      ...(state ?? {}),
       verification_token: Math.random().toString(),
       connector_id,
     })
@@ -39,14 +41,14 @@ export async function authURL(req: {
   const template = Handlebars.compile(oauth2_spec.authUrlTemplate);
   const url = encodeURI(
     template({
-      state,
+      finalState,
       redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
       client_id: oauth2_client_id,
       config,
     })
   );
 
-  return new Response(JSON.stringify({ url: url, state }), {
+  return new Response(JSON.stringify({ url: url, state: finalState }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
