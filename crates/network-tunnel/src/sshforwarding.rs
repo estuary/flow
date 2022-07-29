@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::io::ErrorKind;
 use std::os::unix::prelude::PermissionsExt;
 use std::process::Stdio;
 
@@ -234,6 +236,24 @@ impl NetworkTunnel for SshForwarding {
         }
 
         Ok(())
+    }
+
+    async fn cleanup(&mut self) -> Result<(), Error> {
+        if let Some(process) = self.process.as_mut() {
+            match process.kill().await {
+                // InvalidInput means the process has already exited, in which case
+                // we do not need to cleanup the process
+                Err(e) if e.kind() == ErrorKind::InvalidInput => Ok(()),
+                a => a
+            }?;
+        }
+
+        Ok(())
+    }
+
+    // This is only used for testing
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
