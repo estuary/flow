@@ -6,10 +6,16 @@ sidebar_position: 6
 The YAML files that comprise a catalog specification may include an `import` section.
 This is what allows you to organize your catalog spec across multiple
 interlinked files.
-When a catalog is deployed, the imported resources are treated as part of the file
+
+A common convention for a given catalog specification is to have a single top-level YAML
+file which imports all the others.
+When you [work locally using use `flowctl draft`,](../concepts/flowctl.md#working-with-drafts),
+Flow automatically generates such a top-level file.
+
+When a catalog is published, the imported resources are treated as part of the file
 into which they are imported.
 
-The `import` section is structured as a list of partial or absolute URLs,
+The `import` section is structured as a list of partial or absolute URIs,
 which Flow always evaluates relative to the base directory of the current source file.
 For example, these are possible imports within a collection:
 
@@ -26,20 +32,20 @@ to be imported by another,
 and [`flowctl`](flowctl.md) can even directly build remote sources:
 
 ```bash
-# Test an example from the flow-template repository.
+# Test an example from a GitHub repository.
 $ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-template/main/word-counts.flow.yaml
 ```
 
 ## Fetch behavior
 
-Flow resolves, fetches, and validates all imports during the catalog build process,
-and then includes their fetched contents within the built catalog.
+Flow resolves, fetches, and validates all imports in your local environment during the catalog build process,
+and then includes their fetched contents within the built catalog on the Estuary servers.
 The built catalog is thus a self-contained snapshot of all resources
 _as they were_ at the time the catalog was built.
 
 This means it's both safe and recommended to directly reference
-an authoritative source of a resource, such as a third-party JSON schema.
-It will be fetched and verified only at catalog build time,
+an authoritative source of a resource, such as a third-party JSON schema, as well as resources within your private network.
+It will be fetched and verified locally during catalog build time,
 and thereafter that fetched version will be used for execution,
 regardless of whether the authority URL itself later changes or errors.
 
