@@ -23,10 +23,9 @@ and an open-source ecosystem of pluggable connectors for integrating your existi
 
 ### Quick start
 
-:::info Beta
-Flow is in private beta.
-To get started, read more about the beta program and set up a free discovery call with the Estuary team [here](https://go.estuary.dev/sign-up).
-:::
+**Want to get up and running ASAP?**
+
+See the [get started documentation](../getting-started/installation.md),
 
 **Wondering if Flow is right for you?**
 
@@ -34,23 +33,6 @@ If you're unsure if Flow is the right solution for your data integration needs, 
 
 * **[Who should use Flow?](overview/who-should-use-flow.md)**
 * **[Comparisons with other systems](overview/comparisons.md)**
-
-**Want to get up and running ASAP?**
-
-There are two ways to get started with Flow: using the web application,
-or self-hosting.
-
-**Using the web application** is the recommended pathway for production data flows
-and collaboration with large teams.
-
-* Follow the guide to [create your first data flow](../guides/create-dataflow.md).
-
-**To self-host**, you'll work directly from the Flow runtime source code, using your own development environment and storage.
-Flow is available for non-commercial use and testing under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL).
-Begin by trying Flow in a local environment as described in the following documentation.
-
-* **[Set up a development environment](getting-started/installation.md)**
-* **[Complete a quick tutorial](getting-started/flow-tutorials/)**
 
 **Looking to understand the concepts behind Flow at a deeper level?**
 
