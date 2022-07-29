@@ -3,6 +3,12 @@ sidebar_position: 5
 ---
 # Organizing a Flow catalog
 
+:::caution Beta
+This page is outdated. It does not reflect the current state of the Flow web application and the
+[authorization model](./authentication.md#authorizing-users-and-authenticating-with-flow) used to share
+entities in Flow catalogs. Updates are coming soon.
+:::
+
 It's not necessary to store the entire catalog spec in one YAML file, and Flow provides the flexibility to reference other files, which can be managed independently.
 You can leverage this capability when you [run Flow from the command line](../concepts/flowctl.md). You may want to do so if:
 
