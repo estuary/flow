@@ -17,8 +17,6 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { connector_id, config, schema } = req;
 
-  console.log(">>>>", req);
-
   const { data, error } = await supabase
     .from("connectors")
     .select("oauth2_client_id,oauth2_client_secret")
