@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::os::unix::prelude::PermissionsExt;
 use std::process::Stdio;
 
@@ -234,6 +235,19 @@ impl NetworkTunnel for SshForwarding {
         }
 
         Ok(())
+    }
+
+    async fn cleanup(&mut self) -> Result<(), Error> {
+        if let Some(process) = self.process.as_mut() {
+            process.kill().await?;
+        }
+
+        Ok(())
+    }
+
+    // This is only used for testing
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
