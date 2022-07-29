@@ -37,8 +37,8 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { oauth2_client_id, oauth2_client_secret } = data;
 
-  config.properties[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
-  config.properties[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
+  config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
+  config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
 
   const response = await fetch(ENCRYPTION_SERVICE, {
     method: "POST",
