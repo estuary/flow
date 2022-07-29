@@ -25,7 +25,7 @@ Flow has a single binary, flowctl. You can download it [here](https://go.estuary
 
 ## Self-hosting Flow
 
-The Flow runtime is available for non-commercial use under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Flow using a cloud provider of your choice.
+The Flow runtime is available under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Flow using a cloud provider of your choice.
 
 :::caution Beta
 Setup for self-hosting is not covered in this documentation, and full support is not guaranteed at this time.

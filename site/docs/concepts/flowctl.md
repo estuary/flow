@@ -16,9 +16,21 @@ so distribution and upgrades are all simple.
 
 ## Installation and setup
 
-flowctl binaries for MacOS and Linux can be found [here](https://go.estuary.dev/flowctl).
+flowctl binaries for MacOS and Linux are available.
 
-1. Download the correct binary, make it executable, and add it to your `PATH`.
+1. Copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your `PATH`.
+
+   * For Linux:
+   ```console
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
+   ```
+
+   * For Mac:
+   ```console
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
+   ```
+
+   Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
 2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
@@ -73,7 +85,7 @@ With `draft`, you:
 Most of the work you perform with flowctl takes place remotely on Estuary infrastructure.
 You'll only see files locally when you are actively developing a draft.
 
-These files are created automatically within your current working directory.
+These files are created within your current working directory when you run `flowctl draft develop`.
 
 They typically include:
 
@@ -84,7 +96,7 @@ They typically include:
   See [TypeScript code generation](#typescript-code-generation).
 * `estuary/`:
   Directory of the draft's current specifications. Its contents will vary, but it may contain various YAML files and subdirectories.
-* `package.json` and `package-lock.json`: 
+* `package.json` and `package-lock.json`:
   Files used by `npm` to manage dependencies and your catalog's associated JavaScript project.
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
