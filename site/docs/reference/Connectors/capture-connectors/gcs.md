@@ -143,7 +143,9 @@ Options are:
 
 #### CSV configuration
 
-Only CSV data allows further configuration. When capturing CSV data, you may additionally specify:
+CSV files include several additional properties that are important to the parser.
+In most cases, Flow is able to automatically determine the correct values,
+but you may need to specify for unusual datasets. These properties are:
 
 * **Delimiter**. Options are:
   * Comma (`","`)
@@ -158,7 +160,7 @@ Only CSV data allows further configuration. When capturing CSV data, you may add
 
 * **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
 
-* Optionally, an **Error threshold**, as an acceptable percentage of errors.
+* Optionally, an **Error threshold**, as an acceptable percentage of errors. If set to a number greater than zero, malformed rows that fall within the threshold will be excluded from the capture.
 
 * **Escape characters**. Options are:
   * Backslash (`"\\"`)
@@ -167,13 +169,16 @@ Only CSV data allows further configuration. When capturing CSV data, you may add
 
 * Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
 
+  If any headers are provided, it is assumed that the provided list of headers is complete and authoritative.
+  The first row of your CSV file will be assumed to be data (not headers), and you must provide a header value for every column in the file.
+
 * **Line ending** values
   * CRLF (`"\\r\\n"`) (Windows)
   * CR (`"\\r"`)
   * LF (`"\\n"`)
   * Record Separator (`"0x1E"`)
   * Auto
-  
+
 * **Quote character**
   * Double Quote (`"\""`)
   * Single Quote (`"`)
