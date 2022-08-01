@@ -121,7 +121,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			continue
 		}
 		if spec.ShardTemplate.Disable {
-			log.WithField("capture", spec.Materialization.String()).
+			log.WithField("materialization", spec.Materialization.String()).
 				Info("Will skip applying materialization because it's shards are disabled")
 			continue
 		}
