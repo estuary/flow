@@ -84,7 +84,7 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | **`/dataset`** | Dataset | Name of the target BigQuery dataset. | String | Required |
 | **`/region`** | Region | The GCS region. | String | Required |
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
-| **`/bucket_path`** | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | Required |
+| `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
 | **`/credentials_json`** | Credentials JSON | Base64-encoded string of the full service account file. | Byte | Required |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
