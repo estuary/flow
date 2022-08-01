@@ -84,6 +84,11 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		if spec.ShardTemplate.Disable {
+			log.WithField("capture", spec.Capture.String()).
+				Info("Will skip applying capture because it's shards are disabled")
+			continue
+		}
 
 		driver, err := capture.NewDriver(ctx,
 			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
@@ -113,6 +118,11 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	for _, t := range tasks {
 		var spec, ok = t.(*pf.MaterializationSpec)
 		if !ok {
+			continue
+		}
+		if spec.ShardTemplate.Disable {
+			log.WithField("capture", spec.Materialization.String()).
+				Info("Will skip applying materialization because it's shards are disabled")
 			continue
 		}
 
