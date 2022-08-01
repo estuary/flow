@@ -163,7 +163,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	for _, task := range tasks {
 
 		if task.TaskShardTemplate().Disable {
-			log.WithField("task", task.TaskName()).Warn("task is disabled")
+			log.WithField("task", task.TaskName()).Info("task is disabled")
 			continue
 		}
 

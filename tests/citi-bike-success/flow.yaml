@@ -20,5 +20,40 @@ materializations:
       - source: examples/citi-bike/last-seen
         resource: { table: citi_last_seen }
 
+  # This materialization exists to document and exercise the expectation that disabled tasks
+  # do not need to connect to the target system as part of build and activation.
+  examples/citi-bike/disabled-materialization:
+    shards:
+      disable: true
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config:
+          address: not-a-real-domain.test:5432
+          user: not-a-real-user
+          password: not-a-real-password
+          database: not-a-real-database
+    bindings:
+      - source: examples/citi-bike/stations
+        resource: { table: citi_stations }
+
+captures:
+  # This capture exists to document and exercise the expectation that disabled tasks
+  # do not need to connect to the source system as part of build and activation.
+  examples/citi-bike/disabled-capture:
+    shards:
+      disable: true
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-postgres:dev
+        config:
+          address: not-a-real-domain.test:5432
+          user: not-a-real-user
+          password: not-a-real-password
+          database: not-a-real-database
+    bindings:
+      - resource: { table: not_a_real_table }
+        target: examples/citi-bike/rides
+
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }
