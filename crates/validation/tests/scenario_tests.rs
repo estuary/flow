@@ -21,6 +21,45 @@ fn test_golden_all_visits() {
 }
 
 #[test]
+fn connector_validation_is_skipped_when_shards_are_disabled() {
+    let fixture =
+        serde_yaml::from_slice(include_bytes!("validation_skipped_when_disabled.yaml")).unwrap();
+    let tables = run_test(
+        fixture,
+        &flow::build_api::Config {
+            build_id: "validation-skipped-build-id".to_string(),
+            ..Default::default()
+        },
+    );
+
+    assert!(
+        tables.errors.is_empty(),
+        "expected no errors, got: {:?}",
+        tables.errors
+    );
+    assert!(tables.built_captures.len() == 1);
+    assert_eq!(
+        tables.built_captures[0]
+            .spec
+            .shard_template
+            .as_ref()
+            .unwrap()
+            .disable,
+        true
+    );
+    assert!(tables.built_materializations.len() == 1);
+    assert_eq!(
+        tables.built_materializations[0]
+            .spec
+            .shard_template
+            .as_ref()
+            .unwrap()
+            .disable,
+        true
+    );
+}
+
+#[test]
 fn test_database_round_trip() {
     let tables = run_test(
         GOLDEN.clone(),

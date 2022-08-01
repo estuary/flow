@@ -62,10 +62,18 @@ pub async fn walk_all_captures<D: Drivers>(
         validations
             .into_iter()
             .map(|(capture, binding_models, request)| async move {
-                drivers
-                    .validate_capture(request.clone())
-                    .map(|response| (capture, binding_models, request, response))
-                    .await
+                // If shards are disabled, then don't ask the connector to validate. Users may
+                // disable captures in response to the source system being unreachable, and we
+                // wouldn't want a validation error for a disabled task to terminate the build.
+                if capture.spec.shards.disable {
+                    let response = no_op_validation(&request);
+                    (capture, binding_models, request, Ok(response))
+                } else {
+                    drivers
+                        .validate_capture(request.clone())
+                        .map(|response| (capture, binding_models, request, response))
+                        .await
+                }
             });
 
     let validations: Vec<(
@@ -203,6 +211,21 @@ pub async fn walk_all_captures<D: Drivers>(
     }
 
     built_captures
+}
+
+// Performs a no-op validation. The result includes a mocked `resource_path` for each binding. This
+// is assumed to be valid because Flow treats resource paths as opaque, and because it never
+// compares two resource paths from different builds.
+fn no_op_validation(req: &capture::ValidateRequest) -> capture::ValidateResponse {
+    let bindings = req
+        .bindings
+        .iter()
+        .enumerate()
+        .map(|(i, _)| capture::validate_response::Binding {
+            resource_path: vec![format!("no-op-resource-path-{i}")],
+        })
+        .collect();
+    capture::ValidateResponse { bindings }
 }
 
 fn walk_capture_request<'a>(
