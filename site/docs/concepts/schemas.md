@@ -271,6 +271,21 @@ Learn more in the
 [reductions strategies](../../../reference/reduction-strategies/)
 reference documentation.
 
+#### Reductions and collection keys
+
+Reduction annotations change the common patterns for how you think about collection keys.
+
+Suppose you are building a reporting fact table over events of your business.
+Today you would commonly consider a unique event ID to be its natural key.
+You would load all events into your warehouse and perform query-time aggregation.
+When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
+
+With Flow, you instead use a collection key of your _fact table dimensions_,
+and use `reduce` annotations to define your metric aggregations.
+A materialization of the collection then maintains a
+database table which is keyed on your dimensions,
+so that queries are both fast _and_ up to date.
+
 #### Composition with conditionals
 
 Like any other JSON Schema annotation,
