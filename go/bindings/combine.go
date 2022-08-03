@@ -68,7 +68,7 @@ func (c *Combine) Configure(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
 			SchemaJson:         schemaJSON,
-			KeyPtr:             keyPtrs,
+			KeyPtrs:            keyPtrs,
 			FieldPtrs:          fieldPtrs,
 			UuidPlaceholderPtr: uuidPtr,
 		})

@@ -15,7 +15,7 @@ pub use extract_api::extract_uuid_parts;
 /// A type that can accumulate statistics that can be periodically drained.
 /// This trait exists primarily to help with readability and consistency. It doesn't get used as a
 /// type parameter or turned into a trait object, but instead serves to identify things that
-/// accumultate stats and have some ability to return them and reset.
+/// accumulate stats and have some ability to return them and reset.
 trait StatsAccumulator: Default {
     /// The type of the stats returned by this accumulator.
     type Stats;
@@ -97,7 +97,7 @@ where
 
 // ValidatorGuard encapsulates the compilation and indexing of a JSON schema,
 // tied to the lifetime of a Validator which references it. It allows the
-// Validator and Index to flexibily reference the built schema while making it
+// Validator and Index to flexibly reference the built schema while making it
 // difficult to misuse, since the Validator lifetime is tied to the Index
 // and Schema.
 struct ValidatorGuard {

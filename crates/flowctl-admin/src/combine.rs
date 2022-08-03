@@ -93,7 +93,7 @@ fn drain_combiner(
     let mut bytes = 0u64;
 
     let mut line_buf = Vec::with_capacity(4096);
-    for (doc, _) in combiner.drain_entries("") {
+    for (doc, _) in combiner.drain_entries() {
         line_buf.clear();
         serde_json::to_writer(&mut line_buf, &doc)?;
         docs += 1;
