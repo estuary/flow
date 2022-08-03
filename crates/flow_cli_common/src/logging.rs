@@ -20,7 +20,7 @@ pub struct LogArgs {
 
 #[derive(Debug, clap::ArgEnum, Clone, Copy)]
 pub enum LogLevel {
-    Tracing,
+    Trace,
     Debug,
     Info,
     Warn,
@@ -30,7 +30,7 @@ pub enum LogLevel {
 impl ToString for LogLevel {
     fn to_string(&self) -> String {
         match self {
-            LogLevel::Tracing => "tracing",
+            LogLevel::Trace => "trace",
             LogLevel::Debug => "debug",
             LogLevel::Info => "info",
             LogLevel::Warn => "warn",
