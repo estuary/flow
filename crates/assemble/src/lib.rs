@@ -486,7 +486,7 @@ pub fn transform_spec(
         source_schema,
     } = &transform;
 
-    let (uses_source_key, shuffle_key_ptr, shuffle_lambda) = match shuffle {
+    let (uses_source_key, shuffle_key_ptrs, shuffle_lambda) = match shuffle {
         Some(models::Shuffle::Key(key)) => {
             (
                 false,
@@ -510,7 +510,7 @@ pub fn transform_spec(
             source_partitions.as_ref(),
         )),
         source_uuid_ptr: source.uuid_ptr.clone(),
-        shuffle_key_ptr,
+        shuffle_key_ptrs,
         uses_source_key,
         shuffle_lambda,
         source_schema_uri: source_schema
@@ -656,7 +656,7 @@ pub fn materialization_shuffle(
         source_partitions: Some(journal_selector(collection, source_partitions.as_ref())),
         source_uuid_ptr: source.uuid_ptr.clone(),
         // Materializations always group by the collection's key.
-        shuffle_key_ptr: source.key_ptrs.clone(),
+        shuffle_key_ptrs: source.key_ptrs.clone(),
         uses_source_key: true,
         shuffle_lambda: None,
         source_schema_uri: source.schema_uri.clone(),

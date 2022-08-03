@@ -140,8 +140,8 @@ func TestDocumentExtraction(t *testing.T) {
 		BuildId:     "a-build",
 		Coordinator: "a-coordinator",
 		Shuffle: &pf.Shuffle{
-			SourceUuidPtr: "/_meta/uuid",
-			ShuffleKeyPtr: []string{"/foo", "/bar"},
+			SourceUuidPtr:  "/_meta/uuid",
+			ShuffleKeyPtrs: []string{"/foo", "/bar"},
 		},
 	})
 

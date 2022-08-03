@@ -229,7 +229,7 @@ func (r *ring) serve() {
 		initErr = fmt.Errorf("building extractor: %w", initErr)
 	} else if initErr = extractor.Configure(
 		r.shuffle.SourceUuidPtr,
-		r.shuffle.ShuffleKeyPtr,
+		r.shuffle.ShuffleKeyPtrs,
 		json.RawMessage(r.shuffle.ValidateSchemaJson),
 	); initErr != nil {
 		initErr = fmt.Errorf("building document extractor: %w", initErr)
