@@ -111,6 +111,7 @@ impl AirbyteSourceInterceptor {
                     stream: stream.name.clone(),
                     namespace: stream.namespace,
                     sync_mode: mode,
+                    cursor_field: stream.default_cursor_field,
                 };
 
                 let key_ptrs = match stream.source_defined_primary_key {
@@ -246,7 +247,7 @@ impl AirbyteSourceInterceptor {
                                 catalog.streams.push(ConfiguredStream {
                                     sync_mode: resource.sync_mode.clone(),
                                     destination_sync_mode: DestinationSyncMode::Append,
-                                    cursor_field: None,
+                                    cursor_field: resource.cursor_field,
                                     primary_key: Some(primary_key),
                                     stream: airbyte_catalog::Stream {
                                         name: resource.stream,
