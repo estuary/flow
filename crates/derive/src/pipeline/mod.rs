@@ -54,10 +54,12 @@ pub struct Pipeline {
     await_publish: FuturesOrdered<BlockInvoke>,
     // Combiner of derived documents.
     combiner: combiner::Combiner,
+    // Key components of derived documents.
+    document_key_ptrs: Vec<doc::Pointer>,
     // Schema against which documents must validate.
     document_schema_guard: ValidatorGuard,
     // JSON pointer to the derived document UUID.
-    document_uuid_ptr: String,
+    document_uuid_ptr: doc::Pointer,
     // Next Block currently being constructed.
     next: Block,
     // Partitions to extract when draining the Combiner.
@@ -163,6 +165,17 @@ impl Pipeline {
             "building from config"
         );
 
+        if document_key_ptrs.is_empty() {
+            return Err(anyhow::anyhow!("derived collection key cannot be empty").into());
+        }
+        if document_uuid_ptr.is_empty() {
+            return Err(anyhow::anyhow!("document uuid JSON-pointer cannot be empty").into());
+        }
+
+        let document_key_ptrs: Vec<doc::Pointer> =
+            document_key_ptrs.iter().map(doc::Pointer::from).collect();
+        let document_uuid_ptr = doc::Pointer::from(&document_uuid_ptr);
+
         // Build pristine "model" Invocations that we'll clone for new Blocks.
         let (updates_model, publishes_model): (Vec<_>, Vec<_>) = transforms
             .iter()
@@ -181,11 +194,7 @@ impl Pipeline {
             ValidatorGuard::new(&document_schema_json).context("parsing collection schema")?;
         let combiner = combiner::Combiner::new(
             document_schema_guard.schema.curi.clone(),
-            document_key_ptrs
-                .iter()
-                .map(|k| doc::Pointer::from_str(k))
-                .collect::<Vec<_>>()
-                .into(),
+            document_key_ptrs.clone().into(),
         );
 
         // Identify partitions to extract on combiner drain.
@@ -211,6 +220,7 @@ impl Pipeline {
             await_publish: FuturesOrdered::new(),
             await_update: FuturesOrdered::new(),
             combiner,
+            document_key_ptrs,
             document_schema_guard,
             document_uuid_ptr,
             next: first_block,
@@ -404,8 +414,9 @@ impl Pipeline {
 
         let combine_out = crate::combine_api::drain_combiner(
             &mut self.combiner,
-            &self.document_uuid_ptr,
+            &self.document_key_ptrs,
             &self.partitions,
+            Some(&self.document_uuid_ptr),
             arena,
             out,
         );

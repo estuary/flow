@@ -1993,7 +1993,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/arr/2/aKey",
                                 ],
                                 uses_source_key: false,
@@ -2042,7 +2042,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/arr/3/aKey",
                                 ],
                                 uses_source_key: false,
@@ -2503,7 +2503,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/len",
                                     "/int",
                                 ],
@@ -2553,7 +2553,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/len",
                                     "/int",
                                 ],
@@ -2873,7 +2873,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/int",
                                 ],
                                 uses_source_key: true,
@@ -3228,7 +3228,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/int",
                                 ],
                                 uses_source_key: true,
@@ -3585,7 +3585,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/int",
                                 ],
                                 uses_source_key: true,
@@ -3934,7 +3934,7 @@ All {
                                     },
                                 ),
                                 source_uuid_ptr: "/_meta/uuid",
-                                shuffle_key_ptr: [
+                                shuffle_key_ptrs: [
                                     "/int",
                                 ],
                                 uses_source_key: true,

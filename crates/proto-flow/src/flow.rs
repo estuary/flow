@@ -74,7 +74,7 @@ pub struct Shuffle {
     /// Composite key over which shuffling occurs, specified as one or more
     /// JSON-Pointers indicating a message location to extract.
     #[prost(string, repeated, tag="5")]
-    pub shuffle_key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub shuffle_key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// uses_source_key is true if shuffle_key_ptr is the source's native key,
     /// and false if it's some other key. When shuffling using the source's key,
     /// we can minimize data movement by assigning a shard coordinator for each
@@ -739,7 +739,7 @@ pub mod combine_api {
         /// If empty, all request documents are combined into a single response
         /// document.
         #[prost(string, repeated, tag="2")]
-        pub key_ptr: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// Field JSON pointers to be extracted from combined documents and returned.
         /// If empty, no fields are extracted.
         #[prost(string, repeated, tag="3")]

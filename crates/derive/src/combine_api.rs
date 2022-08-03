@@ -59,11 +59,12 @@ impl StatsAccumulator for CombineStats {
 }
 
 struct State {
-    guard: ValidatorGuard,
     combiner: Combiner,
-    fields: Vec<doc::Pointer>,
+    field_ptrs: Vec<doc::Pointer>,
+    guard: ValidatorGuard,
+    key_ptrs: Vec<doc::Pointer>,
     stats: CombineStats,
-    uuid_placeholder_ptr: String,
+    uuid_placeholder_ptr: Option<doc::Pointer>,
 }
 
 impl cgo::Service for API {
@@ -90,30 +91,38 @@ impl cgo::Service for API {
             (Code::Configure, _) => {
                 let combine_api::Config {
                     schema_json,
-                    key_ptr,
+                    key_ptrs,
                     field_ptrs,
                     uuid_placeholder_ptr,
                 } = combine_api::Config::decode(data)?;
                 tracing::debug!(
                     %schema_json,
-                    ?key_ptr,
+                    ?key_ptrs,
                     ?field_ptrs,
                     ?uuid_placeholder_ptr,
                     "configure",
                 );
 
-                let key_ptrs: Vec<doc::Pointer> = key_ptr.iter().map(doc::Pointer::from).collect();
+                let key_ptrs: Vec<doc::Pointer> = key_ptrs.iter().map(doc::Pointer::from).collect();
                 if key_ptrs.is_empty() {
                     return Err(Error::EmptyKey);
                 }
+                let field_ptrs: Vec<doc::Pointer> =
+                    field_ptrs.iter().map(doc::Pointer::from).collect();
+
+                let uuid_placeholder_ptr = match uuid_placeholder_ptr.as_ref() {
+                    "" => None,
+                    s => Some(doc::Pointer::from(s)),
+                };
 
                 let guard = ValidatorGuard::new(&schema_json)?;
-                let combiner = Combiner::new(guard.schema.curi.clone(), key_ptrs.into());
+                let combiner = Combiner::new(guard.schema.curi.clone(), key_ptrs.clone().into());
 
                 self.state = Some(State {
                     guard,
                     combiner,
-                    fields: field_ptrs.iter().map(doc::Pointer::from).collect(),
+                    key_ptrs,
+                    field_ptrs,
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
                 });
@@ -144,8 +153,9 @@ impl cgo::Service for API {
             (Code::Drain, Some(mut state)) => {
                 let drain_stats = drain_combiner(
                     &mut state.combiner,
-                    &state.uuid_placeholder_ptr,
-                    &state.fields,
+                    &state.key_ptrs,
+                    &state.field_ptrs,
+                    state.uuid_placeholder_ptr.as_ref(),
                     arena,
                     out,
                 );
@@ -166,63 +176,94 @@ impl cgo::Service for API {
 // were output from the combiner.
 pub fn drain_combiner(
     combiner: &mut Combiner,
-    uuid_placeholder_ptr: &str,
+    key_ptrs: &[doc::Pointer],
     field_ptrs: &[doc::Pointer],
+    uuid_placeholder_ptr: Option<&doc::Pointer>,
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
 ) -> DocCounter {
-    let key_ptrs = combiner.key().clone();
     let mut stats = DocCounter::default();
+
     tracing::debug!(
         arena_len = ?arena.len(),
         combiner_len = ?combiner.len(),
         ?key_ptrs,
         ?field_ptrs,
-        uuid_placeholder_ptr,
+        ?uuid_placeholder_ptr,
         "drain_combiner",
     );
-    for (doc, fully_reduced) in combiner.drain_entries(uuid_placeholder_ptr) {
-        // Send serialized document.
-        let begin = arena.len();
-        let w: &mut Vec<u8> = &mut *arena;
-        serde_json::to_writer(w, &doc).expect("encoding cannot fail");
-        // Only here do we know the actual length of the document in its serialized form.
-        stats.increment((arena.len() - begin) as u32);
-        if fully_reduced {
-            cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
-        } else {
-            cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
-        }
 
-        // Send packed key.
-        let begin = arena.len();
-        // Update arena_len with each component of the key so that we can assert that every
-        // component of the key extends the arena by at least one byte.
-        // This was added in response to: https://github.com/estuary/flow/issues/238
-        let mut prev_arena_len = begin;
-        for p in key_ptrs.iter() {
-            let v = p.query(&doc).unwrap_or(&Value::Null);
-            // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
-            let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
-            if arena.len() <= prev_arena_len {
-                panic!(
-                    "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
-                    p, v, doc
-                );
-            }
-            prev_arena_len = arena.len();
-        }
-        cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
-
-        // Send packed additional fields.
-        let begin = arena.len();
-        for p in field_ptrs {
-            let v = p.query(&doc).unwrap_or(&Value::Null);
-            let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
-        }
-        cgo::send_bytes(Code::DrainedFields as u32, begin, arena, out);
+    for (doc, fully_reduced) in combiner.drain_entries() {
+        encode_combiner_entry(
+            doc,
+            fully_reduced,
+            key_ptrs,
+            field_ptrs,
+            uuid_placeholder_ptr,
+            arena,
+            out,
+            &mut stats,
+        );
     }
     stats
+}
+
+pub fn encode_combiner_entry(
+    mut doc: serde_json::Value,
+    fully_reduced: bool,
+    key_ptrs: &[doc::Pointer],
+    field_ptrs: &[doc::Pointer],
+    uuid_placeholder_ptr: Option<&doc::Pointer>,
+    arena: &mut Vec<u8>,
+    out: &mut Vec<cgo::Out>,
+    stats: &mut DocCounter,
+) {
+    // Optionally add a document UUID placeholder value.
+    if let Some(ptr) = &uuid_placeholder_ptr {
+        if let Some(uuid_value) = ptr.create(&mut doc) {
+            *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
+        }
+    }
+
+    // Send serialized document.
+    let begin = arena.len();
+    let w: &mut Vec<u8> = &mut *arena;
+    serde_json::to_writer(w, &doc).expect("encoding cannot fail");
+    // Only here do we know the actual length of the document in its serialized form.
+    stats.increment((arena.len() - begin) as u32);
+    if fully_reduced {
+        cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
+    } else {
+        cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
+    }
+
+    // Send packed key.
+    let begin = arena.len();
+    // Update arena_len with each component of the key so that we can assert that every
+    // component of the key extends the arena by at least one byte.
+    // This was added in response to: https://github.com/estuary/flow/issues/238
+    let mut prev_arena_len = begin;
+    for p in key_ptrs.iter() {
+        let v = p.query(&doc).unwrap_or(&Value::Null);
+        // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
+        let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+        if arena.len() <= prev_arena_len {
+            panic!(
+                "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
+                p, v, doc
+            );
+        }
+        prev_arena_len = arena.len();
+    }
+    cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
+
+    // Send packed additional fields.
+    let begin = arena.len();
+    for p in field_ptrs {
+        let v = p.query(&doc).unwrap_or(&Value::Null);
+        let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+    }
+    cgo::send_bytes(Code::DrainedFields as u32, begin, arena, out);
 }
 
 #[cfg(test)]
@@ -248,7 +289,7 @@ pub mod test {
             Code::Configure as u32,
             combine_api::Config {
                 schema_json: build_min_max_sum_schema(),
-                key_ptr: vec!["/key".to_owned()],
+                key_ptrs: vec!["/key".to_owned()],
                 field_ptrs: vec!["/min".to_owned(), "/max".to_owned()],
                 uuid_placeholder_ptr: "/foo".to_owned(),
             },
@@ -320,7 +361,7 @@ pub mod test {
                 Code::Configure as u32,
                 combine_api::Config {
                     schema_json: build_min_max_sum_schema(),
-                    key_ptr: vec![],
+                    key_ptrs: vec![],
                     field_ptrs: vec![],
                     uuid_placeholder_ptr: String::new(),
                 },
@@ -331,3 +372,7 @@ pub mod test {
         ));
     }
 }
+
+// This constant is shared between Rust and Go code.
+// See go/protocols/flow/document_extensions.go.
+pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
