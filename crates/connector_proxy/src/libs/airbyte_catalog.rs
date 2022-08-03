@@ -244,4 +244,6 @@ pub struct ResourceSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     pub sync_mode: SyncMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_field: Option<Vec<String>>,
 }
