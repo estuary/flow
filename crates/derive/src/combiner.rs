@@ -56,6 +56,18 @@ pub struct Combiner {
     entries: BTreeSet<KeyedDoc>,
 }
 
+pub struct DrainIter {
+    it: std::collections::btree_set::IntoIter<KeyedDoc>,
+}
+
+impl Iterator for DrainIter {
+    type Item = (Value, bool);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.it.next().map(|kd| (kd.doc, kd.fully_reduced))
+    }
+}
+
 impl Combiner {
     pub fn new(schema: Url, key: Rc<[Pointer]>) -> Combiner {
         assert!(!key.is_empty());
@@ -153,36 +165,12 @@ impl Combiner {
         Ok(())
     }
 
-    // Drain all entries of the Combiner. If the UUID placeholder JSON pointer is non-empty,
-    // then UUID_PLACEHOLDER is inserted into returned documents at the specified location.
-    // If the document shape is incompatible with the pointer, it's returned unmodified.
-    pub fn drain_entries(
-        &mut self,
-        uuid_placeholder_ptr: &str,
-    ) -> impl Iterator<Item = (Value, bool)> {
-        let uuid_placeholder = match uuid_placeholder_ptr {
-            "" => None,
-            s => Some(Pointer::from(s)),
-        };
-
-        std::mem::take(&mut self.entries)
-            .into_iter()
-            .map(move |mut kd| {
-                if let Some(uuid_ptr) = &uuid_placeholder {
-                    if let Some(uuid_value) = uuid_ptr.create(&mut kd.doc) {
-                        *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
-                    }
-                }
-                (kd.doc, kd.fully_reduced)
-            })
-    }
-
-    // Convert a Combiner into its entries using a consuming wrapper drain_entries().
-    pub fn into_entries(
-        mut self,
-        uuid_placeholder_ptr: &str,
-    ) -> impl Iterator<Item = (Value, bool)> {
-        self.drain_entries(uuid_placeholder_ptr)
+    // Drain all entries of the Combiner via the returned iterator.
+    // Entries are immediately removed even if the iterator is not consumed.
+    pub fn drain_entries(&mut self) -> DrainIter {
+        DrainIter {
+            it: std::mem::take(&mut self.entries).into_iter(),
+        }
     }
 
     pub fn key(&self) -> &Rc<[Pointer]> {
@@ -257,18 +245,18 @@ mod test {
         // Expect min / max reflect all combines, and that "lww" (last-write-wins) respects
         // the left vs right ordering of applications.
         assert_eq!(
-            combiner.into_entries("/foo").collect::<Vec<_>>(),
+            combiner.drain_entries().collect::<Vec<_>>(),
             vec![
                 (
-                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "one"], "min": 3, "max": 5.5, "lww": 1}),
+                    json!({"key": ["key", "one"], "min": 3, "max": 5.5, "lww": 1}),
                     true
                 ),
                 (
-                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "three"], "min": 6, "max": 6.6, "lww": 5}),
+                    json!({"key": ["key", "three"], "min": 6, "max": 6.6, "lww": 5}),
                     false
                 ),
                 (
-                    json!({"foo": UUID_PLACEHOLDER, "key": ["key", "two"], "min": 2, "max": 4.4, "lww": 3}),
+                    json!({"key": ["key", "two"], "min": 2, "max": 4.4, "lww": 3}),
                     true
                 ),
             ]
@@ -339,7 +327,3 @@ mod test {
         );
     }
 }
-
-// This constant is shared between Rust and Go code.
-// See go/protocols/flow/document_extensions.go.
-pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";

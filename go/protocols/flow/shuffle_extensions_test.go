@@ -12,7 +12,7 @@ func TestJournalShuffle(t *testing.T) {
 		Journal:     "bad journal",
 		Coordinator: "bad shard",
 		Shuffle: &Shuffle{
-			ShuffleKeyPtr: nil,
+			ShuffleKeyPtrs: nil,
 		},
 	}
 
@@ -31,7 +31,7 @@ func TestJournalShuffle(t *testing.T) {
 	m.SourceSchemaUri = "test://schema"
 
 	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
-	m.Shuffle.ShuffleKeyPtr = []string{"/foo"}
+	m.Shuffle.ShuffleKeyPtrs = []string{"/foo"}
 
 	require.EqualError(t, m.Validate(), "missing BuildId")
 	m.BuildId = "an-id"
@@ -47,7 +47,7 @@ func TestShuffleRequest(t *testing.T) {
 			Coordinator: "bad coordinator",
 			Shuffle: &Shuffle{
 				GroupName:        "group/name",
-				ShuffleKeyPtr:    []string{"/foo"},
+				ShuffleKeyPtrs:   []string{"/foo"},
 				SourceCollection: "source",
 				SourceUuidPtr:    "/uuid",
 				SourceSchemaUri:  "test://schema",
