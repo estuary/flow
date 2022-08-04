@@ -50,20 +50,23 @@ export async function encryptConfig(req: Record<string, any>) {
   });
 
   let responseData = JSON.stringify(await response.json());
-  console.log(responseData);
 
   // If we can find client_id or client_secret in plaintext in the response,
   // it's not secure to return this response!
   if (
-    oauth2_client_id != null && oauth2_client_secret != null && (
-    responseData.includes(oauth2_client_id) ||
-    responseData.includes(oauth2_client_secret))
+    oauth2_client_id != null &&
+    oauth2_client_secret != null &&
+    (responseData.includes(oauth2_client_id) ||
+      responseData.includes(oauth2_client_secret))
   ) {
     return new Response(
       JSON.stringify({
-        error: "exposed_secret",
-        description: `client_id and client_secret were not encrypted as part of this request.
+        error: {
+          code: "exposed_secret",
+          message: `Request denied: "client id" and "client secret" could have been leaked.`,
+          description: `client_id and client_secret were not encrypted as part of this request.
 Make sure that they are marked with secret: true in the endpoint spec schema`,
+        },
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
