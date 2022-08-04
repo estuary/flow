@@ -77,3 +77,9 @@ jobs:
           build-args: |
             DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
       
+      - name: Deploy Supabase Edge Functions
+        if: ${{ github.ref == 'refs/heads/main' }}
+        id: deploy-supabase-fn
+        run: |
+          echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
+          supabase functions deploy oauth --project-ref eyrcnmuzzyriypdajwdk
