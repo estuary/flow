@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import { corsHeaders } from "../_shared/cors.ts";
+import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 const generateUniqueRandomKey = () => {
   const validChars =
@@ -19,14 +20,9 @@ export async function authURL(req: {
   redirect_uri?: string;
   state?: object;
 }) {
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
-
   const { connector_id, config, redirect_uri, state } = req;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_spec")
     .eq("id", connector_id)
