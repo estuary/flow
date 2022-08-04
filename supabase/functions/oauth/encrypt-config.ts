@@ -35,8 +35,10 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { oauth2_client_id, oauth2_client_secret } = data;
 
-  config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
-  config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
+  if (config[CREDENTIALS_KEY]) {
+    config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
+    config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
+  }
 
   const response = await fetch(ENCRYPTION_SERVICE, {
     method: "POST",
@@ -53,8 +55,9 @@ export async function encryptConfig(req: Record<string, any>) {
   // If we can find client_id or client_secret in plaintext in the response,
   // it's not secure to return this response!
   if (
+    oauth2_client_id != null && oauth2_client_secret != null && (
     responseData.includes(oauth2_client_id) ||
-    responseData.includes(oauth2_client_secret)
+    responseData.includes(oauth2_client_secret))
   ) {
     return new Response(
       JSON.stringify({
