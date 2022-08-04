@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import { corsHeaders } from "../_shared/cors.ts";
+import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 const generateUniqueRandomKey = () => {
@@ -29,10 +30,7 @@ export async function authURL(req: {
     .single();
 
   if (error != null) {
-    return new Response(JSON.stringify(error), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
-    });
+    returnPostgresError(error);
   }
 
   const { oauth2_spec, oauth2_client_id } = data;

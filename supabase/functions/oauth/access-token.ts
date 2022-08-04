@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
+import { returnPostgresError } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
@@ -18,10 +19,7 @@ export async function accessToken(req: Record<string, any>) {
     .single();
 
   if (error != null) {
-    return new Response(JSON.stringify(error), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
-    });
+    returnPostgresError(error);
   }
 
   const { oauth2_spec, oauth2_client_id, oauth2_client_secret } = data;
