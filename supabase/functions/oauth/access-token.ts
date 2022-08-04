@@ -3,18 +3,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
 import { corsHeaders } from "../_shared/cors.ts";
+import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 export async function accessToken(req: Record<string, any>) {
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
   const { state, config, redirect_uri, ...params } = req;
 
   const decodedState = JSON.parse(atob(state));
   const { connector_id } = decodedState;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_client_secret,oauth2_spec")
     .eq("id", connector_id)

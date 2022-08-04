@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
 import { corsHeaders } from "../_shared/cors.ts";
+import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 const ENCRYPTION_SERVICE =
   "https://config-encryption.estuary.dev/v1/encrypt-config";
@@ -10,14 +11,9 @@ const ENCRYPTION_SERVICE =
 const CREDENTIALS_KEY = "credentials";
 
 export async function encryptConfig(req: Record<string, any>) {
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
-
   const { connector_id, config, schema } = req;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_client_secret")
     .eq("id", connector_id)
