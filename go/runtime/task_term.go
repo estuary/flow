@@ -52,7 +52,12 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	if t.ctx == nil || t.ctx.Err() != nil {
 		var cancelFn context.CancelFunc
 		t.ctx, cancelFn = context.WithCancel(shard.Context())
-		go signalOnSpecUpdate(host.Service.State.KS, shard, t.shardSpec, cancelFn)
+		go signalOnSpecUpdate(host.Service.State.KS, shard, t.shardSpec, func() {
+			if t.LogPublisher != nil {
+				t.LogPublisher.Log(log.DebugLevel, nil, "cancelling term context")
+			}
+			cancelFn()
+		})
 	}
 
 	if t.labels, err = labels.ParseShardLabels(t.shardSpec.LabelSet); err != nil {

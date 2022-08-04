@@ -18,6 +18,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -156,10 +157,12 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 			return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
 		} else {
 			c.delegate = pullClient
+			c.Log(log.DebugLevel, nil, "opened Pull RPC")
 		}
 	}
 
 	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
+		c.Log(log.WarnLevel, log.Fields{"error": err}, "failed to restore checkpoint")
 		return pf.Checkpoint{}, err
 	}
 
@@ -217,6 +220,9 @@ func (c *Capture) StartReadingMessages(
 		if err == nil {
 			// Write one message which will start a Gazette consumer transaction.
 			// We'll see a future a call to ConsumeMessage and then StartCommit.
+			c.Log(log.TraceLevel, log.Fields{
+				"counter": counter,
+			}, "sending Capture message envelope")
 			ch <- consumer.EnvelopeOrError{
 				Envelope: message.Envelope{
 					Journal: txnJournal,
@@ -295,7 +301,12 @@ func (c *Capture) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
 }
 
 func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
-	if env.Message.(*captureMessage).eof {
+	var message = env.Message.(*captureMessage)
+	c.Log(log.DebugLevel, log.Fields{
+		"counter": int64(message.clock),
+		"eof":     message.eof,
+	}, "processing Capture message envelope")
+	if message.eof {
 		// The connector exited; this is not a commit notification.
 		c.delegateEOF = true // Mark for StartCommit.
 		return nil
