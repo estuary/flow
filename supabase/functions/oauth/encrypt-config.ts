@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
 import { corsHeaders } from "../_shared/cors.ts";
+import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 const ENCRYPTION_SERVICE =
@@ -11,7 +12,7 @@ const ENCRYPTION_SERVICE =
 const CREDENTIALS_KEY = "credentials";
 
 export async function encryptConfig(req: Record<string, any>) {
-  const { connector_id, config, schema } = req;
+  const { connector_id, connector_tag_id, config } = req;
 
   const { data, error } = await supabaseClient
     .from("connectors")
@@ -20,13 +21,7 @@ export async function encryptConfig(req: Record<string, any>) {
     .single();
 
   if (error != null) {
-    return new Response(JSON.stringify({ error }), {
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-      status: 400,
-    });
+    returnPostgresError(error);
   }
 
   const { oauth2_client_id, oauth2_client_secret } = data;
@@ -36,9 +31,25 @@ export async function encryptConfig(req: Record<string, any>) {
     config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
   }
 
+  const { data: connectorTagData, error: connectorTagError } =
+    await supabaseClient
+      .from("connector_tags")
+      .select("endpoint_spec_schema")
+      .eq("id", connector_tag_id)
+      .single();
+
+  if (connectorTagError != null) {
+    returnPostgresError(error);
+  }
+
+  const { endpoint_spec_schema } = connectorTagData;
+
   const response = await fetch(ENCRYPTION_SERVICE, {
     method: "POST",
-    body: JSON.stringify({ config, schema }),
+    body: JSON.stringify({
+      config,
+      schema: endpoint_spec_schema,
+    }),
     headers: {
       accept: "application/json",
       "content-type": "application/json",
@@ -50,9 +61,8 @@ export async function encryptConfig(req: Record<string, any>) {
   // If we can find client_id or client_secret in plaintext in the response,
   // it's not secure to return this response!
   if (
-    oauth2_client_id != null &&
-    oauth2_client_secret != null &&
-    (responseData.includes(oauth2_client_id) ||
+    (oauth2_client_id != null && responseData.includes(oauth2_client_id)) ||
+    (oauth2_client_secret != null &&
       responseData.includes(oauth2_client_secret))
   ) {
     return new Response(
