@@ -698,18 +698,22 @@ message CombineAPI {
     REDUCE_LEFT = 2;
     // Combine a right-hand side document (Go -> Rust).
     COMBINE_RIGHT = 3;
+
+    // The following DRAIN_* / DRAINED_* enum codes are
+    // shared with DeriveAPI:
+
     // Drain the combiner (Go -> Rust).
-    DRAIN = 4;
+    DRAIN_CHUNK = 200;
     // Next drained document is partially combined (Rust -> Go).
-    DRAINED_COMBINED_DOCUMENT = 5;
+    DRAINED_COMBINED_DOCUMENT = 201;
     // Next drained document is fully reduced (Rust -> Go).
-    DRAINED_REDUCED_DOCUMENT = 6;
+    DRAINED_REDUCED_DOCUMENT = 202;
     // Next drained key (follows drained document; Rust -> Go).
-    DRAINED_KEY = 7;
+    DRAINED_KEY = 203;
     // Next drained fields (follows key; Rust -> Go).
-    DRAINED_FIELDS = 8;
+    DRAINED_FIELDS = 204;
     // Drain stats, sent after all documents have been drained. (Rust -> Go)
-    STATS = 9;
+    DRAINED_STATS = 205;
   };
 
   message Config {
@@ -752,36 +756,38 @@ message DeriveAPI {
     CONFIGURE = 3;
     // Begin a new transaction (Go -> Rust).
     BEGIN_TRANSACTION = 4;
-
-    // Next drained document is partially combined (Rust -> Go).
-    // Must match CombineAPI.Code.
-    DRAINED_COMBINED_DOCUMENT = 5;
-    // Next drained document is fully reduced (Rust -> Go).
-    // Must match CombineAPI.Code.
-    DRAINED_REDUCED_DOCUMENT = 6;
-    // Next drained key (follows drained document; Rust -> Go).
-    // Must match CombineAPI.Code.
-    DRAINED_KEY = 7;
-    // Next drained fields (follows key; Rust -> Go).
-    // Must match CombineAPI.Code.
-    DRAINED_FIELDS = 8;
-
     // Next source document header (Go -> Rust).
-    NEXT_DOCUMENT_HEADER = 9;
+    NEXT_DOCUMENT_HEADER = 5;
     // Next source document body (Go -> Rust).
-    NEXT_DOCUMENT_BODY = 10;
+    NEXT_DOCUMENT_BODY = 6;
     // Trampoline task start or completion (Rust <-> Go).
-    TRAMPOLINE = 11;
+    TRAMPOLINE = 7;
     // Trampoline sub-type: invoke transform lambda.
-    TRAMPOLINE_INVOKE = 12;
+    TRAMPOLINE_INVOKE = 8;
     // Flush transaction (Go -> Rust).
-    FLUSH_TRANSACTION = 13;
+    FLUSH_TRANSACTION = 9;
+    // Transaction completed flushing (Rust -> Go).
+    FLUSHED_TRANSACTION = 10;
     // Prepare transaction to commit (Go -> Rust).
-    PREPARE_TO_COMMIT = 14;
+    PREPARE_TO_COMMIT = 11;
     // Clear registers values (test support only; Go -> Rust).
-    CLEAR_REGISTERS = 15;
+    CLEAR_REGISTERS = 12;
+
+    // The following DRAIN_* / DRAINED_* enum codes are
+    // shared with CombineAPI:
+
+    // Drain the combiner (Go -> Rust).
+    DRAIN_CHUNK = 200;
+    // Next drained document is partially combined (Rust -> Go).
+    DRAINED_COMBINED_DOCUMENT = 201;
+    // Next drained document is fully reduced (Rust -> Go).
+    DRAINED_REDUCED_DOCUMENT = 202;
+    // Next drained key (follows drained document; Rust -> Go).
+    DRAINED_KEY = 203;
+    // Next drained fields (follows key; Rust -> Go).
+    DRAINED_FIELDS = 204;
     // Drain stats, sent after all documents have been drained. (Rust -> Go)
-    STATS = 16;
+    DRAINED_STATS = 205;
   };
 
   // Open the registers database.
