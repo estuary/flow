@@ -1,8 +1,9 @@
 use super::{
-    combiner::{self, Combiner},
+    combiner::{self, Combiner, DrainIter},
     ValidatorGuard,
 };
 use crate::{DocCounter, JsonError, StatsAccumulator};
+use bytes::Buf;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 use serde_json::Value;
@@ -59,11 +60,21 @@ impl StatsAccumulator for CombineStats {
 }
 
 struct State {
+    // Inner combiner which is doing the heavy lifting.
     combiner: Combiner,
+    // If Some, then the combiner is currently being drained via the contained
+    // iterator and in-progress tracking statistics.
+    drain: Option<DrainIter>,
+    // Fields which are extracted and returned from combined documents.
     field_ptrs: Vec<doc::Pointer>,
+    // Schema validator through which we're combining, which provides reduction annotations.
     guard: ValidatorGuard,
+    // Document key components over which we're grouping while combining.
     key_ptrs: Vec<doc::Pointer>,
+    // Statistics of a current combine operation.
     stats: CombineStats,
+    // JSON-Pointer into which a UUID placeholder should be set,
+    // or None if a placeholder shouldn't be set.
     uuid_placeholder_ptr: Option<doc::Pointer>,
 }
 
@@ -77,7 +88,7 @@ impl cgo::Service for API {
     fn invoke(
         &mut self,
         code: u32,
-        data: &[u8],
+        mut data: &[u8],
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
@@ -119,16 +130,17 @@ impl cgo::Service for API {
                 let combiner = Combiner::new(guard.schema.curi.clone(), key_ptrs.clone().into());
 
                 self.state = Some(State {
-                    guard,
                     combiner,
-                    key_ptrs,
+                    drain: None,
                     field_ptrs,
+                    guard,
+                    key_ptrs,
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
                 });
                 Ok(())
             }
-            (Code::ReduceLeft, Some(mut state)) => {
+            (Code::ReduceLeft, Some(mut state @ State { drain: None, .. })) => {
                 state.stats.left.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
@@ -139,7 +151,7 @@ impl cgo::Service for API {
                 self.state = Some(state);
                 Ok(())
             }
-            (Code::CombineRight, Some(mut state)) => {
+            (Code::CombineRight, Some(mut state @ State { drain: None, .. })) => {
                 state.stats.right.increment(data.len() as u32);
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
@@ -150,19 +162,30 @@ impl cgo::Service for API {
                 self.state = Some(state);
                 Ok(())
             }
-            (Code::Drain, Some(mut state)) => {
-                let drain_stats = drain_combiner(
-                    &mut state.combiner,
+            (Code::DrainChunk, Some(mut state)) if data.len() == 4 => {
+                let mut it = match state.drain {
+                    Some(it) => it,
+                    None => state.combiner.drain_entries(),
+                };
+
+                let done = drain_chunk(
+                    &mut it,
+                    data.get_u32() as usize,
                     &state.key_ptrs,
                     &state.field_ptrs,
                     state.uuid_placeholder_ptr.as_ref(),
                     arena,
                     out,
+                    &mut state.stats.out,
                 );
-                state.stats.out = drain_stats;
-                // Send a final message with the stats that were accumulated during this
-                // transaction.
-                cgo::send_message(Code::Stats as u32, &state.stats.drain(), arena, out);
+
+                if done {
+                    // Send a final message with accumulated stats.
+                    cgo::send_message(Code::DrainedStats as u32, &state.stats.drain(), arena, out);
+                    state.drain = None;
+                } else {
+                    state.drain = Some(it);
+                }
 
                 self.state = Some(state);
                 Ok(())
@@ -172,98 +195,77 @@ impl cgo::Service for API {
     }
 }
 
-// Drains the `combiner` into the given `arena` and `out`, and returns stats on the documents that
-// were output from the combiner.
-pub fn drain_combiner(
-    combiner: &mut Combiner,
-    key_ptrs: &[doc::Pointer],
-    field_ptrs: &[doc::Pointer],
-    uuid_placeholder_ptr: Option<&doc::Pointer>,
-    arena: &mut Vec<u8>,
-    out: &mut Vec<cgo::Out>,
-) -> DocCounter {
-    let mut stats = DocCounter::default();
-
-    tracing::debug!(
-        arena_len = ?arena.len(),
-        combiner_len = ?combiner.len(),
-        ?key_ptrs,
-        ?field_ptrs,
-        ?uuid_placeholder_ptr,
-        "drain_combiner",
-    );
-
-    for (doc, fully_reduced) in combiner.drain_entries() {
-        encode_combiner_entry(
-            doc,
-            fully_reduced,
-            key_ptrs,
-            field_ptrs,
-            uuid_placeholder_ptr,
-            arena,
-            out,
-            &mut stats,
-        );
-    }
-    stats
-}
-
-pub fn encode_combiner_entry(
-    mut doc: serde_json::Value,
-    fully_reduced: bool,
+// Drain a chunk of DrainIter into the given buffers up to the target length.
+// Stats are accumulated into the provided DocCounter.
+pub fn drain_chunk(
+    it: &mut DrainIter,
+    target_length: usize,
     key_ptrs: &[doc::Pointer],
     field_ptrs: &[doc::Pointer],
     uuid_placeholder_ptr: Option<&doc::Pointer>,
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
-) {
-    // Optionally add a document UUID placeholder value.
-    if let Some(ptr) = &uuid_placeholder_ptr {
-        if let Some(uuid_value) = ptr.create(&mut doc) {
-            *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
+) -> bool {
+    let target_length = target_length + arena.len();
+
+    loop {
+        if arena.len() > target_length {
+            return false;
         }
-    }
 
-    // Send serialized document.
-    let begin = arena.len();
-    let w: &mut Vec<u8> = &mut *arena;
-    serde_json::to_writer(w, &doc).expect("encoding cannot fail");
-    // Only here do we know the actual length of the document in its serialized form.
-    stats.increment((arena.len() - begin) as u32);
-    if fully_reduced {
-        cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
-    } else {
-        cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
-    }
+        let (mut doc, fully_reduced) = match it.next() {
+            Some(d) => d,
+            None => return true,
+        };
 
-    // Send packed key.
-    let begin = arena.len();
-    // Update arena_len with each component of the key so that we can assert that every
-    // component of the key extends the arena by at least one byte.
-    // This was added in response to: https://github.com/estuary/flow/issues/238
-    let mut prev_arena_len = begin;
-    for p in key_ptrs.iter() {
-        let v = p.query(&doc).unwrap_or(&Value::Null);
-        // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
-        let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
-        if arena.len() <= prev_arena_len {
-            panic!(
-                "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
-                p, v, doc
-            );
+        // Optionally add a document UUID placeholder value.
+        if let Some(ptr) = &uuid_placeholder_ptr {
+            if let Some(uuid_value) = ptr.create(&mut doc) {
+                *uuid_value = Value::String(UUID_PLACEHOLDER.to_owned());
+            }
         }
-        prev_arena_len = arena.len();
-    }
-    cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
 
-    // Send packed additional fields.
-    let begin = arena.len();
-    for p in field_ptrs {
-        let v = p.query(&doc).unwrap_or(&Value::Null);
-        let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+        // Send serialized document.
+        let begin = arena.len();
+        let w: &mut Vec<u8> = &mut *arena;
+        serde_json::to_writer(w, &doc).expect("encoding cannot fail");
+        // Only here do we know the actual length of the document in its serialized form.
+        stats.increment((arena.len() - begin) as u32);
+        if fully_reduced {
+            cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
+        } else {
+            cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
+        }
+
+        // Send packed key.
+        let begin = arena.len();
+        // Update arena_len with each component of the key so that we can assert that every
+        // component of the key extends the arena by at least one byte.
+        // This was added in response to: https://github.com/estuary/flow/issues/238
+        let mut prev_arena_len = begin;
+        for p in key_ptrs.iter() {
+            let v = p.query(&doc).unwrap_or(&Value::Null);
+            // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
+            let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+            if arena.len() <= prev_arena_len {
+                panic!(
+                    "encoding key wrote 0 bytes, pointer: {:?}, extracted value: {:?}, doc: {}",
+                    p, v, doc
+                );
+            }
+            prev_arena_len = arena.len();
+        }
+        cgo::send_bytes(Code::DrainedKey as u32, begin, arena, out);
+
+        // Send packed additional fields.
+        let begin = arena.len();
+        for p in field_ptrs {
+            let v = p.query(&doc).unwrap_or(&Value::Null);
+            let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+        }
+        cgo::send_bytes(Code::DrainedFields as u32, begin, arena, out);
     }
-    cgo::send_bytes(Code::DrainedFields as u32, begin, arena, out);
 }
 
 #[cfg(test)]
@@ -323,12 +325,31 @@ pub mod test {
         assert!(arena.is_empty());
         assert!(out.is_empty());
 
-        // Drain the combiner.
-        svc.invoke(Code::Drain as u32, &[], &mut arena, &mut out)
-            .unwrap();
+        // Poll to drain one document from the combiner.
+        svc.invoke(
+            Code::DrainChunk as u32,
+            &(1 as u32).to_be_bytes(),
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        assert_eq!(out.len(), 1 * 3);
+
+        // Poll again to drain the final two, plus stats.
+        svc.invoke(
+            Code::DrainChunk as u32,
+            &(1024 as u32).to_be_bytes(),
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        assert_eq!(out.len(), 3 * 3 + 1);
+
         // The last message in out should be stats
         let stats_out = out.pop().expect("missing stats");
-        assert_eq!(Code::Stats as u32, stats_out.code);
+        assert_eq!(Code::DrainedStats as u32, stats_out.code);
 
         let stats_message = Stats::decode(&arena[stats_out.begin as usize..])
             .expect("failed to decode stats message");

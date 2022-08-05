@@ -169,7 +169,8 @@ impl Fixture {
             arena.clear();
             out.clear();
         }
-        self.pipeline.drain(&mut arena, &mut out);
+
+        while !self.pipeline.drain_chunk(1, &mut arena, &mut out) {}
 
         let mut outputs = Vec::new();
         for frame in out.iter() {

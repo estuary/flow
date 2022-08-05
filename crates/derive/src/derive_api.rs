@@ -1,6 +1,7 @@
 use super::pipeline::{self, Pipeline};
 use super::registers;
 
+use bytes::Buf;
 use prost::Message;
 use proto_flow::flow::derive_api::{self, Code};
 
@@ -33,6 +34,7 @@ enum State {
     Running(Pipeline),
     DocHeader(Pipeline, derive_api::DocHeader),
     Flushing(Pipeline),
+    Draining(Pipeline),
     Prepare(Pipeline),
 }
 
@@ -46,7 +48,7 @@ impl cgo::Service for API {
     fn invoke(
         &mut self,
         code: u32,
-        data: &[u8],
+        mut data: &[u8],
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
@@ -118,11 +120,11 @@ impl cgo::Service for API {
             (Code::FlushTransaction, State::Running(mut pipeline)) => {
                 pipeline.flush();
 
-                // If we poll to idle, drain the combiner and transition to Prepare.
+                // If we poll to idle, drain the combiner and transition to Draining.
                 // Otherwise begin to flush.
                 if pipeline.poll_and_trampoline(arena, out)? {
-                    pipeline.drain(arena, out);
-                    self.state = State::Prepare(pipeline);
+                    cgo::send_code(Code::FlushedTransaction as u32, out);
+                    self.state = State::Draining(pipeline);
                 } else {
                     self.state = State::Flushing(pipeline);
                 }
@@ -135,13 +137,20 @@ impl cgo::Service for API {
             (Code::Trampoline, State::Flushing(mut pipeline)) => {
                 pipeline.resolve_task(data);
 
-                // If we poll to idle, drain the combiner and transition to Prepare.
+                // If we poll to idle, drain the combiner and transition to Draining.
                 // Otherwise we're still flushing.
                 if pipeline.poll_and_trampoline(arena, out)? {
-                    pipeline.drain(arena, out);
-                    self.state = State::Prepare(pipeline);
+                    cgo::send_code(Code::FlushedTransaction as u32, out);
+                    self.state = State::Draining(pipeline);
                 } else {
                     self.state = State::Flushing(pipeline);
+                }
+            }
+            (Code::DrainChunk, State::Draining(mut pipeline)) if data.len() == 4 => {
+                if !pipeline.drain_chunk(data.get_u32() as usize, arena, out) {
+                    self.state = State::Draining(pipeline);
+                } else {
+                    self.state = State::Prepare(pipeline);
                 }
             }
             (Code::PrepareToCommit, State::Prepare(mut pipeline)) => {

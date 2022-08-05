@@ -3,6 +3,7 @@ package bindings
 // #include "../../crates/bindings/flow_bindings.h"
 import "C"
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"runtime"
@@ -30,7 +31,6 @@ type CombineCallback = func(
 // Combine manages the lifecycle of a combiner operation.
 type Combine struct {
 	svc     *service
-	drained []C.Out
 	metrics combineMetrics
 }
 
@@ -41,8 +41,7 @@ func NewCombine(logPublisher ops.Logger) (*Combine, error) {
 		return nil, err
 	}
 	var combine = &Combine{
-		svc:     svc,
-		drained: nil,
+		svc: svc,
 	}
 
 	// Destroy the held service on garbage collection.
@@ -78,7 +77,6 @@ func (c *Combine) Configure(
 
 // ReduceLeft reduces |doc| as a fully reduced, left-hand document.
 func (c *Combine) ReduceLeft(doc json.RawMessage) error {
-	c.drained = nil // Invalidate.
 	c.svc.sendBytes(uint32(pf.CombineAPI_REDUCE_LEFT), doc)
 
 	if c.svc.queuedFrames() >= 128 {
@@ -89,7 +87,6 @@ func (c *Combine) ReduceLeft(doc json.RawMessage) error {
 
 // CombineRight combines |doc| as a partially reduced, right-hand document.
 func (c *Combine) CombineRight(doc json.RawMessage) error {
-	c.drained = nil // Invalidate.
 	c.svc.sendBytes(uint32(pf.CombineAPI_COMBINE_RIGHT), doc)
 
 	if c.svc.queuedFrames() >= 128 {
@@ -98,36 +95,17 @@ func (c *Combine) CombineRight(doc json.RawMessage) error {
 	return nil
 }
 
-// PrepareToDrain the Combine by flushing any unsent documents to combine,
-// and staging combined results into the Combine's service arena.
-// Any validation or reduction errors in input documents will be surfaced
-// prior to the return of this call.
-// Preparing to drain is optional: it will be done by Drain if not already prepared.
-func (c *Combine) PrepareToDrain() error {
-	c.svc.sendBytes(uint32(pf.CombineAPI_DRAIN), nil)
-	var _, out, err = c.svc.poll()
-	if err != nil {
-		return err
-	}
-	c.drained = out
-	return nil
-}
-
-// Drain combined documents, invoking the callback for each distinct group-by document.
-// If Drain returns without error, the Combine may be used again. Returns statistics from the
-// combiner that pertain to everything after the prior call to Drain, up through this one.
+// Drain combined documents, invoking the callback for each distinct group-by document
+// and returning accumulated statistics of the combine operation.
+// If Drain returns without error, the Combine may be used again.
 func (c *Combine) Drain(cb CombineCallback) (*pf.CombineAPI_Stats, error) {
-	if c.drained == nil {
-		if err := c.PrepareToDrain(); err != nil {
-			return nil, err
-		}
-	}
-	var stats pf.CombineAPI_Stats
-	var err = drainCombineToCallback(c.svc, &c.drained, cb, &stats)
+	var stats = new(pf.CombineAPI_Stats)
+	var err = drainCombineToCallback(c.svc, cb, stats)
+
 	if err == nil {
-		c.metrics.recordCombineDrain(&stats)
+		c.metrics.recordCombineDrain(stats)
 	}
-	return &stats, err
+	return stats, err
 }
 
 // Destroy the Combine service, releasing all held resources.
@@ -142,41 +120,49 @@ func (d *Combine) Destroy() {
 }
 
 // drainCombineToCallback drains either a Combine or a Derive, passing each document to the
-// callback. The final stats will be unmarshaled into statsMessage, which will be either a
-// pf.CombineAPI_Stats or a pf.DeriveAPI_Stats.
+// callback. At completion accumulated statistics are unmarshalled into the provided `stats`,
+// which is a *pf.CombineAPI_Stats or *pf.DeriveAPI_Stats.
 func drainCombineToCallback(
 	svc *service,
-	out *[]C.Out,
 	cb CombineCallback,
-	statsMessage proto.Unmarshaler,
-) (err error) {
-	// Sanity check we got triples of output frames, plus one at the end for the stats.
-	if len(*out)%3 != 1 {
-		panic(fmt.Sprintf("wrong number of output frames (%d; should be %% 3, plus 1)", len(*out)))
-	}
+	stats proto.Unmarshaler,
+) error {
 
-	for len(*out) >= 3 {
-		var doc = svc.arenaSlice((*out)[0])
-		if err = cb(
-			pf.CombineAPI_Code((*out)[0].code) == pf.CombineAPI_DRAINED_REDUCED_DOCUMENT,
-			doc,                       // Doc.
-			svc.arenaSlice((*out)[1]), // Packed key.
-			svc.arenaSlice((*out)[2]), // Packed fields.
-		); err != nil {
-			return
+	var targetLength [4]byte
+	binary.BigEndian.PutUint32(targetLength[:], 1<<20)
+
+	for {
+		svc.sendBytes(uint32(pf.CombineAPI_DRAIN_CHUNK), targetLength[:])
+		var _, out, err = svc.poll()
+		if err != nil {
+			return err
+		} else if len(out) == 0 {
+			panic("polled DRAIN produced no output")
 		}
-		*out = (*out)[3:]
-	}
 
-	// Now consume the final Stats message from the combiner.
-	var statsOut = (*out)[len(*out)-1]
-	var statsSlice = svc.arenaSlice(statsOut)
-	if err = statsMessage.Unmarshal(statsSlice); err != nil {
-		err = fmt.Errorf("unmarshaling stats: %w", err)
-		return
-	}
+		for len(out) != 0 {
+			var code = pf.CombineAPI_Code(out[0].code)
 
-	return
+			if code == pf.CombineAPI_DRAINED_STATS {
+				if len(out) != 1 {
+					panic("polled to DRAINED_STATS but unexpected `out` frames remain")
+				} else if err = stats.Unmarshal(svc.arenaSlice(out[0])); err != nil {
+					return fmt.Errorf("unmarshal stats: %w", err)
+				}
+				return nil // All documents drained.
+			}
+
+			if err = cb(
+				pf.CombineAPI_Code(out[0].code) == pf.CombineAPI_DRAINED_REDUCED_DOCUMENT,
+				svc.arenaSlice(out[0]), // Doc.
+				svc.arenaSlice(out[1]), // Packed key.
+				svc.arenaSlice(out[2]), // Packed fields.
+			); err != nil {
+				return err
+			}
+			out = out[3:]
+		}
+	}
 }
 
 func newCombineSvc(logPublisher ops.Logger) (*service, error) {
