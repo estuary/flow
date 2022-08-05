@@ -138,11 +138,6 @@ func TestCombineBindings(t *testing.T) {
 		require.NoError(t, combiner.ReduceLeft(json.RawMessage(`{"i": 42, "s": ["two"]}`)))
 		require.NoError(t, combiner.CombineRight(json.RawMessage(`{"i": 32, "s": ["four"]}`)))
 
-		if i%2 == 1 {
-			// PrepareToDrain may optionally be called ahead of Drain.
-			require.NoError(t, combiner.PrepareToDrain())
-		}
-
 		expectCombineFixture(t, combiner.Drain)
 	}
 }

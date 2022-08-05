@@ -6,47 +6,47 @@ expression: "(String::from_utf8_lossy(&arena[..stats_out.begin as usize]), out)"
     "{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"one\",\"max\":5.5,\"min\":3}\u{2}one\0\u{15}\u{3}!�\u{16}\0\0\0\0\0\0{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"three\",\"max\":6.6,\"min\":6}\u{2}three\0\u{15}\u{6}!�\u{1a}ffffff{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"two\",\"max\":4.4,\"min\":2}\u{2}two\0\u{15}\u{2}!�\u{11}������",
     [
         Out {
-            code: 6,
+            code: 202,
             begin: 0,
             end: 76,
         },
         Out {
-            code: 7,
+            code: 203,
             begin: 76,
             end: 81,
         },
         Out {
-            code: 8,
+            code: 204,
             begin: 81,
             end: 92,
         },
         Out {
-            code: 5,
+            code: 201,
             begin: 92,
             end: 170,
         },
         Out {
-            code: 7,
+            code: 203,
             begin: 170,
             end: 177,
         },
         Out {
-            code: 8,
+            code: 204,
             begin: 177,
             end: 188,
         },
         Out {
-            code: 6,
+            code: 202,
             begin: 188,
             end: 264,
         },
         Out {
-            code: 7,
+            code: 203,
             begin: 264,
             end: 269,
         },
         Out {
-            code: 8,
+            code: 204,
             begin: 269,
             end: 280,
         },

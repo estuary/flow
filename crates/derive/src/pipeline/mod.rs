@@ -54,6 +54,10 @@ pub struct Pipeline {
     await_publish: FuturesOrdered<BlockInvoke>,
     // Combiner of derived documents.
     combiner: combiner::Combiner,
+    // Draining iterator over combined documents.
+    combiner_drain_iter: Option<combiner::DrainIter>,
+    // Statistics of the derived-document combiner.
+    combiner_stats: DocCounter,
     // Key components of derived documents.
     document_key_ptrs: Vec<doc::Pointer>,
     // Schema against which documents must validate.
@@ -75,12 +79,12 @@ pub struct Pipeline {
     // Pipeline owns Registers, but it's pragmatically public due to
     // unrelated usages in derive_api (clearing registers & checkpoints).
     registers: registers::Registers,
-    // Execution statistics of the Pipeline.
-    stats: PipelineStats,
     // Trampoline used for lambda Invocations.
     trampoline: cgo::Trampoline,
     // Transforms of the derivation.
     transforms: Vec<flow::TransformSpec>,
+    // Statistics of pipeline transformations.
+    transforms_stats: Vec<TransformStats>,
     // Models of update & publish Invocations for each transform. These are kept
     // pristine, and cloned to produce working instances given to new Blocks.
     updates_model: Vec<Invocation>,
@@ -103,29 +107,6 @@ impl StatsAccumulator for TransformStats {
             update: Some(self.update_lambda.drain()),
             publish: Some(self.publish_lambda.drain()),
         }
-    }
-}
-
-/// Accumulates statistics about each transform in the pipeline.
-#[derive(Default)]
-struct PipelineStats {
-    transforms: Vec<TransformStats>,
-}
-
-impl StatsAccumulator for PipelineStats {
-    type Stats = Vec<derive_api::stats::TransformStats>;
-
-    fn drain(&mut self) -> Self::Stats {
-        self.transforms.iter_mut().map(|t| t.drain()).collect()
-    }
-}
-
-impl PipelineStats {
-    fn transform_stats_mut(&mut self, transform_index: usize) -> &mut TransformStats {
-        while self.transforms.len() <= transform_index {
-            self.transforms.push(TransformStats::default());
-        }
-        &mut self.transforms[transform_index]
     }
 }
 
@@ -216,10 +197,15 @@ impl Pipeline {
         let register_initial = serde_json::from_str(&register_initial_json)
             .context("parsing register initial value")?;
 
+        let mut transforms_stats = Vec::new();
+        transforms_stats.resize_with(transforms.len(), TransformStats::default);
+
         Ok(Self {
             await_publish: FuturesOrdered::new(),
             await_update: FuturesOrdered::new(),
             combiner,
+            combiner_drain_iter: None,
+            combiner_stats: DocCounter::default(),
             document_key_ptrs,
             document_schema_guard,
             document_uuid_ptr,
@@ -229,9 +215,9 @@ impl Pipeline {
             register_initial,
             register_schema_guard,
             registers,
-            stats: PipelineStats::default(),
             trampoline: cgo::Trampoline::new(),
             transforms,
+            transforms_stats,
             updates_model,
         })
     }
@@ -293,8 +279,7 @@ impl Pipeline {
             packed_key,
             transform_index,
         } = header;
-        self.stats
-            .transform_stats_mut(transform_index as usize)
+        self.transforms_stats[transform_index as usize]
             .input
             .increment(body.len() as u32);
 
@@ -355,8 +340,7 @@ impl Pipeline {
                         result.map_err(Error::UpdateInvocationError)?;
 
                     for (transform_index, result) in update_outputs.iter().enumerate() {
-                        self.stats
-                            .transform_stats_mut(transform_index)
+                        self.transforms_stats[transform_index]
                             .update_lambda
                             .add(&result.stats);
                     }
@@ -380,8 +364,7 @@ impl Pipeline {
                         result.map_err(Error::PublishInvocationError)?;
 
                     for (transform_index, result) in publish_outputs.iter().enumerate() {
-                        self.stats
-                            .transform_stats_mut(transform_index)
+                        self.transforms_stats[transform_index]
                             .publish_lambda
                             .add(&result.stats);
                     }
@@ -406,28 +389,58 @@ impl Pipeline {
         Ok(idle)
     }
 
-    // Drain the pipeline's combiner into the provide vectors.
-    // This may be called only after polling to completion.
-    pub fn drain(&mut self, arena: &mut Vec<u8>, out: &mut Vec<cgo::Out>) {
+    // Drain a chunk of the pipeline's combiner into the provided vectors.
+    // This may be called only after the pipeline has been flushed
+    // and then polled to completion.
+    pub fn drain_chunk(
+        &mut self,
+        target_length: usize,
+        arena: &mut Vec<u8>,
+        out: &mut Vec<cgo::Out>,
+    ) -> bool {
         assert_eq!(self.next.num_bytes, 0);
         assert!(self.trampoline.is_empty());
 
-        let combine_out = crate::combine_api::drain_combiner(
-            &mut self.combiner,
+        let mut it = match self.combiner_drain_iter.take() {
+            Some(it) => it,
+            None => self.combiner.drain_entries(),
+        };
+
+        let done = crate::combine_api::drain_chunk(
+            &mut it,
+            target_length,
             &self.document_key_ptrs,
             &self.partitions,
             Some(&self.document_uuid_ptr),
             arena,
             out,
+            &mut self.combiner_stats,
         );
 
+        if !done {
+            self.combiner_drain_iter = Some(it);
+            return false;
+        }
+
+        self.combiner_drain_iter = None;
+
         // Send a final message with the stats for this transaction.
-        let stats = derive_api::Stats {
-            output: Some(combine_out.into_stats()),
-            registers: Some(self.registers.stats.drain()),
-            transforms: self.stats.drain(),
-        };
-        cgo::send_message(derive_api::Code::Stats as u32, &stats, arena, out);
+        cgo::send_message(
+            derive_api::Code::DrainedStats as u32,
+            &derive_api::Stats {
+                output: Some(self.combiner_stats.drain()),
+                registers: Some(self.registers.stats.drain()),
+                transforms: self
+                    .transforms_stats
+                    .iter_mut()
+                    .map(TransformStats::drain)
+                    .collect(),
+            },
+            arena,
+            out,
+        );
+
+        true
     }
 
     fn update_registers(
@@ -548,33 +561,25 @@ mod test {
 
     #[test]
     fn test_pipeline_stats() {
-        let mut stats = PipelineStats::default();
+        let mut stats = Vec::new();
+        stats.resize_with(3, TransformStats::default);
 
-        stats.transform_stats_mut(2).input.increment(42);
-        stats.transform_stats_mut(2).input.increment(42);
-        stats
-            .transform_stats_mut(0)
-            .update_lambda
-            .add(&InvokeStats {
-                output: DocCounter::new(5, 999),
-                total_duration: Duration::from_secs(2),
-            });
-        stats
-            .transform_stats_mut(0)
-            .update_lambda
-            .add(&InvokeStats {
-                output: DocCounter::new(1, 1),
-                total_duration: Duration::from_secs(1),
-            });
-        stats
-            .transform_stats_mut(2)
-            .publish_lambda
-            .add(&InvokeStats {
-                output: DocCounter::new(3, 8192),
-                total_duration: Duration::from_secs(3),
-            });
+        stats[2].input.increment(42);
+        stats[2].input.increment(42);
+        stats[0].update_lambda.add(&InvokeStats {
+            output: DocCounter::new(5, 999),
+            total_duration: Duration::from_secs(2),
+        });
+        stats[0].update_lambda.add(&InvokeStats {
+            output: DocCounter::new(1, 1),
+            total_duration: Duration::from_secs(1),
+        });
+        stats[2].publish_lambda.add(&InvokeStats {
+            output: DocCounter::new(3, 8192),
+            total_duration: Duration::from_secs(3),
+        });
 
-        let actual = stats.drain();
+        let actual: Vec<_> = stats.iter_mut().map(TransformStats::drain).collect();
         insta::assert_yaml_snapshot!(actual);
     }
 }
