@@ -51,26 +51,40 @@ The following data resources are supported for pro accounts (set **Subscription 
 
 ## Prerequisites
 
-There are two ways to authenticate with Hubspot when capturing data: using OAuth, and with an API key.
+There are two ways to authenticate with Hubspot when capturing data: using OAuth, and with a private app access token.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the API key method is the only supported method using the command line.
+the access token method is the only supported method using the command line.
 
 ### Prerequisites for OAuth
 
 :::caution Beta
 OAuth implementation is under active development and is coming soon.
-Use the API key method for now.
+Use the access token method for now.
 :::
 
 * A Hubspot account
 
-### Prerequisites using an API key
+### Prerequisites using a private app access token
 
 * A Hubspot account
 
-* A Hubspot [API key](https://knowledge.hubspot.com/integrations/how-do-i-get-my-hubspot-api-key)
+* The access token for an appropriately configured [private app](https://developers.hubspot.com/docs/api/private-apps) on the Hubspot account.
+
+#### Setup
+
+To create a private app in Hubspot and generate its access token, do the following.
+
+1. Ensure that your Hubspot user account has [super admin](https://knowledge.hubspot.com/settings/hubspot-user-permissions-guide#super-admin) privileges.
+
+2. In Hubspot, create a [new private app](https://developers.hubspot.com/docs/api/private-apps#create-a-private-app).
+
+   1. Name the app "Estuary Flow," or choose another name that is memorable to you.
+
+   2. Grant the new app **Read** access for all available scopes.
+
+   3. Copy the access token for use in the connector configuration.
 
 ## Configuration
 
@@ -81,13 +95,13 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-The following properties reflect the API Key authentication method.
+The following properties reflect the access token authentication method.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/credentials`** | Authentication mechanism | Choose how to authenticate to HubSpot. | object | Required |
-| **`/credentials/credentials_title`** | Credentials set | Type of credentials. Set to `API Key Credentials` | string | Required |
-| **`/credentials/api_key`** | API Key | Your Hubspot API key | string | Required |
+| **`/credentials`** | Private Application | Authenticate with a private app access token | object | Required |
+| **`/credentials/access_token`** | Access Token | HubSpot Access token. | string | Required |
+| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
 | **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
 | `/subscription_type` | Your HubSpot account subscription type | Some streams are only available to certain subscription packages, we use this information to select which streams to pull data from. | string | `"starter"` |
 
@@ -108,8 +122,8 @@ captures:
         image: ghcr.io/estuary/source-hubspot:dev
           config:
             credentials:
-              credentials_title: API Key Credentials
-              api_key: <secret>
+              credentials_title: Private App Credentials
+              access_token: <secret>
       bindings:
         - resource:
             stream: companies
