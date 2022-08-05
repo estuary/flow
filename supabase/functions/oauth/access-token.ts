@@ -74,14 +74,16 @@ export async function accessToken(req: Record<string, any>) {
   const accessTokenResponseMap = oauth2_spec.accessTokenResponseMap || {};
 
   let responseData = await response.json();
+
+  let mappedData: Record<string, any> = {};
   for (const key in accessTokenResponseMap) {
-    responseData[key] = jsonpointer.get(
+    mappedData[key] = jsonpointer.get(
       responseData,
       accessTokenResponseMap[key]
     );
   }
 
-  return new Response(JSON.stringify(responseData), {
+  return new Response(JSON.stringify(mappedData), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
     status: response.status,
   });
