@@ -772,18 +772,21 @@ pub mod combine_api {
         ReduceLeft = 2,
         /// Combine a right-hand side document (Go -> Rust).
         CombineRight = 3,
+        // The following DRAIN_* / DRAINED_* enum codes are
+        // shared with DeriveAPI:
+
         /// Drain the combiner (Go -> Rust).
-        Drain = 4,
+        DrainChunk = 200,
         /// Next drained document is partially combined (Rust -> Go).
-        DrainedCombinedDocument = 5,
+        DrainedCombinedDocument = 201,
         /// Next drained document is fully reduced (Rust -> Go).
-        DrainedReducedDocument = 6,
+        DrainedReducedDocument = 202,
         /// Next drained key (follows drained document; Rust -> Go).
-        DrainedKey = 7,
+        DrainedKey = 203,
         /// Next drained fields (follows key; Rust -> Go).
-        DrainedFields = 8,
+        DrainedFields = 204,
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
-        Stats = 9,
+        DrainedStats = 205,
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API
@@ -919,34 +922,37 @@ pub mod derive_api {
         Configure = 3,
         /// Begin a new transaction (Go -> Rust).
         BeginTransaction = 4,
-        /// Next drained document is partially combined (Rust -> Go).
-        /// Must match CombineAPI.Code.
-        DrainedCombinedDocument = 5,
-        /// Next drained document is fully reduced (Rust -> Go).
-        /// Must match CombineAPI.Code.
-        DrainedReducedDocument = 6,
-        /// Next drained key (follows drained document; Rust -> Go).
-        /// Must match CombineAPI.Code.
-        DrainedKey = 7,
-        /// Next drained fields (follows key; Rust -> Go).
-        /// Must match CombineAPI.Code.
-        DrainedFields = 8,
         /// Next source document header (Go -> Rust).
-        NextDocumentHeader = 9,
+        NextDocumentHeader = 5,
         /// Next source document body (Go -> Rust).
-        NextDocumentBody = 10,
+        NextDocumentBody = 6,
         /// Trampoline task start or completion (Rust <-> Go).
-        Trampoline = 11,
+        Trampoline = 7,
         /// Trampoline sub-type: invoke transform lambda.
-        TrampolineInvoke = 12,
+        TrampolineInvoke = 8,
         /// Flush transaction (Go -> Rust).
-        FlushTransaction = 13,
+        FlushTransaction = 9,
+        /// Transaction completed flushing (Rust -> Go).
+        FlushedTransaction = 10,
         /// Prepare transaction to commit (Go -> Rust).
-        PrepareToCommit = 14,
+        PrepareToCommit = 11,
         /// Clear registers values (test support only; Go -> Rust).
-        ClearRegisters = 15,
+        ClearRegisters = 12,
+        // The following DRAIN_* / DRAINED_* enum codes are
+        // shared with CombineAPI:
+
+        /// Drain the combiner (Go -> Rust).
+        DrainChunk = 200,
+        /// Next drained document is partially combined (Rust -> Go).
+        DrainedCombinedDocument = 201,
+        /// Next drained document is fully reduced (Rust -> Go).
+        DrainedReducedDocument = 202,
+        /// Next drained key (follows drained document; Rust -> Go).
+        DrainedKey = 203,
+        /// Next drained fields (follows key; Rust -> Go).
+        DrainedFields = 204,
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
-        Stats = 16,
+        DrainedStats = 205,
     }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API

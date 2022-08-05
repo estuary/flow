@@ -133,7 +133,7 @@ func (d *Derive) Configure(
 	d.svc.mustSendMessage(
 		uint32(pf.DeriveAPI_CONFIGURE),
 		&pf.DeriveAPI_Config{
-			Derivation:        derivation,
+			Derivation: derivation,
 		})
 
 	return pollExpectNoOutput(d.svc)
@@ -235,29 +235,14 @@ func (d *Derive) Drain(cb CombineCallback) (*pf.DeriveAPI_Stats, error) {
 			"tasks": d.runningTasks,
 		}).Trace("derive.Drain completed poll")
 
-		// Termination condition: we had no unresolved tasks prior to polling, and the output
-		// starts with either a drained combined document or stats. If it starts with stats, that
-		// indicates that the drained output was empty.
-		var hasDrainResults = false
-		if len(out) > 0 {
-			if c := pf.DeriveAPI_Code(out[0].code); c == pf.DeriveAPI_DRAINED_COMBINED_DOCUMENT ||
-				c == pf.DeriveAPI_STATS {
-				hasDrainResults = true
+		if len(out) != 0 && pf.DeriveAPI_Code(out[0].code) == pf.DeriveAPI_FLUSHED_TRANSACTION {
+			if d.runningTasks != 0 {
+				panic(fmt.Sprintf("read FLUSHED_TRANSACTION but d.runningTasks != 0 (is %d)", d.runningTasks))
+			} else if len(out) != 1 {
+				panic(fmt.Sprintf("read FLUSHED_TRANSACTION but len(out) != 1 (is %d)", len(out)))
+			} else {
+				break // Loop termination: completed flush and ready to drain.
 			}
-		}
-		if d.runningTasks == 0 && hasDrainResults {
-			log.WithFields(log.Fields{
-				"out":   len(out),
-				"tasks": d.runningTasks,
-			}).Trace("derive.Drain draining combiner")
-
-			var stats pf.DeriveAPI_Stats
-			err = drainCombineToCallback(d.svc, &out, cb, &stats)
-			if err == nil {
-				d.recordDeriveDrain(&stats)
-			}
-
-			return &stats, err
 		}
 
 		// Otherwise we have active tasks, or the first |out| is a task start.
@@ -276,6 +261,15 @@ func (d *Derive) Drain(cb CombineCallback) (*pf.DeriveAPI_Stats, error) {
 			"tasks": d.runningTasks,
 		}).Trace("derive.Drain resolved a blocking task")
 	}
+	log.Trace("derive.Drain completed flush")
+
+	var stats = new(pf.DeriveAPI_Stats)
+	var err = drainCombineToCallback(d.svc, cb, stats)
+
+	if err == nil {
+		d.recordDeriveDrain(stats)
+	}
+	return stats, err
 }
 
 func (d *Derive) recordDeriveDrain(stats *pf.DeriveAPI_Stats) {
