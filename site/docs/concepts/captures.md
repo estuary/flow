@@ -3,17 +3,60 @@ sidebar_position: 2
 ---
 # Captures
 
-A **capture** is a catalog task that connects to an external data source, or endpoint,
-and binds one or more of its resources, such as database tables,
-to Flow collections.
-As documents become available for any of the bindings,
-Flow validates their schema and adds them to their bound collection.
+A **capture** is how Flow ingests data from an external source.
+Every data flow starts with a capture.
 
-![](<captures.svg>)
+Captures are a type of Flow **task**.
+They connect to an external data source, or **endpoint**,
+and bind one or more of its resources, such as database tables.
+Each binding results in a Flow **collection**.
+
+Captures are continuous real-time processes by default.
+As new data becomes available in the endpoint resources,
+Flow validates their schema and adds them to the appropriate collection.
+
+![](<captures-new.svg>)
+
+You define and configure captures as part of your data flow's **catalog**.
+
+[See the guide to create a capture](../guides/create-dataflow.md#create-a-capture)
 
 ## Pull captures
 
-Pull captures pull documents from an endpoint using a [connector](../#connectors):
+Pull captures pull data from an endpoint using a [connector](../#connectors).
+
+### Estuary sources
+
+Estuary builds and maintains many real-time connectors for various technology systems,
+such as database change data capture (CDC) connectors.
+
+See the [source connector reference documentation](../reference/Connectors/capture-connectors/README.md).
+
+### Airbyte sources
+
+Flow also natively supports Airbyte source connectors.
+These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
+Flow runs the connector at regular intervals to capture updated documents.
+
+Airbyte source connectors are independently reviewed and sometime updated for compatibility with Flow.
+Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes actively supported Airbyte connectors.
+A full list of Airbyte's connectors is available at [Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
+If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
+
+### Discovery
+
+To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
+
+To begin discovery, you tell Flow the connector you'd like to use and basic information about the endpoint.
+Flow automatically generates a capture configuration for you. It identifies one or more
+**resources** — tables, data streams, or the equivalent — and generates **bindings** so that each will be mapped to a
+data collection in Flow.
+
+You may then modify the generated configuration as needed before publishing the capture.
+
+### Specification
+
+Creating a pull capture results in a YAML configuration in the following format:
 
 ```yaml
 # A set of captures to include in the catalog.
@@ -26,9 +69,9 @@ captures:
     endpoint:
       # This endpoint uses a connector provided as a Docker image.
       connector:
-        # Docker image which implements the capture connector.
+        # Docker image that implements the capture connector.
         image: ghcr.io/estuary/source-s3:dev
-        # File which provides the connector's required configuration.
+        # File that provides the connector's required configuration.
         # Configuration may also be presented inline.
         config: path/to/connector-config.yaml
 
@@ -57,40 +100,18 @@ captures:
           syncMode: incremental
 ```
 
-### Estuary sources
-
-Estuary builds and maintains many real-time connectors for various technology systems,
-such as database change data capture (CDC) connectors.
-
-See the [source connector reference documentation](../reference/Connectors/capture-connectors/README.md).
-
-### Airbyte sources
-
-Flow also natively supports Airbyte source connectors.
-These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
-Flow runs the connector at regular intervals to capture updated documents.
-
-Airbyte source connectors are independently reviewed and sometime updated for compatibility with Flow.
-Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes actively supported Airbyte connectors.
-A full list of Airbyte's connectors is available at [Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
-If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
-
-### Discovery
-
-To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
-
-To begin discovery, you tell Flow the connector you'd like to use and basic information about the endpoint.
-Flow automatically stubs out the capture configuration for you. It identifies one or more
-**resources** — tables, data streams, or the equivalent — and generates **bindings** so that each will be mapped to a
-data collection in Flow.
-
-You may then modify the generated configuration as needed before publishing the capture.
-
-For detailed steps, see the [guide to create a dataflow in the web app](../guides/create-dataflow.md#create-a-capture).
-
 ## Push captures
 
-Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol:
+Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol.
+
+:::caution Beta
+Push captures are under development.
+Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections. Specification details are likely to exist.
+:::
+
+### Specification
+
+Pull capture configurations use the following general format:
 
 ```yaml
 captures:
@@ -108,8 +129,3 @@ captures:
         resource:
           name: webhooks
 ```
-
-:::caution
-Push captures are under development.
-Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections. Specification details are likely to exist.
-:::

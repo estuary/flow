@@ -12,6 +12,10 @@ Flow verifies every document against its schema whenever it's read or written,
 which provides a strong guarantee that your collections hold only "clean" data,
 and that bugs and invalid documents are caught before they can impact downstream data products.
 
+In most cases, Flow generates a functioning schema on your behalf during the [discovery](./captures.md#discovery)
+phase of capture.
+In advanced use cases, however, customizing your schema becomes more important.
+
 ## JSON Schema
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
@@ -75,7 +79,7 @@ properties:
 ```
 
 Flow extends JSON Schema with additional annotation keywords,
-which provide Flow with further instruction of how documents should be processed.
+which provide Flow with further instruction for how documents should be processed.
 
 What’s especially powerful about annotations is that they respond to
 **conditionals** within the schema.

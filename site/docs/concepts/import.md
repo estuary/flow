@@ -7,9 +7,14 @@ The YAML files that comprise a catalog specification may include an `import` sec
 This is what allows you to organize your catalog spec across multiple
 interlinked files.
 
+:::info
+When you use the Flow web application, the file structure of your catalog specification is taken care of for you.
+The information on this page applies to [flowctl](./flowctl.md) users.
+:::
+
 A common convention for a given catalog specification is to have a single top-level YAML
 file which imports all the others.
-When you [work locally using use `flowctl draft`,](../concepts/flowctl.md#working-with-drafts),
+When you [work locally using use `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
 Flow automatically generates such a top-level file.
 
 When a catalog is published, the imported resources are treated as part of the file

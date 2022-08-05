@@ -35,7 +35,10 @@ It may also be more complex, combining multiple entities of each type.
 
 ## The catalog YAML
 
-Catalogs are written in the form of YAML specification files.
+Catalogs are written in the form of YAML configuration files.
+The various catalog entities' configuration must follow set specifications.
+
+There are two ways to create and work with these files.
 
 ### In the Flow web app
 
