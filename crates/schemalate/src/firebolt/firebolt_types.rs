@@ -99,7 +99,7 @@ lazy_static! {
 
 // non-lower-case keys, reserved words, and fields not conforming to the regex must
 // be quoted. see https://docs.firebolt.io/general-reference/identifier-requirements.html
-pub fn column_quote(s: &str) -> String {
+pub fn identifier_quote(s: &str) -> String {
     if !VALID_FIELD_REGEX.is_match(s)
         || RESERVED_WORDS.contains(&s.to_lowercase())
         || s != s.to_lowercase()
@@ -115,7 +115,7 @@ impl Display for Column {
         write!(
             f,
             "{} {}{}",
-            column_quote(&self.key),
+            identifier_quote(&self.key),
             self.r#type,
             if self.nullable { " NULL" } else { "" }
         )
