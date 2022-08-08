@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::firebolt::firebolt_types::TableType;
 
-use super::firebolt_types::{column_quote, Table};
+use super::firebolt_types::{identifier_quote, Table};
 
 #[derive(Debug, PartialEq)]
 pub struct CreateTable<'a> {
@@ -31,7 +31,7 @@ impl<'a> Display for CreateTable<'a> {
                 .iter()
                 .filter(|col| col.is_key)
                 .map(|col| col.key.as_str())
-                .map(column_quote)
+                .map(identifier_quote)
                 .collect();
 
             if keys.len() > 0 {
@@ -43,12 +43,14 @@ impl<'a> Display for CreateTable<'a> {
             "".to_string()
         };
 
+        let table_name = identifier_quote(&self.table.name);
+
         write!(
             f,
             "CREATE {} TABLE {} {} ({}) {} {};",
             self.table.r#type,
             if_not_exists,
-            self.table.name,
+            table_name,
             self.table.schema,
             indices,
             self.extra,
@@ -63,7 +65,7 @@ pub struct DropTable<'a> {
 
 impl<'a> Display for DropTable<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DROP TABLE {};", self.table.name,)
+        write!(f, "DROP TABLE {};", identifier_quote(&self.table.name))
     }
 }
 
@@ -83,14 +85,17 @@ impl<'a> Display for InsertFromTable<'a> {
             .columns
             .iter()
             .map(|c| c.key.as_str())
-            .map(column_quote)
+            .map(identifier_quote)
             .join(",");
+
+        let source_name = identifier_quote(&self.source_name);
+        let destination_name = identifier_quote(&self.destination.name);
 
         write!(
             f,
             "INSERT INTO {} ({}) SELECT {} FROM {} WHERE source_file_name IN (?) AND ((SELECT count(*) FROM {} WHERE source_file_name IN (?)) < 1);",
-            self.destination.name, column_list, column_list, self.source_name,
-            self.destination.name
+            destination_name, column_list, column_list, source_name,
+            destination_name
         )
     }
 }
@@ -106,7 +111,7 @@ mod tests {
         assert_eq!(
             CreateTable {
                 table: &Table {
-                    name: "test_table".to_string(),
+                    name: "test-table".to_string(),
                     schema: TableSchema {
                         columns: vec![
                             Column {
@@ -129,7 +134,7 @@ mod tests {
                 extra: ""
             }
             .to_string(),
-            "CREATE FACT TABLE IF NOT EXISTS test_table (str TEXT,\"Int\" INT NULL) PRIMARY INDEX str ;"
+            "CREATE FACT TABLE IF NOT EXISTS \"test-table\" (str TEXT,\"Int\" INT NULL) PRIMARY INDEX str ;"
         );
 
         assert_eq!(
@@ -193,13 +198,13 @@ mod tests {
         assert_eq!(
             DropTable {
                 table: &Table {
-                    name: "test_table".to_string(),
+                    name: "test-table".to_string(),
                     schema: TableSchema { columns: vec![] },
                     r#type: TableType::Fact,
                 }
             }
             .to_string(),
-            "DROP TABLE test_table;"
+            "DROP TABLE \"test-table\";"
         );
     }
 
@@ -208,7 +213,7 @@ mod tests {
         assert_eq!(
             InsertFromTable {
                 destination: &Table {
-                    name: "destination_test".to_string(),
+                    name: "destination-test".to_string(),
                     schema: TableSchema {
                         columns: vec![
                             Column {
@@ -227,10 +232,10 @@ mod tests {
                     },
                     r#type: TableType::Fact,
                 },
-                source_name: "source_test"
+                source_name: "source-test"
             }
             .to_string(),
-            "INSERT INTO destination_test (str,\"Int\") SELECT str,\"Int\" FROM source_test WHERE source_file_name IN (?) AND ((SELECT count(*) FROM destination_test WHERE source_file_name IN (?)) < 1);"
+            "INSERT INTO \"destination-test\" (str,\"Int\") SELECT str,\"Int\" FROM \"source-test\" WHERE source_file_name IN (?) AND ((SELECT count(*) FROM \"destination-test\" WHERE source_file_name IN (?)) < 1);"
         );
     }
 }
