@@ -19,6 +19,8 @@ func TestPushServerLifecycle(t *testing.T) {
 	var spec pf.CaptureSpec
 	require.NoError(t, spec.Unmarshal(specBytes))
 
+	var startCommitCh = make(chan error)
+
 	var ctx, cancel = context.WithCancel(context.Background())
 	push, err := NewPushServer(
 		ctx,
@@ -28,6 +30,7 @@ func TestPushServerLifecycle(t *testing.T) {
 		pf.NewFullRange(),
 		&spec,
 		"a-version",
+		func(err error) { startCommitCh <- err },
 	)
 	require.NoError(t, err)
 
@@ -45,11 +48,6 @@ func TestPushServerLifecycle(t *testing.T) {
 
 		require.NoError(t, reducedCheckpoint.Reduce(checkpoint))
 	}
-
-	// Start Serve() delivering into |startCommitCh|.
-	// On |cancel| it will gracefully stop.
-	var startCommitCh = make(chan error)
-	go push.Serve(func(err error) { startCommitCh <- err })
 
 	var acksCh = make(chan struct{})
 

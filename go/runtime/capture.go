@@ -94,69 +94,13 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
 		"loaded specification")
 
+	// Stop a previous PullClient / PushServer delegate if it exists.
 	if c.delegate != nil {
 		err, c.delegate = c.delegate.Close(), nil
 		if err != nil && !errors.Is(err, context.Canceled) {
 			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
 		}
 		err = nil // Clear context.Canceled.
-	}
-
-	// Closure which builds a Combiner for a specified binding.
-	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
-		var combiner, err = bindings.NewCombine(c.LogPublisher)
-		if err != nil {
-			return nil, err
-		}
-		return combiner, combiner.Configure(
-			shard.FQN(),
-			binding.Collection.Collection,
-			binding.Collection.SchemaJson,
-			binding.Collection.UuidPtr,
-			binding.Collection.KeyPtrs,
-			flow.PartitionPointers(&binding.Collection),
-		)
-	}
-
-	if c.spec.EndpointType == pf.EndpointType_INGEST {
-		// Create a PushServer for the specification.
-		// Careful! Don't assign directly to c.delegate because (*pc.PushServer)(nil) != nil
-		var pushServer, err = pc.NewPushServer(c.taskTerm.ctx, newCombinerFn, c.labels.Range, &c.spec, c.labels.Build)
-		if err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("opening push: %w", err)
-		} else {
-			c.delegate = pushServer
-		}
-	} else {
-		// Establish driver connection and start Pull RPC.
-		conn, err := capture.NewDriver(
-			c.taskTerm.ctx,
-			c.spec.EndpointType,
-			c.spec.EndpointSpecJson,
-			c.host.Config.Flow.Network,
-			c.LogPublisher,
-		)
-		if err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
-		}
-
-		// Open a Pull RPC stream for the capture under this context.
-		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
-		pullClient, err := pc.OpenPull(
-			c.taskTerm.ctx,
-			conn,
-			loadDriverCheckpoint(c.store),
-			newCombinerFn,
-			c.labels.Range,
-			&c.spec,
-			c.labels.Build,
-			!c.host.Config.Flow.Poll,
-		)
-		if err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("opening pull RPC: %w", err)
-		} else {
-			c.delegate = pullClient
-		}
 	}
 
 	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
@@ -174,7 +118,16 @@ func (c *Capture) StartReadingMessages(
 	_ *flow.Timepoint,
 	ch chan<- consumer.EnvelopeOrError,
 ) {
+	if err := c.startReadingMessages(shard, cp, ch); err != nil {
+		ch <- consumer.EnvelopeOrError{Error: err}
+	}
+}
 
+func (c *Capture) startReadingMessages(
+	shard consumer.Shard,
+	cp pf.Checkpoint,
+	ch chan<- consumer.EnvelopeOrError,
+) error {
 	// A consumer.Envelope requires a JournalSpec, of which only the Name is actually
 	// used (for sequencing messages and producing checkpoints).
 	// Of course, captures don't actually have a journal from which they read,
@@ -274,7 +227,70 @@ func (c *Capture) StartReadingMessages(
 		ch <- consumer.EnvelopeOrError{Error: err}
 	}
 
-	go c.delegate.Serve(startCommitFn)
+	// Closure which builds a Combiner for a specified binding.
+	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
+		var combiner, err = bindings.NewCombine(c.LogPublisher)
+		if err != nil {
+			return nil, err
+		}
+		return combiner, combiner.Configure(
+			shard.FQN(),
+			binding.Collection.Collection,
+			binding.Collection.SchemaJson,
+			binding.Collection.UuidPtr,
+			binding.Collection.KeyPtrs,
+			flow.PartitionPointers(&binding.Collection),
+		)
+	}
+
+	if c.spec.EndpointType == pf.EndpointType_INGEST {
+		// Create a PushServer for the specification.
+		// Careful! Don't assign directly to c.delegate because (*pc.PushServer)(nil) != nil
+		var pushServer, err = pc.NewPushServer(
+			c.taskTerm.ctx,
+			newCombinerFn,
+			c.labels.Range,
+			&c.spec,
+			c.labels.Build,
+			startCommitFn,
+		)
+		if err != nil {
+			return fmt.Errorf("opening push: %w", err)
+		} else {
+			c.delegate = pushServer
+		}
+	} else {
+		// Establish driver connection and start Pull RPC.
+		conn, err := capture.NewDriver(
+			c.taskTerm.ctx,
+			c.spec.EndpointType,
+			c.spec.EndpointSpecJson,
+			c.host.Config.Flow.Network,
+			c.LogPublisher,
+		)
+		if err != nil {
+			return fmt.Errorf("building endpoint driver: %w", err)
+		}
+
+		// Open a Pull RPC stream for the capture under this context.
+		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
+		pullClient, err := pc.OpenPull(
+			c.taskTerm.ctx,
+			conn,
+			loadDriverCheckpoint(c.store),
+			newCombinerFn,
+			c.labels.Range,
+			&c.spec,
+			c.labels.Build,
+			!c.host.Config.Flow.Poll,
+			startCommitFn,
+		)
+		if err != nil {
+			return fmt.Errorf("opening pull RPC: %w", err)
+		} else {
+			c.delegate = pullClient
+		}
+	}
 
 	c.Log(logrus.DebugLevel, logrus.Fields{
 		"capture":  c.labels.TaskName,
@@ -282,6 +298,8 @@ func (c *Capture) StartReadingMessages(
 		"build":    c.labels.Build,
 		"interval": minInterval,
 	}, "reading capture stream")
+
+	return nil
 }
 
 // ReplayRange is not valid for a Capture and must not be called.
@@ -448,7 +466,6 @@ func (c *Capture) Destroy() {
 type delegate interface {
 	Close() error
 	PopTransaction() ([]pf.Combiner, pf.DriverCheckpoint)
-	Serve(startCommitFn func(error))
 	SetLogCommitOp(op client.OpFuture) error
 }
 
