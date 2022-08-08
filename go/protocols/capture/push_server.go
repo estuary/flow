@@ -23,6 +23,7 @@ func NewPushServer(
 	range_ pf.RangeSpec,
 	spec *pf.CaptureSpec,
 	version string,
+	startCommitFn func(error),
 ) (*PushServer, error) {
 
 	var coordinator, err = newCoordinator(newCombinerFn, range_, spec, version)
@@ -46,6 +47,8 @@ func NewPushServer(
 		ctx:         ctx,
 		pushCh:      make(chan readyPush),
 	}
+	go out.serve(startCommitFn)
+
 	return out, nil
 }
 
@@ -85,7 +88,7 @@ type readyPush struct {
 	ackCh      chan<- struct{}
 }
 
-// Serve is a long-lived routine which processes Push transactions.
+// serve is a long-lived routine which processes Push transactions.
 // When captured documents are ready to commit, it invokes the startCommitFn
 // callback.
 //
@@ -93,14 +96,14 @@ type readyPush struct {
 // the associated DriverCheckpoint(), and then notify the PushServer of a
 // pending commit via SetLogCommittedOp().
 //
-// While this drain and commit is ongoing, Serve() will accumulate further
+// While this drain and commit is ongoing, serve() will accumulate further
 // pushed documents and checkpoints. It will then notify the caller of
 // the next transaction only after the resolution of the prior transaction's
 // commit.
 //
-// Serve will call into startCommitFn with a non-nil error exactly once,
+// serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
-func (c *PushServer) Serve(startCommitFn func(error)) {
+func (c *PushServer) serve(startCommitFn func(error)) {
 	var doneCh = c.ctx.Done()
 
 	c.loop(
