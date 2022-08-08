@@ -26,6 +26,7 @@ func OpenPull(
 	spec *pf.CaptureSpec,
 	version string,
 	tail bool,
+	startCommitFn func(error),
 ) (*PullClient, error) {
 
 	var coordinator, err = newCoordinator(newCombinerFn, range_, spec, version)
@@ -68,12 +69,13 @@ func OpenPull(
 		coordinator: coordinator,
 		rpc:         rpc,
 	}
+	go out.serve(startCommitFn)
 
 	rpc = nil // Don't run deferred CloseSend.
 	return out, nil
 }
 
-// Serve is a long-lived routine which processes transactions from the Pull RPC.
+// serve is a long-lived routine which processes transactions from the Pull RPC.
 // When captured documents are ready to commit, it invokes the startCommitFn
 // callback.
 //
@@ -81,14 +83,14 @@ func OpenPull(
 // the associated DriverCheckpoint(), and then notify the PullClient of a
 // pending commit via SetLogCommittedOp().
 //
-// While this drain and commit is ongoing, Serve() will accumulate further
+// While this drain and commit is ongoing, serve() will accumulate further
 // captured documents and checkpoints. It will then notify the caller of
 // the next transaction only after the resolution of the prior transaction's
 // commit.
 //
-// Serve will call into startCommitFn with a non-nil error exactly once,
+// serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
-func (c *PullClient) Serve(startCommitFn func(error)) {
+func (c *PullClient) serve(startCommitFn func(error)) {
 	defer c.rpc.CloseSend()
 	var respCh = PullResponseChannel(c.rpc)
 

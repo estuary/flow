@@ -28,6 +28,7 @@ func TestPullClientLifecycle(t *testing.T) {
 	var conn = AdaptServerToClient(server)
 	var captured []json.RawMessage
 	var reducedCheckpoint pf.DriverCheckpoint
+	var startCommitCh = make(chan error)
 
 	rpc, err := OpenPull(
 		ctx,
@@ -40,6 +41,7 @@ func TestPullClientLifecycle(t *testing.T) {
 		&spec,
 		"a-version",
 		true,
+		func(err error) { startCommitCh <- err },
 	)
 	require.NoError(t, err)
 
@@ -58,9 +60,6 @@ func TestPullClientLifecycle(t *testing.T) {
 		require.NoError(t, reducedCheckpoint.Reduce(checkpoint))
 		return fmt.Sprintf("%d => %s", n, string(reducedCheckpoint.DriverCheckpointJson))
 	}
-
-	var startCommitCh = make(chan error)
-	go rpc.Serve(func(err error) { startCommitCh <- err })
 
 	server.sendDocs(0, "one", "two")
 	server.sendCheckpoint(map[string]int{"a": 1})
@@ -168,6 +167,39 @@ func TestPullClientLifecycle(t *testing.T) {
 	)
 }
 
+func TestPullClientCancel(t *testing.T) {
+	var specBytes, err = ioutil.ReadFile("testdata/capture.proto")
+	require.NoError(t, err)
+	var spec pf.CaptureSpec
+	require.NoError(t, spec.Unmarshal(specBytes))
+
+	var server = &testServer{DoneOp: client.NewAsyncOperation()}
+	var conn = AdaptServerToClient(server)
+	var startCommitCh = make(chan error)
+	var ctx, cancelFn = context.WithCancel(context.Background())
+
+	rpc, err := OpenPull(
+		ctx,
+		conn,
+		json.RawMessage(`{"driver":"checkpoint"}`),
+		func(*pf.CaptureSpec_Binding) (pf.Combiner, error) {
+			return new(pf.MockCombiner), nil
+		},
+		pf.NewFullRange(),
+		&spec,
+		"a-version",
+		true,
+		func(err error) { startCommitCh <- err },
+	)
+	require.NoError(t, err)
+
+	cancelFn()
+
+	// If the PullClient is immediately cancelled without being used,
+	// it should still tear down correctly.
+	require.NoError(t, rpc.Close())
+}
+
 type testServer struct {
 	OpenRx   PullRequest_Open
 	OpenedTx PullResponse_Opened
@@ -252,5 +284,10 @@ func (t *testServer) Pull(stream Driver_PullServer) error {
 		return err
 	}
 
-	return t.DoneOp.Err()
+	select {
+	case <-t.DoneOp.Done():
+		return t.DoneOp.Err()
+	case <-stream.Context().Done():
+		return nil // Client cancelled.
+	}
 }
