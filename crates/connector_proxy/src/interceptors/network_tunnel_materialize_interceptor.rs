@@ -14,7 +14,7 @@ pub struct NetworkTunnelMaterializeInterceptor {}
 
 impl NetworkTunnelMaterializeInterceptor {
     fn adapt_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
@@ -28,7 +28,7 @@ impl NetworkTunnelMaterializeInterceptor {
     }
 
     fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
 
             if let Some(ref mut m) = request.materialization {
@@ -105,7 +105,7 @@ impl NetworkTunnelMaterializeInterceptor {
         in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowMaterializeOperation::Spec => Box::pin(stream::once(async {
+            FlowMaterializeOperation::Spec => Box::pin(stream::once(async move {
                 let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
 
                 response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
