@@ -15,7 +15,7 @@ pub struct NetworkTunnelCaptureInterceptor {}
 
 impl NetworkTunnelCaptureInterceptor {
     fn adapt_discover_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let mut request = get_decoded_message::<DiscoverRequest>(in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
@@ -32,7 +32,7 @@ impl NetworkTunnelCaptureInterceptor {
     }
 
     fn adapt_validate_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
@@ -49,7 +49,7 @@ impl NetworkTunnelCaptureInterceptor {
     }
 
     fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
 
             if let Some(ref mut c) = request.capture {

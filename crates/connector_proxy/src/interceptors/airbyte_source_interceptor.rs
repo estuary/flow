@@ -8,7 +8,7 @@ use crate::libs::airbyte_catalog::{
 use crate::libs::command::READY;
 use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::encode_message;
-use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses};
+use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses, stream_runtime_messages};
 
 use bytes::Bytes;
 use proto_flow::capture::{
@@ -51,7 +51,7 @@ impl AirbyteSourceInterceptor {
     }
 
     fn adapt_spec_request_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             get_decoded_message::<SpecRequest>(in_stream).await?;
             Ok(Bytes::from(READY))
         }))
@@ -79,7 +79,7 @@ impl AirbyteSourceInterceptor {
         config_file_path: String,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             let request = get_decoded_message::<DiscoverRequest>(in_stream).await?;
 
             File::create(config_file_path)?.write_all(request.endpoint_spec_json.as_bytes())?;
@@ -126,7 +126,7 @@ impl AirbyteSourceInterceptor {
                 resp.bindings.push(discover_response::Binding {
                     recommended_name,
                     resource_spec_json: serde_json::to_string(&resource_spec)?,
-                    key_ptrs: key_ptrs,
+                    key_ptrs,
                     document_schema_json: stream.json_schema.to_string(),
                 })
             }
@@ -183,7 +183,7 @@ impl AirbyteSourceInterceptor {
     }
 
     fn adapt_apply_request_stream(&mut self, in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
+        Box::pin(stream::once(async move {
             get_decoded_message::<ApplyRequest>(in_stream).await?;
             Ok(Bytes::from(READY))
         }))
@@ -207,14 +207,21 @@ impl AirbyteSourceInterceptor {
         stream_to_binding: Arc<Mutex<HashMap<String, usize>>>,
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
+        let runtime_messages_stream = Box::pin(stream_runtime_messages::<PullRequest>(in_stream));
         Box::pin(
-            stream::once(async move {
-                let mut request = get_decoded_message::<PullRequest>(in_stream).await?;
+            stream::try_unfold((stream_to_binding, runtime_messages_stream, config_file_path, catalog_file_path, state_file_path),
+            |(stb, mut stream, config_file_path, catalog_file_path, state_file_path)| async move {
+                let mut request = match stream.next().await {
+                    Some(m) => m?,
+                    None => {
+                        return Ok(None);
+                    }
+                };
                 if let Some(ref mut o) = request.open {
-                    File::create(state_file_path)?.write_all(&o.driver_checkpoint_json)?;
+                    File::create(state_file_path.clone())?.write_all(&o.driver_checkpoint_json)?;
 
                     if let Some(ref mut c) = o.capture {
-                        File::create(config_file_path)?
+                        File::create(config_file_path.clone())?
                             .write_all(&c.endpoint_spec_json.as_bytes())?;
 
                         let mut catalog = ConfiguredCatalog {
@@ -226,12 +233,10 @@ impl AirbyteSourceInterceptor {
                             },
                         };
 
-                        let mut stream_to_binding = stream_to_binding.lock().await;
-
                         for (i, binding) in c.bindings.iter().enumerate() {
                             let resource: ResourceSpec =
                                 serde_json::from_str(&binding.resource_spec_json)?;
-                            stream_to_binding.insert(resource.stream.clone(), i);
+                            stb.lock().await.insert(resource.stream.clone(), i);
 
                             let mut projections = HashMap::new();
                             if let Some(ref collection) = binding.collection {
@@ -262,7 +267,7 @@ impl AirbyteSourceInterceptor {
                                         source_defined_cursor: None,
                                         source_defined_primary_key: None,
                                     },
-                                    projections: projections,
+                                    projections,
                                 });
                             }
                         }
@@ -271,18 +276,17 @@ impl AirbyteSourceInterceptor {
                             raise_err(&format!("invalid config_catalog: {:?}", e))?
                         }
 
-                        serde_json::to_writer(File::create(catalog_file_path)?, &catalog)?
+                        serde_json::to_writer(File::create(catalog_file_path.clone())?, &catalog)?
                     }
 
-                    // release the lock.
-                    drop(stream_to_binding);
-
-                    Ok(Some(Bytes::from(READY)))
+                    Ok(Some((Some(Bytes::from(READY)), (stb, stream, config_file_path, catalog_file_path, state_file_path))))
                 } else {
-                    Ok(None)
+                    // If we return Ok(None), we will stop consuming the input, but we want to
+                    // continue consuming input since we can receive ACK requests from runtime and
+                    // we need to consume those to avoid an accumulation of those requests in stdin
+                    Ok(Some((None, (stb, stream, config_file_path, catalog_file_path, state_file_path))))
                 }
-            })
-            .try_filter_map(|item| futures::future::ready(Ok(item))),
+            }).try_filter_map(|item| futures::future::ok(item))
         )
     }
 
