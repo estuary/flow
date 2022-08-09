@@ -96,8 +96,8 @@ where
     }
 }
 
-/// Read the given stream of bytes and try to decode it to type <T>
-pub fn get_decoded_message<T>(
+/// Read the given stream of bytes from runtime and try to decode it to type <T>
+pub fn get_decoded_message<'a, T>(
     in_stream: InterceptorStream,
 ) -> impl futures::Future<Output = std::io::Result<T>>
 where
@@ -109,6 +109,20 @@ where
             .await?
             .ok_or(create_custom_error("missing request"))
     }
+}
+
+pub fn stream_runtime_messages<T: prost::Message + std::default::Default>(
+    in_stream: InterceptorStream,
+) -> impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error> {
+    let reader = StreamReader::new(in_stream);
+
+    futures::stream::try_unfold(reader, |mut reader| async {
+        match decode_message::<T, _>(&mut reader).await {
+            Ok(Some(msg)) => Ok(Some((msg, reader))),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e)
+        }
+    })
 }
 
 #[cfg(test)]
@@ -258,12 +272,55 @@ mod test {
         };
 
         let msg_buf = encode_message(&msg).unwrap();
+        let read_stream = ReaderStream::new(std::io::Cursor::new(msg_buf));
 
-        let stream = Box::pin(ReaderStream::new(std::io::Cursor::new(msg_buf)));
+        let stream: InterceptorStream = Box::pin(read_stream);
         let result = get_decoded_message::<ValidateRequest>(stream)
             .await
             .unwrap();
 
         assert_eq!(result, msg);
+    }
+
+    #[tokio::test]
+    async fn test_stream_runtime_messages() {
+        let msg1 = ValidateRequest {
+            materialization: "materialization".to_string(),
+            endpoint_type: EndpointType::AirbyteSource.into(),
+            endpoint_spec_json: "{}".to_string(),
+            bindings: vec![validate_request::Binding {
+                resource_spec_json: "{}".to_string(),
+                collection: None,
+                field_config_json: HashMap::new(),
+            }],
+        };
+        let msg2 = ValidateRequest {
+            materialization: "materialization 2".to_string(),
+            endpoint_type: EndpointType::AirbyteSource.into(),
+            endpoint_spec_json: "{}".to_string(),
+            bindings: vec![validate_request::Binding {
+                resource_spec_json: "{}".to_string(),
+                collection: None,
+                field_config_json: HashMap::new(),
+            }],
+        };
+
+        let msg_buf1 = encode_message(&msg1).unwrap();
+        let msg_buf2 = encode_message(&msg2).unwrap();
+        let read_stream = ReaderStream::new(std::io::Cursor::new([msg_buf1, msg_buf2].concat()));
+
+        let stream: InterceptorStream = Box::pin(read_stream);
+        let result = stream_runtime_messages::<ValidateRequest>(stream)
+            .collect::<Vec<std::io::Result<ValidateRequest>>>()
+            .await
+            .into_iter()
+            .filter_map(|item| {
+                match item {
+                    Ok(msg) => Some(msg),
+                    Err(_) => None
+                }
+            }).collect::<Vec<ValidateRequest>>();
+
+        assert_eq!(result, vec![msg1, msg2]);
     }
 }

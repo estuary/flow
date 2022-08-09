@@ -148,7 +148,7 @@ fi
 
 if [ -f $TEST_ROOT/data-plane.out.expect ]; then
     n_actual=$( cat $TESTDIR/data-plane.out | grep --count --file=$TEST_ROOT/data-plane.out.expect )
-    n_expect=$( cat $TEST_ROOT/data-plane.out.expect | wc --lines )
+    n_expect=$( cat $TEST_ROOT/data-plane.out.expect | wc -l)
 
     if [ $n_actual -ne $n_expect ]; then
         echo "Expected data-plane output was not matched ($n_actual actual vs $n_expect expected)"
@@ -209,7 +209,7 @@ for table_expected in ${TEST_ROOT}/logs; do
     psql_exec -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $table_actual
 
     n_actual=$( cat $table_actual | grep --count --file=$table_expected )
-    n_expect=$( cat $table_expected | wc --lines )
+    n_expect=$( cat $table_expected | wc -l )
 
     if [ $n_actual -ne $n_expect ]; then
         echo "Expected ops logs were not matched ($n_actual actual vs $n_expect expected)"
