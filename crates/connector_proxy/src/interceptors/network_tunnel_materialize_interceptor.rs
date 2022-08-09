@@ -13,9 +13,9 @@ use tokio_util::io::{ReaderStream, StreamReader};
 pub struct NetworkTunnelMaterializeInterceptor {}
 
 impl NetworkTunnelMaterializeInterceptor {
-    fn adapt_spec_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
-            let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
+    fn adapt_spec_request(mut in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async move {
+            let mut request = get_decoded_message::<ValidateRequest>(&mut in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
@@ -27,9 +27,9 @@ impl NetworkTunnelMaterializeInterceptor {
         }))
     }
 
-    fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
-            let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
+    fn adapt_apply_request(mut in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async move {
+            let mut request = get_decoded_message::<ApplyRequest>(&mut in_stream).await?;
 
             if let Some(ref mut m) = request.materialization {
                 m.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
@@ -102,11 +102,11 @@ impl NetworkTunnelMaterializeInterceptor {
 
     pub fn adapt_response_stream(
         op: &FlowMaterializeOperation,
-        in_stream: InterceptorStream,
+        mut in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
-            FlowMaterializeOperation::Spec => Box::pin(stream::once(async {
-                let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
+            FlowMaterializeOperation::Spec => Box::pin(stream::once(async move {
+                let mut response = get_decoded_message::<SpecResponse>(&mut in_stream).await?;
 
                 response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
