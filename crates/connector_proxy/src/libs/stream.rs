@@ -97,9 +97,9 @@ where
 }
 
 /// Read the given stream of bytes and try to decode it to type <T>
-pub fn get_decoded_message<T>(
-    in_stream: InterceptorStream,
-) -> impl futures::Future<Output = std::io::Result<T>>
+pub fn get_decoded_message<'a, T>(
+    in_stream: &'a mut InterceptorStream,
+) -> impl futures::Future<Output = std::io::Result<T>> + 'a
 where
     T: prost::Message + std::default::Default,
 {
@@ -244,6 +244,12 @@ mod test {
         );
     }
 
+    // Returns a reference to `NUM` where its `'static`
+    // lifetime is coerced to that of the input argument.
+    fn coerce_static<'a, T, K>(item: &'static T, _: &'a K) -> &'a T {
+        &item
+    }
+
     #[tokio::test]
     async fn test_get_decoded_message() {
         let msg = ValidateRequest {
@@ -258,9 +264,10 @@ mod test {
         };
 
         let msg_buf = encode_message(&msg).unwrap();
+        let read_stream = ReaderStream::new(std::io::Cursor::new(msg_buf));
 
-        let stream = Box::pin(ReaderStream::new(std::io::Cursor::new(msg_buf)));
-        let result = get_decoded_message::<ValidateRequest>(stream)
+        let mut stream = Box::pin(read_stream);
+        let result = get_decoded_message::<ValidateRequest>(&mut stream)
             .await
             .unwrap();
 
