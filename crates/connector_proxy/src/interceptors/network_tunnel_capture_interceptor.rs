@@ -14,9 +14,9 @@ use tokio_util::io::{ReaderStream, StreamReader};
 pub struct NetworkTunnelCaptureInterceptor {}
 
 impl NetworkTunnelCaptureInterceptor {
-    fn adapt_discover_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
-            let mut request = get_decoded_message::<DiscoverRequest>(in_stream).await?;
+    fn adapt_discover_request_stream(mut in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async move {
+            let mut request = get_decoded_message::<DiscoverRequest>(&mut in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
@@ -31,9 +31,9 @@ impl NetworkTunnelCaptureInterceptor {
         }))
     }
 
-    fn adapt_validate_request_stream(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
-            let mut request = get_decoded_message::<ValidateRequest>(in_stream).await?;
+    fn adapt_validate_request_stream(mut in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async move {
+            let mut request = get_decoded_message::<ValidateRequest>(&mut in_stream).await?;
 
             request.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
                 RawValue::from_string(request.endpoint_spec_json)?,
@@ -48,9 +48,9 @@ impl NetworkTunnelCaptureInterceptor {
         }))
     }
 
-    fn adapt_apply_request(in_stream: InterceptorStream) -> InterceptorStream {
-        Box::pin(stream::once(async {
-            let mut request = get_decoded_message::<ApplyRequest>(in_stream).await?;
+    fn adapt_apply_request(mut in_stream: InterceptorStream) -> InterceptorStream {
+        Box::pin(stream::once(async move {
+            let mut request = get_decoded_message::<ApplyRequest>(&mut in_stream).await?;
 
             if let Some(ref mut c) = request.capture {
                 c.endpoint_spec_json = NetworkTunnel::consume_network_tunnel_config(
@@ -122,11 +122,11 @@ impl NetworkTunnelCaptureInterceptor {
 
     pub fn adapt_response_stream(
         op: &FlowCaptureOperation,
-        in_stream: InterceptorStream,
+        mut in_stream: InterceptorStream,
     ) -> Result<InterceptorStream, Error> {
         Ok(match op {
             FlowCaptureOperation::Spec => Box::pin(stream::once(async move {
-                let mut response = get_decoded_message::<SpecResponse>(in_stream).await?;
+                let mut response = get_decoded_message::<SpecResponse>(&mut in_stream).await?;
                 response.endpoint_spec_schema_json = NetworkTunnel::extend_endpoint_schema(
                     RawValue::from_string(response.endpoint_spec_schema_json)?,
                 )
