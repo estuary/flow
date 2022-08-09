@@ -56,6 +56,23 @@ export async function encryptConfig(req: Record<string, any>) {
     },
   });
 
+  if (response.status >= 400) {
+    console.log(await response.json())
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: "encryption_failure",
+          message: `Encryption failed.`,
+          description: `Failed to encrypt the endpoint specification.`,
+        },
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: response.status,
+      }
+    );
+  }
+
   let responseData = JSON.stringify(await response.json());
 
   // If we can find client_id or client_secret in plaintext in the response,
