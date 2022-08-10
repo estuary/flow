@@ -4,12 +4,17 @@ sidebar_position: 7
 
 # Google Analytics
 
-This connector captures data from a view in Google Analytics 4.
+This connector captures data from a view in Google Analytics.
+
+:::caution
+This connector supports Universal Analytics.
+Support for Google Analytics 4 is coming soon.
+:::
 
 [`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-v4),
+You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-universal-analytics),
 but keep in mind that the two versions may be significantly different.
 
 ## Supported data resources
