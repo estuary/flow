@@ -11,6 +11,8 @@ const ENCRYPTION_SERVICE =
 
 const CREDENTIALS_KEY = "credentials";
 
+const CLIENT_CREDS_INJECTION = "_injectedDuringEncryption_"
+
 export async function encryptConfig(req: Record<string, any>) {
   const { connector_id, connector_tag_id, config } = req;
 
@@ -26,7 +28,7 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { oauth2_client_id, oauth2_client_secret } = data;
 
-  if (config[CREDENTIALS_KEY]) {
+  if (config[CREDENTIALS_KEY]["client_id"] == CLIENT_CREDS_INJECTION && config[CREDENTIALS_KEY]["client_secret"] == CLIENT_CREDS_INJECTION) {
     config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
     config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
   }
@@ -57,7 +59,6 @@ export async function encryptConfig(req: Record<string, any>) {
   });
 
   if (response.status >= 400) {
-    console.log(await response.json())
     return new Response(
       JSON.stringify({
         error: {
@@ -78,8 +79,8 @@ export async function encryptConfig(req: Record<string, any>) {
   // If we can find client_id or client_secret in plaintext in the response,
   // it's not secure to return this response!
   if (
-    (oauth2_client_id != null && responseData.includes(oauth2_client_id)) ||
-    (oauth2_client_secret != null &&
+    (oauth2_client_id !== null && responseData.includes(oauth2_client_id)) ||
+    (oauth2_client_secret !== null &&
       responseData.includes(oauth2_client_secret))
   ) {
     return new Response(
