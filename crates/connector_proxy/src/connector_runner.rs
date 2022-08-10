@@ -187,6 +187,17 @@ pub async fn run_airbyte_source_connector(
             }
         }
 
+        // Once the airbyte connector has exited, we must close stdout of connector_proxy
+        // so that the runtime knows the RPC is over. In turn, the runtime will close the stdin
+        // from their end. This is necessary to avoid a deadlock where runtime is waiting for
+        // connector_proxy to close stdout, and connector_proxy is waiting for runtime to close
+        // stdin.
+        if exit_status_result.is_ok() {
+            // We wait a few seconds to let any remaining writes to be done
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            std::process::exit(0);
+        }
+
         exit_status_result
     });
 

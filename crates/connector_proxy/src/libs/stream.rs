@@ -111,6 +111,7 @@ where
     }
 }
 
+// Stream bytes from runtime and continuously decode them into message type T in a stream
 pub fn stream_runtime_messages<T: prost::Message + std::default::Default>(
     in_stream: InterceptorStream,
 ) -> impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error> {
