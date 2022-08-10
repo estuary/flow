@@ -116,6 +116,7 @@ Build the `data-plane-gateway` binary:
 ```console
 cd data-plane-gateway/
 go install .
+go build .
 ```
 
 _Note: It is not necessary to install all the protoc tooling or run `make`. Those are only necessary for modifying the generated code within the gateway._
