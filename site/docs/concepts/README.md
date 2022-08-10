@@ -71,8 +71,6 @@ There may be many of these files, and you can mix and match your catalog compone
 
 #### More catalog terms
 
-* **Build**: When any component of a catalog is created or updated, Flow creates a new catalog **build**. Every build is assigned a unique identifier called a **build ID**. When you publish an updated catalog, the previous build of that catalog may be replaced.
-
 * **Draft**: A catalog that has not yet been published is called a draft.
 
 * **Publish**: Catalogs create live data flows when you publish them. You may think of publishing as akin to deployment.
