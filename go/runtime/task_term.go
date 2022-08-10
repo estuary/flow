@@ -89,7 +89,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	if t.LogPublisher, err = NewLogPublisher(
 		t.labels,
 		logsCollectionSpec,
-		shard.JournalClient(),
+		host.LogAppendService,
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 	); err != nil {
 		return fmt.Errorf("creating log publisher: %w", err)
