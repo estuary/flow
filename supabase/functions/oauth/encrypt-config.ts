@@ -28,7 +28,7 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { oauth2_client_id, oauth2_client_secret } = data;
 
-  if (config[CREDENTIALS_KEY]["client_id"] == CLIENT_CREDS_INJECTION && config[CREDENTIALS_KEY]["client_secret"] == CLIENT_CREDS_INJECTION) {
+  if (config?.[CREDENTIALS_KEY]?.["client_id"] === CLIENT_CREDS_INJECTION && config?.[CREDENTIALS_KEY]?.["client_secret"] === CLIENT_CREDS_INJECTION) {
     config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
     config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
   }
