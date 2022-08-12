@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
+import _ from "https://esm.sh/lodash";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -18,7 +19,7 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { data, error } = await supabaseClient
     .from("connectors")
-    .select("oauth2_client_id,oauth2_client_secret")
+    .select("oauth2_client_id,oauth2_client_secret,oauth2_injected_values")
     .eq("id", connector_id)
     .single();
 
@@ -26,7 +27,7 @@ export async function encryptConfig(req: Record<string, any>) {
     returnPostgresError(error);
   }
 
-  const { oauth2_client_id, oauth2_client_secret } = data;
+  const { oauth2_client_id, oauth2_client_secret, oauth2_injected_values } = data;
 
   if (
     config?.[CREDENTIALS_KEY]?.["client_id"] === CLIENT_CREDS_INJECTION &&
@@ -34,6 +35,7 @@ export async function encryptConfig(req: Record<string, any>) {
   ) {
     config[CREDENTIALS_KEY]["client_id"] = oauth2_client_id;
     config[CREDENTIALS_KEY]["client_secret"] = oauth2_client_secret;
+    Object.assign(config[CREDENTIALS_KEY], oauth2_injected_values);
   }
 
   const { data: connectorTagData, error: connectorTagError } =
@@ -87,14 +89,17 @@ export async function encryptConfig(req: Record<string, any>) {
       responseData.includes(oauth2_client_id)) ||
     (typeof oauth2_client_secret === "string" &&
       oauth2_client_secret.length > 0 &&
-      responseData.includes(oauth2_client_secret))
+      responseData.includes(oauth2_client_secret)) ||
+    (typeof oauth2_injected_values === "object" &&
+      oauth2_injected_values !== null &&
+      _.some(_.values(oauth2_injected_values), (value: string) => responseData.includes(value)))
   ) {
     return new Response(
       JSON.stringify({
         error: {
           code: "exposed_secret",
-          message: `Request denied: "client id" and "client secret" could have been leaked.`,
-          description: `client_id and client_secret were not encrypted as part of this request.
+          message: `Request denied: "client id", "client secret" or some other injected secrets could have been leaked.`,
+          description: `client_id, client_secret or some other injected secrets were not encrypted as part of this request.
 Make sure that they are marked with secret: true in the endpoint spec schema`,
         },
       }),
