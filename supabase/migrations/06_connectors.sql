@@ -3,15 +3,16 @@
 create table connectors (
   like internal._model including all,
 
-  external_url         text not null,
-  image_name           text unique not null,
-  open_graph           jsonb_obj
+  external_url           text not null,
+  image_name             text unique not null,
+  open_graph             jsonb_obj
     generated always as (internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)) stored,
-  open_graph_raw       jsonb_obj,
-  open_graph_patch     jsonb_obj,
-  oauth2_client_id     text,
-  oauth2_client_secret text,
-  oauth2_spec          jsonb_obj,
+  open_graph_raw         jsonb_obj,
+  open_graph_patch       jsonb_obj,
+  oauth2_client_id       text,
+  oauth2_client_secret   text,
+  oauth2_injected_values jsonb_obj,
+  oauth2_spec            jsonb_obj,
   --
   constraint "image_name must be a container image without a tag"
     check (image_name ~ '^(?:.+/)?([^:]+)$')
@@ -37,6 +38,8 @@ comment on column connectors.oauth2_client_id is
   'oauth client id';
 comment on column connectors.oauth2_client_secret is
   'oauth client secret';
+comment on column connectors.oauth2_injected_values is
+  'oauth additional injected values, these values will be made available in the credentials key of the connector, as well as when rendering oauth2_spec templates';
 comment on column connectors.oauth2_spec is
   'OAuth2 specification of the connector';
 

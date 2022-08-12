@@ -14,7 +14,7 @@ export async function accessToken(req: Record<string, any>) {
 
   const { data, error } = await supabaseClient
     .from("connectors")
-    .select("oauth2_client_id,oauth2_client_secret,oauth2_spec")
+    .select("oauth2_client_id,oauth2_client_secret,oauth2_injected_values,oauth2_spec")
     .eq("id", connector_id)
     .single();
 
@@ -22,7 +22,7 @@ export async function accessToken(req: Record<string, any>) {
     returnPostgresError(error);
   }
 
-  const { oauth2_spec, oauth2_client_id, oauth2_client_secret } = data;
+  const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data;
 
   const urlTemplate = Handlebars.compile(oauth2_spec.accessTokenUrlTemplate);
   const url = urlTemplate({
@@ -30,6 +30,7 @@ export async function accessToken(req: Record<string, any>) {
     client_id: oauth2_client_id,
     client_secret: oauth2_client_secret,
     config,
+    ...oauth2_injected_values,
     ...params,
   });
 
@@ -41,6 +42,7 @@ export async function accessToken(req: Record<string, any>) {
     client_id: oauth2_client_id,
     client_secret: oauth2_client_secret,
     config,
+    ...oauth2_injected_values,
     ...params,
   });
 
@@ -55,6 +57,7 @@ export async function accessToken(req: Record<string, any>) {
         client_id: oauth2_client_id,
         client_secret: oauth2_client_secret,
         config,
+        ...oauth2_injected_values,
         ...params,
       })
     );
