@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
-import _ from "https://esm.sh/lodash";
+import _ from "https://esm.sh/lodash@4.17.19";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
 import { corsHeaders } from "../_shared/cors.ts";
