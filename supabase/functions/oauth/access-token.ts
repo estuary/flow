@@ -35,7 +35,7 @@ export async function accessToken(req: Record<string, any>) {
   });
 
   const bodyTemplate = Handlebars.compile(
-    JSON.stringify(oauth2_spec.accessTokenBody)
+    oauth2_spec.accessTokenBody
   );
   const body = bodyTemplate({
     redirect_uri,
