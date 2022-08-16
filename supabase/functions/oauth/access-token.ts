@@ -83,6 +83,10 @@ export async function accessToken(req: Record<string, any>) {
     );
   }
 
+  if (response.status >= 400) {
+    console.log("access token request failed: ", responseData);
+  }
+
   return new Response(JSON.stringify(mappedData), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
     status: response.status,
