@@ -1,8 +1,4 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js";
-import _ from "https://esm.sh/lodash@4.17.19";
-import Handlebars from "https://esm.sh/handlebars";
-import jsonpointer from "https://esm.sh/jsonpointer.js";
+import _ from "https://cdn.skypack.dev/lodash";
 import { corsHeaders } from "../_shared/cors.ts";
 import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
@@ -79,7 +75,7 @@ export async function encryptConfig(req: Record<string, any>) {
     );
   }
 
-  let responseData = JSON.stringify(await response.json());
+  const responseData = JSON.stringify(await response.json());
 
   // If we can find client_id or client_secret in plaintext in the response,
   // it's not secure to return this response!
