@@ -462,10 +462,7 @@ message OAuth2Spec {
   string access_token_url_template = 3;
 
   // The POST body of the access_token request
-  string access_token_body_json = 4 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "accessTokenBody"
-  ];
+  string access_token_body = 4;
 
   // Headers for the access_token request
   string access_token_headers_json = 5 [
@@ -488,10 +485,7 @@ message OAuth2Spec {
   string refresh_token_url_template = 7;
 
   // The POST body of the refresh_token request
-  string refresh_token_body_json = 8 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "refreshTokenBody"
-  ];
+  string refresh_token_body = 8;
 
   // Headers for the refresh_token request
   string refresh_token_headers_json = 9 [
