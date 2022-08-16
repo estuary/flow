@@ -1,6 +1,7 @@
 pub mod avro;
 pub mod character_separated;
 pub mod json;
+pub mod protobuf;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -112,6 +113,7 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::Auto => character_separated::new_csv_parser(Default::default()),
         Format::Json => json::new_parser(),
         Format::Csv(csv_config) => character_separated::new_csv_parser(csv_config),
+        Format::Protobuf(proto_config) => protobuf::new_protobuf_parser(proto_config),
         Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
         Format::Avro => avro::new_parser(),
     }
