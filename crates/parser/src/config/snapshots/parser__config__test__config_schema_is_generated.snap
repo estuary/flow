@@ -460,6 +460,40 @@ expression: schema
           }
         },
         {
+          "title": "Protobuf",
+          "description": "Parses a single protobuf message, using the given .proto file in the configuration.",
+          "type": "object",
+          "required": [
+            "config",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "type": "object",
+              "required": [
+                "message",
+                "protoFile"
+              ],
+              "properties": {
+                "message": {
+                  "description": "The name of the protobuf Message to deserailize as. Must be defined within the given proto file.",
+                  "type": "string"
+                },
+                "protoFile": {
+                  "title": "Your .proto file",
+                  "description": "The contents of the .proto that defines the message type to deserialize.",
+                  "type": "string",
+                  "multiline": true
+                }
+              }
+            },
+            "type": {
+              "default": "protobuf",
+              "const": "protobuf"
+            }
+          }
+        },
+        {
           "title": "W3C Extended Log",
           "description": "A W3C Extended Log file, as defined by the working group draft at: https://www.w3.org/TR/WD-logfile.html",
           "type": "object",
