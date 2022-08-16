@@ -504,7 +504,7 @@ pub struct OAuth2Spec {
     pub access_token_url_template: ::prost::alloc::string::String,
     /// The POST body of the access_token request
     #[prost(string, tag="4")]
-    pub access_token_body_json: ::prost::alloc::string::String,
+    pub access_token_body: ::prost::alloc::string::String,
     /// Headers for the access_token request
     #[prost(string, tag="5")]
     pub access_token_headers_json: ::prost::alloc::string::String,
@@ -521,7 +521,7 @@ pub struct OAuth2Spec {
     pub refresh_token_url_template: ::prost::alloc::string::String,
     /// The POST body of the refresh_token request
     #[prost(string, tag="8")]
-    pub refresh_token_body_json: ::prost::alloc::string::String,
+    pub refresh_token_body: ::prost::alloc::string::String,
     /// Headers for the refresh_token request
     #[prost(string, tag="9")]
     pub refresh_token_headers_json: ::prost::alloc::string::String,
