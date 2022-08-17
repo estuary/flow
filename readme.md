@@ -225,7 +225,7 @@ GRANT SELECT, DELETE ON TABLE public.draft_errors TO authenticated;
 GRANT ALL ON TABLE public.draft_errors TO service_role;
 ```
 
-We use schemas `public` and `internal`, so both should be compared. **Do not** run this script directly. Read it, understand it, make sure it's sensible, and then run it. The production secret can be found in the sops-encrypted file `supabase/secret.yaml`.
+We use schemas `public` and `internal`, so both should be compared. **Do not** run this script directly. Read it, understand it, make sure it's sensible, and check it in under `supabase/pending/` in the same PR that that updates the migrations. The `pending/` migrations need to be run manually. Do not forget to do this! The production secret can be found in the sops-encrypted file `supabase/secret.yaml`.
 
 Migrations should be applied via:
 ```console
