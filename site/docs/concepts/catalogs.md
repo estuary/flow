@@ -1,14 +1,15 @@
 ---
 sidebar_position: 1
 ---
-# Catalogs
+# Catalog
 
-Every data flow has a **catalog**, which describes its components' details and behavior.
-A catalog comprises some combination of data **captures**, stored **collections**, and **materializations** to other systems.
-Optionally, it may also include other entities, like **derivations** and **tests**.
+The **catalog** is the set of published entities that comprise all **Data Flows**: captures, materializations, derivations, collections, schemas, tests, and more.
 
-A catalog can be represented as a graph of your data flow.
-The simplest has just three components.
+## Data Flows
+
+You can mix and match catalog entities to create a variety of Data Flows.
+
+The simplest Data Flow has just three entities.
 
 import Mermaid from '@theme/Mermaid';
 
@@ -33,32 +34,32 @@ It may also be more complex, combining multiple entities of each type.
 		derivation/E-->materialization/two;
 `}/>
 
-## The catalog YAML
+## Flow specification files
 
-Catalogs are written in the form of YAML configuration files.
-The various catalog entities' configuration must follow set specifications.
+Catalog entities are defined and described in Flow **specification files.**
+These YAML files contain the configuration details that each entity requires.
 
-There are two ways to create and work with these files.
+You work on specification files as **drafts** before you publish them to a catalog.
+
+There are two ways to create and work with specification files.
 
 ### In the Flow web app
 
-You don't need to write or edit the YAML files directly — the web app is designed to generate them for you.
-You do have the option to review and edit the generated YAML as you create captures and materializations using the **Catalog Editor**.
+You don't need to write or edit the specification files directly — the web app is designed to generate them for you.
+You do have the option to review and edit the generated specification as you create captures and materializations using the **Catalog Editor**.
 
 ### With flowctl
 
-If you prefer a developer workflow, you can also with these files directly in your local environment using [flowctl](./flowctl.md).
+If you prefer a developer workflow, you can also work with specification files directly in your local environment using [flowctl](./flowctl.md). You then **publish** them back to the catalog.
 
-Here, you'll have access to the complete directory structure of your catalog.
+A given Data Flow may be described by one specification file, or by many, so long as a top-level file [imports](./import.md) all the others.
 
-Your entire catalog may be described by one YAML file, or by many, so long as a top-level YAML file [imports](./import.md) all the others.
-
-The files use the extension `*.flow.yaml` or are simply be named `flow.yaml` by convention.
+The files use the extension `*.flow.yaml` or are simply named `flow.yaml` by convention.
 Using this extension activates Flow's VS Code integration and auto-complete.
 Flow integrates with VS Code for development environment support, like auto-complete,
 tooltips, and inline documentation.
 
-Depending on your catalog, you may also have TypeScript modules,
+Depending on your Data Flow, you may also have TypeScript modules,
 JSON schemas, or test fixtures.
 
 ## Namespace

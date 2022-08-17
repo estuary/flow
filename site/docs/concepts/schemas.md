@@ -20,7 +20,7 @@ In advanced use cases, however, customizing your schema becomes more important.
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
 is an expressive open standard for defining the schema and structure of documents.
-Flow uses it for all schemas defined within a Flow catalog.
+Flow uses it for all schemas defined in Flow specifications.
 
 JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),

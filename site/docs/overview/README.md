@@ -16,8 +16,8 @@ and engineers can then refine those data flows, troubleshoot, and configure comp
 
 ## Real-time data and Flow
 
-Flow combines the easy cross-system integration of an ELT tool with a flexible streaming backbone.
-This means that your data systems – SaaS, databases, streaming, and more – are synchronized around the same datasets, which Flow securely stores in the cloud and updates in milliseconds.
+Flow synchronizes your systems – SaaS, databases, streaming, and more – around the same datasets, which it stores in the cloud and updates in milliseconds. It combines the easy cross-system integration of an ELT tool and a flexible streaming backbone,
+all while remaining aware of your data's complete history.
 
 A few examples of what you can do with Flow:
 

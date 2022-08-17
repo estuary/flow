@@ -3,7 +3,7 @@ sidebar_position: 3
 ---
 # Collections
 
-Datasets inside your data flows are stored in **collections**:
+The documents of your Data Flows are stored in **collections**:
 real-time data lakes of JSON documents in cloud storage.
 
 The data in a collection may be [captured](./captures.md) from an external system,
@@ -17,7 +17,7 @@ that its documents must validate against.
 
 ## Specification
 
-Collections are defined within your catalog's YAML configuration in the following format:
+Collections are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of collections to include in the catalog.
@@ -244,9 +244,9 @@ that's certain to be unique for every document.
 
 ### Empty keys
 
-When a catalog is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
+When a specification is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
 
-In cases like this, the generated catalog will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated catalog and specify keys for those collections before using the catalog.
+In cases like this, the generated specification will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated specification and specify keys for those collections before publishing to the catalog.
 
 ## Projections
 

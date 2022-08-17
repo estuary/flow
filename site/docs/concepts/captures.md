@@ -4,20 +4,20 @@ sidebar_position: 2
 # Captures
 
 A **capture** is how Flow ingests data from an external source.
-Every data flow starts with a capture.
+Every Data Flow starts with a capture.
 
 Captures are a type of Flow **task**.
 They connect to an external data source, or **endpoint**,
 and bind one or more of its resources, such as database tables.
-Each binding results in a Flow **collection**.
+Each binding adds documents to a corresponding Flow **collection**.
 
-Captures are continuous real-time processes by default.
-As new data becomes available in the endpoint resources,
+Captures run continuously:
+as soon as new documents are made available at the endpoint resources,
 Flow validates their schema and adds them to the appropriate collection.
 
 ![](<captures-new.svg>)
 
-You define and configure captures as part of your data flow's **catalog**.
+You define and configure captures in **Flow specifications**.
 
 [See the guide to create a capture](../guides/create-dataflow.md#create-a-capture)
 
@@ -56,7 +56,7 @@ You may then modify the generated configuration as needed before publishing the 
 
 ### Specification
 
-Creating a pull capture results in a YAML configuration in the following format:
+Pull captures are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of captures to include in the catalog.
@@ -80,7 +80,7 @@ captures:
     # Required, type: array
     bindings:
       - # The target collection to capture into.
-        # This may be defined in a separate, imported catalog source file.
+        # This may be defined in a separate, imported specification file.
         # Required, type: string
         target: acmeCo/example/collection
 
@@ -106,12 +106,13 @@ Push captures expose an endpoint to which documents may be pushed using a suppor
 
 :::caution Beta
 Push captures are under development.
-Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections. Specification details are likely to exist.
+Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections.
+Join the [Estuary Slack](https://estuary-dev.slack.com/join/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ#/shared-invite/email) for more information on this and other ongoing development work.
 :::
 
 ### Specification
 
-Pull capture configurations use the following general format:
+Push capture configurations use the following general format:
 
 ```yaml
 captures:

@@ -11,9 +11,9 @@ A derivation is a [collection](../#collections)
 that results from transformations applied to one or more other collections.
 
 Derivations derive data continuously,
-reflecting updates to the source collections in near real-time.
+reflecting updates to the source collections as they happen.
 
-A derivation has two main components in your catalog:
+A derivation has two main components:
 
 * The new collection, which stores the derived data.
 * A [catalog task](../#tasks), which applies the transformations to source documents as they become available.
@@ -31,8 +31,8 @@ that allow more complex transformations.
 
 You can create a derivation in your local development environment using flowctl.
 
-Use [`flowctl draft` to begin work with a draft catalog](./flowctl.md#working-with-catalog-drafts),
-and manually add [a derivation to the catalog specification](#specification).
+Use [`flowctl draft` to begin work with a draft](./flowctl.md#working-with-catalog-drafts),
+and manually add [a derivation to the Flow specification file](#specification).
 
 If necessary, [generate a typescript file](#creating-typescript-modules) and define lambda functions there.
 
@@ -659,7 +659,7 @@ For example, [moment](https://momentjs.com/) is a common library
 for working with times:
 
 <Tabs>
-<TabItem value="catalog.flow.yaml" default>
+<TabItem value="derivation.flow.yaml" default>
 
 ```yaml
 derivation:
@@ -687,7 +687,7 @@ which can include local packages, GitHub repository commits, and more.
 See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
 
 During the catalog build process, Flow gathers NPM dependencies
-across all catalog source files and patches them into the catalog's
+across all Flow specification files and patches them into the catalog's
 managed `package.json`.
 Flow organizes its generated TypeScript project structure
 for a seamless editing experience out of the box with VS Code

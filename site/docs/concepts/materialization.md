@@ -16,7 +16,7 @@ Materializations are the conceptual inverse of [captures](captures.md).
 
 ![](<materialization-new.svg>)
 
-You define and configure materializations as part of your data flow's **catalog**.
+You define and configure materializations in **Flow specifications**.
 
 [See the guide to create a materialization](../guides/create-dataflow.md#create-a-materialization)
 
@@ -32,11 +32,11 @@ and the collection(s) you'd like to materialize there.
 Flow maps the collection(s) to one or more **resources** — tables, data streams, or the equivalent —
 through one or more **bindings**.
 
-You may then modify the generated configuration as needed before publishing the capture.
+You may then modify the generated configuration as needed before publishing the materialization.
 
 ## Specification
 
-Creating a materialization results in a YAML configuration in the following format:
+Materializations are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of materializations to include in the catalog.
@@ -61,7 +61,7 @@ materializations:
     # Required, type: object
     bindings:
       - # The source collection to materialize.
-        # This may be defined in a separate, imported catalog source file.
+        # This may be defined in a separate, imported specification file.
         # Required, type: string
         source: acmeCo/example/collection
 
@@ -232,28 +232,6 @@ materializations:
 ```
 
 [Learn more about partition selectors](./advanced/projections.md#partition-selectors).
-
-## Testing with SQLite
-
-In addition to materialization connectors, Flow offers a built-in SQLite endpoint
-for local testing and development. SQLite is not suitable for materializations
-running within the Flow managed service.
-
-:::info Beta
-An easier path to [self-hosting Flow](../getting-started/installation.md#self-hosting-flow) will be added soon.
-:::
-
-```yaml
-materializations:
-  acmeCo/example/database-views:
-    endpoint:
-      # A SQLite endpoint is specified using `sqlite` instead of `connector`.
-      sqlite:
-        # The SQLite endpoint requires the `path` of the SQLite database to use,
-        # specified as a file path. It may include URI query parameters;
-        # See: https://www.sqlite.org/uri.html and https://github.com/mattn/go-sqlite3#connection-string
-        path: example/database.sqlite?_journal_mode=WAL
-```
 
 ## Destination-specific performance
 

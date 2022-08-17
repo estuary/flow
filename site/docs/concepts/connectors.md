@@ -8,7 +8,7 @@ import TabItem from '@theme/TabItem';
 # Connectors
 
 **Connectors** bridge the gap between Flow and
-the various endpoints systems from which you capture or to which you materialize data.
+the various endpoints from which you capture or to which you materialize data.
 
 Supported connectors are all available to you within the Flow web application.
 From a technical perspective, they're packaged as [Docker images](https://github.com/orgs/estuary/packages?repo_name=connectors),
@@ -26,8 +26,9 @@ as well as Flow’s low-latency gRPC protocols for captures and materializations
 
 ## Using connectors
 
-Most — if not all — of your data flows will use at least one connector.
-Connector configuration is an important aspect of catalog configuration, and when you deploy a catalog, you're also deploying all the connectors it uses.
+Most — if not all — of your Data Flows will use at least one connector.
+You configure connectors within capture or materialization specifications.
+When you publish one of these entities, you're also deploying all the connectors it uses.
 
 You can interact with connectors using either the Flow web application or the flowctl CLI.
 
@@ -40,7 +41,7 @@ When you add a capture or materialization in the Flow web app, choose the desire
 
 The required fields for the connector appear below the drop-down. When you fill in the fields and click **Discover Endpoint**,
 Flow automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.
-From there, you can refine the configuration, save, and publish the resulting **catalog**.
+From there, you can refine the configuration, save, and publish the resulting Flow specification.
 
 ### GitOps and flowctl
 
@@ -60,11 +61,11 @@ To interface with a connector, the Flow runtime needs to know:
 3. Resource configuration such as a specific database table to capture, which is also specific to the connector.
 
 To integrate a connector into your dataflow,
-you must define all three components within your catalog specification.
+you must define all three components within your Flow specification.
 
-The web application is intended to help you generate the catalog specification YAML file.
+The web application is intended to help you generate the Flow specification.
 From there, you can use [flowctl](./flowctl.md) to refine it in your local environment.
-It's also possible to manually write your catalog YAML files, but this isn't the recommended workflow.
+It's also possible to manually write your Flow specification files, but this isn't the recommended workflow.
 
 ```yaml
 materializations:
@@ -107,7 +108,7 @@ Because connectors interface with external systems, each requires a slightly dif
 Here you specify information such as a database hostname or account credentials —
 whatever that specific connector needs to function.
 
-If you're working directly with catalog source files,
+If you're working directly with Flow specification files,
 you have the option of including the configuration inline
 or storing it in separate files:
 
@@ -178,7 +179,7 @@ which immediately and permanently removes access to the protected credential.
 
 When you use the Flow web application, Flow automatically
 adds `sops` protection to sensitive fields on your behalf.
-You can also implement `sops` manually if you are writing a catalog specification locally.
+You can also implement `sops` manually if you are writing a Flow specification locally.
 The examples below provide a useful reference.
 
 #### Example: Protect a configuration
@@ -216,7 +217,7 @@ sops:
     version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow catalog.
+You then use this `config.yaml` within your Flow specification.
 The Flow runtime knows that this document is protected by `sops`
 will continue to store it in its protected form,
 and will attempt a decryption only when invoking a connector on your behalf.
@@ -275,7 +276,7 @@ sops:
     version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow catalog.
+You then use this `config.yaml` within your Flowc specification.
 Flow looks for and understands the `encrypted_suffix`,
 and will remove this suffix from configuration keys before passing them to the connector.
 
