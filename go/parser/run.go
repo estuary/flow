@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -35,39 +34,36 @@ func ParseStream(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var cmd = exec.Command(ProgramName, "parse", "--config-file", configPath)
-	var fe = new(firstError)
+	var cmd = exec.CommandContext(ctx, ProgramName, "parse", "--config-file", configPath)
+	var stdoutErr error
 
 	if log.IsLevelEnabled(log.DebugLevel) {
-		cmd.Args = append(cmd.Args, "--log", "parser=debug")
+		cmd.Args = append(cmd.Args, "--log", "debug")
 	}
 
 	cmd.Stdin = input
 	cmd.Stdout = &parserStdout{
 		onLines: callback,
-		onError: func(err error) { fe.SetIfNil(err) },
+		onError: func(err error) {
+			if stdoutErr == nil {
+				stdoutErr = err
+			}
+			cancel()
+		},
 	}
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		fe.SetIfNil(fmt.Errorf("starting connector: %w", err))
+	var runErr = cmd.Run()
+
+	if stdoutErr != nil {
+		return fmt.Errorf("invalid parser output: %w", stdoutErr)
+	} else if runErr != nil {
+		return fmt.Errorf("parser failed: %w", runErr)
+	} else if len(cmd.Stdout.(*parserStdout).rem) != 0 {
+		return fmt.Errorf("connector exited without a final newline")
 	}
 
-	// Arrange for the parser to be signaled if |ctx| is cancelled.
-	go func(signal func(os.Signal) error) {
-		<-ctx.Done()
-		_ = signal(syscall.SIGTERM)
-	}(cmd.Process.Signal)
-
-	if err := cmd.Wait(); err != nil {
-		fe.SetIfNil(fmt.Errorf("parser failed: %w", err))
-	}
-
-	if len(cmd.Stdout.(*parserStdout).rem) != 0 {
-		fe.SetIfNil(fmt.Errorf("connector exited without a final newline"))
-	}
-
-	return fe.First()
+	return nil
 }
 
 // GetSpec invokes the parser to get the configuration json schema. The returned schema can then be
