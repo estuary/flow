@@ -2,12 +2,13 @@ import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import jsonpointer from "https://esm.sh/jsonpointer.js";
-import { returnPostgresError } from "../_shared/helpers.ts";
+import { returnPostgresError, handlebarsHelpers } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 export async function accessToken(req: Record<string, any>) {
   const { state, config, redirect_uri, ...params } = req;
+  Handlebars.registerHelper(handlebarsHelpers);
 
   const decodedState = JSON.parse(atob(state));
   const { connector_id } = decodedState;

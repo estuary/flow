@@ -9,3 +9,9 @@ export const returnPostgresError = (error: any) => {
     status: 400,
   });
 };
+
+export const handlebarsHelpers = {
+  urlencode: function(s: string) {
+    return encodeURIComponent(s)
+  }
+}

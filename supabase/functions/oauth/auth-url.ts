@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js";
 import Handlebars from "https://esm.sh/handlebars";
 import { corsHeaders } from "../_shared/cors.ts";
-import { returnPostgresError } from "../_shared/helpers.ts";
+import { returnPostgresError, handlebarsHelpers } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 const generateUniqueRandomKey = () => {
@@ -21,6 +21,8 @@ export async function authURL(req: {
   redirect_uri?: string;
   state?: object;
 }) {
+  Handlebars.registerHelper(handlebarsHelpers);
+
   const { connector_id, config, redirect_uri, state } = req;
 
   const { data, error } = await supabaseClient
