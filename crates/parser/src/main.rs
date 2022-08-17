@@ -75,6 +75,7 @@ fn main() {
         // that's what you're here to do then go for it.
         .with_target(false)
         .init();
+    tracing::debug!(?args);
 
     match args.command {
         Command::Parse(parse_args) => {
@@ -91,6 +92,8 @@ fn do_parse(parse_args: &ParseArgs) {
         .as_ref()
         .map(|file| ParseConfig::load(file).or_bail("failed to load config file"))
         .unwrap_or_default();
+    tracing::debug!(?config);
+
     let input: Input = if parse_args.file == "-" {
         Input::Stream(Box::new(io::stdin()))
     } else {

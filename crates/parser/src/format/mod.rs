@@ -188,6 +188,12 @@ fn determine_format(config: &ParseConfig) -> Option<Format> {
 }
 
 fn format_for_content_type(content_type: &str) -> Option<Format> {
+    // Ignore a trailing suffix like "; charset=utf-8", if present.
+    let content_type = match content_type.split_once(';') {
+        Some((l, _)) => l,
+        None => content_type,
+    };
+
     match content_type {
         "application/json" => Some(Format::Json),
         "text/json" => Some(Format::Json),
