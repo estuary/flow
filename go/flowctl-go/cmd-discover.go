@@ -118,6 +118,12 @@ Edit and update this file, and then run this command again.
 	for _, b := range discovered.Bindings {
 		var collection = path.Join(cmd.Prefix, b.RecommendedName.String())
 		var schemaName = fmt.Sprintf("%s.schema.yaml", b.RecommendedName)
+		var outputPath = filepath.Join(cmd.Directory, schemaName)
+		var outputDir = path.Dir(outputPath)
+
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("creating output directory: %w", err)
+		}
 
 		var schema, resource interface{}
 		if err := json.Unmarshal(b.DocumentSchemaJson, &schema); err != nil {
