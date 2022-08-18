@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use schema_inference::analyze::{self};
+use schema_inference::analyze;
 
 /// Reads JSON documents and infers a basic schema from its structure.
 #[derive(Debug, clap::Parser)]

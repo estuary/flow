@@ -17,6 +17,7 @@ pub enum SyncMode {
 #[serde(rename_all = "snake_case")]
 pub struct Stream {
     pub name: String,
+    pub recommended_name: Option<String>,
     pub json_schema: Box<RawValue>,
     // supported_sync_modes is planned to be made required soon
     // see https://is.gd/RqAhTO

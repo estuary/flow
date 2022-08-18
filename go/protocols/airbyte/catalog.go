@@ -16,6 +16,7 @@ var AllSyncModes = []SyncMode{SyncModeIncremental, SyncModeFullRefresh}
 
 type Stream struct {
 	Name                    string          `json:"name"`
+	RecommendedName         string          `json:"recommended_name"`
 	JSONSchema              json.RawMessage `json:"json_schema"`
 	SupportedSyncModes      []SyncMode      `json:"supported_sync_modes"`
 	SourceDefinedCursor     bool            `json:"source_defined_cursor,omitempty"`

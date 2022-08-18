@@ -121,7 +121,10 @@ impl AirbyteSourceInterceptor {
                         .map(|k| doc::Pointer::from_vec(k).to_string())
                         .collect(),
                 };
-                let recommended_name = stream_to_recommended_name(&stream.name);
+                let recommended_name = match stream.recommended_name {
+                    Some(s) if !s.is_empty() => s,
+                    _ => stream_to_recommended_name(&stream.name)
+                };
 
                 resp.bindings.push(discover_response::Binding {
                     recommended_name,
@@ -256,6 +259,7 @@ impl AirbyteSourceInterceptor {
                                     primary_key: Some(primary_key),
                                     stream: airbyte_catalog::Stream {
                                         name: resource.stream,
+                                        recommended_name: None,
                                         namespace: resource.namespace,
                                         json_schema: RawValue::from_string(
                                             collection.schema_json.clone(),
