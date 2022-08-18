@@ -204,6 +204,12 @@ Flow mixes a variety of architectural techniques to achieve great throughput wit
   brew install filosottile/musl-cross/musl-cross
   sudo ln -s /opt/homebrew/opt/musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/musl-gcc
   ```
+  
+* Install GNU `coreutils` which are used in the build process using:
+
+  ```
+  brew install coreutils
+  ```
 
 * If you encounter build errors complaining about missing symbols for x86_64 architecture, try setting the following environment variables:
   ```
