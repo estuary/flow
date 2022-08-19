@@ -26,12 +26,18 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Facebook Marketing
   * [Configuration](./facebook-marketing.md)
   * Package - ghcr.io/estuary/source-facebook-marketing:dev
+* Google Ads
+  * [Configuration](./google-ads.md)
+  * Package - ghcr.io/estuary/source-google-ads:dev
 * Google Analytics
   * [Configuration](./google-analytics.md)
   * Package - ghcr.io/estuary/source-google-analytics-v4:dev
 * Google Cloud Storage
   * [Configuration](./gcs.md)
   * Package — ghcr.io/estuary/source-gcs:dev
+* Google Firestore
+  * [Configuration]
+  * Package - ghcr.io/estuary/source-firestore:dev
 * Google Sheets
   * [Configuration](./google-sheets.md)
   * Package - ghcr.io/estuary/source-google-sheets:dev
@@ -44,6 +50,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Intercom
   * [Configuration](./intercom.md)
   * Package - ghcr.io/estuary/source-intercom:dev
+* LinkedIn Ads
+  * [Configuration](./linkedin-ads.md)
+  * Package - ghcr.io/estuary/source-linkedin-ads:dev
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
@@ -53,6 +62,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
+* Salesforce
+  * [Configuration](./salesforce.md)
+  * Package - ghcr.io/estuary/source-salesforce:dev
 * Stripe
   * [Configuration](./stripe.md)
   * Package - ghcr.io/estuary/source-stripe:dev
