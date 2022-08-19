@@ -66,7 +66,7 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
-	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Minute)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Hour)
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
