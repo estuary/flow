@@ -1,3 +1,7 @@
+---
+sidebar_position: 7
+---
+
 # Google Ads
 
 This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Flow collections via the Google Ads API.
@@ -15,10 +19,10 @@ Resources ending in `_report` represent legacy resources from the [Google Adword
 
 * [ad_group_ads](https://developers.google.com/google-ads/api/fields/latest/ad_group_ad)
 * [ad_group_ad_label](https://developers.google.com/google-ads/api/fields/latest/ad_group_ad_label)
-* [ad_group](https://developers.google.com/google-ads/api/fields/latest/ad_group)
+* [ad_groups](https://developers.google.com/google-ads/api/fields/latest/ad_group)
 * [ad_group_label](https://developers.google.com/google-ads/api/fields/latest/ad_group_label)
-* [campaign](https://developers.google.com/google-ads/api/fields/v9/campaign)
-* [campaign_label](https://developers.google.com/google-ads/api/fields/latest/campaign_label)
+* [campaigns](https://developers.google.com/google-ads/api/fields/v9/campaign)
+* [campaign_labels](https://developers.google.com/google-ads/api/fields/latest/campaign_label)
 * [click_view](https://developers.google.com/google-ads/api/reference/rpc/latest/ClickView)
 * [customer](https://developers.google.com/google-ads/api/fields/latest/customer)
 * [geographic_view](https://developers.google.com/google-ads/api/fields/latest/geographic_view)
@@ -48,6 +52,7 @@ You may also generate custom resources using [GAQL queries](#custom-queries).
   If so, ensure that it is [linked to each Google Ads account](https://support.google.com/google-ads/answer/7459601) and make note of its [customer ID](https://support.google.com/google-ads/answer/29198?hl=en).
 
 ### Configuring the connector specification manually
+
 
 * One or more Google Ads accounts.
 
@@ -81,19 +86,19 @@ so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/conversion_window_days` | Conversion Window (Optional) | A conversion window is the period of time after an ad interaction (such as an ad click or video view) during which a conversion, such as a purchase, is recorded in Google Ads. For more information, see [Google&#x27;s docs](https://support.google.com/google-ads/answer/3123169?hl=en) | integer | `14` |
+| `/conversion_window_days` | Conversion Window (Optional) | A conversion window is the period of time after an ad interaction (such as an ad click or video view) during which a conversion, such as a purchase, is recorded in Google Ads. For more information, see [Google&#x27;s docs](https://support.google.com/google-ads/answer/3123169?hl=en). | integer | `14` |
 | **`/credentials`** | Google Credentials |  | object | Required |
 | **`/credentials/client_id`** | Client ID | The Client ID of your Google Ads developer application. | string | Required |
 | **`/credentials/client_secret`** | Client Secret | The Client Secret of your Google Ads developer application. | string | Required |
 | **`/credentials/developer_token`** | Developer Token | Developer token granted by Google to use their APIs. | string | Required |
 | **`/credentials/refresh_token`** | Refresh Token | The token for obtaining a new access token. | string | Required |
 | `/custom_queries` | Custom GAQL Queries (Optional) |  | array |  |
-| _`/custom_queries/-/query`_ | Custom Query | A custom defined GAQL query for building the report. Should not contain segments.date expression because it is used by incremental streams. See Google&#x27;s [query builder](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder) for more information. | string |  |
+| _`/custom_queries/-/query`_ | Custom Query | A custom defined GAQL query for building the report. Should not contain segments.date expression. See Google&#x27;s [query builder](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder) for more information. | string |  |
 | _`/custom_queries/-/table_name`_ | Destination Table Name | The table name in your destination database for chosen query. | string |  |
 | **`/customer_id`** | Customer ID(s) | Comma separated list of (client) customer IDs. Each customer ID must be specified as a 10-digit number without dashes. More instruction on how to find this value in our docs.  Metrics streams like AdGroupAdReport cannot be requested for a manager account. | string | Required |
-| `/end_date` | End Date (Optional) | UTC date and time in the format 2017-01-25. Any data after this date will not be replicated. | string |  |
-| `/login_customer_id` | Login Customer ID for Managed Accounts (Optional) | If your access to the customer account is through a manager account, this field is required and must be set to the customer ID of the manager account (10-digit number without dashes). More information about this field can be found [here](https://support.google.com/google-ads/answer/1704344) | string |  |
-| **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25. Any data before this date will not be replicated. | string | Required |
+| `/end_date` | End Date (Optional) | UTC date in the format 2017-01-25. Any data after this date will not be replicated. | string |  |
+| `/login_customer_id` | Login Customer ID for Managed Accounts (Optional) | If your access to the customer account is through a manager account, this field is required and must be set to the customer ID of the manager account (10-digit number without dashes). | string |  |
+| **`/start_date`** | Start Date | UTC date in the format 2017-01-25. Any data before this date will not be replicated. | string | Required |
 
 #### Bindings
 

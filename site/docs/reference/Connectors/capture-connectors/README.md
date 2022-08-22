@@ -36,7 +36,7 @@ Estuary is actively developing new connectors, so check back regularly for the l
   * [Configuration](./gcs.md)
   * Package — ghcr.io/estuary/source-gcs:dev
 * Google Firestore
-  * [Configuration]
+  * [Configuration](./google-firestore.md)
   * Package - ghcr.io/estuary/source-firestore:dev
 * Google Sheets
   * [Configuration](./google-sheets.md)
