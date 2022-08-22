@@ -502,6 +502,9 @@ pub struct OAuth2Spec {
     /// where we request an access token from the provider
     #[prost(string, tag="3")]
     pub access_token_url_template: ::prost::alloc::string::String,
+    /// The method used to send access_token request. POST by default.
+    #[prost(string, tag="11")]
+    pub access_token_method: ::prost::alloc::string::String,
     /// The POST body of the access_token request
     #[prost(string, tag="4")]
     pub access_token_body: ::prost::alloc::string::String,
@@ -519,6 +522,9 @@ pub struct OAuth2Spec {
     /// token be refreshed.
     #[prost(string, tag="7")]
     pub refresh_token_url_template: ::prost::alloc::string::String,
+    /// The method used to send refresh_token request. POST by default.
+    #[prost(string, tag="12")]
+    pub refresh_token_method: ::prost::alloc::string::String,
     /// The POST body of the refresh_token request
     #[prost(string, tag="8")]
     pub refresh_token_body: ::prost::alloc::string::String,
