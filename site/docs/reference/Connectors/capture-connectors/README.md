@@ -62,9 +62,6 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
-* Salesforce
-  * [Configuration](./salesforce.md)
-  * Package - ghcr.io/estuary/source-salesforce:dev
 * Stripe
   * [Configuration](./stripe.md)
   * Package - ghcr.io/estuary/source-stripe:dev
