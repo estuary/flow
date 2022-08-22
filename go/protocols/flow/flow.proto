@@ -461,6 +461,9 @@ message OAuth2Spec {
   // where we request an access token from the provider
   string access_token_url_template = 3;
 
+  // The method used to send access_token request. POST by default.
+  string access_token_method = 11;
+
   // The POST body of the access_token request
   string access_token_body = 4;
 
@@ -483,6 +486,9 @@ message OAuth2Spec {
   // Template for refresh token URL, some providers require that the access
   // token be refreshed.
   string refresh_token_url_template = 7;
+
+  // The method used to send refresh_token request. POST by default.
+  string refresh_token_method = 12;
 
   // The POST body of the refresh_token request
   string refresh_token_body = 8;
