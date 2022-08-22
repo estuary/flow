@@ -461,11 +461,14 @@ message OAuth2Spec {
   // where we request an access token from the provider
   string access_token_url_template = 3;
 
+  // The method used to send access_token request. POST by default.
+  string access_token_method = 4;
+
   // The POST body of the access_token request
-  string access_token_body = 4;
+  string access_token_body = 5;
 
   // Headers for the access_token request
-  string access_token_headers_json = 5 [
+  string access_token_headers_json = 6 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "accessTokenHeaders"
   ];
@@ -475,20 +478,23 @@ message OAuth2Spec {
   // If the connector supports refresh tokens, must include `refresh_token` and
   // `expires_in`. If this mapping is not provided, the keys from the response
   // are passed as-is to the connector config.
-  string access_token_response_map_json = 6 [
+  string access_token_response_map_json = 7 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "accessTokenResponseMap"
   ];
 
   // Template for refresh token URL, some providers require that the access
   // token be refreshed.
-  string refresh_token_url_template = 7;
+  string refresh_token_url_template = 8;
+
+  // The method used to send refresh_token request. POST by default.
+  string refresh_token_method = 9;
 
   // The POST body of the refresh_token request
-  string refresh_token_body = 8;
+  string refresh_token_body = 10;
 
   // Headers for the refresh_token request
-  string refresh_token_headers_json = 9 [
+  string refresh_token_headers_json = 11 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "refreshTokenHeaders"
   ];
