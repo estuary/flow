@@ -4,10 +4,10 @@ sidebar_position: 9
 # Tests
 
 The Flow web application automatically performs basic tests to validate the configurations of captures and materializations.
-As Flow catalogs grow in breadth and scope, and as requirements change or new contributors get involved,
+As your Data Flows grow in breadth and scope, and as requirements change or new contributors get involved,
 more robust tests are invaluable for ensuring the correctness of your data products.
 
-You can use Flow tests to verify the end-to-end behavior of any modified schemas or derivations included in your catalog.
+You can use Flow tests to verify the end-to-end behavior of any modified schemas or derivations included in your Data Flow.
 At their most basic, you feed example documents into a collection,
 and then verify that documents coming out of a derived collection meet your test's expectation:
 

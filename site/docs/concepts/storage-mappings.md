@@ -7,10 +7,10 @@ A storage mapping defines how Flow should persist the documents of collections i
 such as your S3 bucket. When you first set up Flow, a default storage mapping is created for you,
 in which all collections will be stored by default.
 However, you can also override this default for one or more collections
-by specifying a storage mapping in your catalog specification using the CLI.
+by specifying a storage mapping in specification files using the CLI.
 
 :::info
-Storage mapping control is coming to the Flow web application soon
+Storage mapping control is coming to the Flow web application soon.
 :::
 
 Each storage mapping consists of a **catalog prefix** and a mapped storage location. For example:

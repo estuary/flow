@@ -12,11 +12,15 @@ Flow verifies every document against its schema whenever it's read or written,
 which provides a strong guarantee that your collections hold only "clean" data,
 and that bugs and invalid documents are caught before they can impact downstream data products.
 
+In most cases, Flow generates a functioning schema on your behalf during the [discovery](./captures.md#discovery)
+phase of capture.
+In advanced use cases, however, customizing your schema becomes more important.
+
 ## JSON Schema
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
 is an expressive open standard for defining the schema and structure of documents.
-Flow uses it for all schemas defined within a Flow catalog.
+Flow uses it for all schemas defined in Flow specifications.
 
 JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),
@@ -75,7 +79,7 @@ properties:
 ```
 
 Flow extends JSON Schema with additional annotation keywords,
-which provide Flow with further instruction of how documents should be processed.
+which provide Flow with further instruction for how documents should be processed.
 
 What’s especially powerful about annotations is that they respond to
 **conditionals** within the schema.
@@ -270,6 +274,21 @@ reduce: { strategy: merge }
 Learn more in the
 [reductions strategies](../../../reference/reduction-strategies/)
 reference documentation.
+
+#### Reductions and collection keys
+
+Reduction annotations change the common patterns for how you think about collection keys.
+
+Suppose you are building a reporting fact table over events of your business.
+Today you would commonly consider a unique event ID to be its natural key.
+You would load all events into your warehouse and perform query-time aggregation.
+When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
+
+With Flow, you instead use a collection key of your _fact table dimensions_,
+and use `reduce` annotations to define your metric aggregations.
+A materialization of the collection then maintains a
+database table which is keyed on your dimensions,
+so that queries are both fast _and_ up to date.
 
 #### Composition with conditionals
 

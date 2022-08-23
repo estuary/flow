@@ -1,18 +1,18 @@
 ---
-sidebar_position: 6
+sidebar_position: 7
 ---
 # Imports
 
-The YAML files that comprise a catalog specification may include an `import` section.
-This is what allows you to organize your catalog spec across multiple
-interlinked files.
+When you work on a draft Data Flow [using use `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
+your Flow specifications may be spread across multiple files.
+The `import` section allows you to interlink these files and define a complete Data Flow.
 
-A common convention for a given catalog specification is to have a single top-level YAML
+A common convention for a given draft is to have a single top-level specification
 file which imports all the others.
-When you [work locally using use `flowctl draft`,](../concepts/flowctl.md#working-with-drafts),
-Flow automatically generates such a top-level file.
+Flow automatically generates such a top-level file for your draft when you begin a local work session
+using `flowctl draft develop`.
 
-When a catalog is published, the imported resources are treated as part of the file
+When the draft is published, the imported resources are treated as part of the file
 into which they are imported.
 
 The `import` section is structured as a list of partial or absolute URIs,
@@ -39,20 +39,20 @@ $ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-tem
 ## Fetch behavior
 
 Flow resolves, fetches, and validates all imports in your local environment during the catalog build process,
-and then includes their fetched contents within the built catalog on the Estuary servers.
-The built catalog is thus a self-contained snapshot of all resources
-_as they were_ at the time the catalog was built.
+and then includes their fetched contents within the published catalog on the Estuary servers.
+The resulting catalog entities are thus self-contained snapshots of all resources
+_as they were_ at the time of publication.
 
 This means it's both safe and recommended to directly reference
 an authoritative source of a resource, such as a third-party JSON schema, as well as resources within your private network.
-It will be fetched and verified locally during catalog build time,
+It will be fetched and verified locally at build time,
 and thereafter that fetched version will be used for execution,
 regardless of whether the authority URL itself later changes or errors.
 
 ## Import types
 
 Almost always, the `import` stanza is used to import other Flow
-catalog source files.
+specification files.
 This is the default when given a string path:
 
 ```yaml
