@@ -1,20 +1,23 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 ---
 # Collections
 
-Flow stores data in **collections**:
-real-time data lakes of JSON documents.
-Collections may be added to by [captures](./captures.md),
-or be [derived](./derivations.md) as a transformation
-of other source collections.
+The documents of your Data Flows are stored in **collections**:
+real-time data lakes of JSON documents in cloud storage.
+
+The data in a collection may be [captured](./captures.md) from an external system,
+or [derived](./derivations.md) as a transformation of one or more other collections.
+When you [create a new capture in a typical workflow](../guides/create-dataflow.md#create-a-capture),
+you define one or more new collections as part of that process.
+[Materializations](./materialization.md) then read data from collections.
 
 Every collection has a key and an associated [schema](#schemas)
 that its documents must validate against.
 
 ## Specification
 
-Collections are expressed within a Flow catalog specification:
+Collections are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of collections to include in the catalog.
@@ -24,9 +27,9 @@ collections:
   acmeCo/products/anvils:
 
     # The schema of the collection, against which collection documents
-    # are validated. This may be an inline definition or a relative URL
+    # are validated. This may be an inline definition or a relative URI
     # reference.
-    # Required, type: string (relative URL form) or object (inline form)
+    # Required, type: string (relative URI form) or object (inline form)
     schema: anvils.schema.yaml
 
     # The key of the collection, specified as JSON pointers of one or more
@@ -37,7 +40,6 @@ collections:
     key: [/product/id]
 
     # Projections and logical partitions for this collection.
-    # See the "Projections" concept page to learn more.
     # Optional, type: object
     projections:
 
@@ -56,6 +58,7 @@ This helps ensure the quality of your data products
 and the reliability of your derivations and materializations.
 Schema specifications are flexible:
 yours could be exactingly strict, extremely permissive, or somewhere in between.
+For many source types, Flow is able to generate a basic schema during [discovery](./captures.md#discovery).
 
 Schemas may either be declared inline, or provided as a reference to a file.
 References can also include JSON pointers as a URL fragment to name a specific schema of a larger schema document:
@@ -174,7 +177,7 @@ Flow performs static inference of the collection schema to verify the existence
 and types of all keyed document locations, and will report an error if the
 location could not exist, or could exist with the wrong type.
 
-Flow itself doesn't mind if a keyed location could have multiple types,
+Flow itself doesn't mind if a keyed location has multiple types,
 so long as they're each of the allowed types: an `integer` or `string` for example.
 Some materialization [connectors](connectors.md), however, may impose further type
 restrictions as required by the endpoint.
@@ -222,7 +225,7 @@ properties:
 A collection key instructs Flow how documents of a collection are to be
 reduced, such as while being materialized to an endpoint.
 Flow also performs opportunistic local reductions over windows of documents
-(also called "combines") to improve its performance and reduce the volumes
+to improve its performance and reduce the volumes
 of data at each processing stage.
 
 An important subtlety is that the underlying storage of a collection
@@ -241,9 +244,9 @@ that's certain to be unique for every document.
 
 ### Empty keys
 
-When a catalog is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
+When a specification is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
 
-In cases like this, the generated catalog will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated catalog and specify keys for those collections before using the catalog.
+In cases like this, the generated specification will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated specification and specify keys for those collections before publishing to the catalog.
 
 ## Projections
 

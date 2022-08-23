@@ -1,12 +1,12 @@
 ---
-sidebar_position: 5
+sidebar_position: 6
 ---
 import Mermaid from '@theme/Mermaid';
 
 # flowctl
 
 There are two ways to work with Flow: through the web app, and using the flowctl command-line interface.
-flowctl gives you more direct control over the files and directories that comprise your data flows' **catalogs**.
+flowctl gives you more direct control over the files and directories that comprise your Data Flows.
 You can work with any catalog to which you have [access](../reference/authentication.md), regardless of whether it was created from the command line or in the web app.
 
 You can also authorize Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
@@ -42,10 +42,10 @@ Important top-level flowctl subcommands are described below.
 * `auth` allows you to authenticate your development session in your local development environment.
 It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
 
-* `catalog` allows you to work with your organization's current active catalog. You can investigate the current deployment,
- or add its specification to a **draft**, where you can develop it further.
+* `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
+ or add their specification files to a **draft**, where you can develop them further.
 
-* `draft` allows you to work with draft catalog specifications. You can create, test, develop locally, and then **publish**, or deploy, them.
+* `draft` allows you to work with drafts. You can create, test, develop locally, and then **publish**, or deploy, them to the catalog.
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 
@@ -53,18 +53,18 @@ You can access full documentation of all flowctl subcommands from the command li
 
 * `flowctl catalog --help` lists subcommands of `catalog`.
 
-## Working with catalog drafts
+## Working with drafts
 
-`flowctl draft` allows you to work with Flow catalog specifications and deploy changes.
-Because you must work with catalog specifications in the draft state prior to deployment, `draft` is an essential flowctl subcommand that you'll use often.
+`flowctl draft` allows you to work with Flow specification files in the draft state and deploy changes to the catalog.
+`draft` is an essential flowctl subcommand that you'll use often.
 
 With `draft`, you:
 
-* Create new drafts or convert active catalogs into drafts.
+* Create new drafts or convert active Data Flows into drafts.
 * Pull a draft created in the web app or on the command line into your current working directory.
 * Develop the draft locally.
 * Author your local changes to the draft. This is equivalent to syncing changes.
-* Test and publish the draft to activate the catalog.
+* Test and publish the draft to publish to the catalog.
 
 
 <Mermaid chart={`
@@ -90,28 +90,28 @@ These files are created within your current working directory when you run `flow
 They typically include:
 
 * `flow.yaml`:
-  The main specification file that imports all other catalog specifications in the current draft. As part of local development, you may add new specifications that you create as imports.
+  The main specification file that imports all other Flow specification files in the current draft. As part of local development, you may add new specifications that you create as imports.
 * `flow_generated/`:
   Directory of generated files, including TypeScript classes and interfaces.
   See [TypeScript code generation](#typescript-code-generation).
 * `estuary/`:
   Directory of the draft's current specifications. Its contents will vary, but it may contain various YAML files and subdirectories.
 * `package.json` and `package-lock.json`:
-  Files used by `npm` to manage dependencies and your catalog's associated JavaScript project.
+  Files used by `npm` to manage dependencies and your Data Flow's associated JavaScript project.
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
   [npmDependencies](derivations.md#npm-dependencies)
-  of your catalog source files, if any exist.
+  of your Flow specification source files, if any exist.
 
 ### TypeScript code generation
 
 TypeScript files are used in the Flow catalog both as part of the automatic build process,
 and to define lambdas functions for [derivations](./derivations.md), which requires your input.
 
-As part of the catalog build process, Flow translates your
+As part of the Data Flow build process, Flow translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
-These definitions live within `flow_generated/` in your catalog build directory,
+These definitions live within `flow_generated/` in your Data Flow's build directory ,
 and are frequently over-written by invocations of `flowctl`.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn't required.
@@ -124,4 +124,4 @@ and simply write the function bodies.
 [Learn more about this workflow.](./derivations.md#creating-typescript-modules)
 
 If a TypeScript module exists, `flowctl` will never overwrite it,
-even if you update or expand your catalog sources such that the required interfaces have changed.
+even if you update or expand your specifications such that the required interfaces have changed.
