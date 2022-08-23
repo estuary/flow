@@ -5,7 +5,7 @@ sidebar_position: 2
 
 This connector captures data from an Amazon S3 bucket.
 
-[`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -18,8 +18,8 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the S3 source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the S3 source connector.
 
 :::tip
 You might organize your S3 bucket using [prefixes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) to emulate a directory structure.
@@ -177,4 +177,4 @@ but you may need to specify for unusual datasets. These properties are:
   * Disable Quoting (`""`)
   * Auto
 
-The YAML sample [above](#sample) includes these fields.
+The sample specification [above](#sample) includes these fields.
