@@ -9,7 +9,8 @@ The `import` section allows you to interlink these files and define a complete D
 
 A common convention for a given draft is to have a single top-level specification
 file which imports all the others.
-Flow automatically generates such a top-level file for your draft when you begin a local work session.
+Flow automatically generates such a top-level file for your draft when you begin a local work session
+using `flowctl draft develop`.
 
 When the draft is published, the imported resources are treated as part of the file
 into which they are imported.

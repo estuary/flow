@@ -72,14 +72,16 @@ You can mix and match catalog entities to create a variety of Data Flows.
 **Collections** represent datasets within Flow.
 All captured documents are written to a collection, and all materialized documents are read from a collection.
 
-Rather, collections are a real-time data lake:
-documents stored as plain JSON in your cloud storage bucket.
+Collections are a real-time data lake.
+Like a traditional data lake, the documents that make up a collection are stored as plain JSON in your cloud storage bucket.
+Unlike a traditional data lake, updates to the collection are reflected downstream in the data flow
+within milliseconds.
+
+Documents in collections are stored indefinitely in your cloud storage bucket (or may be managed with your regular bucket lifecycle policies).
+This means that the full historical content of a collection is available to support future data operations and perform backfills without going back to the source.
+
 Each collection has a keyed [schema](#schemas) against which incoming documents are validated.
 This ensures that data is always clean and organized.
-
-Documents in collections are stored indefinitely in your cloud storage bucket.
-This allows Flow read historical data — say, as part of creating a new materialization —
-without going back to the source.
 
 [Learn more about collections](collections.md)
 
