@@ -5,7 +5,7 @@ sidebar_position: 10
 
 This connector captures data from an HTTP endpoint into a Flow collection.
 
-[`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
 
@@ -43,8 +43,8 @@ If this is the case, have your username and password ready.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the HTTP file source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HTTP file source connector.
 
 ### Properties
 
@@ -174,4 +174,4 @@ but you may need to specify for unusual datasets. These properties are:
   * Disable Quoting (`""`)
   * Auto
 
-The YAML sample [above](#sample) includes these fields.
+The sample specification [above](#sample) includes these fields.

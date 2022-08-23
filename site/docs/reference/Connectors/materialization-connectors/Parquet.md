@@ -8,7 +8,7 @@ This connector materializes [delta updates](#delta-updates) of Flow collections 
 
 The delta updates are batched within Flow, converted to Parquet files, and the pushed to the S3 bucket at a time interval that you set.
 
-[`ghcr.io/estuary/materialize-s3-parquet:dev`](https://ghcr.io/estuary/materialize-s3-parquet:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-s3-parquet:dev`](https://ghcr.io/estuary/materialize-s3-parquet:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
