@@ -13,12 +13,26 @@ pub fn run_draft09_test(target: &str) {
     run_file_test(&["official", "tests", "draft2019-09", target]);
 }
 
+/// Runs tests from the given file within the `draft2019-09/optional/format` directory.
+pub fn run_draft09_format_test(target: &str) {
+    run_file_test(&[
+        "official",
+        "tests",
+        "draft2019-09",
+        "optional",
+        "format",
+        target,
+    ]);
+}
+
 fn read_json_file(target: &[&str]) -> sj::Value {
     let root_dir = &env::var("CARGO_MANIFEST_DIR").unwrap_or(".".to_owned());
 
     let mut path = path::PathBuf::from(root_dir);
     path.push("tests");
     path.extend(target.iter());
+
+    println!("FULLPATH: {:?} {:?}", path, fs::canonicalize(&path));
 
     let file = fs::File::open(path).unwrap();
     sj::from_reader(io::BufReader::new(file)).unwrap()
@@ -124,7 +138,20 @@ fn run_file_test(target: &[&str]) {
             println!("\t\t{:?}", out);
 
             println!("\t\toutcomes: {:?}", val.outcomes());
-            assert_eq!(!val.invalid(), valid);
+
+            let validity = match valid {
+                true => "valid",
+                false => "invalid",
+            };
+
+            assert_eq!(
+                !val.invalid(),
+                valid,
+                "Expected {} to be {} because '{}'",
+                data,
+                validity,
+                sub_desc
+            );
         }
     }
 }

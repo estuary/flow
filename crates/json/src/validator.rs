@@ -1,3 +1,4 @@
+use crate::schema::formats::validate_format;
 use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
@@ -504,6 +505,7 @@ where
                 MinLength(bound) => *bound <= s.chars().count(),
                 MaxLength(bound) => *bound >= s.chars().count(),
                 Pattern(re) => regex_matches(re, s),
+                Format(format) => validate_format(format, s),
                 _ => true,
             }
         });
