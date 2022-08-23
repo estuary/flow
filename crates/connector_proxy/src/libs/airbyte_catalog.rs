@@ -98,8 +98,8 @@ impl Serialize for Range {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("Range", 2)?;
-        state.serialize_field("begin", &format!("{:x}", self.begin))?;
-        state.serialize_field("end", &format!("{:x}", self.end))?;
+        state.serialize_field("begin", &format!("{:08x}", self.begin))?;
+        state.serialize_field("end", &format!("{:08x}", self.end))?;
         state.end()
     }
 }
@@ -112,10 +112,10 @@ pub struct ConfiguredCatalog {
     #[validate]
     pub streams: Vec<ConfiguredStream>,
 
-    #[serde(alias = "estuary.dev/tail")]
+    #[serde(rename = "estuary.dev/tail")]
     pub tail: bool,
 
-    #[serde(alias = "estuary.dev/range")]
+    #[serde(rename = "estuary.dev/range")]
     #[validate]
     pub range: Range,
 }
