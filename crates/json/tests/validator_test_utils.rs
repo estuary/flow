@@ -32,8 +32,6 @@ fn read_json_file(target: &[&str]) -> sj::Value {
     path.push("tests");
     path.extend(target.iter());
 
-    println!("FULLPATH: {:?} {:?}", path, fs::canonicalize(&path));
-
     let file = fs::File::open(path).unwrap();
     sj::from_reader(io::BufReader::new(file)).unwrap()
 }
