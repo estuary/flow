@@ -4,8 +4,7 @@ sidebar_position: 14
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-[`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image.
-You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To use this connector, you'll need a MySQL database setup with the following:
@@ -58,8 +57,8 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the MySQL source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
