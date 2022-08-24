@@ -6,7 +6,7 @@ sidebar_position: 15
 
 This connector captures data from LinkedIn Ads into Flow collections through the LinkedIn Marketing API.
 
-[`ghcr.io/estuary/linkedin-ads:dev`](https://ghcr.io/estuary/source-linkedin-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+[`ghcr.io/estuary/source-linkedin-ads:dev`](https://ghcr.io/estuary/source-linkedin-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/linkedin-ads/),

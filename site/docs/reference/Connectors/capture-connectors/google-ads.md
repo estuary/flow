@@ -53,7 +53,6 @@ You may also generate custom resources using [GAQL queries](#custom-queries).
 
 ### Configuring the connector specification manually
 
-
 * One or more Google Ads accounts.
 
    * Note each account's [customer ID](https://support.google.com/google-ads/answer/1704344?hl=en)
