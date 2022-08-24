@@ -1,5 +1,0 @@
-{
-  "rust-analyzer.assist.allowMergingIntoGlobImports": false,
-  "rust-analyzer.assist.importGranularity": "module",
-  "rust-analyzer.assist.importPrefix": "crate",
-}
