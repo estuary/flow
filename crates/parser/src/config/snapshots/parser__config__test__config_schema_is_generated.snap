@@ -476,7 +476,7 @@ expression: schema
               ],
               "properties": {
                 "message": {
-                  "description": "The name of the protobuf Message to deserailize as. Must be defined within the given proto file.",
+                  "description": "The name of the protobuf Message to deserialize as. Must be defined within the given proto file.",
                   "type": "string"
                 },
                 "protoFile": {

@@ -12,7 +12,7 @@ pub struct ProtobufConfig {
     #[schemars(title = "Your .proto file", schema_with = "proto_file_schema")]
     pub proto_file_content: String,
 
-    /// The name of the protobuf Message to deserailize as. Must be defined within the given proto
+    /// The name of the protobuf Message to deserialize as. Must be defined within the given proto
     /// file.
     pub message: String,
 }
