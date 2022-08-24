@@ -6,12 +6,14 @@
 
 **Download the binary for your OS**
 
-- All Mac systems with MacOS 11 (Big Sur) or later, including both Intel and M1 Macs: 
-  [Download here](https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos)
+- All Mac systems with MacOS 11 (Big Sur) or later, including both Intel and M1
+  Macs:
+  [Download here](../../../../releases/latest/download/flowctl-multiarch-macos)
 - Linux (x86-64 only), all distributions:
-  [Download here](https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux)
+  [Download here](../../../../releases/latest/download/flowctl-x86_64-linux)
 
-Make the file executable, rename it, and put it somewhere on your `PATH`, for example:
+Make the file executable, rename it, and put it somewhere on your `PATH`, for
+example:
 
 ```console
 chmod +x ~/Downloads/flowctl-multiarch-macos
@@ -33,11 +35,13 @@ You're ready to go!
 **Authenticate to a local instance of Flow**
 
 Authenticate as "bob@example.com" with your local control-plane API:
+
 ```console
 flowctl auth develop
 ```
 
 Or, grab an access token from the Admin page and pass it in:
+
 ```console
 flowctl auth develop --token your-access-token
 ```
@@ -51,4 +55,3 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
-
