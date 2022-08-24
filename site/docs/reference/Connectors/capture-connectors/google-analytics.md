@@ -85,7 +85,7 @@ The values and specification sample below provide configuration details specific
 
 #### Endpoint
 
-The following properties reflect the Service Account Key authentication method.
+The following properties reflect the Service Account Key authentication method. If you 
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
