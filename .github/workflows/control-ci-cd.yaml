@@ -1,7 +1,6 @@
 name: Estuary Control-Plane CI/CD
 
-# Controls when the action will run. Triggers the workflow on push
-# or pull request events, but only for the primary branch.
+# Run on all pushes.
 on: [push]
 
 jobs:
@@ -15,7 +14,6 @@ jobs:
       packages: write
 
     steps:
-      
       - uses: actions/checkout@v3
 
       - name: Prepare
@@ -26,7 +24,7 @@ jobs:
 
       - name: Install supabase CLI
         run: wget https://github.com/supabase/cli/releases/download/v0.26.0/supabase_0.26.0_linux_amd64.deb && sudo dpkg --install supabase_0.26.0_linux_amd64.deb
-      
+
       - name: start Supabase
         run: supabase start
 
@@ -47,7 +45,7 @@ jobs:
         with:
           driver-opts: |
             network=host
-      
+
       - name: login to github container registry
         uses: docker/login-action@v2
         with:
@@ -55,7 +53,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build And Push (non-mainline) 
+      - name: Build And Push (non-mainline)
         if: ${{ github.ref != 'refs/heads/main' }}
         uses: docker/build-push-action@v3
         with:
@@ -76,7 +74,7 @@ jobs:
           tags: ghcr.io/estuary/animated-carnival:${{ steps.prep.outputs.tag }},ghcr.io/estuary/animated-carnival:latest
           build-args: |
             DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
-      
+
       - name: Deploy Supabase Edge Functions
         if: ${{ github.ref == 'refs/heads/main' }}
         id: deploy-supabase-fn

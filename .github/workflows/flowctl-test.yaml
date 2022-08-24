@@ -1,6 +1,11 @@
 name: Flowctl Tests
 
-on: push
+# Run on pushes that impact the flowctl crate.
+on:
+  push:
+    paths:
+      - "crates/flowctl/**"
+      - "Cargo.lock"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,4 +27,4 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
       - name: Run tests
-        run: cargo test
+        run: cargo test -p flowctl
