@@ -26,6 +26,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Facebook Marketing
   * [Configuration](./facebook-marketing.md)
   * Package - ghcr.io/estuary/source-facebook-marketing:dev
+* GitHub
+  * [Configuration](./github.md)
+  * Package - ghcr.io/estuary/source-github:dev
 * Google Ads
   * [Configuration](./google-ads.md)
   * Package - ghcr.io/estuary/source-google-ads:dev
