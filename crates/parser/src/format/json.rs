@@ -62,7 +62,7 @@ impl Iterator for JsonIter {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("The JSON parser only supports objects or arrays of objects, found scalar value: '{0}'")]
+#[error("The JSON parser only supports objects or arrays of objects, found value: '{0}'")]
 struct InvalidJsonType(Value);
 
 #[cfg(test)]
