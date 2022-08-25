@@ -38,6 +38,7 @@ name = "agent-sql"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "insta",
  "serde",
  "serde_json",
  "sqlx",

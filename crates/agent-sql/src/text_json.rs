@@ -7,7 +7,7 @@ use sqlx::{Decode, Encode, Type};
 /// encoding, which is the unmodified textual encoding of the document.
 /// Crucially JSONB is not used, which ensures that spacing and
 /// ordering of document properties are preserved.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize)]
 pub struct TextJson<T>(pub T);
 
 impl<T> std::ops::Deref for TextJson<T> {

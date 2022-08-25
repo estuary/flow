@@ -134,7 +134,7 @@ pub struct RoleGrant {
     pub capability: Capability,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct SpecRow {
     // Name of the specification.
     pub catalog_name: String,
@@ -401,32 +401,35 @@ pub async fn insert_publication_spec(
 pub async fn update_published_live_spec(
     catalog_name: &str,
     connector_image_name: Option<&String>,
-    connector_tag_name: Option<&String>,
-    pub_id: Id,
-    reads_from: &Option<Vec<&str>>,
+    connector_image_tag: Option<&String>,
     draft_spec: &Option<Json<Box<RawValue>>>,
     draft_type: &Option<CatalogType>,
+    live_spec_id: Id,
+    pub_id: Id,
+    reads_from: &Option<Vec<&str>>,
     writes_to: &Option<Vec<&str>>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
         update live_specs set
-            connector_image_name = $2,
-            connector_image_tag = $3,
-            last_build_id = $4,
-            last_pub_id = $4,
-            reads_from = $5,
-            spec = $6,
-            spec_type = $7,
+            catalog_name = $2::text::catalog_name,
+            connector_image_name = $3,
+            connector_image_tag = $4,
+            last_build_id = $5,
+            last_pub_id = $5,
+            reads_from = $6,
+            spec = $7,
+            spec_type = $8,
             updated_at = clock_timestamp(),
-            writes_to = $8
-        where catalog_name = $1
+            writes_to = $9
+        where id = $1
         returning 1 as "must_exist";
         "#,
+        live_spec_id as Id,
         catalog_name,
         connector_image_name,
-        connector_tag_name,
+        connector_image_tag,
         pub_id as Id,
         reads_from as &Option<Vec<&str>>,
         draft_spec as &Option<Json<Box<RawValue>>>,
@@ -465,14 +468,17 @@ pub async fn insert_live_spec_flows(
     writes_to: Option<Vec<&str>>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
+    // Precondition: all of `reads_from` and `writes_to` must have a live_specs row.
+    // We use a left outer join to deliberately error (by violation a not-null
+    // constraint) if we fail to match a reads_from / write_to to a live_specs row.
     sqlx::query!(
         r#"
         insert into live_spec_flows (source_id, target_id, flow_type)
             select live_specs.id, $1, $2::catalog_spec_type
-            from unnest($3::text[]) as n join live_specs on catalog_name = n
+            from unnest($3::text[]) as n left outer join live_specs on catalog_name = n
         union
             select $1, live_specs.id, $2
-            from unnest($4::text[]) as n join live_specs on catalog_name = n;
+            from unnest($4::text[]) as n left outer join live_specs on catalog_name = n;
         "#,
         live_spec_id as Id,
         draft_type as &Option<CatalogType>,
