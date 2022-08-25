@@ -1,5 +1,5 @@
 ---
-sidebar_position: 10
+sidebar_position: 6
 ---
 # GitHub
 
@@ -70,7 +70,7 @@ Their prerequisites differ.
 OAuth is recommended for simplicity in the Flow web app;
 the access token method is the only supported method using the command line.
 
-### Using OAuth2 to authenticate with Google in the Flow web app
+### Using OAuth2 to authenticate with GitHub in the Flow web app
 
 * A GitHub user account with access to the repositories of interest, and which is a member of organizations of interest.
 
@@ -90,7 +90,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-The properties in the table below reflect the manual authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-flow-web-app), so some of these properties aren't required.
+The properties in the table below reflect the manual authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-github-in-the-flow-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
