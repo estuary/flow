@@ -106,6 +106,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 &bindir,
                 &logs_tx,
             )),
+            Box::new(agent::DirectiveHandler::new()),
         ],
         pg_pool.clone(),
         tokio::signal::ctrl_c().map(|_| ()),

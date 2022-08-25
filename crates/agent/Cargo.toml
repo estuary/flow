@@ -20,6 +20,7 @@ futures = "*"
 itertools = "*"
 reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
 rusqlite = "*"
+schemars = "*"
 scopeguard = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version = "*" }
@@ -31,6 +32,8 @@ tokio-util = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["json", "env-filter", "fmt", "time"]}
 url = "*"
+validator = "*"
 
 [dev-dependencies]
 insta = { version = "*", features = ["redactions"] }
+tokio = { version = "1", features = ["rt", "net", "macros"] }
