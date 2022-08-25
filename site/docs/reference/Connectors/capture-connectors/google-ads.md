@@ -40,6 +40,12 @@ You may also generate custom resources using [GAQL queries](#custom-queries).
 
 ## Prerequisites
 
+There are two ways to authenticate with Google when capturing data into Flow: using OAuth2, and manually, using tokens and secret credentials.
+Their prerequisites differ.
+
+OAuth is recommended for simplicity in the Flow web app;
+the manual method is the only supported method using the command line.
+
 ### Using OAuth2 to authenticate with Google in the Flow web app
 
 * One or more Google Ads accounts.

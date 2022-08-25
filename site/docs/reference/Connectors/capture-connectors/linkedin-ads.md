@@ -29,6 +29,12 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
+There are two ways to authenticate with LinkedIn when capturing data into Flow: using OAuth2, and manually, by creating a developer application.
+Their prerequisites differ.
+
+OAuth is recommended for simplicity in the Flow web app;
+the developer application method is the only supported method using the command line.
+
 ### Using OAuth2 to authenticate with LinkedIn in the Flow web app
 
 * One or more LinkedIn [Ad Accounts](https://www.linkedin.com/help/lms/answer/a426102/create-an-ad-account?lang=en) with active campaigns.
