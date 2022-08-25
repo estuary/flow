@@ -29,8 +29,7 @@ returns setof internal.log_lines as $$
 begin
   return query select * from internal.log_lines where internal.log_lines.token = bearer_token;
 end;
-$$ language plpgsql
-security definer
-;
+$$ language plpgsql security definer;
+
 comment on function view_logs is
   'view_logs accepts a log bearer_token and returns its matching log lines';
