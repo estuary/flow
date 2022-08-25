@@ -1,4 +1,5 @@
 mod connector_tags;
+mod directives;
 mod discovers;
 mod jobs;
 pub mod logs;
@@ -6,6 +7,7 @@ mod publications;
 
 pub use agent_sql::Id;
 pub use connector_tags::TagHandler;
+pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use publications::PublishHandler;
 

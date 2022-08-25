@@ -1,4 +1,5 @@
 pub mod connector_tags;
+pub mod directives;
 pub mod discover;
 pub mod publications;
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,9 @@ pub enum CatalogType {
     Test,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, schemars::JsonSchema,
+)]
 #[sqlx(type_name = "grant_capability")]
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
