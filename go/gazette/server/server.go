@@ -59,14 +59,19 @@ func New(iface string, port string) (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to bind service address (%s)", addr)
 	}
+	return NewFromListener(raw)
+}
 
+// NewFromListener builds a new Server using the provided Listener, which can be customized by the
+// caller. This is intended to support servers wishing to use TLS.
+func NewFromListener(listener net.Listener) (*Server, error) {
 	var srv = &Server{
 		HTTPMux: http.DefaultServeMux,
 		GRPCServer: grpc.NewServer(
 			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
 		),
-		RawListener: raw,
+		RawListener: listener,
 	}
 	srv.CMux = cmux.New(srv.RawListener)
 
@@ -89,6 +94,7 @@ func New(iface string, port string) (*Server, error) {
 	srv.GRPCListener = srv.CMux.MatchWithWriters(
 		cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
 
+	var err error
 	srv.GRPCLoopback, err = grpc.DialContext(
 		context.Background(),
 		srv.RawListener.Addr().String(),
