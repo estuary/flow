@@ -2,7 +2,6 @@ use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 
 /// Id is the Rust equivalent of the Postgres `flowid` type domain.
 /// It's a fixed 8-byte payload which is represented in hexadecimal notation.
-/// TODO(johnny): Introduce a TypedId wrapper using PhantomData?
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 8]);
 
@@ -23,6 +22,14 @@ impl std::fmt::Display for Id {
 impl std::fmt::Debug for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as std::fmt::Display>::fmt(self, f)
+    }
+}
+impl serde::Serialize for Id {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        format!("{self}").serialize(serializer)
     }
 }
 

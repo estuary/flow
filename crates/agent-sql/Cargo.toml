@@ -14,4 +14,5 @@ sqlx = { version = "*", features = [ "chrono", "json", "macros", "postgres", "ru
 
 [dev-dependencies]
 
+insta = { version = "*", features = ["redactions"] }
 tokio = { version = "1", features = ["rt", "net", "macros"] }

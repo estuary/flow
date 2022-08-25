@@ -412,10 +412,11 @@ pub async fn apply_updates_for_row(
         catalog_name,
         image_parts.as_ref().map(|p| &p.0),
         image_parts.as_ref().map(|p| &p.1),
-        pub_id,
-        &reads_from,
         draft_spec,
         draft_type,
+        *live_spec_id,
+        pub_id,
+        &reads_from,
         &writes_to,
         txn,
     )
