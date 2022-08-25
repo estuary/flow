@@ -3,7 +3,6 @@ use std::{net::IpAddr, str::FromStr};
 use addr::{parse_domain_name, parse_email_address};
 use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
-use json_pointer::JsonPointer;
 use uuid::Uuid;
 
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
@@ -20,10 +19,11 @@ lazy_static::lazy_static! {
     static ref ISO_8601_DURATION_RE: Regex = Regex::new(r"^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(?=\d)(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$").expect("Is a valid regex");
     static ref ISO_8601_ONLY_WEEKS_RE: Regex = Regex::new(r"^[0-9P|W]*$").expect("Is a valid regex");
     static ref ISO_8601_NO_WEEKS_RE: Regex = Regex::new(r"^[^W]*$").expect("Is a valid regex");
+    static ref JSON_POINTER_RE: Regex = Regex::new(r"[^([^/~]|(~[01]))]+").expect("Is a valid regex");
 }
 
-pub fn validate_format(format: &String, val: &str) -> bool {
-    match format.as_str() {
+pub fn validate_format(format: &str, val: &str) -> bool {
+    match format {
         "date" => {
             time::Date::parse(
                 val,
@@ -47,7 +47,7 @@ pub fn validate_format(format: &String, val: &str) -> bool {
         "hostname" => parse_domain_name(val).is_ok(),
         // The rules/test cases for these are absolutely bonkers
         // If we end up needing this let's revisit (jshearer)
-        "idn-hostname" | "idn-email" => false,
+        "idn-hostname" | "idn-email" => {tracing::warn!("Unsupported string format {}", format); return false},
         "ipv4" => {
             if val.starts_with('0') {
                 return false;
@@ -65,11 +65,12 @@ pub fn validate_format(format: &String, val: &str) -> bool {
         "uuid" if val.len() == 36 => Uuid::parse_str(val).is_ok(),
 
         "duration" => match ISO_8601_DURATION_RE.is_match(val) {
-            Ok(true) => match val.contains("W") {
+            Ok(true) => if val.contains("W") {
                 // If we parse as weeks, ensure that ONLY weeks are provided
-                true => ISO_8601_ONLY_WEEKS_RE.is_match(val).unwrap_or(false),
+                ISO_8601_ONLY_WEEKS_RE.is_match(val).unwrap_or(false)
+            } else{
                 // Otherwise, ensure that NO weeks are provided
-                false => ISO_8601_NO_WEEKS_RE.is_match(val).unwrap_or(false),
+                ISO_8601_NO_WEEKS_RE.is_match(val).unwrap_or(false)
             },
             _ => false,
         },
@@ -78,9 +79,7 @@ pub fn validate_format(format: &String, val: &str) -> bool {
         "uri-reference" => iri_string::validate::iri_reference::<UriSpec>(val).is_ok(),
         "iri-reference" => iri_string::validate::iri_reference::<IriSpec>(val).is_ok(),
         "uri-template" => URI_TEMPLATE_RE.is_match(val).unwrap_or(false),
-        "json-pointer" if !val.get(0..1).map_or(false, |first| first.eq("#")) => {
-            val.parse::<JsonPointer<_, _>>().is_ok()
-        }
+        "json-pointer" => JSON_POINTER_RE.is_match(val).unwrap_or(false),
         "regex" => Regex::new(val).is_ok(),
         "relative-json-pointer" => RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false),
         _ => false,

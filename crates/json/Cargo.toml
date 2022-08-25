@@ -8,12 +8,10 @@ edition = "2018"
 addr = {version="0.15.4", features=["idna", "std","psl"]}
 # TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
 bitvec = "0.19"
-bytecount = "0.6.3"
 fancy-regex = "*"
 fxhash = "*"
 iri-string = "0.6.0"
 itertools = "*"
-json-pointer = "0.3.4"
 lazy_static = "1.4.0"
 percent-encoding = "*"
 serde = "*"
