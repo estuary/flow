@@ -27,6 +27,9 @@ encoding_rs = {version = "*", features = ["serde"]}
 flate2 = "*"
 mime = "*"
 num-bigint = "*"
+protobuf = "*"
+protobuf-json-mapping = "*"
+protobuf-parse = "*"
 schemars = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value"]}

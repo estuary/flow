@@ -1,4 +1,5 @@
 pub mod character_separated;
+pub mod protobuf;
 
 use encoding_rs::Encoding;
 use schemars::{gen, schema as schemagen, JsonSchema};
@@ -303,6 +304,11 @@ pub enum Format {
     #[schemars(title = "CSV")]
     Csv(character_separated::AdvancedCsvConfig),
 
+    /// Parses a single protobuf message, using the given .proto file in the configuration.
+    #[serde(rename = "protobuf")]
+    #[schemars(title = "Protobuf")]
+    Protobuf(protobuf::ProtobufConfig),
+
     /// A W3C Extended Log file, as defined by the working group draft at:
     /// https://www.w3.org/TR/WD-logfile.html
     #[serde(rename = "w3cExtendedLog")]
@@ -317,6 +323,7 @@ impl fmt::Display for Format {
             Format::Avro => "avro",
             Format::Json => "json",
             Format::Csv(_) => "csv",
+            Format::Protobuf(_) => "protobuf",
             Format::W3cExtendedLog => "w3cExtendedLog",
         };
         f.write_str(s)

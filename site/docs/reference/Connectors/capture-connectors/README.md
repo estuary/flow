@@ -29,12 +29,18 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * GitHub
   * [Configuration](./github.md)
   * Package - ghcr.io/estuary/source-github:dev
+* Google Ads
+  * [Configuration](./google-ads.md)
+  * Package - ghcr.io/estuary/source-google-ads:dev
 * Google Analytics
   * [Configuration](./google-analytics.md)
   * Package - ghcr.io/estuary/source-google-analytics-v4:dev
 * Google Cloud Storage
   * [Configuration](./gcs.md)
   * Package — ghcr.io/estuary/source-gcs:dev
+* Google Firestore
+  * [Configuration](./google-firestore.md)
+  * Package - ghcr.io/estuary/source-firestore:dev
 * Google Sheets
   * [Configuration](./google-sheets.md)
   * Package - ghcr.io/estuary/source-google-sheets:dev
@@ -47,6 +53,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Intercom
   * [Configuration](./intercom.md)
   * Package - ghcr.io/estuary/source-intercom:dev
+* LinkedIn Ads
+  * [Configuration](./linkedin-ads.md)
+  * Package - ghcr.io/estuary/source-linkedin-ads:dev
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
