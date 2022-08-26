@@ -1,0 +1,22 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: int is not a valid JSON pointer (missing leading '/' slash),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/projections/DoubleSlash,
+        error: /double//slash is not a valid JSON pointer ("//slash" is invalid),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
+        error: int is not a valid JSON pointer (missing leading '/' slash),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/projections/InvalidEscape,
+        error: /an/esc~ape is not a valid JSON pointer ("~ape" is invalid),
+    },
+]
