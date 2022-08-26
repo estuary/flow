@@ -73,7 +73,7 @@ function start_ui() {
 function start_data_plane() {
     cd "$(project_dir 'flow')"
     must_run make package
-    must_run ./.build/package/bin/flowctl-admin temp-data-plane --log.level=info
+    must_run ./.build/package/bin/flowctl-admin temp-data-plane --log.level=info --network=host
 }
 
 function start_data_plane_gateway() {
