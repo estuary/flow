@@ -510,6 +510,25 @@ test://example/int-halve:
 }
 
 #[test]
+fn test_keyed_location_pointer_is_malformed() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      key: [int]
+      projections:
+        Int: int
+        DoubleSlash: /double//slash
+        InvalidEscape: /an/esc~ape
+        ValidRootField: ""
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_keyed_location_wrong_type() {
     let errors = run_test_errors(
         &GOLDEN,
