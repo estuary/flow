@@ -367,13 +367,34 @@ pub fn walk_explicit_location(
     exists: Exists,
     errors: &mut tables::Errors,
 ) {
-    if exists == Exists::Implicit {
+    let (start, stop) = models::JsonPointer::regex()
+        .find(ptr)
+        .map(|m| (m.start(), m.end()))
+        .unwrap_or((0, 0));
+    let unmatched = [&ptr[..start], &ptr[stop..]].concat();
+
+    // These checks return early if matched because
+    // further errors are likely spurious.
+    if !ptr.is_empty() && !ptr.starts_with("/") {
+        Error::KeyMissingLeadingSlash {
+            ptr: ptr.to_string(),
+        }
+        .push(scope, errors);
+        return;
+    } else if !unmatched.is_empty() {
+        Error::KeyRegex {
+            ptr: ptr.to_string(),
+            unmatched,
+        }
+        .push(scope, errors);
+        return;
+    } else if exists == Exists::Implicit {
         Error::KeyIsImplicit {
             ptr: ptr.to_string(),
             schema: schema.clone(),
         }
         .push(scope, errors);
-        return; // Further errors are likely spurious.
+        return;
     } else if exists == Exists::Cannot {
         Error::KeyCannotExist {
             ptr: ptr.to_string(),

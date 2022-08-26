@@ -59,6 +59,10 @@ pub enum Error {
     CollectionKeyEmpty { collection: String },
     #[error("collection {collection} schema must be an object")]
     CollectionSchemaNotObject { collection: String },
+    #[error("{ptr} is not a valid JSON pointer (missing leading '/' slash)")]
+    KeyMissingLeadingSlash { ptr: String },
+    #[error("{ptr} is not a valid JSON pointer ({unmatched:?} is invalid)")]
+    KeyRegex { ptr: String, unmatched: String },
     #[error("keyed location {ptr} must be required to exist by schema {schema} (https://go.estuary.dev/KUYbal)")]
     KeyMayNotExist { ptr: String, schema: Url },
     #[error(
