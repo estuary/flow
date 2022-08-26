@@ -89,6 +89,10 @@ function start_control_plane() {
 }
 
 function start_control_plane_agent() {
+    local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
+    cd "$(project_dir 'animated-carnival')/fetch-open-graph"
+    go build -o "$flow_bin_dir"
+
     cd "$(project_dir 'animated-carnival')"
     # Start building immediately, since it could take a while
     must_run cargo build -p agent
@@ -102,7 +106,6 @@ function start_control_plane_agent() {
     # Use the resolved flow project directory to set the --bin-dir argument.
     # We're counting on `make package` to have completed successfully at this point, which should be
     # the case if the temp-data-plane is running.
-    local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
     export RUST_LOG=info
     must_run cargo run -p agent -- --bin-dir "$flow_bin_dir"
 }
