@@ -3,8 +3,8 @@ sidebar_position: 2
 ---
 # Create a derivation with flowctl
 
-Once you're familiar with creating a basic [Data Flow](../concepts/README.md#essential-concepts), you can take it a step further:
-transforming your data with [derivations](../concepts/derivations.md).
+Once you're familiar with creating a basic [Data Flow](../concepts/README.md#essential-concepts), you can take things a step further
+and transform your data with [derivations](../concepts/derivations.md).
 A **derivation** is a kind of Flow collection that results from the transformation of one or more other collections.
 
 :::info Beta
@@ -14,15 +14,15 @@ Support for derivations in the Flow web application will be added in the future.
 
 ## Prerequisites
 
-* An existing Data Flow with a collection defined. Typically, you create this in the Flow web application.
-If you need help, see the [guide to create a data flow](./create-dataflow.md).
+* An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
+If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
 
-* flowctl installed locally. For help, see the [installation instructions](../concepts/flowctl.md#installation-and-setup)
+* **flowctl** installed locally. For help, see the [installation instructions](../concepts/flowctl.md#installation-and-setup).
 
 ## Pull your specification files locally
 
-To work on the Data Flow locally, you must authenticate with the Flow servers.
-Then, you'll need to add the appropriate files from the catalog to a **draft** and copy the draft to your local environment.
+To begin working in your local environment, you must authenticate Flow from the command line.
+Then, you'll need to add your source collection's specification files to a **draft** and copy the draft locally.
 
 1. Go to the [Flow web application](https://dashboard.estuary.dev). On the **Admin** page, click the **CLI-API** tab and copy the access token.
 
@@ -45,15 +45,19 @@ Then, you'll need to add the appropriate files from the catalog to a **draft** a
    The output table shows the draft ID and creation time. It doesn't have any catalog entities in it yet.
    You'll add the source collection's specification to the draft.
 
-4. Identify the collection(s) from the catalog that contains the data you want to derive, and add it to your draft.
+4. Identify the collection (or collections) in the catalog that contains the data you want to derive, and add it to your draft.
 
    ```console
-   flowctl catalog draft --name namespace/my-dataflow/my-collection
+   flowctl catalog draft --name namespace/data-flow-name/my-collection
    ```
 
    :::tip
-   If you're unsure of the name the collection, check the web application. You can also use `flowctl draft list` locally
+   If you're unsure of the name the collection, check **Collections** page in the web application.
+   You can also use `flowctl draft list` locally
    to begin exploring the catalog items available to you.
+
+   The name of your collection may not follow the structure of the examples provided;
+   simply copy the entire name as you see it, including all prefixes.
    :::
 
    The output confirms that the entity name you specified has been added to your draft, and is of the type `collection`.
@@ -115,45 +119,36 @@ Then, you'll need to add the appropriate files from the catalog to a **draft** a
 
    ```yaml
    collections:
-   estuary/data-flow-name/greetings:
-      schema:
-         properties:
-         count:
-            type: integer
-         message:
-            type: string
-         required:
-         - count
-         - message
-         type: object
-      key:
-         - /count
-   estuary/data-flow-name/dozen-greetings:fl
-      schema:
-         properties:
-         count:
-            type: integer
-         message:
-            type: string
-         dozens:
-            type: integer
-         required:
-         - dozens
-         - count
-         - message
-      key:
-         - /dozens
-      derivation:
-         transform:
-         greetings-by-dozen:
-            source: {name: estuary/data-flow-name/greetings}
-            publish: {lambda: typescript}
-         typescript: {module: divide-by-twelve.ts}
+      estuary/data-flow-name/greetings:
+        {...}
+      estuary/data-flow-name/dozen-greetings:
+         schema:
+            properties:
+               count:
+                  type: integer
+               message:
+                  type: string
+               dozens:
+                  type: integer
+            required:
+            - dozens
+            - count
+            - message
+            type: object
+         key:
+            - /dozens
+         derivation:
+            transform:
+               greetings-by-dozen:
+                  source: {name: estuary/data-flow-name/greetings}
+                  publish: {lambda: typescript}
+            typescript: {module: divide-by-twelve.ts}
       ```
+   Save the file.
 
 ## Transform with a TypeScript module
 
-1. Generate the TypeScript module.
+1. Generate the TypeScript module from the newly updated specification file.
 
    ```console
    flowctl typescript generate --source ./path-to/your-file/flow.yaml
@@ -183,7 +178,7 @@ Then, you'll need to add the appropriate files from the catalog to a **draft** a
 For more advanced transforms, you may need to activate `register` and `previous` by removing their underscores.
 [Learn more about derivations and see examples.](../concepts/derivations.md)
 
-   Save the file.
+   This simple example rounds the `count` field to the nearest dozen.
 
    ```typescript
    import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/estuary/data-flow-name/dozen-greetings';
@@ -195,33 +190,38 @@ For more advanced transforms, you may need to activate `register` and `previous`
          _register: Register,
          _previous: Register,
       ): Document[] {
-         let count = source.count;
-         let dozen = count / 12;
-         let out = {
-         dozens: dozen,
-         ...source
-         }
-         return [out]
+          let count = source.count;
+          let dozen = count / 12;
+          let dozenround = Math.floor(dozen)
+          let out = {
+          dozens: dozenround,
+          ...source
+        }
+        return [out]
      }
    }
    ```
+   Save the file.
 
 4. Optional: add a test to the `flow.yaml` file containing your collections.
 This helps you verify that your data is transformed correctly.
 
-```yaml
-tests:
-  estuary/data-flow-name/divide-test:
-    - ingest:
-        collection: estuary/data-flow-name/greetings
-        documents:
-          - { count: 24, message: "Hello #24" }
-    - verify:
-        collection: estuary/data-flow-name/dozen-greetings
-        documents:
-          - { dozens: 2, count: 24, message: "Hello #24"}
+   ```yaml
+   collections:
+      {...}
+   tests:
+      estuary/data-flow-name/divide-test:
+         - ingest:
+            collection: estuary/data-flow-name/greetings
+            documents:
+               - { count: 13, message: "Hello #13" }
+         - verify:
+            collection: estuary/data-flow-name/dozen-greetings
+            documents:
+               - { dozens: 1, count: 13, message: "Hello #13"}
+   ```
 
-[Learn about tests.](../concepts/tests.md)
+   [Learn about tests.](../concepts/tests.md)
 
 ## Publish the derivation
 
@@ -234,7 +234,7 @@ tests:
    Note that the file source is the top level `flow.yaml` in your working directory, not the file you worked on.
    This file `imports` all others in the local draft, so your changes will be included.
 
-2. Run your test.
+2. Run generic tests, as well as your custom tests, if you created any.
 
    ```console
    flowctl draft test
