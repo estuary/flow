@@ -1,59 +1,58 @@
-/*
-TODO(johnny): This is currently not wired in, but is
-likely useful in the future for fetching ops logs
-*/
+use crate::collection::{
+    read::{read_collection, ReadArgs, ReadBounds},
+    CollectionJournalSelector, Partition,
+};
+use crate::config::Config;
 
 #[derive(clap::Args, Debug)]
-#[clap(trailing_var_arg = true)]
-pub struct Args {
+pub struct Logs {
     #[clap(flatten)]
     pub task: TaskSelector,
+
+    #[clap(flatten)]
+    pub bounds: ReadBounds,
 }
 
-impl Args {
-    pub fn try_into_exec_external(self) -> anyhow::Result<ExecExternal> {
-        use std::fmt::Write;
-        let Args { task, other } = self;
+impl Logs {
+    pub async fn run(&self, config: &Config) -> anyhow::Result<()> {
+        let read_args = read_args(&self.task.task, "logs", &self.bounds);
+        read_collection(config, &read_args).await?;
+        Ok(())
+    }
+}
 
-        let tenant = task.tenant_name()?;
+#[derive(clap::Args, Debug)]
+pub struct Stats {
+    #[clap(flatten)]
+    pub task: TaskSelector,
 
-        let mut selector = String::new();
+    #[clap(flatten)]
+    pub bounds: ReadBounds,
+}
 
-        write!(&mut selector, "{}=ops/{}/logs", labels::COLLECTION, tenant).unwrap();
+impl Stats {
+    pub async fn run(&self, config: &Config) -> anyhow::Result<()> {
+        let read_args = read_args(&self.task.task, "stats", &self.bounds);
+        read_collection(config, &read_args).await?;
+        Ok(())
+    }
+}
 
-        // Select the proper partition for a specific task, if given
-        if let Some(task_name) = task.task.as_deref() {
-            let encoded_name = assemble::encode_resource_path(&[task_name]);
-            write!(
-                &mut selector,
-                ",{}{}={}",
-                labels::FIELD_PREFIX,
-                "name",
-                encoded_name
-            )
-            .unwrap();
-        }
-
-        // Select the proper partition for a specific type of task, if given
-        if let Some(task_type) = task.task_type {
-            write!(
-                &mut selector,
-                ",{}{}={}",
-                labels::FIELD_PREFIX,
-                "kind",
-                task_type.label_value(),
-            )
-            .unwrap();
-        }
-
-        let mut args = vec![
-            "journals".to_owned(),
-            "read".to_owned(),
-            "--selector".to_owned(),
-            selector,
-        ];
-        args.extend(other);
-        Ok(ExecExternal::from((GO_FLOWCTL, args)))
+fn read_args(task_name: &str, logs_or_stats: &'static str, bounds: &ReadBounds) -> ReadArgs {
+    let tenant = tenant(task_name);
+    let collection = format!("ops/{tenant}/{logs_or_stats}");
+    let selector = CollectionJournalSelector {
+        collection,
+        include_partitions: vec![Partition {
+            name: "name".to_string(),
+            value: task_name.to_string(),
+        }],
+        exclude_partitions: Vec::new(),
+    };
+    ReadArgs {
+        selector,
+        uncommitted: true,
+        bounds: bounds.clone(),
     }
 }
 
@@ -61,23 +60,23 @@ impl Args {
 #[derive(clap::Args, Debug, Default, Clone)]
 pub struct TaskSelector {
     /// Read the logs of the task with the given name
-    #[clap(long, conflicts_with_all(&["task_type", "tenant"]), required_unless_present("tenant"))]
-    pub task: Option<String>,
-
-    /// Read the logs of all tasks with the given type
-    ///
-    /// Requires the `--tenant <tenant>` argument
-    #[clap(long, arg_enum, requires("tenant"))]
-    pub task_type: Option<TaskType>,
-
-    /// Read the logs of tasks within the given tenant
-    ///
-    /// The `--task-type` may also be specified to limit the selection to only tasks of the given
-    /// type. Without a `--task-type`, it will return all logs from all tasks in the tenant.
     #[clap(long)]
-    pub tenant: Option<String>,
+    pub task: String,
+    // Read the logs of all tasks with the given type
+    //
+    // Requires the `--tenant <tenant>` argument
+    //#[clap(long, arg_enum, requires("tenant"))]
+    //pub task_type: Option<TaskType>,
+
+    // Read the logs of tasks within the given tenant
+    //
+    // The `--task-type` may also be specified to limit the selection to only tasks of the given
+    // type. Without a `--task-type`, it will return all logs from all tasks in the tenant.
+    //#[clap(long)]
+    //pub tenant: Option<String>,
 }
 
+/*
 #[derive(Debug, clap::ArgEnum, PartialEq, Eq, Clone, Copy)]
 pub enum TaskType {
     Capture,
@@ -104,6 +103,8 @@ impl TaskSelector {
     }
 }
 
+*/
+
 fn tenant(task_name: &str) -> &str {
     match task_name.split_once('/') {
         Some((first, _)) => first,
@@ -115,6 +116,7 @@ fn tenant(task_name: &str) -> &str {
 mod test {
     use super::*;
 
+    /*
     #[test]
     fn logs_translates_into_journals_read_commands() {
         assert_logs_command(
@@ -182,4 +184,5 @@ mod test {
             selector, expected_label_selector, cmd
         );
     }
+    */
 }

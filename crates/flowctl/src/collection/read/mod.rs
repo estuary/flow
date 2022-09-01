@@ -1,0 +1,127 @@
+use crate::collection::CollectionJournalSelector;
+use crate::config::Config;
+use crate::dataplane;
+use chrono::{DateTime, Utc};
+use journal_client::{
+    broker,
+    fragments::FragmentIter,
+    list::list_journals,
+    read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
+    Client,
+};
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ReadArgs {
+    #[clap(flatten)]
+    pub selector: CollectionJournalSelector,
+    #[clap(flatten)]
+    pub bounds: ReadBounds,
+
+    /// Read all journal data, including messages from transactions which were
+    /// rolled back or never committed. Due to the current limitations of the Rust
+    /// Gazette client library, this is the only mode that's currently supported,
+    /// and this flag must be provided. In the future, committed reads will become
+    /// the default.
+    #[clap(long)]
+    pub uncommitted: bool,
+}
+
+/// Common definition for arguments specifying the begin and and bounds of a read command.
+#[derive(clap::Args, Debug, Default, Clone)]
+pub struct ReadBounds {
+    /// Whether to block waiting for new data. If provided, the read will continue indefinitely until interrupted or ending due to an error.
+    #[clap(long)]
+    pub follow: bool,
+
+    /// Start reading from approximately this far in the past. For example `--since 10m` will output all data that was added within the last 10 minutes.
+    /// The actual start of the read will always be at a fragment boundary, and thus may include data from significantly before the requested time period.
+    #[clap(long)]
+    pub since: Option<humantime::Duration>,
+}
+
+/// Reads collection data and prints it to stdout. This function has a number of limitations at present:
+/// - The provided `CollectionJournalSelector` must select a single journal.
+/// - Only uncommitted reads are supported
+/// - Any acknowledgements (documents with `/_meta/ack` value `true`) are also printed
+/// These limitations should all be addressed in the future when we add support for committed reads.
+pub async fn read_collection(config: &Config, args: &ReadArgs) -> anyhow::Result<()> {
+    if !args.uncommitted {
+        anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
+    }
+    let mut data_plane_client =
+        dataplane::journal_client_for(config, vec![args.selector.collection.clone()]).await?;
+
+    let selector = args.selector.build_label_selector();
+    tracing::debug!(?selector, "build label selector");
+
+    let mut journals = list_journals(&mut data_plane_client, &selector).await?;
+    tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
+    let maybe_journal = journals.pop();
+    if !journals.is_empty() {
+        // TODO: implement a sequencer and allow reading from multiple journals
+        anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
+    }
+
+    let journal = maybe_journal.ok_or_else(|| {
+        anyhow::anyhow!(
+            "collection '{}' does not exist or has never been written to (it has no journals)",
+            args.selector.collection
+        )
+    })?;
+
+    let start = if let Some(since) = args.bounds.since {
+        let start_time = Utc::now() - chrono::Duration::from_std(*since)?;
+        find_start_offset(data_plane_client.clone(), journal.name.clone(), start_time).await?
+    } else {
+        ReadStart::Offset(0)
+    };
+    let end = if args.bounds.follow {
+        ReadUntil::Forever
+    } else {
+        ReadUntil::WriteHead
+    };
+    let read = JournalRead::new(journal.name.clone())
+        .starting_at(start)
+        .read_until(end);
+
+    tracing::debug!(journal = %journal.name, "starting read of journal");
+
+    // It would seem unusual for a CLI to retry indefinitely, so limit the number of retries.
+    let backoff = ExponentialBackoff::new(5);
+    let reader = Reader::start_read(data_plane_client.clone(), read, backoff);
+
+    tokio::io::copy(&mut reader.compat(), &mut tokio::io::stdout()).await?;
+    Ok(())
+}
+
+async fn find_start_offset(
+    client: Client,
+    journal: String,
+    start_time: DateTime<Utc>,
+) -> anyhow::Result<ReadStart> {
+    let frag_req = broker::FragmentsRequest {
+        journal,
+        header: None,
+        begin_mod_time: start_time.timestamp(),
+        end_mod_time: 0,
+        next_page_token: 0,
+        page_limit: 1,
+        signature_ttl: None,
+        do_not_proxy: false,
+    };
+    let mut iter = FragmentIter::new(client, frag_req);
+    match iter.next().await {
+        None => {
+            tracing::debug!(requested_start_time = %start_time, "no fragment found covering start time");
+            Ok(ReadStart::WriteHead)
+        }
+        Some(result) => {
+            let frag = result?
+                .spec
+                .ok_or_else(|| anyhow::anyhow!("response is missing fragment spec"))?;
+            tracing::debug!(requested_start_time = %start_time, resolved_fragment = ?frag, "resolved start time to fragment");
+            Ok(ReadStart::Offset(frag.begin as u64))
+        }
+    }
+}
