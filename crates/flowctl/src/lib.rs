@@ -6,8 +6,11 @@ use proto_flow::flow;
 
 mod auth;
 mod catalog;
+mod collection;
 mod config;
+mod dataplane;
 mod draft;
+mod ops;
 mod poll;
 mod raw;
 mod source;
@@ -37,12 +40,18 @@ pub enum Command {
     Auth(auth::Auth),
     /// Work with the current Flow catalog.
     Catalog(catalog::Catalog),
+    /// Work with Flow collections.
+    Collection(collection::Collections),
     /// Work with your Flow catalog drafts.
     ///
     /// Drafts are in-progress specifications which are not yet "live".
     /// They can be edited, developed, and tested while still a draft.
     /// Then when you're ready, publish your draft to make your changes live.
     Draft(draft::Draft),
+    /// Prints the runtime logs of a task (capture, derivation, or materialization).
+    Logs(ops::Logs),
+    /// Prints the runtime stats of a task (capture, derivation, or materialization).
+    Stats(ops::Stats),
     /// Develop TypeScript modules of your local Flow catalog source files.
     Typescript(typescript::TypeScript),
     /// Advanced and low-level commands which are less common.
@@ -74,7 +83,10 @@ impl Cli {
         match &self.cmd {
             Command::Auth(auth) => auth.run(&mut config).await,
             Command::Catalog(catalog) => catalog.run(&mut config).await,
+            Command::Collection(collection) => collection.run(&mut config).await,
             Command::Draft(draft) => draft.run(&mut config).await,
+            Command::Logs(logs) => logs.run(&config).await,
+            Command::Stats(stats) => stats.run(&config).await,
             Command::Typescript(typescript) => typescript.run(&mut config).await,
             Command::Raw(advanced) => advanced.run(&mut config).await,
         }?;

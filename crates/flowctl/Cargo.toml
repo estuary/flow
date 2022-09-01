@@ -1,7 +1,7 @@
 [package]
 name = "flowctl"
 # The version here is ignored for release builds. During releases, this is instead set by the env
-# variable FLOWCTL_RELEASE_VERSION, based on the git tag.
+# variable FLOW_VERSION, based on the git tag.
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -14,21 +14,24 @@ license.workspace = true
 assemble = { path = "../assemble" }
 doc = { path = "../doc" }
 labels = { path = "../labels" }
+journal-client = { path = "../journal-client" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
 sources = { path = "../sources" }
 tables = { path = "../tables" }
 validation = { path = "../validation" }
-
-postgrest = { workspace = true }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
+chrono = { workspace = true }
+humantime = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+postgrest = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -37,6 +40,7 @@ serde-transcode = { workspace = true }
 superslice = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
