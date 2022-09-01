@@ -5,6 +5,8 @@ use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
 use uuid::Uuid;
 
+use crate::validator::ValidationResult;
+
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
 // Some are artisinally crafted
 lazy_static::lazy_static! {
@@ -22,66 +24,71 @@ lazy_static::lazy_static! {
     static ref JSON_POINTER_RE: Regex = Regex::new(r"^(\/([^~]|(~[01]))*)*$").expect("Is a valid regex");
 }
 
-pub fn validate_format(format: &str, val: &str) -> bool {
+pub fn validate_format(format: &str, val: &str) -> ValidationResult {
     match format {
         "date" => {
-            time::Date::parse(
-                val,
-                &time::macros::format_description!("[year]-[month]-[day]"),
-            ).is_ok() &&
             // Padding with zeroes is ignored by the underlying parser. The most efficient
             // way to check it will be to use a custom parser that won't ignore zeroes,
             // but this regex will do the trick and costs ~20% extra time in this validator.
-            DATE_RE
-            .is_match(val).unwrap_or(false)
+            if !DATE_RE.is_match(val).unwrap_or(false) {
+                return ValidationResult::Invalid(None)
+            }
+            ValidationResult::from(time::Date::parse(
+                val,
+                &time::macros::format_description!("[year]-[month]-[day]"),
+            ))
         }
         "date-time" => {
-            time::OffsetDateTime::parse(val, &time::format_description::well_known::Rfc3339).is_ok()
+            ValidationResult::from(time::OffsetDateTime::parse(val, &time::format_description::well_known::Rfc3339))
         }
-        "time" => time::Time::parse(
+        "time" => ValidationResult::from(time::Time::parse(
             val,
             &time::macros::format_description!("[hour]:[minute]:[second].[subsecond]Z"),
-        )
-        .is_ok(),
-        "email" => parse_email_address(val).is_ok(),
-        "hostname" => parse_domain_name(val).is_ok(),
+        )),
+        "email" => ValidationResult::from(parse_email_address(val)),
+        "hostname" => ValidationResult::from(parse_domain_name(val)),
         // The rules/test cases for these are absolutely bonkers
         // If we end up needing this let's revisit (jshearer)
-        "idn-hostname" | "idn-email" => {tracing::warn!("Unsupported string format {}", format); return false},
+        "idn-hostname" | "idn-email" => {
+            tracing::warn!("Unsupported string format {}", format);
+            ValidationResult::Invalid(None)
+        }
         "ipv4" => {
             if val.starts_with('0') {
-                return false;
+                return ValidationResult::Invalid(None)
             }
             match IpAddr::from_str(val) {
-                Ok(i) => i.is_ipv4(),
-                Err(_) => false,
+                Ok(i) => ValidationResult::from(i.is_ipv4()),
+                Err(e) => ValidationResult::Invalid(Some(e.to_string())),
             }
         }
-        "ipv6" => match IpAddr::from_str(val) {
-            Ok(i) => i.is_ipv6(),
-            Err(_) => false,
-        },
+        "ipv6" => ValidationResult::from(match IpAddr::from_str(val) {
+            Ok(i) => ValidationResult::from(i.is_ipv6()),
+            Err(e) => ValidationResult::Invalid(Some(e.to_string())),
+        }),
         // uuid crate supports non-hyphenated inputs, jsonschema does not
-        "uuid" if val.len() == 36 => Uuid::parse_str(val).is_ok(),
+        "uuid" if val.len() == 36 => ValidationResult::from(Uuid::parse_str(val)),
 
-        "duration" => match ISO_8601_DURATION_RE.is_match(val) {
-            Ok(true) => if val.contains("W") {
-                // If we parse as weeks, ensure that ONLY weeks are provided
-                ISO_8601_ONLY_WEEKS_RE.is_match(val).unwrap_or(false)
-            } else{
-                // Otherwise, ensure that NO weeks are provided
-                ISO_8601_NO_WEEKS_RE.is_match(val).unwrap_or(false)
-            },
+        "duration" => ValidationResult::from(match ISO_8601_DURATION_RE.is_match(val) {
+            Ok(true) => {
+                if val.contains("W") {
+                    // If we parse as weeks, ensure that ONLY weeks are provided
+                    ISO_8601_ONLY_WEEKS_RE.is_match(val).unwrap_or(false)
+                } else {
+                    // Otherwise, ensure that NO weeks are provided
+                    ISO_8601_NO_WEEKS_RE.is_match(val).unwrap_or(false)
+                }
+            }
             _ => false,
-        },
-        "iri" => iri_string::validate::iri::<IriSpec>(val).is_ok(),
-        "uri" => iri_string::validate::iri::<UriSpec>(val).is_ok(),
-        "uri-reference" => iri_string::validate::iri_reference::<UriSpec>(val).is_ok(),
-        "iri-reference" => iri_string::validate::iri_reference::<IriSpec>(val).is_ok(),
-        "uri-template" => URI_TEMPLATE_RE.is_match(val).unwrap_or(false),
-        "json-pointer" => JSON_POINTER_RE.is_match(val).unwrap_or(false),
-        "regex" => Regex::new(val).is_ok(),
-        "relative-json-pointer" => RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false),
-        _ => false,
+        }),
+        "iri" => ValidationResult::from(iri_string::validate::iri::<IriSpec>(val)),
+        "uri" => ValidationResult::from(iri_string::validate::iri::<UriSpec>(val)),
+        "uri-reference" => ValidationResult::from(iri_string::validate::iri_reference::<UriSpec>(val)),
+        "iri-reference" => ValidationResult::from(iri_string::validate::iri_reference::<IriSpec>(val)),
+        "uri-template" => ValidationResult::from(URI_TEMPLATE_RE.is_match(val).unwrap_or(false)),
+        "json-pointer" => ValidationResult::from(JSON_POINTER_RE.is_match(val).unwrap_or(false)),
+        "regex" => ValidationResult::from(Regex::new(val)),
+        "relative-json-pointer" => ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false)),
+        _ => ValidationResult::Invalid(None),
     }
 }
