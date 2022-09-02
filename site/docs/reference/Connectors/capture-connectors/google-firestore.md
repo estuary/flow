@@ -35,8 +35,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Firestore collection from which a Flow collection is captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| **`/path`** | Path to Collection | Firestore collection from which a Flow collection is captured. Supports parent&#x2F;&#x2A;&#x2F;nested to capture all nested collections of parent&#x27;s children | string | Required |
 
 ### Sample
 
@@ -61,7 +60,15 @@ captures:
           scan_interval: "24h"
     bindings:
       - resource:
-          stream: my_firestore_collection
-          syncMode: incremental
-        target: ${PREFIX}/my_firestore_collection
+          path: orgs/*/runs/*/runResults/*/queryResults
+        target: ${PREFIX}/orgs_runs_runResults_queryResults
+      - resource:
+          path: orgs/*/runs/*/runResults
+        target: ${PREFIX}/orgs_runs_runResults
+      - resource:
+          path: orgs/*/runs
+        target: ${PREFIX}/orgs_runs
+      - resource:
+          path: orgs
+        target: ${PREFIX}/orgs
 ```

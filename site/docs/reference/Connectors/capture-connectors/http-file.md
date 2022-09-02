@@ -55,6 +55,10 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials` | Credentials | User credentials, if required to access the data at the HTTP URL. | object |  |
 | `/credentials/password` | Password | Password, if required to access the HTTP endpoint. | string |  |
 | `/credentials/user` | User | Username, if required to access the HTTP endpoint. | string |  |
+| `/headers` | Headers |  | object |  |
+| `/headers/items` | Additional HTTP Headers | Additional HTTP headers when requesting the file. These are uncommon. | array |  |
+| _`/headers/items/-/key`_ | Header Key |  | string |  |
+| _`/headers/items/-/value`_ | Header Value |  | string |  |
 | `/parser` | Parser Configuration | Configures how files are parsed | object |  |
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
@@ -175,3 +179,8 @@ but you may need to specify for unusual datasets. These properties are:
   * Auto
 
 The sample specification [above](#sample) includes these fields.
+
+### Advanced: Using HTTP headers
+
+For real-time streams of unbounded size, you may need to send [headers as part of your HTTP request](https://developer.mozilla.org/en-US/docs/Glossary/Request_header).
+This is uncommon, and is supported by the optional **Headers** configuration.
