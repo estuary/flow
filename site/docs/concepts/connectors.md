@@ -276,7 +276,7 @@ sops:
     version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flowc specification.
+You then use this `config.yaml` within your Flow specification.
 Flow looks for and understands the `encrypted_suffix`,
 and will remove this suffix from configuration keys before passing them to the connector.
 
@@ -284,6 +284,12 @@ and will remove this suffix from configuration keys before passing them to the c
 
 In some cases, your source or destination endpoint may be within a secure network, and you may not be able
 to allow direct access to its port due to your organization's security policy.
+
+:::tip
+If permitted by your organization, a quicker solution is to whitelist the Estuary IP address, `34.121.207.128`.
+For help completing this task on different cloud hosting platforms,
+see the documentation for the [connector](../reference/Connectors/README.md) you're using.
+:::
 
 [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding,
 provides a means for Flow to access the port indirectly through an SSH server.

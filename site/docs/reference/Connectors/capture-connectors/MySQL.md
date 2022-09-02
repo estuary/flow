@@ -129,9 +129,21 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+
+   2. Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Create a RDS parameter group to enable replication in MySQL.
 
@@ -188,9 +200,19 @@ You can use this connector for MySQL instances on Google Cloud SQL using the fol
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
+      `34.121.207.128` as an authorized IP address.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
 to `2592000`.
@@ -222,9 +244,19 @@ You can use this connector for MySQL instances on Azure Database for MySQL using
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created)
+   that grants access to the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
 to `2592000`.

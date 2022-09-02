@@ -63,6 +63,19 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 
 ### Setup
 
+You must configure your database to allow connections from Estuary.
+The recommended method is to whitelist Estuary Flow's IP address.
+
+* **Amazon RDS**: Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+ Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+ Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+* **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+* **Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+Alternatively, you can allow secure connections via SSH tunneling. To do so:
+
 1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
@@ -70,7 +83,7 @@ with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if u
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 
-:::tip
+:::tip SSH Configuration Tip
 You can find the values for `forwardHost` and `forwardPort` in the following locations in each platform's console:
 * Amazon RDS: `forwardHost` as Endpoint; `forwardPort` as Port.
 * Google Cloud SQL: `forwardHost` as Private IP Address; `forwardPort` is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
