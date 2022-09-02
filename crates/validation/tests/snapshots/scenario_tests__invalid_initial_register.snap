@@ -11,7 +11,7 @@ expression: errors
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema",
-                "error": "Invalid(Type(\"integer\"))",
+                "error": "Invalid(Type(\"integer\"), None)",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
