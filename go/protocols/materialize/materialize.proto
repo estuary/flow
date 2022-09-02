@@ -340,6 +340,9 @@ message SpecResponse {
   ];
   // URL for connector's documention.
   string documentation_url = 3;
+
+  // OAuth2 spec
+  flow.OAuth2Spec oauth2_spec = 4;
 }
 
 // ValidateRequest is the request type of the Validate RPC.
@@ -477,8 +480,8 @@ message TransactionRequest {
     // The materialization binding for documents of this Load request.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 2 [ (gogoproto.casttype) =
+                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
     // Packed tuples of collection keys, enumerating the documents to load.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
   }
@@ -496,8 +499,8 @@ message TransactionRequest {
     // The materialization binding for documents of this Store request.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 2 [ (gogoproto.casttype) =
+                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
     // Packed tuples holding keys of each document.
     repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
     // Packed tuples holding values for each document.
@@ -546,8 +549,8 @@ message TransactionResponse {
     // The materialization binding for documents of this Loaded response.
     uint32 binding = 1;
     // Byte arena of the request.
-    bytes arena = 2
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+    bytes arena = 2 [ (gogoproto.casttype) =
+                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
     // Loaded JSON documents.
     repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
   }
@@ -581,18 +584,18 @@ message TransactionResponse {
 // Extra messages used by connectors
 message Extra {
   message ValidateExistingProjectionRequest {
-      // Existing Materialization Binding
-      flow.MaterializationSpec.Binding existing_binding = 1;
+    // Existing Materialization Binding
+    flow.MaterializationSpec.Binding existing_binding = 1;
 
-      // Proposed ValidateRequest Binding
-      ValidateRequest.Binding proposed_binding = 2;
+    // Proposed ValidateRequest Binding
+    ValidateRequest.Binding proposed_binding = 2;
   }
 
   message ValidateBindingAgainstConstraints {
-      // Materialization Binding
-      flow.MaterializationSpec.Binding binding = 1;
+    // Materialization Binding
+    flow.MaterializationSpec.Binding binding = 1;
 
-      // Constraints map
-      map<string, Constraint> constraints = 2;
+    // Constraints map
+    map<string, Constraint> constraints = 2;
   }
 }
