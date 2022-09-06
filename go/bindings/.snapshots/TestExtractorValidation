@@ -3,13 +3,13 @@
     "errors": [
       {
         "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema#/properties/i",
-        "error": "Invalid(Type(\"integer\"))",
+        "error": "Invalid(Type(\"integer\"), None)",
         "instanceLocation": "/i",
         "keywordLocation": "#/properties/i"
       },
       {
         "absoluteKeywordLocation": "file:///int-string.flow.yaml?ptr=/collections/int-string/schema",
-        "error": "Invalid(Required { props: [\"i\", \"s\"], props_interned: 3 })",
+        "error": "Invalid(Required { props: [\"i\", \"s\"], props_interned: 3 }, None)",
         "instanceLocation": "",
         "keywordLocation": "#"
       }
