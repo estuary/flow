@@ -1,3 +1,20 @@
+create domain jsonb_internationalized_value as jsonb check (
+  (value is null) OR -- This feels wrong, but without it the check constraint fails on nulls
+  (jsonb_typeof(value) = 'object' AND 
+  (value->'en-US' IS NOT NULL))
+);
+comment on domain jsonb_internationalized_value is
+  'jsonb_internationalized_value is JSONB object which is required to at least have en-US internationalized values';
+
+CREATE OR REPLACE FUNCTION 
+generate_opengraph_value( opengraph_raw jsonb, opengraph_patch jsonb, field text )
+RETURNS jsonb_internationalized_value
+AS $CODE$
+BEGIN
+    RETURN json_build_object('en-US',internal.jsonb_merge_patch(opengraph_raw, opengraph_patch) #>> ('{"en-US", "'|| field ||'"}')::text[]);
+END
+$CODE$
+LANGUAGE plpgsql IMMUTABLE;
 
 -- Known connectors.
 create table connectors (
@@ -5,10 +22,16 @@ create table connectors (
 
   external_url           text not null,
   image_name             text unique not null,
+  -- To be deleted in a future change --
   open_graph             jsonb_obj
     generated always as (internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)) stored,
   open_graph_raw         jsonb_obj,
   open_graph_patch       jsonb_obj,
+  --        End to be deleted        --
+  title                  jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'title')) stored,
+  short_description      jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'description')) stored,
+  logo_url               jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'image')) stored,
+  recommended            boolean not null generated always as (case when internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)->'en-US'->>'recommended'::text = 'True' then TRUE else FALSE end) stored,
   oauth2_client_id       text,
   oauth2_client_secret   text,
   oauth2_injected_values jsonb_obj,
@@ -42,10 +65,16 @@ comment on column connectors.oauth2_injected_values is
   'oauth additional injected values, these values will be made available in the credentials key of the connector, as well as when rendering oauth2_spec templates';
 comment on column connectors.oauth2_spec is
   'OAuth2 specification of the connector';
+comment on column public.connectors.logo_url is
+  'The url for this connector''s logo image. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and urls as values';
+comment on column public.connectors.title is
+  'The title of this connector. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the title string as values';
+comment on column public.connectors.short_description is
+  'A short description of this connector, at most a few sentences. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
 
 -- don't expose details of open_graph raw responses & patching and oauth2 secret
 -- authenticated may select other columns for all connectors connectors.
-grant select(id, detail, updated_at, created_at, image_name, external_url, open_graph, oauth2_client_id) on table connectors to authenticated;
+grant select(id, detail, updated_at, created_at, image_name, external_url, open_graph, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
 
 
 -- TODO(johnny): Here's the plan for open graph:
