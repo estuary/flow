@@ -22,7 +22,7 @@ If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
 ## Pull your specification files locally
 
 To begin working in your local environment, you must authenticate Flow from the command line.
-Then, you'll need to add your source collection's specification files to a **draft** and copy the draft locally.
+Then, you'll need to add your source collection's specification files to a **draft** and bring the draft into your local environment for editing.
 
 1. Go to the [Flow web application](https://dashboard.estuary.dev). On the **Admin** page, click the **CLI-API** tab and copy the access token.
 
@@ -81,15 +81,37 @@ Then, you'll need to add your source collection's specification files to a **dra
 
    :::tip
    Use `tree` to visualize your current working directory. This is a helpful tool to understand the [files that underlie your local draft](../concepts/flowctl.md#development-directories).
+   For example:
+
+   ```console
+   .
+   ├── namespace
+   │   └── data-flow-name
+   │       └── flow.yaml
+   ├── flow.yaml
+   ├── flow_generated
+   │   ├── flow
+   │   │   ├── main.ts
+   │   │   ├── routes.ts
+   │   │   └── server.ts
+   │   ├── tsconfig-files.json
+   │   └── types
+   │       └── namespace
+   │           └── data-flow-name
+   │               └── my-collection.d.ts
+   ├── package.json
+   └── tsconfig.json
+   ```
    :::
 
 2. Open the specification file in your preferred editor.
 
-   It will look similar to the following (this example uses the default collection from the Hello World test capture, available in the web app):
+   It will look similar to the following. (This example uses the default collection from the Hello World test capture, available in the web app):
 
    ```yaml
    collections:
-      estuary/data-flow-name/greetings:
+      #The Hello World capture outputs a collection called `greetings`.
+      namespace/data-flow-name/greetings:
          schema:
             properties:
             count:
@@ -114,14 +136,23 @@ Then, you'll need to add your source collection's specification files to a **dra
 
 3. Add a new collection below the first one.
 
-   * The [schema](../concepts/schemas.md) and [collection key](../concepts/collections.md#keys) should reflect your desired output.
+   * The collection will must have a schema that reflects your desired transformation output.
+     They can be whatever you want, so long as they follow Flow's standard formatting.
+     For help, see the [schemas](../concepts/schemas.md) and [collection key](../concepts/collections.md#keys) documentation.
    * Add the `derivation` stanza. The TypeScript module you name will be generated next, and you'll define the transformation's function there.
 
    ```yaml
    collections:
-      estuary/data-flow-name/greetings:
+      namespace/data-flow-name/greetings:
         {...}
-      estuary/data-flow-name/dozen-greetings:
+      #The name for your new collection can be whatever you want,
+      #so long as you have permissions in the namespace.
+      #Typically, you'll want to simply copy the source prefix
+      #and add a unique collection name.
+      namespace/data-flow-name/dozen-greetings:
+         #In this example, our objective is to round the number of greetings to the nearest dozen.
+         #We keep the `count` and `message` properties from the source,
+         #and add a new field called `dozens`.
          schema:
             properties:
                count:
@@ -135,13 +166,20 @@ Then, you'll need to add your source collection's specification files to a **dra
             - count
             - message
             type: object
+         #Since we're interested in estimating by the dozen, we make `dozens` our collection key.
          key:
             - /dozens
          derivation:
             transform:
+               #The transform name can be anything you'd like.
                greetings-by-dozen:
-                  source: {name: estuary/data-flow-name/greetings}
+                  #Paste the full name of the source collection.
+                  source: {name: namespace/data-flow-name/greetings}
+                  #This simple transform only requires a **publish lambda* function.
+                  #More complex transforms also use **update lambdas**.
+                  #See the Derivations documentation to learn more about lambdas.
                   publish: {lambda: typescript}
+            #The name you provide for the module will be generated next.
             typescript: {module: divide-by-twelve.ts}
       ```
    Save the file.
@@ -157,12 +195,12 @@ Then, you'll need to add your source collection's specification files to a **dra
    The TypeScript file you named has been created and stubbed out.
    You only need to add the function body.
 
-2. Open the new TypeScript module. It will look similar to the following
+2. Open the new TypeScript module. It will look similar to the following:
 
    ```typescript
-   import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/estuary/data-flow-name/dozen-greetings';
+   import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/namespace/data-flow-name/dozen-greetings';
 
-   // Implementation for derivation flow.yaml#/collections/estuary~1data-flow-name~1dozen-greetings/derivation.
+   // Implementation for derivation flow.yaml#/collections/namespace~1data-flow-name~1dozen-greetings/derivation.
    export class Derivation implements IDerivation {
       greetingsByDozenPublish(
          _source: GreetingsByDozenSource,
@@ -181,9 +219,9 @@ For more advanced transforms, you may need to activate `register` and `previous`
    This simple example rounds the `count` field to the nearest dozen.
 
    ```typescript
-   import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/estuary/data-flow-name/dozen-greetings';
+   import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/namespace/data-flow-name/dozen-greetings';
 
-   // Implementation for derivation estuary/data-flow-name/flow.yaml#/collections/estuary~1data-flow-name~1dozen-greetings/derivation.
+   // Implementation for derivation namespace/data-flow-name/flow.yaml#/collections/namespace~1data-flow-name~1dozen-greetings/derivation.
    export class Derivation implements IDerivation {
       greetingsByDozenPublish(
          source: GreetingsByDozenSource,
@@ -210,13 +248,13 @@ This helps you verify that your data is transformed correctly.
    collections:
       {...}
    tests:
-      estuary/data-flow-name/divide-test:
+      namespace/data-flow-name/divide-test:
          - ingest:
-            collection: estuary/data-flow-name/greetings
+            collection: namespace/data-flow-name/greetings
             documents:
                - { count: 13, message: "Hello #13" }
          - verify:
-            collection: estuary/data-flow-name/dozen-greetings
+            collection: namespace/data-flow-name/dozen-greetings
             documents:
                - { dozens: 1, count: 13, message: "Hello #13"}
    ```
