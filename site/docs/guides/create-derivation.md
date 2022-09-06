@@ -5,7 +5,11 @@ sidebar_position: 2
 
 Once you're familiar with creating a basic [Data Flow](../concepts/README.md#essential-concepts), you can take things a step further
 and transform your data with [derivations](../concepts/derivations.md).
+
 A **derivation** is a kind of Flow collection that results from the transformation of one or more other collections.
+This transformed stream of data keeps the order of the source data intact,
+and can then be **materialized** to an outside system or further transformed with another derivation.
+When you master derivations, you unlock the full flexibility and power of your Data Flows.
 
 :::info Beta
 Derivation creation is currently a developer workflow that uses [flowctl](../concepts/flowctl.md).
