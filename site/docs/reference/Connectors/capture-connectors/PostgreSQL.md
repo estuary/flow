@@ -152,10 +152,12 @@ You can use this connector for PostgreSQL instances on Amazon RDS using the foll
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+
+   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
 
-   2. Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+   3. Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:

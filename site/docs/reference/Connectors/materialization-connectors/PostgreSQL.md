@@ -83,11 +83,12 @@ with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if u
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 
-:::tip SSH Configuration Tip
-You can find the values for `forwardHost` and `forwardPort` in the following locations in each platform's console:
-* Amazon RDS: `forwardHost` as Endpoint; `forwardPort` as Port.
-* Google Cloud SQL: `forwardHost` as Private IP Address; `forwardPort` is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-* Azure Database: `forwardHost` as Server Name; `forwardPort` under Connection Strings (usually `5432`).
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`.
+You can find the host and port in the following locations in each platform's console:
+* Amazon RDS: host as Endpoint; port as Port.
+* Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
+* Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
 :::
 
 ## Reserved words
