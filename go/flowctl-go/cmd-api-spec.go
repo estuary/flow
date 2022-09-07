@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gogo/protobuf/jsonpb"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/gogo/protobuf/jsonpb"
 
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/connector"
@@ -127,11 +128,21 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 		return specResponse{}, err
 	}
 
+	var oauth2Spec bytes.Buffer
+	if resp.Oauth2Spec != nil {
+		// Serialize OAuth2Spec using canonical proto JSON
+		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, resp.Oauth2Spec)
+		if err != nil {
+			return specResponse{}, err
+		}
+	}
+
 	return specResponse{
 		Type:               "materialization",
 		DocumentationURL:   resp.DocumentationUrl,
 		EndpointSpecSchema: resp.EndpointSpecSchemaJson,
 		ResourceSpecSchema: resp.ResourceSpecSchemaJson,
+		Oauth2Spec:         oauth2Spec.Bytes(),
 	}, nil
 }
 
