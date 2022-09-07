@@ -7,6 +7,7 @@ pub mod index;
 pub mod intern;
 pub mod keywords;
 pub mod types;
+pub mod formats;
 
 pub use build::Error as BuildError;
 
@@ -236,7 +237,7 @@ pub enum Validation {
     MaxLength(usize),
     MinLength(usize),
     Pattern(fancy_regex::Regex),
-    // Format(String),
+    Format(String),
 
     // Number-specific validations.
     MultipleOf(Number),

@@ -1523,7 +1523,7 @@ mod test {
                     - contentEncoding: not-base64
                     - contentMediaType: wrong/thing
                     - default: jane.doe@gmail.com
-                    - format: timestamp
+                    - format: date-time
                     - secret: false
                 "#,
             ],

@@ -5,17 +5,22 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2018"
 
 [dependencies]
+addr = {version="0.15.4", features=["idna", "std","psl"]}
 # TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
 bitvec = "0.19"
 fancy-regex = "*"
 fxhash = "*"
+iri-string = "0.6.0"
 itertools = "*"
+lazy_static = "1.4.0"
 percent-encoding = "*"
 serde = "*"
 serde_json = "*"
 thiserror = "*"
+time = {version = "0.3.13", features=["macros", "formatting", "parsing"]}
 tracing = "*"
 url = {version = "*", features = ["serde"]}
+uuid = "1.1.2"
 
 [dev-dependencies]
 criterion = "*"
