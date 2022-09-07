@@ -370,6 +370,7 @@ where
                 }
                 _ => return Err(ExpectedObject),
             },
+            keywords::FORMAT => self.add_validation(Val::Format(extract_str(v)?.to_string())),
 
             keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
 

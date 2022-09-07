@@ -37,13 +37,13 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: "2020-01-04 15:22:01"
+            timestamp: "2020-01-04T15:22:01Z"
 
     - verify:
         collection: examples/shopping/purchases
         documents:
           - userId: 1
-            timestamp: "2020-01-04 15:22:01"
+            timestamp: "2020-01-04T15:22:01Z"
             items:
               - { product: { id: 333 }, action: { quantity: 0 } }
               - { product: { id: 2222 }, action: { quantity: 3 } }
@@ -62,7 +62,7 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: "2020-01-04 15:22:01"
+            timestamp: "2020-01-04T15:22:01Z"
 
     - ingest:
         description: Add and purchase one more product to assert we get a separate purchase
@@ -90,19 +90,19 @@ tests:
         collection: examples/shopping/cartPurchaseRequests
         documents:
           - userId: 1
-            timestamp: "2020-01-04 15:30:44"
+            timestamp: "2020-01-04T15:30:44Z"
 
     - verify:
         description: Verify that we have two distinct purchases
         collection: examples/shopping/purchases
         documents:
           - userId: 1
-            timestamp: "2020-01-04 15:22:01"
+            timestamp: "2020-01-04T15:22:01Z"
             items:
               - { product: { id: 333 }, action: { quantity: 0 } }
               - { product: { id: 2222 }, action: { quantity: 3 } }
               - { product: { id: 4004 }, action: { quantity: 1 } }
           - userId: 1
-            timestamp: "2020-01-04 15:30:44"
+            timestamp: "2020-01-04T15:30:44Z"
             items:
               - { product: { id: 2222 }, action: { quantity: 50 } }

@@ -1,7 +1,32 @@
+use crate::schema::formats::validate_format;
 use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
+
+pub enum ValidationResult {
+    Valid,
+    Invalid(Option<String>)
+}
+
+impl From<bool> for ValidationResult {
+    fn from(bool: bool) -> Self {
+        if bool {
+            ValidationResult::Valid
+        } else {
+            ValidationResult::Invalid(None)
+        }
+    }
+}
+
+impl <S,E> From<Result<S,E>> for ValidationResult where E:ToString {
+    fn from(val: Result<S,E>) -> Self {
+        match val {
+            Ok(_) => ValidationResult::Valid,
+            Err(e) => ValidationResult::Invalid(Some(e.to_string())),
+        }
+    }
+}
 
 pub trait Context: Sized + std::fmt::Debug {
     fn with_details<'sm, 'a, A>(
@@ -110,7 +135,7 @@ impl Context for SpanContext {
 
 #[derive(Debug)]
 pub enum Outcome<'sm, A: Annotation> {
-    Invalid(&'sm Validation),
+    Invalid(&'sm Validation, Option<String>),
     NotIsValid,
     AnyOfNotMatched,
     OneOfNotMatched,
@@ -122,7 +147,7 @@ pub enum Outcome<'sm, A: Annotation> {
 impl<'sm, A: Annotation> Outcome<'sm, A> {
     pub fn is_error(&self) -> bool {
         match self {
-            Outcome::Invalid(_)
+            Outcome::Invalid(..)
             | Outcome::NotIsValid
             | Outcome::AnyOfNotMatched
             | Outcome::OneOfNotMatched
@@ -388,10 +413,10 @@ where
         //    num_properties, loc, span
         //);
 
-        self.check_validations(span, loc, |validation, scope| -> bool {
+        self.check_validations(span, loc, |validation, scope| {
             use Validation::*;
 
-            match validation {
+            ValidationResult::from(match validation {
                 False => false,
                 Type(expect) => expect.overlaps(types::OBJECT),
                 Const(literal) => literal.hash == span.hashed,
@@ -408,7 +433,7 @@ where
                     ..
                 } => (scope.seen_interned & *if_ == 0) || (scope.seen_interned & *then_ == *then_),
                 _ => true,
-            }
+            })
         });
         self.pop(span, loc);
     }
@@ -416,10 +441,10 @@ where
     fn pop_array<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num_items: usize) {
         //println!("\t\t\t\tpop_array {:?} @ {}:{:?}", num_items, loc, span);
 
-        self.check_validations(span, loc, |validation, scope| -> bool {
+        self.check_validations(span, loc, |validation, scope| {
             use Validation::*;
 
-            match validation {
+            ValidationResult::from(match validation {
                 False => false,
                 Type(expect) => expect.overlaps(types::ARRAY),
                 Const(literal) => literal.hash == span.hashed,
@@ -429,7 +454,7 @@ where
                 MinContains(bound) => *bound <= scope.valid_contains,
                 MaxContains(bound) => *bound >= scope.valid_contains,
                 _ => true,
-            }
+            })
         });
         self.pop(span, loc);
     }
@@ -437,16 +462,16 @@ where
     fn pop_bool<'a>(&mut self, span: &Span, loc: &'a Location<'a>, _b: bool) {
         //println!("\t\t\t\tpop_bool {:?} @ {}:{:?}", b, loc, span);
 
-        self.check_validations(span, loc, |validation, _| -> bool {
+        self.check_validations(span, loc, |validation, _| {
             use Validation::*;
 
-            match validation {
+            ValidationResult::from(match validation {
                 False => false,
                 Type(expect) => expect.overlaps(types::BOOLEAN),
                 Const(literal) => literal.hash == span.hashed,
                 Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
                 _ => true,
-            }
+            })
         });
         self.pop(span, loc);
     }
@@ -454,10 +479,10 @@ where
     fn pop_numeric<'a>(&mut self, span: &Span, loc: &'a Location<'a>, num: Number) {
         //println!("\t\t\t\tpop_numeric {:?} @ {}:{:?}", num, loc, span);
 
-        self.check_validations(span, loc, |validation, _| -> bool {
+        self.check_validations(span, loc, |validation, _| {
             use Validation::*;
 
-            match validation {
+            ValidationResult::from( match validation {
                 False => false,
                 Type(expect) => {
                     let actual = match num {
@@ -479,7 +504,7 @@ where
                 ExclusiveMaximum(bound) => num < *bound,
                 MultipleOf(bound) => num.is_multiple_of(bound),
                 _ => true,
-            }
+            })
         });
         self.pop(span, loc);
     }
@@ -493,18 +518,19 @@ where
         //    span
         //);
 
-        self.check_validations(span, loc, |validation, _| -> bool {
+        self.check_validations(span, loc, |validation, _| -> ValidationResult {
             use Validation::*;
 
             match validation {
-                False => false,
-                Type(expect) => expect.overlaps(types::STRING),
-                Const(literal) => literal.hash == span.hashed,
-                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
-                MinLength(bound) => *bound <= s.chars().count(),
-                MaxLength(bound) => *bound >= s.chars().count(),
-                Pattern(re) => regex_matches(re, s),
-                _ => true,
+                False => ValidationResult::from(false),
+                Type(expect) => ValidationResult::from(expect.overlaps(types::STRING)),
+                Const(literal) => ValidationResult::from(literal.hash == span.hashed),
+                Enum { variants } => ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed)),
+                MinLength(bound) => ValidationResult::from(*bound <= s.chars().count()),
+                MaxLength(bound) => ValidationResult::from(*bound >= s.chars().count()),
+                Pattern(re) => ValidationResult::from(regex_matches(re, s)),
+                Format(format) => validate_format(format, s),
+                _ => ValidationResult::Valid,
             }
         });
         self.pop(span, loc);
@@ -513,16 +539,16 @@ where
     fn pop_null<'a>(&mut self, span: &Span, loc: &'a Location<'a>) {
         //println!("\t\t\t\tpop_null <null> @ {}:{:?}", loc, span);
 
-        self.check_validations(span, loc, |validation, _| -> bool {
+        self.check_validations(span, loc, |validation, _| {
             use Validation::*;
 
-            match validation {
-                False => false,
-                Type(expect) => expect.overlaps(types::NULL),
-                Const(literal) => literal.hash == span.hashed,
-                Enum { variants } => variants.iter().any(|l| l.hash == span.hashed),
-                _ => true,
-            }
+            ValidationResult::from(match validation {
+                False => ValidationResult::from(false),
+                Type(expect) => ValidationResult::from(expect.overlaps(types::NULL)),
+                Const(literal) => ValidationResult::from(literal.hash == span.hashed),
+                Enum { variants } => ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed)),
+                _ => ValidationResult::Valid,
+            })
         });
         self.pop(span, loc);
     }
@@ -634,7 +660,7 @@ where
 
     fn check_validations<'a, F>(&mut self, span: &Span, loc: &'a Location<'a>, func: F)
     where
-        F: Fn(&Validation, &Scope<'sm, A, C>) -> bool,
+        F: Fn(&Validation, &Scope<'sm, A, C>) -> ValidationResult,
     {
         let from = *self.active_offsets.last().unwrap();
         let to = self.scopes.len();
@@ -649,12 +675,15 @@ where
                     _ => continue,
                 };
 
-                if !func(val, scope) {
-                    scope.invalid = true;
-                    scope.add_outcome(
-                        Outcome::Invalid(val),
-                        C::with_details(loc, span, scope, parents),
-                    );
+                match func(val, scope) {
+                    ValidationResult::Invalid(msg) => {
+                        scope.invalid = true;
+                        scope.add_outcome(
+                            Outcome::Invalid(val, msg),
+                            C::with_details(loc, span, scope, parents),
+                        );
+                    },
+                    ValidationResult::Valid => {},
                 }
             }
         }
@@ -696,7 +725,7 @@ where
                         if let Keyword::Validation(val @ Validation::UniqueItems) = kw {
                             scope.invalid = true;
                             scope.add_outcome(
-                                Outcome::Invalid(val),
+                                Outcome::Invalid(val, None),
                                 C::with_details(loc, span, scope, parents),
                             );
                         }
