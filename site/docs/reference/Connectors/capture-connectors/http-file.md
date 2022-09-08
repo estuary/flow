@@ -16,6 +16,7 @@ The following file types are supported:
 * Avro
 * CSV
 * JSON
+* Protobuf
 * W3C Extended Log
 
 The following compression methods are supported:
@@ -132,6 +133,7 @@ Options are:
    * **Avro**
    * **CSV**
    * **JSON**
+   * **Protobuf**
    * **W3C Extended Log**
 
 #### CSV configuration
@@ -182,5 +184,9 @@ The sample specification [above](#sample) includes these fields.
 
 ### Advanced: Using HTTP headers
 
-For real-time streams of unbounded size, you may need to send [headers as part of your HTTP request](https://developer.mozilla.org/en-US/docs/Glossary/Request_header).
+For data accessed through certain APIs, you may need to send [headers as part of your HTTP request](https://developer.mozilla.org/en-US/docs/Glossary/Request_header).
 This is uncommon, and is supported by the optional **Headers** configuration.
+
+This configuration section is [encrypted with `sops`](../../../concepts/connectors.md#protecting-secrets), so you can safely include secretes such as API keys.
+
+See the source data's API documentation for headers that may be required for your capture.

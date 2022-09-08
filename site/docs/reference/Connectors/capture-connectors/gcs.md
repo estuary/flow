@@ -131,6 +131,7 @@ Options are:
    * **Avro**
    * **CSV**
    * **JSON**
+   * **Protobuf**
    * **W3C Extended Log**
 
    :::info
