@@ -18,6 +18,8 @@ To use this connector, you'll need:
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
     See the [script below](#setup) for details.
+* Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
+for example, `orgname-accountname.snowflakecomputing.com`.
 * At least one Flow collection
 
 :::tip
@@ -82,9 +84,8 @@ Use the below properties to configure a Snowflake materialization, which will di
 |---|---|---|---|---|
 | **`/account`** | Account | The Snowflake account identifier | string | Required |
 | **`/database`** | Database | Name of the Snowflake database to which to materialize | string | Required |
+| **`/host`** | Host URL | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol). | string | Required |
 | **`/password`** | Password | Snowflake user password | string | Required |
-| **`/cloud_provider`** | Cloud Provider | Cloud Provider where the account is located | string | Required |
-| **`/region`** | Region | Region where the account is located | string | Required |
 | `/role` | Role | Role assigned to the user | string |  |
 | **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
 | **`/user`** | User | Snowflake username | string | Required |
@@ -108,9 +109,8 @@ materializations:
     	    config:
               account: acmeCo
               database: acmeCo_db
+              host: orgname-accountname.snowflakecomputing.com
               password: secret
-              cloud_provider: aws
-              region: us-east-1
               schema: acmeCo_flow_schema
               user: snowflake_user
               warehouse: acmeCo_warehouse
