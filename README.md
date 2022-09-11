@@ -27,7 +27,7 @@ With a Flow pipeline, you:
 
 ❗️ **Our UI-based web application is coming in Q2 of 2022**. Learn about the beta program [here](https://go.estuary.dev/sign-up). In future releases, we'll combine the CLI and UI into a unified platform. Flow is a tool meant to allow *all* data stakeholders to meaningfully collaborate: engineers, analysts, and everyone in between.❗️
 
-![Workflow Overview](site/docs/concepts/at-a-glance-new.png)
+![Workflow Overview](site/docs/concepts/at-a-glance.png)
 
 ## Documentation
 
