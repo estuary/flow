@@ -5,8 +5,7 @@ paths=(
   /usr/local/bin/flowctl-go 
   /usr/bin/gsutil 
   /usr/local/bin/sops 
-  /usr/bin/jq 
-  /usr/local/bin/fetch-open-graph)
+  /usr/bin/jq)
 
 for i in "${paths[@]}"
 do

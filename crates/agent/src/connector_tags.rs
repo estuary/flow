@@ -112,29 +112,6 @@ impl TagHandler {
             return Ok((row.tag_id, JobStatus::SpecFailed));
         }
 
-        let fetch_open_graph =
-            tokio::process::Command::new(format!("{}/fetch-open-graph", &self.bindir))
-                .kill_on_drop(true)
-                .arg("-url")
-                .arg(&row.external_url)
-                .output()
-                .await
-                .context("fetching open graph metadata")?;
-
-        if !fetch_open_graph.status.success() {
-            return Ok((
-                row.tag_id,
-                JobStatus::OpenGraphFailed {
-                    error: String::from_utf8_lossy(&fetch_open_graph.stderr).into(),
-                },
-            ));
-        }
-        let open_graph_raw: Box<RawValue> = serde_json::from_slice(&fetch_open_graph.stdout)
-            .context("parsing open graph response")?;
-
-        agent_sql::connector_tags::update_open_graph_raw(row.connector_id, open_graph_raw, txn)
-            .await?;
-
         /// Spec is the output shape of the `flowctl api spec` command.
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
