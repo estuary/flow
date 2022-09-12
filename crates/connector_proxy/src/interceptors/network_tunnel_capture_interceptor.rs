@@ -23,7 +23,7 @@ impl NetworkTunnelCaptureInterceptor {
             )
             .await
             .map_err(|err| {
-                create_custom_error(&format!("error consuming tunnel configuration {:?}", err))
+                create_custom_error(&format!("error starting network tunnel {:?}", err))
             })?
             .to_string();
 
