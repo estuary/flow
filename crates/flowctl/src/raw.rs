@@ -27,6 +27,8 @@ pub enum Command {
     /// requesty --body. As with `get`, you may pass optional query
     /// parameters.
     Rpc(Rpc),
+    /// Issue a custom table update request to the API.
+    Update(Update),
     /// Bundle catalog sources into a flattened and inlined catalog.
     Bundle(Bundle),
 }
@@ -38,8 +40,22 @@ pub struct Get {
     #[clap(long)]
     table: String,
     /// Optional query parameters.
-    #[clap(short = 'q', parse(try_from_str = parse_key_val), number_of_values = 1)]
+    #[clap(long, parse(try_from_str = parse_key_val), number_of_values = 1)]
     query: Vec<(String, String)>,
+}
+
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Update {
+    /// Table to update.
+    #[clap(long)]
+    table: String,
+    /// Optional query parameters.
+    #[clap(long, parse(try_from_str = parse_key_val), number_of_values = 1)]
+    query: Vec<(String, String)>,
+    /// Serialized JSON argument of the request.
+    #[clap(long)]
+    body: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -49,9 +65,9 @@ pub struct Rpc {
     #[clap(long)]
     function: String,
     /// Optional query parameters.
-    #[clap(short = 'q', parse(try_from_str = parse_key_val), number_of_values = 1)]
+    #[clap(long, parse(try_from_str = parse_key_val), number_of_values = 1)]
     query: Vec<(String, String)>,
-    /// Serialized JSON arguments of the request.
+    /// Serialized JSON argument of the request.
     #[clap(long)]
     body: String,
 }
@@ -68,6 +84,7 @@ impl Advanced {
     pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::Get(get) => do_get(&cfg, get).await,
+            Command::Update(update) => do_update(&cfg, update).await,
             Command::Rpc(rpc) => do_rpc(&cfg, rpc).await,
             Command::Bundle(bundle) => do_bundle(&cfg, bundle).await,
         }
@@ -76,6 +93,17 @@ impl Advanced {
 
 async fn do_get(cfg: &config::Config, Get { table, query }: &Get) -> anyhow::Result<()> {
     let req = cfg.client()?.from(table).build().query(query);
+    tracing::debug!(?req, "built request to execute");
+
+    println!("{}", req.send().await?.text().await?);
+    Ok(())
+}
+
+async fn do_update(
+    cfg: &config::Config,
+    Update { table, query, body }: &Update,
+) -> anyhow::Result<()> {
+    let req = cfg.client()?.from(table).update(body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
