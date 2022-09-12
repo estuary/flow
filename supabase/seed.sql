@@ -1,7 +1,10 @@
-
 begin;
 
 insert into auth.users (id, email) values
+  -- Root account which provisions other accounts.
+  -- It must exist for the agent to function.
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'accounts@estuary.dev'),
+  -- Accounts which are commonly used in tests.
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com'),
   ('33333333-3333-3333-3333-333333333333', 'carol@example.com')
@@ -32,37 +35,19 @@ update auth.users set
 insert into auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
 select id, id, json_build_object('sub', id), 'email', now(), now(), now() from auth.users;
 
-insert into user_grants (user_id, object_role, capability) values
-  ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin'),
-  ('22222222-2222-2222-2222-222222222222', 'bobCo/', 'admin'),
-  ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'admin')
-;
+-- Public directive which allows a new user to provision a new tenant.
+insert into directives (catalog_prefix, spec, token) values
+  ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
+  ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751');
 
--- Also grant other namespaces commonly used while testing.
--- aliceCo, bobCo, and carolCo are distinct owned namespaces,
--- but all are also able to admin examples/
-insert into role_grants (subject_role, object_role, capability) values
-  ('aliceCo/', 'aliceCo/', 'write'),
-  ('aliceCo/', 'examples/', 'admin'),
-  ('aliceCo/', 'ops/aliceCo/', 'read'),
-  ('bobCo/', 'bobCo/', 'write'),
-  ('bobCo/', 'examples/', 'admin'),
-  ('bobCo/', 'ops/bobCo/', 'read'),
-  ('carolCo/', 'carolCo/', 'write'),
-  ('carolCo/', 'examples/', 'admin'),
-  ('carolCo/', 'ops/carolCo/', 'read'),
-  ('examples/', 'examples/', 'write'),
-  ('examples/', 'ops/examples/', 'read')
-;
-
--- Create corresponding storage mappings.
-insert into storage_mappings (catalog_prefix, spec) values
-  ('aliceCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('bobCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('carolCo/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('examples/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('ops/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}'),
-  ('recovery/', '{"stores":[{"provider":"S3","bucket":"a-bucket"}]}');
+-- Provision the ops/ tenant owned by the accounts@estuary.dev user.
+with accounts_root_user as (
+  select (select id from auth.users where email = 'accounts@estuary.dev' limit 1) as accounts_id
+)
+insert into applied_directives (directive_id, user_id, user_claims)
+  select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
+    from directives d, accounts_root_user a
+    where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.

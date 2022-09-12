@@ -24,6 +24,20 @@ For example: "acmeCo/anvils/" or "acmeCo/products/TnT_v4/",
 but not "acmeCo/anvils" or "acmeCo/some anvils".
 ';
 
+create domain catalog_tenant as text
+  constraint "Must be a valid catalog tenant"
+  check (value ~ '^[[:alpha:][:digit:]\-_.]+/$' and value is nfkc normalized);
+comment on domain catalog_tenant is '
+catalog_tenant is a prefix within the Flow catalog namespace
+having exactly one top-level path component.
+
+Catalog tenants consist of Unicode-normalized (NFKC) letters, numbers,
+"-", "_", and "." and ending in a final "/".
+
+For example: "acmeCo/" or "acmeCo.anvils/" or "acmeCo-TNT/",
+but not "acmeCo" or "acmeCo/anvils/" or "acmeCo/TNT".
+';
+
 create type catalog_spec_type as enum (
   -- These correspond 1:1 with top-level maps of models::Catalog.
   'capture',
