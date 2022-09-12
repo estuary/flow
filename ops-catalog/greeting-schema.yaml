@@ -1,9 +1,0 @@
-properties:
-  count:
-    type: integer
-  message:
-    type: string
-required:
-- count
-- message
-type: object

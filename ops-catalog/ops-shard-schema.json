@@ -20,12 +20,12 @@
         "keyBegin": {
             "description": "The inclusive beginning of the shard's assigned key range",
             "type": "string",
-            "pattern": "[0-9A-F]{8}"
+            "pattern": "[0-9a-f]{8}"
         },
         "rClockBegin": {
             "description": "The inclusive beginning of the shard's assigned rClock range",
             "type": "string",
-            "pattern": "[0-9A-F]{8}"
+            "pattern": "[0-9a-f]{8}"
         }
     },
     "required": [

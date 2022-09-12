@@ -1,0 +1,19 @@
+address: db.eyrcnmuzzyriypdajwdk.supabase.co:5432
+database: postgres
+password_sops: ENC[AES256_GCM,data:X0aaH7/FlUVgMzqZxQXx2egsm2ShGTbAAJi9nLE28EJgnUJD,iv:aN4/LkzkSr5tAgn6IlylQ6kOlrU4zYC1DWx9lJnEIT4=,tag:T+I1C/4vwmT0X7ve4+bjvQ==,type:str]
+user: stats_loader
+schema: task_stat_partitions
+sops:
+    kms: []
+    gcp_kms:
+        - resource_id: projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/estuary-poc
+          created_at: "2022-09-13T02:37:46Z"
+          enc: CiQAKdYibVVaIMM2iRBlIQ2h5WE523adDkJgH5TQcwizZ6Dcw90SSQAva6jOpiuefUQuVKRrEYJ/TIJdncQgO1z33NDUta6Gi/RTBsFjuULhWCSteTBORPZU0ZFAM6e1fG+CgzlqNiDsO6TBHVC2qIQ=
+    azure_kv: []
+    hc_vault: []
+    age: []
+    lastmodified: "2022-09-13T02:37:47Z"
+    mac: ENC[AES256_GCM,data:vcp+AL7dRXqDwCm3QcGahpMn8Jp1pQma6eWC2GmhWO/EvPgsNym0cHSsreXla6G33Q7rwUvG7MjglT69Y56OYa5+V/j0NwZnHel/pbOIToZY3qMXX2W7whGVs9qPy/eDLhFYI6PPCnzLpGOiVDWPq+72nEhsd1qjF/rdZkUMfuc=,iv:QpzZqTEEHHsj3Il5qbm0LuhsJrj6Z1bA8M73o5y/Hd0=,tag:AYSraskGoVzZ6b9XiqRoqA==,type:str]
+    pgp: []
+    encrypted_suffix: _sops
+    version: 3.7.1
