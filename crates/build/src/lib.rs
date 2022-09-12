@@ -237,14 +237,17 @@ fn npm_cmd(package_dir: &std::path::Path, args: &[&str]) -> Result<(), anyhow::E
 
     tracing::info!(?package_dir, ?args, "invoking `npm`");
 
-    let status = cmd
-        .spawn()
-        .and_then(|mut c| c.wait())
-        .context("failed to spawn `npm` command")?;
+    let result = cmd
+        .output()
+        .context("failed to spawn `npm` command");
 
-    if !status.success() {
-        anyhow::bail!("npm command {:?} failed with {}", args.join(" "), status);
+    match result {
+        Ok(output) if !output.status.success() => {
+            tracing::error!(npm_command = args.join(" ").as_str(), "{:?}", &String::from_utf8(output.stdout));
+            tracing::error!(npm_command = args.join(" ").as_str(), "{:?}", &String::from_utf8(output.stderr));
+            anyhow::bail!("npm command {:?} failed, output logged", args.join(" "))
+        },
+        Err(err) => anyhow::bail!("npm command {:?} failed with {:?}", args.join(" "), err),
+        _ => Ok(())
     }
-
-    Ok(())
 }
