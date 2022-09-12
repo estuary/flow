@@ -21,7 +21,9 @@ impl NetworkTunnelMaterializeInterceptor {
                 RawValue::from_string(request.endpoint_spec_json)?,
             )
             .await
-            .expect("failed to start network tunnel")
+            .map_err(|err| {
+                create_custom_error(&format!("error starting network tunnel {:?}", err))
+            })?
             .to_string();
             encode_message(&request)
         }))
@@ -37,7 +39,7 @@ impl NetworkTunnelMaterializeInterceptor {
                 )
                 .await
                 .map_err(|err| {
-                    create_custom_error(&format!("error consuming tunnel configuration {:?}", err))
+                    create_custom_error(&format!("error starting network tunnel {:?}", err))
                 })?
                 .to_string();
             }
@@ -67,7 +69,7 @@ impl NetworkTunnelMaterializeInterceptor {
                         .await
                         .map_err(|err| {
                             create_custom_error(&format!(
-                                "error consuming tunnel configuration {:?}",
+                                "error starting network tunnel {:?}",
                                 err
                             ))
                         })?
