@@ -45,6 +45,8 @@ pub enum Error {
     RegexErr(#[from] regex::Error),
     #[error("failed to build annotation: {0}")]
     AnnotationErr(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error(transparent)]
+    FormatErr(#[from] serde_json::Error),
 
     #[error("at schema '{curi}': {detail}")]
     AtSchema {
@@ -370,7 +372,9 @@ where
                 }
                 _ => return Err(ExpectedObject),
             },
-            keywords::FORMAT => self.add_validation(Val::Format(extract_str(v)?.to_string())),
+            keywords::FORMAT => self.add_validation(Val::Format(
+                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
+            )),
 
             keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
 

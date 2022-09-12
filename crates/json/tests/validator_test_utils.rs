@@ -9,11 +9,15 @@ use serde_json as sj;
 use std::{env, fs, io, path};
 
 /// Runs tests from the given file within the `draft2019-09/` directory.
+// This is not actually dead code (used by draft2019_tests.rs).
+#[allow(dead_code)]
 pub fn run_draft09_test(target: &str) {
     run_file_test(&["official", "tests", "draft2019-09", target]);
 }
 
 /// Runs tests from the given file within the `draft2019-09/optional/format` directory.
+// This is not actually dead code (used by draft2019_format_tests.rs).
+#[allow(dead_code)]
 pub fn run_draft09_format_test(target: &str) {
     run_file_test(&[
         "official",
