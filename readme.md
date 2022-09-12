@@ -29,7 +29,7 @@ The agent is a non-user-facing component which lives under [crates/agent/](crate
 
 Today this includes:
 
-* Fetching connector details, such as open-graph metadata and endpoint / resource JSON-schemas.
+* Fetching connector details, such as endpoint / resource JSON-schemas.
 * Running connector discovery operations to produce proposed catalog specifications.
 * Publishing catalog drafts by testing and then activating them into the data-plane.
 
@@ -128,15 +128,6 @@ data-plane-gateway
 ```
 
 _Note: The gateway allows for configuring the port, the Flow service ports, the signing secret, and the CORS settings. The defaults should work out of the box._
-
-### Build `fetch-open-graph`:
-
-Build the fetch-open-graph helper to the same location where the flow binaries live. This is the same path that will be provided to the agent using `--bin--dir` argument:
-
-```console
-cd fetch-open-graph/
-go build -o ~/estuary/flow/.build/package/bin/
-```
 
 ### Start the `agent`:
 

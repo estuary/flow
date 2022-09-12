@@ -33,11 +33,11 @@ function must_run() {
 function wait_until_listening() {
     local port="$1"
     local desc="$2"
-    log Waiting for $desc to be listening on port $port
-    while ! nc -z localhost $port; do
+    log Waiting for "$desc" to be listening on port "$port"
+    while ! nc -z localhost "$port"; do
         sleep 1
     done
-    log $desc is now listening on port $port
+    log "$desc" is now listening on port "$port"
 }
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
@@ -90,8 +90,6 @@ function start_control_plane() {
 
 function start_control_plane_agent() {
     local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
-    cd "$(project_dir 'animated-carnival')/fetch-open-graph"
-    go build -o "$flow_bin_dir"
 
     cd "$(project_dir 'animated-carnival')"
     # Start building immediately, since it could take a while
