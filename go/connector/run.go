@@ -34,7 +34,7 @@ func (c Protocol) proxyCommand() string {
 	case Materialize:
 		return "proxy-flow-materialize"
 	default:
-		panic(fmt.Sprintf("go.estuary.dev/E100: unexpected protocol %s", c))
+		panic(fmt.Sprintf("go.estuary.dev/E100: unexpected protocol %v", c))
 	}
 }
 
@@ -221,7 +221,7 @@ func runCommand(
 		// Expect a clean exit if the context wasn't cancelled.
 		// Log the raw error, since we've already logged everything that was printed to stderr.
 		logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
-		fe.onError(fmt.Errorf("go.estuary.dev/E116: %w with stderr:\n\n%s",
+		fe.onError(fmt.Errorf("go.estuary.dev/E116: connector failed, with error: %w\nwith stderr:\n\n%s",
 			err, cmd.Stderr.(*connectorStderr).buffer.String()))
 	} else {
 		fe.onError(ctx.Err())
