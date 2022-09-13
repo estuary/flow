@@ -102,12 +102,18 @@ function start_control_plane_agent() {
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
 
-    # Now we're finally ready to run this thing. 
+    # Now we're finally ready to run this thing.
     # Use the resolved flow project directory to set the --bin-dir argument.
     # We're counting on `make package` to have completed successfully at this point, which should be
     # the case if the temp-data-plane is running.
     export RUST_LOG=info
-    must_run cargo run -p agent -- --bin-dir "$flow_bin_dir"
+    must_run cargo run -p flowctl -- raw bundle --source ./ops-catalog/template-local.flow.yaml |
+        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin
+}
+
+function start_oauth_edge() {
+    cd "$(project_dir 'animated-carnival')"
+    must_run supabase functions serve oauth
 }
 
 case "$1" in
@@ -128,6 +134,9 @@ case "$1" in
         ;;
     config-encryption)
         start_config_encryption
+        ;;
+    oauth-edge)
+        start_oauth_edge
         ;;
     *)
         bail "Invalid argument: '$1'"
