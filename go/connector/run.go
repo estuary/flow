@@ -34,7 +34,7 @@ func (c Protocol) proxyCommand() string {
 	case Materialize:
 		return "proxy-flow-materialize"
 	default:
-		panic("unexpected protocol")
+		panic(fmt.Sprintf("go.estuary.dev/E100: unexpected protocol %s", c))
 	}
 }
 
@@ -71,11 +71,11 @@ func Run(
 	// Copy `flowConnectorProxy` binary to $TMPDIR, from where it may be
 	// mounted into the connector.
 	if rPath, err := pkgbin.Locate(flowConnectorProxy); err != nil {
-		return fmt.Errorf("finding %q binary: %w", flowConnectorProxy, err)
+		return fmt.Errorf("go.estuary.dev/E101: finding %q binary: %w", flowConnectorProxy, err)
 	} else if r, err := os.Open(rPath); err != nil {
-		return fmt.Errorf("opening %s: %w", rPath, err)
+		return fmt.Errorf("go.estuary.dev/E102: opening %s: %w", rPath, err)
 	} else if tmpProxy, err = copyToTempFile(r, 0555); err != nil {
-		return fmt.Errorf("copying %s to tmpfile: %w", rPath, err)
+		return fmt.Errorf("go.estuary.dev/E103: copying %s to tmpfile: %w", rPath, err)
 	}
 	defer os.Remove(tmpProxy.Name())
 
@@ -85,7 +85,7 @@ func Run(
 	} else if out, err := InspectImage(ctx, image); err != nil {
 		return err
 	} else if tmpInspect, err = copyToTempFile(bytes.NewReader(out), 0444); err != nil {
-		return fmt.Errorf("writing image inspect output: %w", err)
+		return fmt.Errorf("go.estuary.dev/E104: writing image inspect output: %w", err)
 	}
 	defer os.Remove(tmpInspect.Name())
 
@@ -194,7 +194,7 @@ func runCommand(
 
 	logger.Log(logrus.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
 	if err := cmd.Start(); err != nil {
-		fe.onError(fmt.Errorf("starting connector: %w", err))
+		fe.onError(fmt.Errorf("go.estuary.dev/E105: starting connector: %w", err))
 	}
 
 	// Arrange for the connector container to be signaled if |ctx| is cancelled.
@@ -205,7 +205,7 @@ func runCommand(
 		logger.Log(logrus.DebugLevel, nil, "sending termination signal to connector")
 		if sigErr := signal(syscall.SIGTERM); sigErr != nil && sigErr != os.ErrProcessDone {
 			logger.Log(logrus.WarnLevel, logrus.Fields{"error": sigErr},
-				"failed to send signal to container process")
+				"go.estuary.dev/E106: failed to send signal to container process")
 		}
 	}(cmd.Process.Signal)
 
@@ -221,7 +221,7 @@ func runCommand(
 		// Expect a clean exit if the context wasn't cancelled.
 		// Log the raw error, since we've already logged everything that was printed to stderr.
 		logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
-		fe.onError(fmt.Errorf("%w with stderr:\n\n%s",
+		fe.onError(fmt.Errorf("go.estuary.dev/E116: %w with stderr:\n\n%s",
 			err, cmd.Stderr.(*connectorStderr).buffer.String()))
 	} else {
 		fe.onError(ctx.Err())
@@ -335,7 +335,7 @@ func (o *protoOutput) Write(p []byte) (n int, err error) {
 
 func (o *protoOutput) Close() error {
 	if len(o.rem) != 0 {
-		return fmt.Errorf("connector stdout closed without a final newline: %q", string(o.rem))
+		return fmt.Errorf("go.estuary.dev/E107: connector stdout closed without a final newline: %q", string(o.rem))
 	}
 	return nil
 }
@@ -352,7 +352,7 @@ func (o *protoOutput) decode(p []byte) ([]byte, error) {
 		p = p[4:]
 
 		if o.next > maxMessageSize {
-			return nil, fmt.Errorf("message is too large: %d", o.next)
+			return nil, fmt.Errorf("go.estuary.dev/E108: message is too large: %d", o.next)
 		}
 
 		// Fall through to attempt decode of the message.
@@ -368,7 +368,7 @@ func (o *protoOutput) decode(p []byte) ([]byte, error) {
 	// Consume |o.next| length message.
 	var m = o.newRecord()
 	if err := proto.Unmarshal(p[:o.next], m); err != nil {
-		return nil, fmt.Errorf("decoding output: %w", err)
+		return nil, fmt.Errorf("go.estuary.dev/E109: decoding output: %w", err)
 	} else if err = o.onDecode(m); err != nil {
 		return nil, err
 	}
@@ -406,7 +406,7 @@ func PullImage(ctx context.Context, image string) error {
 	if strings.HasSuffix(image, ":local") {
 		// Don't pull images having this tag.
 	} else if _, err := exec.CommandContext(ctx, "docker", "pull", image).Output(); err != nil {
-		return fmt.Errorf("pull of container image %q failed: %w", image, err)
+		return fmt.Errorf("go.estuary.dev/E110: pull of container image %q failed: %w", image, err)
 	}
 	return nil
 }
@@ -414,7 +414,7 @@ func PullImage(ctx context.Context, image string) error {
 // InspectImage and return its Docker-compatible metadata JSON encoding.
 func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
 	if o, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
-		return nil, fmt.Errorf("inspection of container image %q failed: %w", image, err)
+		return nil, fmt.Errorf("go.estuary.dev/E111: inspection of container image %q failed: %w", image, err)
 	} else {
 		return o, nil
 	}
@@ -423,13 +423,13 @@ func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
 func copyToTempFile(r io.Reader, mode os.FileMode) (*os.File, error) {
 	tmp, err := os.CreateTemp("", "connector")
 	if err != nil {
-		return nil, fmt.Errorf("creating tempfile: %w", err)
+		return nil, fmt.Errorf("go.estuary.dev/E112: creating tempfile: %w", err)
 	} else if _, err = io.Copy(tmp, r); err != nil {
-		return nil, fmt.Errorf("copying to tempfile %s: %w", tmp.Name(), err)
+		return nil, fmt.Errorf("go.estuary.dev/E113: copying to tempfile %s: %w", tmp.Name(), err)
 	} else if err = tmp.Close(); err != nil {
-		return nil, fmt.Errorf("closing tempfile %s: %w", tmp.Name(), err)
+		return nil, fmt.Errorf("go.estuary.dev/E114: closing tempfile %s: %w", tmp.Name(), err)
 	} else if err = os.Chmod(tmp.Name(), mode); err != nil {
-		return nil, fmt.Errorf("chmod of tempfile %s: %w", tmp.Name(), err)
+		return nil, fmt.Errorf("go.estuary.dev/E115: chmod of tempfile %s: %w", tmp.Name(), err)
 	}
 	return tmp, nil
 }
