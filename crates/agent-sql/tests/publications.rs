@@ -11,7 +11,7 @@ async fn test_publication_data_operations() {
 
     let mut txn = conn.begin().await.unwrap();
 
-    // Fixture: insert live_specs, drafts, and draft_specs fixtures.
+    // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
     sqlx::query(
         r#"
         with p1 as (
@@ -21,16 +21,26 @@ async fn test_publication_data_operations() {
           ('cc00000000000000', 'aliceCo/Test/Fixture', '1', 'test', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
           ('ff00000000000000', 'aliceCo/Unrelated/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
         ),
-        p11 as (
+        p2 as (
+            insert into user_grants(user_id, object_role, capability) values
+                ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
+        ),
+        p3 as (
+            insert into role_grants(subject_role, object_role, capability) values
+                ('aliceCo/', 'aliceCo/', 'write'),
+                ('aliceCo/', 'examples/', 'admin'),
+                ('aliceCo/', 'ops/aliceCo/', 'read')
+        ),
+        p4 as (
           -- A "stale" flow of Second/Thing reading First/Thing, which we'll remove later.
           insert into live_spec_flows (source_id, target_id, flow_type) values
           ('aa00000000000000', 'bb00000000000000', 'collection')
         ),
-        p2 as (
+        p5 as (
           insert into drafts (id, user_id) values
           ('dddddddddddddddd', '11111111-1111-1111-1111-111111111111')
         ),
-        p3 as (
+        p6 as (
           insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
           ('1100000000000000', 'dddddddddddddddd', 'aliceCo/First/Thing', '2', 'collection'),
           ('2200000000000000', 'dddddddddddddddd', 'aliceCo/Second/Thing', null, null),
@@ -38,7 +48,7 @@ async fn test_publication_data_operations() {
           ('4400000000000000', 'dddddddddddddddd', 'otherCo/Not/AliceCo', '2', 'collection'),
           ('5500000000000000', 'dddddddddddddddd', 'aliceCo/Test/Fixture', '2', 'test')
         ),
-        p4 as (
+        p7 as (
           insert into publications (id, user_id, draft_id) values
           ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111','dddddddddddddddd')
         )

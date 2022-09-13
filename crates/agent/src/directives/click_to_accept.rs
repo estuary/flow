@@ -61,6 +61,9 @@ mod test {
           ('bb00000000000000', 'other/', '{"type":"clickToAccept"}')
         ),
         p2 as (
+          delete from applied_directives -- Clear seed fixture
+        ),
+        p3 as (
           insert into applied_directives (directive_id, user_id, user_claims) values
           ('aa00000000000000', '11111111-1111-1111-1111-111111111111', '{"version":"v1.2.3"}'),
           ('aa00000000000000', '11111111-1111-1111-1111-111111111111', '{}'),
@@ -73,7 +76,7 @@ mod test {
         .await
         .unwrap();
 
-        let mut handler = DirectiveHandler::new();
+        let mut handler = DirectiveHandler::default();
         while let Some(row) = agent_sql::directives::dequeue(&mut txn).await.unwrap() {
             let (id, status) = handler.process(row, &mut txn).await.unwrap();
             agent_sql::directives::resolve(id, status, &mut txn)

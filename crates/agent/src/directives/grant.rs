@@ -96,6 +96,9 @@ mod test {
           ('dd00000000000000', 'Not/',  '{"type":"grant","grantedPrefix":"Not/A/Prefix!","capability":"read"}')
         ),
         p2 as (
+          delete from applied_directives -- Clear seed fixture.
+        ),
+        p3 as (
           insert into applied_directives (directive_id, user_id, user_claims) values
           -- Success: specific requested suffix.
           ('aa00000000000000', '11111111-1111-1111-1111-111111111111', '{"requestedPrefix":"One/Two/Three/"}'),
@@ -123,7 +126,7 @@ mod test {
         .await
         .unwrap();
 
-        let mut handler = DirectiveHandler::new();
+        let mut handler = DirectiveHandler::default();
         while let Some(row) = agent_sql::directives::dequeue(&mut txn).await.unwrap() {
             let (id, status) = handler.process(row, &mut txn).await.unwrap();
             agent_sql::directives::resolve(id, status, &mut txn)
@@ -238,10 +241,6 @@ mod test {
           grants.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<Vec<_>>(),
           @r###"
         [
-          {
-            "cap": "admin",
-            "obj": "aliceCo/"
-          },
           {
             "cap": "write",
             "obj": "One/Two/Three/"

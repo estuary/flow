@@ -1,4 +1,4 @@
-use super::{CatalogType, Id, TextJson as Json};
+use super::{Id, TextJson as Json};
 
 use chrono::prelude::*;
 use serde::Serialize;
@@ -75,55 +75,6 @@ where
         Json(status) as Json<S>,
     )
     .fetch_one(txn)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn upsert_spec<S>(
-    draft_id: Id,
-    catalog_name: &str,
-    spec: S,
-    spec_type: CatalogType,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()>
-where
-    S: Serialize + Send + Sync,
-{
-    sqlx::query!(
-        r#"
-        insert into draft_specs(
-            draft_id,
-            catalog_name,
-            spec,
-            spec_type
-        ) values ($1, $2, $3, $4)
-        on conflict (draft_id, catalog_name) do update set
-            spec = $3,
-            spec_type = $4
-        returning 1 as "must_exist";
-        "#,
-        draft_id as Id,
-        catalog_name as &str,
-        Json(spec) as Json<S>,
-        spec_type as CatalogType,
-    )
-    .fetch_one(&mut *txn)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn touch_draft(
-    draft_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"update drafts set updated_at = clock_timestamp() where id = $1
-            returning 1 as "must_exist";"#,
-        draft_id as Id,
-    )
-    .fetch_one(&mut *txn)
     .await?;
 
     Ok(())

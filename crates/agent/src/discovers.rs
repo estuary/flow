@@ -1,8 +1,7 @@
-use super::{jobs, logs, Handler, Id};
+use super::{jobs, logs, upsert_draft_specs, Handler, Id};
 
 use crate::connector_tags::LOCAL_IMAGE_TAG;
 use agent_sql::discover::Row;
-use agent_sql::CatalogType;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -141,45 +140,12 @@ impl DiscoverHandler {
         )
         .context("converting discovery response into a catalog")?;
 
-        insert_draft_specs(row.draft_id, catalog, txn)
+        upsert_draft_specs(row.draft_id, catalog, txn)
             .await
             .context("inserting draft specs")?;
 
         Ok((row.id, JobStatus::Success))
     }
-}
-
-async fn insert_draft_specs(
-    draft_id: Id,
-    models::Catalog {
-        collections,
-        captures,
-        ..
-    }: models::Catalog,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), sqlx::Error> {
-    for (capture, spec) in captures {
-        agent_sql::discover::upsert_spec(
-            draft_id,
-            capture.as_str(),
-            spec,
-            CatalogType::Capture,
-            txn,
-        )
-        .await?;
-    }
-    for (collection, spec) in collections {
-        agent_sql::discover::upsert_spec(
-            draft_id,
-            collection.as_str(),
-            spec,
-            CatalogType::Collection,
-            txn,
-        )
-        .await?;
-    }
-    agent_sql::discover::touch_draft(draft_id, txn).await?;
-    Ok(())
 }
 
 // swizzle_response_to_catalog accepts a raw discover response (as bytes),

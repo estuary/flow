@@ -12,6 +12,7 @@ schemars = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = { version = "*" }
 sqlx = { version = "*", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
+tracing = "*"
 
 [dev-dependencies]
 

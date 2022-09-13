@@ -5,7 +5,7 @@ mod jobs;
 pub mod logs;
 mod publications;
 
-pub use agent_sql::Id;
+pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
@@ -60,4 +60,49 @@ where
         // Update the handler deadline to reflect its current execution time.
         *deadline = now + next_interval;
     }
+}
+
+// upsert_draft_specs updates the given draft with specifications of the catalog.
+async fn upsert_draft_specs(
+    draft_id: Id,
+    models::Catalog {
+        collections,
+        captures,
+        materializations,
+        tests,
+        ..
+    }: models::Catalog,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), sqlx::Error> {
+    for (collection, spec) in collections {
+        agent_sql::upsert_draft_spec(
+            draft_id,
+            collection.as_str(),
+            spec,
+            CatalogType::Collection,
+            txn,
+        )
+        .await?;
+    }
+    for (capture, spec) in captures {
+        agent_sql::upsert_draft_spec(draft_id, capture.as_str(), spec, CatalogType::Capture, txn)
+            .await?;
+    }
+    for (materialization, spec) in materializations {
+        agent_sql::upsert_draft_spec(
+            draft_id,
+            materialization.as_str(),
+            spec,
+            CatalogType::Materialization,
+            txn,
+        )
+        .await?;
+    }
+    for (test, steps) in tests {
+        agent_sql::upsert_draft_spec(draft_id, test.as_str(), steps, CatalogType::Test, txn)
+            .await?;
+    }
+
+    agent_sql::touch_draft(draft_id, txn).await?;
+    Ok(())
 }
