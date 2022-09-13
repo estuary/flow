@@ -1,64 +1,82 @@
+use bytes::Bytes;
+use futures::{TryStream, TryStreamExt, Stream};
+use validator::ValidationErrors;
+
+use crate::apis::InterceptorStream;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("failed in starting bouncer process.")]
-    BouncerProcessStartError,
-
-    #[error("channel timeout in receiving messages after 5 seconds.")]
+    #[error("E001: Network Tunnel startup timeout of 5 seconds exceeded. Please troubleshoot your network tunnel configuration and connection and try again")]
     ChannelTimeoutError,
 
-    #[error("command execution failed: {0}.")]
+    #[error("E002: Failed to execute command: {0}")]
     CommandExecutionError(String),
 
-    #[error("duplicated key: {0}.")]
+    #[error("E003: \"{0}\" key already exists in connector's endpoint specification schema, unable to add this key to the endpoint specification schema")]
     DuplicatedKeyError(&'static str),
 
-    #[error("Entrypoint is an empty string.")]
+    #[error("E004: Unable to find the entrypoint of the connector's container. Please make sure your container defines a valid entrypoint")]
     EmptyEntrypointError,
 
-    #[error("unable to parse the inspect file.")]
+    #[error("E005: Unable to parse the container image inspect file")]
     InvalidImageInspectFile,
 
-    #[error("missing process io pipes.")]
+    #[error("E006: Unable to create an IO pipe to the connector")]
     MissingIOPipe,
 
-    #[error("mismatching runtime protocol")]
-    MismatchingRuntimeProtocol,
+    #[error("E007: The connector's protocol does not match the requested protocol. Connector protocol is {0}, requested protocol is {1}")]
+    MismatchingRuntimeProtocol(String, &'static str),
 
-    #[error("No ready signal is received. {0}")]
-    NotReady(&'static str),
-
-    #[error("invalid endpoint json config.")]
-    InvalidEndpointConfig,
-
-    #[error("invalid json pointer '{0}' to config.")]
-    InvalidJsonPointer(String),
-
-    #[error(transparent)]
+    #[error("E008: IO Error: {0}")]
     IOError(#[from] std::io::Error),
 
-    #[error(transparent)]
+    #[error("E009: Json Error: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error(transparent)]
+    #[error("E010: Decoding protobuf RPC messages: {0}")]
     MessageDecodeError(#[from] prost::DecodeError),
 
-    #[error(transparent)]
+    #[error("E010: Encoding protobuf RPC messages: {0}")]
     MessageEncodeError(#[from] prost::EncodeError),
 
-    #[error("Missing required image inspect file. Specify it via --image-inspect-json-path in command line.")]
+    #[error("E011: Missing required image inspect file. Specify it via --image-inspect-json-path in command line")]
     MissingImageInspectFile,
 
-    #[error(transparent)]
+    #[error("E012: Network Tunnel: {0}")]
     NetworkTunnelError(#[from] network_tunnel::errors::Error),
 
-    #[error(transparent)]
+    #[error("E013: Creating and persisting temporary file: {0}")]
     TempfilePersistError(#[from] tempfile::PersistError),
 
-    #[error("Tokio task execution error.")]
+    #[error("E014: Executing and joining a concurrent task failed: {0}")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
 
-    #[error("The operation of '{0}' is not expected for the given protocol.")]
-    UnexpectedOperation(String),
+    #[error("E015: Airbyte connector's pending checkpoint was not committed, this can happen if the connector exits abruptly")]
+    AirbyteCheckpointPending,
+
+    #[error("E016: Stream is empty, expected to find a message but could not find any")]
+    EmptyStream,
+
+    #[error("E017: Could not find expected message in stream: {0}")]
+    MessageNotFound(&'static str),
+
+    #[error("E018: Connector's connection status is not successful")]
+    ConnectionStatusUnsuccessful,
+
+    #[error("E019: Validation request is missing")]
+    MissingValidateRequest,
+
+    #[error("E020: Connector output a record that does not belong to any known stream: {0}")]
+    DanglingConnectorRecord(String),
+
+    #[error("E021: Invalid PullResponse received from connector")]
+    InvalidPullResponse,
+
+    #[error("E022: Starting network tunnel failed: {0}")]
+    NetworkTunnelStartError(network_tunnel::errors::Error),
+
+    #[error("E023: Invalid connector catalog: {0}")]
+    InvalidCatalog(ValidationErrors),
 }
 
 pub fn raise_err<T>(message: &str) -> Result<T, std::io::Error> {
@@ -67,6 +85,14 @@ pub fn raise_err<T>(message: &str) -> Result<T, std::io::Error> {
 
 pub fn create_custom_error(message: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, message)
+}
+
+pub fn interceptor_stream_to_io_stream(stream: InterceptorStream) -> impl TryStream<Item = std::io::Result<Bytes>, Ok = Bytes, Error = std::io::Error> {
+    stream.map_err(|e| create_custom_error(&e.to_string()))
+}
+
+pub fn io_stream_to_interceptor_stream(stream: impl Stream<Item = std::io::Result<Bytes>> + Send + Sync + 'static) -> InterceptorStream {
+    Box::pin(stream.map_err(|e| Error::IOError(e)))
 }
 
 pub trait Must<T> {
