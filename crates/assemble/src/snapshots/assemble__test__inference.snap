@@ -1,6 +1,5 @@
 ---
 source: crates/assemble/src/lib.rs
-assertion_line: 706
 expression: "&[out1, out2]"
 ---
 [
@@ -13,7 +12,7 @@ expression: "&[out1, out2]"
         string: Some(
             String {
                 content_type: "a/type",
-                format: "email",
+                format: "date-time",
                 content_encoding: "BaSE64",
                 is_base64: true,
                 max_length: 123,

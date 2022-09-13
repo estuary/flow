@@ -8,11 +8,11 @@ use uuid::Uuid;
 
 use crate::validator::ValidationResult;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Format {
     Date,
-    #[serde(rename = "date-time")]
+    #[serde(rename = "date-time", alias = "datetime")]
     DateTime,
     Time,
     Email,
@@ -62,6 +62,16 @@ lazy_static::lazy_static! {
     static ref JSON_POINTER_RE: Regex = Regex::new(r"^(\/([^~]|(~[01]))*)*$").expect("Is a valid regex");
     static ref MACADDR: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){5}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
     static ref MACADDR8: Regex = Regex::new(r"^([0-9A-Fa-f]{2}[:-]?){7}[0-9A-Fa-f]{2}$").expect("Is a valid regex");
+}
+
+impl ToString for Format {
+    fn to_string(&self) -> String {
+        if let serde_json::Value::String(s) = serde_json::json!(self) {
+            s
+        } else {
+            panic!("Format must serialize as JSON string")
+        }
+    }
 }
 
 impl Format {
@@ -165,6 +175,7 @@ mod test {
             ("date", "2022-09-11", true),
             ("date", "2022-09-11T10:31:25.123Z", false),
             ("date-time", "2022-09-11T10:31:25.123Z", true),
+            ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
             ("email", "john@doe.com", true),
