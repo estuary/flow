@@ -7,11 +7,12 @@
 # - agent
 # - temp-data-plane (includes etcd, gazette broker, and flow reactor)
 # - data-plane-gateway
-# 
+# - oauth edge function
+#
 # It does this by launching a tmux session with a window for each of the above components.
-# If you're not familiar with tmux, I recommend 
+# If you're not familiar with tmux, I recommend
 # [this intro+cheatsheet](https://www.hostinger.com/tutorials/tmux-beginners-guide-and-cheat-sheet/)
-# 
+#
 # You need to have all of these repositories checked out locally in order for this to work:
 # flow, animated-carnival, ui, data-plane-gateway
 
@@ -65,7 +66,7 @@ log "Created new tmux session called '$SESSION'"
 # tmux seems to always create a window automatically
 tmux send-keys -t "=${SESSION}:=terminal" 'echo Use this terminal for whatever you want' Enter
 
-flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway" "config-encryption")
+flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway" "config-encryption" "oauth-edge")
 for component in ${flow_components[@]}; do
     start_component "$component"
 done
