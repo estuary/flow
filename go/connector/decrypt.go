@@ -24,7 +24,7 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 		} `json:"sops"`
 	}
 	if err := json.Unmarshal(config, &envelope); err != nil {
-		return nil, fmt.Errorf("decoding `sops` stanza: %w", err)
+		return nil, fmt.Errorf("go.estuary.dev/E127: decoding `sops` stanza: %w", err)
 	}
 
 	// If this isn't a `sops` document, return a copy of it unmodified.
@@ -39,7 +39,7 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 		"/dev/stdin",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("decrypting `sops` document: %w", err)
+		return nil, fmt.Errorf("go.estuary.dev/E128: decrypting `sops` document: %w", err)
 	}
 
 	// If the envelope doesn't include an encrypted suffix, we're finished.
@@ -59,7 +59,7 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 			"rtrimstr(\""+envelope.Sops.EncryptedSuffix+"\")}) else . end)",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("stripping encrypted suffix %q from document: %w",
+		return nil, fmt.Errorf("go.estuary.dev/E128: stripping encrypted suffix %q from document: %w",
 			envelope.Sops.EncryptedSuffix, err)
 	}
 
@@ -84,7 +84,7 @@ func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, erro
 
 	var path, err = pkgbin.Locate(args[0])
 	if err != nil {
-		return nil, fmt.Errorf("finding %q binary: %w", args[0], err)
+		return nil, fmt.Errorf("go.estuary.dev/E129: finding %q binary: %w", args[0], err)
 	}
 	var cmd = exec.CommandContext(ctx, path, args[1:]...)
 
@@ -97,12 +97,12 @@ func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, erro
 	err = cmd.Run()
 
 	if stdout.Len() > len(input) {
-		panic("decrypted output overflows pre-allocated buffer")
+		panic("go.estuary.dev/E130: decrypted output overflows pre-allocated buffer")
 	}
 
 	if err != nil {
 		ZeroBytes(stdout.Bytes())
-		return nil, fmt.Errorf("%w: %s", err, stderr.String())
+		return nil, fmt.Errorf("go.estuary.dev/E131: %w: %s", err, stderr.String())
 	}
 
 	return stdout.Bytes(), nil

@@ -49,9 +49,9 @@ func UnaryRPC(
 	var source = new(EndpointSpec)
 
 	if err := request.Validate(); err != nil {
-		return fmt.Errorf("validating request: %w", err)
+		return fmt.Errorf("go.estuary.dev/E118: validating request: %w", err)
 	} else if err = pf.UnmarshalStrict(*pluckEndpointSpec(request), source); err != nil {
-		return fmt.Errorf("parsing connector configuration: %w", err)
+		return fmt.Errorf("go.estuary.dev/E119: parsing connector configuration: %w", err)
 	}
 
 	var decrypted, err = DecryptConfig(ctx, source.Config)
@@ -74,7 +74,7 @@ func UnaryRPC(
 			func() proto.Message { return response },
 			func(m proto.Message) error {
 				if !first {
-					return fmt.Errorf("read more than one %s response", command)
+					return fmt.Errorf("go.estuary.dev/E120: read more than one %s response", command)
 				}
 				first = false
 				return nil
@@ -84,7 +84,7 @@ func UnaryRPC(
 	)
 
 	if err == nil && first {
-		err = fmt.Errorf("connector didn't produce a %s response", command)
+		err = fmt.Errorf("go.estuary.dev/E121: connector didn't produce a %s response", command)
 	}
 	return err
 }
@@ -110,9 +110,9 @@ func StreamRPC(
 
 	// Read `open` request.
 	if err := stream.RecvMsg(open); err != nil {
-		return fmt.Errorf("reading Open request: %w", err)
+		return fmt.Errorf("go.estuary.dev/E122: reading Open request: %w", err)
 	} else if err := pf.UnmarshalStrict(*pluckEndpointSpec(open), source); err != nil {
-		return fmt.Errorf("parsing connector configuration: %w", err)
+		return fmt.Errorf("go.estuary.dev/E123: parsing connector configuration: %w", err)
 	}
 
 	var decrypted, err = DecryptConfig(ctx, source.Config)
@@ -149,7 +149,7 @@ func protoWriteLoop(
 	ZeroBytes(*pluckEndpointSpec(open)) // No longer needed.
 
 	if err != nil {
-		return fmt.Errorf("writing initial request to connector: %w", err)
+		return fmt.Errorf("go.estuary.dev/E124: writing initial request to connector: %w", err)
 	}
 
 	for {
@@ -157,9 +157,9 @@ func protoWriteLoop(
 		if err = stream.RecvMsg(req); err == io.EOF {
 			return nil // Clean shutdown.
 		} else if err != nil {
-			return fmt.Errorf("reading from runtime: %w", err)
+			return fmt.Errorf("go.estuary.dev/E125: reading from runtime: %w", err)
 		} else if err = enc.WriteMsg(req); err != nil {
-			return fmt.Errorf("writing to connector: %w", err)
+			return fmt.Errorf("go.estuary.dev/E126: writing to connector: %w", err)
 		}
 	}
 }
@@ -187,6 +187,6 @@ func pluckEndpointSpec(m proto.Message) *json.RawMessage {
 	case *pc.PullRequest:
 		return &mm.Open.Capture.EndpointSpecJson
 	default:
-		panic(fmt.Sprintf("unexpected message type %#T", m))
+		panic(fmt.Sprintf("go.estuary.dev/E126: unexpected message type %#T", m))
 	}
 }
