@@ -47,7 +47,11 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
                 content_type: shape.string.content_type.clone().unwrap_or_default(),
-                format: shape.string.format.clone().unwrap_or_default(),
+                format: shape
+                    .string
+                    .format
+                    .map(|f| f.to_string())
+                    .unwrap_or_default(),
                 content_encoding: shape.string.content_encoding.clone().unwrap_or_default(),
                 is_base64,
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
@@ -808,7 +812,7 @@ mod test {
             secret: Some(true),
             string: StringShape {
                 content_encoding: Some("BaSE64".to_owned()),
-                format: Some("email".to_string()),
+                format: Some(json::schema::formats::Format::DateTime),
                 content_type: Some("a/type".to_string()),
                 min_length: 10,
                 max_length: Some(123),

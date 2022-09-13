@@ -161,7 +161,7 @@ where
 
         let mut unknown = false;
         match keyword {
-            // Already handeled outside of this match.
+            // Already handled outside of this match.
             keywords::ID => (),
             keywords::NULLABLE => (),
 
@@ -629,7 +629,9 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::CONTENT_MEDIA_TYPE => {
                 CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
             }
-            keywords::FORMAT => CoreAnnotation::Format(extract_str(v)?.to_owned()),
+            keywords::FORMAT => CoreAnnotation::Format(
+                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
+            ),
             keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
             keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
             keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),

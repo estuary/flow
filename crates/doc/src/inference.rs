@@ -3,7 +3,7 @@ use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
     json_cmp,
-    schema::{types, Application, CoreAnnotation, Keyword, Validation},
+    schema::{formats, types, Application, CoreAnnotation, Keyword, Validation},
     LocatedProperty, Location,
 };
 use lazy_static::lazy_static;
@@ -39,7 +39,7 @@ pub struct Shape {
 pub struct StringShape {
     pub content_encoding: Option<String>,
     pub content_type: Option<String>,
-    pub format: Option<String>,
+    pub format: Option<formats::Format>,
     pub max_length: Option<usize>,
     pub min_length: usize,
 }
@@ -679,7 +679,7 @@ impl Shape {
                         shape.string.content_type = Some(mt.clone());
                     }
                     Annotation::Core(CoreAnnotation::Format(format)) => {
-                        shape.string.format = Some(format.clone());
+                        shape.string.format = Some(*format);
                     }
                     Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
 
@@ -1538,7 +1538,7 @@ mod test {
                 string: StringShape {
                     content_encoding: Some("base64".to_owned()),
                     content_type: Some("some/thing".to_owned()),
-                    format: Some("email".to_owned()),
+                    format: Some(formats::Format::Email),
                     max_length: None,
                     min_length: 0,
                 },
