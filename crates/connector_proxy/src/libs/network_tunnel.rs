@@ -49,7 +49,7 @@ impl NetworkTunnel {
         };
 
         if let Err(ref err) = result {
-            tracing::error!(error=?err, "failed starting network tunnel.");
+            tracing::error!(error=?err);
             std::process::exit(1);
         }
     }
@@ -83,7 +83,6 @@ impl NetworkTunnel {
         // is one second longer than the SSH client is given, so in the common
         // case of an unresponsive SSH server the timeout should come from that.
         if let Err(_) = timeout(std::time::Duration::from_secs(6), tx.closed()).await {
-            tracing::error!("network tunnel timeout expired before startup finished");
             return Err(Error::ChannelTimeoutError);
         };
 
