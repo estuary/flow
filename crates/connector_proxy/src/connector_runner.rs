@@ -1,5 +1,5 @@
 use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStream};
-use crate::errors::{create_custom_error, Error};
+use crate::errors::{Error, self, io_stream_to_interceptor_stream, interceptor_stream_to_io_stream};
 use crate::interceptors::{
     airbyte_source_interceptor::AirbyteSourceInterceptor,
     network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
@@ -139,9 +139,7 @@ pub async fn run_airbyte_source_connector(
                         (msg, bytes)
                     }
                     None => {
-                        sender.send(transaction_pending).map_err(|_|
-                            create_custom_error("Could not send signal for Airbyte connector's pending checkpoint. This can happen if the connector exits abruptly.")
-                        )?;
+                        sender.send(transaction_pending).map_err(|_| errors::Error::AirbyteCheckpointPending)?;
                         return Ok(None);
                     }
                 };
@@ -218,11 +216,11 @@ fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), E
 }
 
 fn request_stream() -> InterceptorStream {
-    Box::pin(ReaderStream::new(tokio::io::stdin()))
+    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(tokio::io::stdin())))
 }
 
 fn response_stream(child_stdout: ChildStdout) -> InterceptorStream {
-    Box::pin(ReaderStream::new(child_stdout))
+    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(child_stdout)))
 }
 
 async fn streaming_all(
@@ -230,8 +228,8 @@ async fn streaming_all(
     request_stream: InterceptorStream,
     response_stream: InterceptorStream,
 ) -> Result<(), Error> {
-    let mut request_stream_reader = StreamReader::new(request_stream);
-    let mut response_stream_reader = StreamReader::new(response_stream);
+    let mut request_stream_reader = StreamReader::new(interceptor_stream_to_io_stream(request_stream));
+    let mut response_stream_reader = StreamReader::new(interceptor_stream_to_io_stream(response_stream));
     let mut response_stream_writer = tokio::io::stdout();
 
     let request_stream_copy =
@@ -267,8 +265,8 @@ mod test {
 
     fn create_stream<T>(
         input: Vec<T>,
-    ) -> Pin<Box<impl TryStream<Item = std::io::Result<T>, Ok = T, Error = std::io::Error>>> {
-        Box::pin(stream::iter(input.into_iter().map(Ok::<T, std::io::Error>)))
+    ) -> Pin<Box<impl TryStream<Item = Result<T, Error>, Ok = T, Error = Error>>> {
+        Box::pin(stream::iter(input.into_iter().map(Ok::<T, Error>)))
     }
 
     #[tokio::test]

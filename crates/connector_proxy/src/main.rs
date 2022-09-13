@@ -118,8 +118,9 @@ async fn proxy_flow_capture(
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
-    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Capture {
-        return Err(Error::MismatchingRuntimeProtocol);
+    let connector_protocol = image_inspect.infer_runtime_protocol();
+    if connector_protocol != FlowRuntimeProtocol::Capture {
+        return Err(Error::MismatchingRuntimeProtocol(connector_protocol.to_string(), "capture"));
     }
 
     let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
@@ -141,8 +142,9 @@ async fn proxy_flow_materialize(
     image_inspect_json_path: Option<String>,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
-    if image_inspect.infer_runtime_protocol() != FlowRuntimeProtocol::Materialize {
-        return Err(Error::MismatchingRuntimeProtocol);
+    let connector_protocol = image_inspect.infer_runtime_protocol();
+    if connector_protocol != FlowRuntimeProtocol::Materialize {
+        return Err(Error::MismatchingRuntimeProtocol(connector_protocol.to_string(), "materialize"));
     }
 
     let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
