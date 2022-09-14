@@ -76,7 +76,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        user_provided: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -377,7 +377,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        user_provided: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -538,7 +538,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        user_provided: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -890,7 +890,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        user_provided: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -976,7 +976,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        user_provided: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1209,27 +1209,6 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "",
-                        field: "flow_document",
-                        user_provided: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                deprecated_must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                            },
-                        ),
-                    },
-                    Projection {
                         ptr: "/int",
                         field: "int",
                         user_provided: false,
@@ -1394,7 +1373,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        user_provided: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1574,7 +1553,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        user_provided: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1731,7 +1710,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        user_provided: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1871,7 +1850,7 @@ All {
                             Projection {
                                 ptr: "",
                                 field: "flow_document",
-                                user_provided: false,
+                                user_provided: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2315,27 +2294,6 @@ All {
                                 ),
                             },
                             Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        deprecated_must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                        default_json: "",
-                                        secret: false,
-                                        exists: Must,
-                                    },
-                                ),
-                            },
-                            Projection {
                                 ptr: "/int",
                                 field: "int",
                                 user_provided: false,
@@ -2722,7 +2680,7 @@ All {
                             Projection {
                                 ptr: "",
                                 field: "flow_document",
-                                user_provided: false,
+                                user_provided: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -3075,7 +3033,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        user_provided: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3422,7 +3380,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        user_provided: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3742,27 +3700,6 @@ All {
                                                 default_json: "",
                                                 secret: false,
                                                 exists: May,
-                                            },
-                                        ),
-                                    },
-                                    Projection {
-                                        ptr: "",
-                                        field: "flow_document",
-                                        user_provided: false,
-                                        is_partition_key: false,
-                                        is_primary_key: false,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "object",
-                                                ],
-                                                deprecated_must_exist: true,
-                                                string: None,
-                                                title: "",
-                                                description: "",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
                                             },
                                         ),
                                     },
@@ -5212,6 +5149,18 @@ All {
             spec: "/arr/1/aKey",
         },
         Projection {
+            scope: test://example/array-key#/collections/testing~1array-key/projections/flow_document,
+            collection: testing/array-key,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/from-array-key#/collections/testing~1from-array-key/projections/flow_document,
+            collection: testing/from-array-key,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,
             collection: testing/int-halve,
             field: Extra,
@@ -5233,6 +5182,12 @@ All {
             spec: "",
         },
         Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/projections/flow_document,
+            collection: testing/int-reverse,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
             collection: testing/int-string,
             field: Int,
@@ -5246,6 +5201,18 @@ All {
               "location": "/bit",
               "partition": true
             },
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string/projections/flow_document,
+            collection: testing/int-string,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2/projections/flow_document,
+            collection: testing/int-string.v2,
+            field: flow_document,
+            spec: "",
         },
     ],
     resources: [
