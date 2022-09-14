@@ -6,7 +6,7 @@ Caused by:
            "errors": [
              {
                "absoluteKeywordLocation": "file:///inc-reset-publish.schema.yaml#/$defs/register",
-               "error": "OneOfNotMatched",
+               "error": "Document does not match any of the \"oneOf\" schemas",
                "instanceLocation": "",
                "keywordLocation": "#/$ref"
              }
@@ -18,4 +18,4 @@ Caused by:
            "value": "negative one!"
          }
        }
-    1: {"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/register","error":"OneOfNotMatched","instanceLocation":"","keywordLocation":"#/$ref"}],"valid":false},"document":{"type":"set","value":"negative one!"}}
+    1: {"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/register","error":"Document does not match any of the \"oneOf\" schemas","instanceLocation":"","keywordLocation":"#/$ref"}],"valid":false},"document":{"type":"set","value":"negative one!"}}
