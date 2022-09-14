@@ -175,7 +175,7 @@ pub enum Error {
     },
     #[error("derivation's initial register is invalid against its schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     RegisterInitialInvalid(doc::FailedValidation),
-    #[error("collection {collection} requires a unique projection field for the root document")]
+    #[error("collection {collection} requires a unique projection field for the root document, see https://go.estuary.dev/gmedel")]
     UniqueRootProjectionFieldRequired { collection: String },
     #[error("test ingest document is invalid against the collection schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     IngestDocInvalid(doc::FailedValidation),
