@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 792
 expression: errors
 ---
 [
@@ -11,7 +12,7 @@ expression: errors
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema",
-                "error": "Invalid(Type(\"integer\"), None)",
+                "error": "Invalid: Must be of type \"integer\".",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
