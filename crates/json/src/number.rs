@@ -1,6 +1,7 @@
 use serde_json;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
+use std::fmt::Display;
 
 /// `Number` holds possible numeric types of the JSON object model.
 #[derive(Debug, Copy, Clone)]
@@ -10,6 +11,16 @@ pub enum Number {
     Float(f64),
 }
 use Number::*;
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unsigned(n) => write!(f, "{}", n),
+            Signed(n) => write!(f, "{}", n),
+            Float(n) => write!(f, "{}", n)
+        }
+    }
+}
 
 impl From<&serde_json::Number> for Number {
     fn from(n: &serde_json::Number) -> Self {

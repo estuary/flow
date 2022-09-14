@@ -2,6 +2,7 @@ use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Val
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
+use std::fmt::Display;
 
 pub enum ValidationResult {
     Valid,
@@ -146,6 +147,27 @@ pub enum Outcome<'sm, A: Annotation> {
     Annotation(&'sm A),
 }
 
+impl<A: Annotation> Display for Outcome<'_, A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Outcome::*;
+        match self {
+            Invalid(validation, err) => {
+                write!(f, "Invalid: {}.", validation)?;
+                if let Some(err) = err {
+                    write!(f, "{}", err)?;
+                }
+                Ok(())
+            }
+            NotIsValid => write!(f, "Document matches the \"not\" schema, and hence is invalid"),
+            AnyOfNotMatched => write!(f, "Document does not match any of the \"anyOf\" schemas"),
+            OneOfNotMatched => write!(f, "Document does not match any of the \"oneOf\" schemas"),
+            OneOfMultipleMatched => write!(f, "Document matches more than one of \"oneOf\" schemas"),
+            ReferenceNotFound(url) => write!(f, "Could not find reference {}", url),
+            Annotation(a) => write!(f, "Annotation: {:?}", a),
+        }
+    }
+}
+
 impl<'sm, A: Annotation> Outcome<'sm, A> {
     pub fn is_error(&self) -> bool {
         match self {
@@ -168,7 +190,7 @@ pub fn build_basic_output<'sm, C: Context, A: Annotation>(
     let errors = outcomes
         .iter()
         .filter(|(o, _)| o.is_error())
-        .map(|(outcome, ctx)| ctx.basic_output_entry(format!("{:?}", outcome)))
+        .map(|(outcome, ctx)| ctx.basic_output_entry(format!("{}", outcome)))
         .collect::<Vec<_>>();
 
     serde_json::json!({

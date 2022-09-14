@@ -1,7 +1,7 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 995
 expression: errors
-
 ---
 [
     Error {
@@ -16,7 +16,7 @@ expression: errors
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid(Required { props: [\"int\", \"str\", \"bit\"], props_interned: 7 }, None)",
+                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
@@ -37,7 +37,7 @@ expression: errors
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid(Required { props: [\"int\", \"str\", \"bit\"], props_interned: 7 }, None)",
+                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
