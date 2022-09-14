@@ -9,15 +9,15 @@ It is available for use in the Flow web application. For local development or op
 To use this connector, you'll need:
 
 * A [Google Cloud project](https://cloud.google.com/resource-manager/docs/creating-managing-projects#creating_a_project) with the Google Pub/Sub API [enabled](https://support.google.com/googleapi/answer/6158841?hl=en).
-* Access to the project. Different items are required to configure access [in the Flow web app](#authentication-the-flow-web-app),
-and [using the CLI](#manual-authentication-with-the-cli).
+* Access to the project. Different items are required to configure access [using OAuth in the Flow web app](#oauth-authentication-using-the-flow-web-app) (recommended),
+and [configuring manually](#manual-authentication).
 * At least one Flow collection to materialize.
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
 
-### Authentication the Flow web app
+### OAuth authentication using the Flow web app
 
 OAuth is the simplest authentication method, and is supported in the Flow web app. You'll need:
 
@@ -27,7 +27,7 @@ See the [Google IAM documentation](https://cloud.google.com/iam/docs/granting-ch
 
 You'll supply this account's username and password to authenticate.
 
-### Manual authentication with the CLI
+### Manual authentication
 
 Manual authentication is the only method supported when using flowctl to develop locally. You'll need:
 
@@ -50,8 +50,8 @@ Use the below properties to configure a Google Cloud Pub/Sub materialization, wh
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/credentials`** | Authentication | Credentials used to authenticate with Google. | array, boolean, null, number, object, string | Required, `{"auth_type":"Client"}` |
-| `/credentials/auth_type` | Authentication type | Set to `Service` for manual authentication, or use OAuth in the web app  | string |  |
+| **`/credentials`** | Authentication | Credentials used to authenticate with Google. | array, boolean, null, number, object, string | Required |
+| `/credentials/auth_type` | Authentication type | Set to `Service` for manual authentication, or use OAuth in the web app.  | string |  |
 | `/credentials/credentials_json` | Service Account JSON | The JSON key of the service account to use for authorization, if configuring manually. | string |  |
 | **`/project_id`** | Google Cloud Project ID | Name of the project containing the PubSub topics for this materialization. | string | Required |
 
@@ -63,7 +63,7 @@ Use the below properties to configure a Google Cloud Pub/Sub materialization, wh
 
 ### Sample
 
-This sample reflects the [manual authentication](#manual-authentication-with-the-cli) method using the CLI.
+This sample reflects the [manual authentication](#manual-authentication) method using the CLI.
 
 ```yaml
 materializations:
