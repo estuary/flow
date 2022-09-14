@@ -1,3 +1,6 @@
+---
+sidebar_position: 4
+---
 # Google Cloud Pub/Sub
 
 This connector materializes Flow collections into topics in Google Cloud Pub/Sub.
