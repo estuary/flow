@@ -73,7 +73,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
     "errors": [
       {
         "absoluteKeywordLocation": "file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i",
-        "error": "Invalid(Type(\"integer\"), None)",
+        "error": "Invalid: Must be of type \"integer\".",
         "instanceLocation": "/i",
         "keywordLocation": "#/properties/i"
       }
@@ -85,7 +85,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
   }
 }`,
 			Fields: map[string]interface{}{
-				"error":     `{"CombineError":{"PreReduceValidation":{"document":{"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid(Type(\"integer\"), None)","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
+				"error":     `{"CombineError":{"PreReduceValidation":{"document":{"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
 				"logSource": "combine",
 			},
 		},
