@@ -6,6 +6,6 @@ expression: errors
 [
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
-        error: collection testing/int-string requires a unique projection field for the root document,
+        error: collection testing/int-string requires a unique projection field for the root document, see https://go.estuary.dev/gmedel,
     },
 ]
