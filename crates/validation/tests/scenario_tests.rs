@@ -152,6 +152,52 @@ test://example/int-string:
 }
 
 #[test]
+fn test_no_unique_root_document_projection() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      schema:
+        type: object
+        properties:
+          flow_document: {}
+          int: { type: integer }
+          str: { type: string }
+          bit: { type: boolean }
+        required: [int, str, bit]
+      key: [/int]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_flow_document_field_with_root_projection() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      schema:
+        type: object
+        properties:
+          flow_document: {}
+          int: { type: integer }
+          str: { type: string }
+          bit: { type: boolean }
+        required: [int, str, bit]
+      key: [/int]
+      projections:
+        some_other_field: ""
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_invalid_transform_names_and_duplicates() {
     let errors = run_test_errors(
         &GOLDEN,

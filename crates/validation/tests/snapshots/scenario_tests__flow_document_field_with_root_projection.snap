@@ -1,0 +1,6 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+assertion_line: 197
+expression: errors
+---
+[]

@@ -2,7 +2,7 @@ use super::{indexed, schema, storage_mapping, Error};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 use proto_flow::flow;
-use std::iter::FromIterator;
+use std::{collections::HashSet, iter::FromIterator};
 use superslice::Ext;
 use url::Url;
 
@@ -81,6 +81,8 @@ fn walk_collection(
     }
 
     let projections = walk_collection_projections(collection, projections, schema, errors);
+
+    walk_root_projections(scope, name.as_ref(), &projections, errors);
 
     let partition_stores = storage_mapping::mapped_stores(
         scope,
@@ -207,6 +209,30 @@ fn walk_projection_with_inference(
     }
 
     spec
+}
+
+fn walk_root_projections(
+    scope: &Url,
+    name: &str,
+    projections: &Vec<flow::Projection>,
+    errors: &mut tables::Errors,
+) {
+    // Require that the root document have at least one projection with a unique name. This guards
+    // against the case where a schema has an explicit "flow_document" field and the collection does
+    // not have an explicit projection for the root document.
+    let non_root_field_names: HashSet<&String> =
+        HashSet::from_iter(projections.iter().filter(|p| p.ptr != "").map(|p| &p.field));
+
+    if !projections
+        .iter()
+        .filter(|p| p.ptr == "")
+        .any(|p| !non_root_field_names.contains(&p.field))
+    {
+        Error::UniqueRootProjectionFieldRequired {
+            collection: name.to_string(),
+        }
+        .push(scope, errors);
+    }
 }
 
 pub fn walk_selector(

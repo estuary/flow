@@ -1,0 +1,11 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+assertion_line: 173
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string,
+        error: collection testing/int-string requires a unique projection field for the root document,
+    },
+]
