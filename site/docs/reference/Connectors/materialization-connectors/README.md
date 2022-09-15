@@ -19,6 +19,9 @@ Estuary is actively developing new connectors, so check back regularly for the l
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:dev
+* Google Cloud Pub/Sub
+  * [Configuration](./google-pubsub.md)
+  * Package - ghcr.io/estuary/materialize-google-pubsub:dev
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/materialize-postgres:dev
