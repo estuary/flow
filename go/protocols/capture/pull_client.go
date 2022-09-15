@@ -69,7 +69,7 @@ func OpenPull(
 		coordinator: coordinator,
 		rpc:         rpc,
 	}
-	go out.serve(startCommitFn)
+	go out.serve(ctx, startCommitFn)
 
 	rpc = nil // Don't run deferred CloseSend.
 	return out, nil
@@ -90,7 +90,7 @@ func OpenPull(
 //
 // serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
-func (c *PullClient) serve(startCommitFn func(error)) {
+func (c *PullClient) serve(ctx context.Context, startCommitFn func(error)) {
 	defer c.rpc.CloseSend()
 	var respCh = PullResponseChannel(c.rpc)
 
@@ -135,6 +135,15 @@ func (c *PullClient) serve(startCommitFn func(error)) {
 				}
 			}
 
+			// We prefer to gracefully `respCh` to close, and then drain any
+			// final transaction. But, if not reading from `respCh`, we *must*
+			// monitor for context cancellation as there's no guarantee that
+			// log commit operations will resolve (the client may have gone away).
+			var maybeDoneCh <-chan struct{}
+			if maybeRespCh == nil {
+				maybeDoneCh = ctx.Done()
+			}
+
 			// We don't have a ready response.
 			// Block for a response OR a commit operation.
 			select {
@@ -151,6 +160,9 @@ func (c *PullClient) serve(startCommitFn func(error)) {
 
 			case rx, ok := <-maybeRespCh:
 				return onResp(rx, ok)
+
+			case <-maybeDoneCh:
+				return false, ctx.Err()
 			}
 
 			return respCh == nil, nil
