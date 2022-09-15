@@ -415,6 +415,11 @@ const PATH_SEGMENT_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALP
     .remove(b'=')
     .remove(b'@');
 
+/// Percent-encodes string values so that they can be used in Gazette label values.
+pub fn percent_encode_partition_value(s: &str) -> String {
+    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
+}
+
 // Flatten partition selector fields into a Vec<Label>.
 // JSON strings are percent-encoded but un-quoted.
 // Other JSON types map to their literal JSON strings.
@@ -423,9 +428,7 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     for (field, value) in fields {
         for value in value {
             let value = match value {
-                Value::String(s) => {
-                    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
-                }
+                Value::String(s) => percent_encode_partition_value(s),
                 _ => serde_json::to_string(value).unwrap(),
             };
             out.push(broker::Label {
