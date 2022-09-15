@@ -87,3 +87,11 @@ materializations:
 ## Delta updates
 
 Because Google Cloud Pub/Sub is a write-only event-streaming system, this connector uses only [delta updates](../../../concepts/materialization.md#delta-updates).
+
+## Message ordering
+
+Google Cloud Pub/Sub manages message ordering using [ordering keys](https://cloud.google.com/pubsub/docs/ordering).
+
+This connector sets the ordering key of published messages using the Flow [collection key](../../../concepts/collections.md#keys)
+of the documents being being published.
+Messages are published in order, on a per-key basis.
