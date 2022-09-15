@@ -77,7 +77,15 @@ export async function accessToken(req: Record<string, any>) {
 
   const accessTokenResponseMap = oauth2_spec.accessTokenResponseMap || {};
 
-  let responseData = await response.json();
+  const responseText = await response.text();
+
+  if (response.status >= 400) {
+    console.log("access token request failed");
+    console.log("request: POST ", url);
+    console.log("response: ", response.status, response.statusText, "headers: ", response.headers, "response body:", responseText);
+  }
+
+  let responseData = JSON.parse(responseText);
 
   let mappedData: Record<string, any> = {};
   for (const key in accessTokenResponseMap) {
@@ -85,10 +93,6 @@ export async function accessToken(req: Record<string, any>) {
       responseData,
       accessTokenResponseMap[key]
     );
-  }
-
-  if (response.status >= 400) {
-    console.log("access token request failed: ", responseData);
   }
 
   return new Response(JSON.stringify(mappedData), {
