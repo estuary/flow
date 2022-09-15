@@ -22,14 +22,23 @@ UNAME := $(shell uname -sp)
 ifeq ($(UNAME),Darwin arm)
 export CARGO_BUILD_TARGET=aarch64-apple-darwin
 PACKAGE_ARCH=arm64-darwin
+ETCD_ARCH=darwin-arm64
+ETCD_SHASUM=33094133a771b2d086dc04f2ede41c249258947042de72132af127972880171f
+ETCD_EXT=zip
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
 else ifeq ($(UNAME),Darwin i386)
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 PACKAGE_ARCH=x86-darwin
+ETCD_ARCH=darwin-amd64
+ETCD_SHASUM=8bd279948877cfb730345ecff2478f69eaaa02513c2a43384ba182c9985267bd
+ETCD_EXT=zip
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
 else
 export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 PACKAGE_ARCH=x86-linux
+ETCD_ARCH=linux-amd64
+ETCD_SHASUM=7910a2fdb1863c80b885d06f6729043bff0540f2006bf6af34674df2636cb906
+ETCD_EXT=tar.gz
 endif
 RUSTBIN = ${CARGO_TARGET_DIR}/${CARGO_BUILD_TARGET}/release
 RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
@@ -42,9 +51,7 @@ WORKDIR  = $(realpath .)/.build
 PKGDIR = ${WORKDIR}/package
 
 # Etcd release we pin within Flow distributions.
-ETCD_VERSION = v3.5.4
-ETCD_LINUX_SHA256 = b1091166153df1ee0bb29b47fb1943ef0ddf0cd5d07a8fe69827580a08134def
-ETCD_DARWIN_AMD64_SHA256=f7133a24f9f563ccadbd5a3f94da708a920baaf82d9b0b4bc9efc058b58b17ee
+ETCD_VERSION = v3.5.5
 
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
 # with `protoc` invocations
@@ -102,45 +109,20 @@ go-protobufs: $(GO_PROTO_TARGETS)
 
 # `etcd` is used for testing, and packaged as a release artifact.
 ${PKGDIR}/bin/etcd:
-	# For Apple M1 we are currently using an unofficial built binary. Once the official binary for
-	# M1 is released we should switch to use that: https://github.com/etcd-io/etcd/issues/14001
-	if [ "$(UNAME)" = "Darwin arm" ]; then \
-		curl -L -o /tmp/etcd.tgz \
-										https://github.com/UniversalShipping/etcd/releases/download/${ETCD_VERSION}/etcd-binaries-darwin-arm64.tar.gz \
-						&& tar --extract \
-										--file /tmp/etcd.tgz \
-										--directory /tmp/ \
+		curl -L -o /tmp/etcd.${ETCD_EXT} \
+										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-${ETCD_ARCH}.${ETCD_EXT} \
+						&& echo "${ETCD_SHASUM} /tmp/etcd.${ETCD_EXT}" | sha256sum -c - \
+						&& if [ "${ETCD_EXT}" = "zip" ]; then \
+								unzip /tmp/etcd.${ETCD_EXT} -d /tmp; \
+							else \
+								tar --extract --file /tmp/etcd.${ETCD_EXT} --directory /tmp/; \
+						fi \
 						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/bin/etcd /tmp/bin/etcdctl ${PKGDIR}/bin/ \
+						&& mv /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcd /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcdctl ${PKGDIR}/bin/ \
 						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/bin/ \
-						&& rm /tmp/etcd.tgz \
+						&& rm -r /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/ \
+						&& rm /tmp/etcd.${ETCD_EXT} \
 						&& $@ --version; \
-	elif [ "$(UNAME)" = "Darwin i386" ]; then \
-		curl -L -o /tmp/etcd.zip \
-										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-darwin-amd64.zip \
-						&& echo "${ETCD_DARWIN_AMD64_SHA256} /tmp/etcd.zip" | sha256sum -c - \
-						&& unzip /tmp/etcd.zip -d /tmp \
-						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/etcd-${ETCD_VERSION}-darwin-amd64/etcd /tmp/etcd-${ETCD_VERSION}-darwin-amd64/etcdctl ${PKGDIR}/bin/ \
-						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/etcd-${ETCD_VERSION}-darwin-amd64/ \
-						&& rm /tmp/etcd.zip \
-						&& $@ --version; \
-	else \
-		curl -L -o /tmp/etcd.tgz \
-										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
-						&& echo "${ETCD_LINUX_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
-						&& tar --extract \
-										--file /tmp/etcd.tgz \
-										--directory /tmp/ \
-						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${PKGDIR}/bin/ \
-						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
-						&& rm /tmp/etcd.tgz \
-						&& $@ --version; \
-	fi; \
 
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
