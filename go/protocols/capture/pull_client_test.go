@@ -176,28 +176,56 @@ func TestPullClientCancel(t *testing.T) {
 	var server = &testServer{DoneOp: client.NewAsyncOperation()}
 	var conn = AdaptServerToClient(server)
 	var startCommitCh = make(chan error)
-	var ctx, cancelFn = context.WithCancel(context.Background())
 
-	rpc, err := OpenPull(
-		ctx,
-		conn,
-		json.RawMessage(`{"driver":"checkpoint"}`),
-		func(*pf.CaptureSpec_Binding) (pf.Combiner, error) {
-			return new(pf.MockCombiner), nil
-		},
-		pf.NewFullRange(),
-		&spec,
-		"a-version",
-		true,
-		func(err error) { startCommitCh <- err },
-	)
-	require.NoError(t, err)
+	// Cause PullClient to consider a transaction "full" after one document.
+	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
+	combinerByteThreshold = 1
 
-	cancelFn()
+	// Vary the test based on the number of checkpoints pulled before
+	// a cancellation is delivered:
+	// 0: The PullClient is idle and gracefully EOF's when the RPC channel is closed.
+	// 1: The PullClient has a pending transaction and reads RPC channel to closure,
+	//    then fails with ErrContextCancelled.
+	// 2: The PullClient has a pending transaction, reads the second document,
+	//    and stops reading the RPC channel. It fails with ErrContextCancelled.
+	for numDocs := 0; numDocs != 3; numDocs++ {
+		var ctx, cancelFn = context.WithCancel(context.Background())
 
-	// If the PullClient is immediately cancelled without being used,
-	// it should still tear down correctly.
-	require.NoError(t, rpc.Close())
+		rpc, err := OpenPull(
+			ctx,
+			conn,
+			json.RawMessage(`{"driver":"checkpoint"}`),
+			func(*pf.CaptureSpec_Binding) (pf.Combiner, error) {
+				return new(pf.MockCombiner), nil
+			},
+			pf.NewFullRange(),
+			&spec,
+			"a-version",
+			true,
+			func(err error) { startCommitCh <- err },
+		)
+		require.NoError(t, err)
+
+		for i := 0; i != numDocs; i++ {
+			server.sendDocs(0, "one", "two")
+			server.sendCheckpoint(map[string]int{"a": 1})
+		}
+		if numDocs != 0 {
+			require.NoError(t, <-startCommitCh)
+		}
+
+		// If the PullClient is immediately cancelled without being used,
+		// it should still tear down correctly.
+		cancelFn()
+
+		if numDocs == 0 {
+			require.NoError(t, rpc.Close())
+			require.Equal(t, io.EOF, <-startCommitCh)
+		} else {
+			require.Equal(t, context.Canceled, rpc.Close())
+			require.Equal(t, context.Canceled, <-startCommitCh)
+		}
+	}
 }
 
 type testServer struct {
