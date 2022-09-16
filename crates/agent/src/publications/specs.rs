@@ -279,6 +279,18 @@ pub fn validate_transition(
                 // No constraint.
             }
         };
+
+        // Verify that the live specification has not existed and then been deleted in the past.
+        // TODO(johnny): remove once we introduce data plane pet-names.
+        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id   {
+                errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "A specification with this name previously existed and then was deleted. At present Flow does not allow for re-creation with this same name."
+                    ),
+                    ..Default::default()
+                });
+        }
     }
 
     for eob in draft
