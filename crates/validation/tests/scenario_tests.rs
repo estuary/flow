@@ -152,6 +152,34 @@ test://example/int-string:
 }
 
 #[test]
+fn test_invalid_remap_of_default_flow_document() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+# Collection int-string uses the default `flow_document` projection of the root.
+test://example/int-string.schema:
+  type: object
+  properties:
+    flow_document: { type: boolean }
+
+# Collection int-reverse uses a different `Root` projection of the root.
+# We don't expect it to produce an error from an implicit literal
+# `flow_document` property.
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      schema:
+        $ref: test://example/int-string.schema
+        properties:
+          flow_document: { type: boolean }
+      projections:
+        Root: ""
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_invalid_transform_names_and_duplicates() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -522,7 +550,6 @@ test://example/int-string:
         Int: int
         DoubleSlash: /double//slash
         InvalidEscape: /an/esc~ape
-        ValidRootField: ""
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -912,7 +939,7 @@ driver:
           resourcePath: [tar!get, one]
           typeOverride: 98
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
+            Root: { type: 1, reason: "location required" }
             str: { reason: "whoops" }
           resourcePath: [tar!get, two]
           typeOverride: 99
@@ -1193,6 +1220,7 @@ fn test_collection_schema_string() {
 test://example/catalog.yaml:
   import:
     - test://example/string-schema
+
 test://example/string-schema:
   collections:
     testing/string-schema:

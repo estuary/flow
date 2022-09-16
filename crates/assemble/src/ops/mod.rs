@@ -137,6 +137,16 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
             },
         );
     }
+
+    // An explicit projection of the root flow_document is required, see
+    // https://github.com/estuary/flow/issues/653. This is equivalent to the behavior in
+    // creates/sources/src/loader.rs.
+    tables.projections.insert_row(
+        scope.clone(),
+        name.clone(),
+        models::Field::new("flow_document"),
+        models::Projection::Pointer(models::JsonPointer::new("")),
+    )
 }
 
 fn all_top_level_prefixes(tables: &tables::Sources) -> BTreeSet<String> {

@@ -174,7 +174,7 @@ fn walk_projection_with_inference(
     let mut spec = flow::Projection {
         ptr: location.to_string(),
         field: field.to_string(),
-        user_provided: false,
+        explicit: false,
         is_primary_key: collection.spec.key.iter().any(|k| k == location),
         is_partition_key: false,
         inference: Some(assemble::inference(shape, exists)),
@@ -202,7 +202,7 @@ fn walk_projection_with_inference(
             errors,
         );
 
-        spec.user_provided = true;
+        spec.explicit = true;
         spec.is_partition_key = partition;
     }
 

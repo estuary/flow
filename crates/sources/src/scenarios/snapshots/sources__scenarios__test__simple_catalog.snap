@@ -89,6 +89,12 @@ Sources {
             },
         },
         Projection {
+            scope: test://example/catalog.yaml#/collections/a~1collection/projections/flow_document,
+            collection: a/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/catalog.yaml#/collections/a~1collection/projections/foo,
             collection: a/collection,
             field: foo,
