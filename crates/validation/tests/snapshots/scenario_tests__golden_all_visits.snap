@@ -34,7 +34,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "Int",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -42,7 +42,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -55,7 +54,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: true,
                                         is_primary_key: false,
                                         inference: Some(
@@ -63,7 +62,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -76,7 +74,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -84,7 +82,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -97,7 +94,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -105,7 +102,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -118,7 +114,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -126,7 +122,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -335,7 +330,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "Int",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -343,7 +338,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -356,7 +350,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: true,
                                         is_primary_key: false,
                                         inference: Some(
@@ -364,7 +358,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -377,7 +370,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -385,7 +378,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -398,7 +390,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -406,7 +398,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -419,7 +410,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -427,7 +418,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -517,7 +507,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -525,7 +515,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -538,7 +527,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -546,7 +535,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -559,7 +547,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -567,7 +555,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -580,7 +567,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -588,7 +575,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -785,7 +771,7 @@ All {
                     Projection {
                         ptr: "/arr/1/aKey",
                         field: "aKeyOne",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -793,7 +779,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -806,7 +791,7 @@ All {
                     Projection {
                         ptr: "/arr",
                         field: "arr",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -814,7 +799,6 @@ All {
                                 types: [
                                     "array",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -827,7 +811,7 @@ All {
                     Projection {
                         ptr: "/arr/0/aKey",
                         field: "arr/0/aKey",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -835,7 +819,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -848,7 +831,7 @@ All {
                     Projection {
                         ptr: "/arr/1/aKey",
                         field: "arr/1/aKey",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -856,7 +839,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -869,7 +851,7 @@ All {
                     Projection {
                         ptr: "/arr/3/aKey",
                         field: "arr/3/aKey",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -877,7 +859,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -890,7 +871,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -898,7 +879,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -976,7 +956,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -984,7 +964,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -997,7 +976,7 @@ All {
                     Projection {
                         ptr: "/someKey",
                         field: "someKey",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1005,7 +984,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1085,7 +1063,7 @@ All {
                     Projection {
                         ptr: "/extra",
                         field: "Extra",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1093,7 +1071,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: false,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1106,7 +1083,7 @@ All {
                     Projection {
                         ptr: "/len",
                         field: "Len",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: true,
                         is_primary_key: false,
                         inference: Some(
@@ -1114,7 +1091,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1127,7 +1103,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "Root",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1135,7 +1111,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1148,7 +1123,7 @@ All {
                     Projection {
                         ptr: "/arr",
                         field: "arr",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1156,7 +1131,6 @@ All {
                                 types: [
                                     "array",
                                 ],
-                                deprecated_must_exist: false,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1169,7 +1143,7 @@ All {
                     Projection {
                         ptr: "/bit",
                         field: "bit",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1177,7 +1151,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1190,7 +1163,7 @@ All {
                     Projection {
                         ptr: "/extra",
                         field: "extra",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1198,7 +1171,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: false,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1209,30 +1181,9 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "",
-                        field: "flow_document",
-                        user_provided: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                deprecated_must_exist: true,
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                            },
-                        ),
-                    },
-                    Projection {
                         ptr: "/int",
                         field: "int",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1240,7 +1191,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1253,7 +1203,7 @@ All {
                     Projection {
                         ptr: "/len",
                         field: "len",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1261,7 +1211,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1274,7 +1223,7 @@ All {
                     Projection {
                         ptr: "/str",
                         field: "str",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1282,7 +1231,6 @@ All {
                                 types: [
                                     "string",
                                 ],
-                                deprecated_must_exist: true,
                                 string: Some(
                                     String {
                                         content_type: "",
@@ -1373,7 +1321,7 @@ All {
                     Projection {
                         ptr: "/bit",
                         field: "bit",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1381,7 +1329,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1394,7 +1341,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1402,7 +1349,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1415,7 +1361,7 @@ All {
                     Projection {
                         ptr: "/int",
                         field: "int",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1423,7 +1369,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1436,7 +1381,7 @@ All {
                     Projection {
                         ptr: "/str",
                         field: "str",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1444,7 +1389,6 @@ All {
                                 types: [
                                     "string",
                                 ],
-                                deprecated_must_exist: true,
                                 string: Some(
                                     String {
                                         content_type: "",
@@ -1532,7 +1476,7 @@ All {
                     Projection {
                         ptr: "/int",
                         field: "Int",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1540,7 +1484,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1553,7 +1496,7 @@ All {
                     Projection {
                         ptr: "/bit",
                         field: "bit",
-                        user_provided: true,
+                        explicit: true,
                         is_partition_key: true,
                         is_primary_key: false,
                         inference: Some(
@@ -1561,7 +1504,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1574,7 +1516,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1582,7 +1524,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1595,7 +1536,7 @@ All {
                     Projection {
                         ptr: "/int",
                         field: "int",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1603,7 +1544,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1616,7 +1556,7 @@ All {
                     Projection {
                         ptr: "/str",
                         field: "str",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1624,7 +1564,6 @@ All {
                                 types: [
                                     "string",
                                 ],
-                                deprecated_must_exist: true,
                                 string: Some(
                                     String {
                                         content_type: "",
@@ -1710,7 +1649,7 @@ All {
                     Projection {
                         ptr: "/bit",
                         field: "bit",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1718,7 +1657,6 @@ All {
                                 types: [
                                     "boolean",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1731,7 +1669,7 @@ All {
                     Projection {
                         ptr: "",
                         field: "flow_document",
-                        user_provided: false,
+                        explicit: true,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1739,7 +1677,6 @@ All {
                                 types: [
                                     "object",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1752,7 +1689,7 @@ All {
                     Projection {
                         ptr: "/int",
                         field: "int",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: true,
                         inference: Some(
@@ -1760,7 +1697,6 @@ All {
                                 types: [
                                     "integer",
                                 ],
-                                deprecated_must_exist: true,
                                 string: None,
                                 title: "",
                                 description: "",
@@ -1773,7 +1709,7 @@ All {
                     Projection {
                         ptr: "/str",
                         field: "str",
-                        user_provided: false,
+                        explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
                         inference: Some(
@@ -1781,7 +1717,6 @@ All {
                                 types: [
                                     "string",
                                 ],
-                                deprecated_must_exist: true,
                                 string: Some(
                                     String {
                                         content_type: "",
@@ -1871,7 +1806,7 @@ All {
                             Projection {
                                 ptr: "",
                                 field: "flow_document",
-                                user_provided: false,
+                                explicit: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -1879,7 +1814,6 @@ All {
                                         types: [
                                             "object",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -1892,7 +1826,7 @@ All {
                             Projection {
                                 ptr: "/someKey",
                                 field: "someKey",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: true,
                                 inference: Some(
@@ -1900,7 +1834,6 @@ All {
                                         types: [
                                             "integer",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2191,7 +2124,7 @@ All {
                             Projection {
                                 ptr: "/extra",
                                 field: "Extra",
-                                user_provided: true,
+                                explicit: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2199,7 +2132,6 @@ All {
                                         types: [
                                             "boolean",
                                         ],
-                                        deprecated_must_exist: false,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2212,7 +2144,7 @@ All {
                             Projection {
                                 ptr: "/len",
                                 field: "Len",
-                                user_provided: true,
+                                explicit: true,
                                 is_partition_key: true,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2220,7 +2152,6 @@ All {
                                         types: [
                                             "integer",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2233,7 +2164,7 @@ All {
                             Projection {
                                 ptr: "",
                                 field: "Root",
-                                user_provided: true,
+                                explicit: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2241,7 +2172,6 @@ All {
                                         types: [
                                             "object",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2254,7 +2184,7 @@ All {
                             Projection {
                                 ptr: "/arr",
                                 field: "arr",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2262,7 +2192,6 @@ All {
                                         types: [
                                             "array",
                                         ],
-                                        deprecated_must_exist: false,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2275,7 +2204,7 @@ All {
                             Projection {
                                 ptr: "/bit",
                                 field: "bit",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2283,7 +2212,6 @@ All {
                                         types: [
                                             "boolean",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2296,7 +2224,7 @@ All {
                             Projection {
                                 ptr: "/extra",
                                 field: "extra",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2304,7 +2232,6 @@ All {
                                         types: [
                                             "boolean",
                                         ],
-                                        deprecated_must_exist: false,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2315,30 +2242,9 @@ All {
                                 ),
                             },
                             Projection {
-                                ptr: "",
-                                field: "flow_document",
-                                user_provided: false,
-                                is_partition_key: false,
-                                is_primary_key: false,
-                                inference: Some(
-                                    Inference {
-                                        types: [
-                                            "object",
-                                        ],
-                                        deprecated_must_exist: true,
-                                        string: None,
-                                        title: "",
-                                        description: "",
-                                        default_json: "",
-                                        secret: false,
-                                        exists: Must,
-                                    },
-                                ),
-                            },
-                            Projection {
                                 ptr: "/int",
                                 field: "int",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: true,
                                 inference: Some(
@@ -2346,7 +2252,6 @@ All {
                                         types: [
                                             "integer",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2359,7 +2264,7 @@ All {
                             Projection {
                                 ptr: "/len",
                                 field: "len",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2367,7 +2272,6 @@ All {
                                         types: [
                                             "integer",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2380,7 +2284,7 @@ All {
                             Projection {
                                 ptr: "/str",
                                 field: "str",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2388,7 +2292,6 @@ All {
                                         types: [
                                             "string",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: Some(
                                             String {
                                                 content_type: "",
@@ -2701,7 +2604,7 @@ All {
                             Projection {
                                 ptr: "/bit",
                                 field: "bit",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2709,7 +2612,6 @@ All {
                                         types: [
                                             "boolean",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2722,7 +2624,7 @@ All {
                             Projection {
                                 ptr: "",
                                 field: "flow_document",
-                                user_provided: false,
+                                explicit: true,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2730,7 +2632,6 @@ All {
                                         types: [
                                             "object",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2743,7 +2644,7 @@ All {
                             Projection {
                                 ptr: "/int",
                                 field: "int",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: true,
                                 inference: Some(
@@ -2751,7 +2652,6 @@ All {
                                         types: [
                                             "integer",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: None,
                                         title: "",
                                         description: "",
@@ -2764,7 +2664,7 @@ All {
                             Projection {
                                 ptr: "/str",
                                 field: "str",
-                                user_provided: false,
+                                explicit: false,
                                 is_partition_key: false,
                                 is_primary_key: false,
                                 inference: Some(
@@ -2772,7 +2672,6 @@ All {
                                         types: [
                                             "string",
                                         ],
-                                        deprecated_must_exist: true,
                                         string: Some(
                                             String {
                                                 content_type: "",
@@ -3033,7 +2932,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "Int",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -3041,7 +2940,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3054,7 +2952,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: true,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3062,7 +2960,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3075,7 +2972,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3083,7 +2980,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3096,7 +2992,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -3104,7 +3000,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3117,7 +3012,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3125,7 +3020,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -3380,7 +3274,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "Int",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -3388,7 +3282,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3401,7 +3294,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: true,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3409,7 +3302,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3422,7 +3314,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "flow_document",
-                                        user_provided: false,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3430,7 +3322,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3443,7 +3334,7 @@ All {
                                     Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -3451,7 +3342,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3464,7 +3354,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3472,7 +3362,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -3622,7 +3511,7 @@ All {
                                     Projection {
                                         ptr: "/extra",
                                         field: "Extra",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3630,7 +3519,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: false,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3643,7 +3531,7 @@ All {
                                     Projection {
                                         ptr: "/len",
                                         field: "Len",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: true,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3651,7 +3539,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3664,7 +3551,7 @@ All {
                                     Projection {
                                         ptr: "",
                                         field: "Root",
-                                        user_provided: true,
+                                        explicit: true,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3672,7 +3559,6 @@ All {
                                                 types: [
                                                     "object",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3685,7 +3571,7 @@ All {
                                     Projection {
                                         ptr: "/arr",
                                         field: "arr",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3693,7 +3579,6 @@ All {
                                                 types: [
                                                     "array",
                                                 ],
-                                                deprecated_must_exist: false,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3706,7 +3591,7 @@ All {
                                     Projection {
                                         ptr: "/bit",
                                         field: "bit",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3714,7 +3599,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3727,7 +3611,7 @@ All {
                                     Projection {
                                         ptr: "/extra",
                                         field: "extra",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3735,7 +3619,6 @@ All {
                                                 types: [
                                                     "boolean",
                                                 ],
-                                                deprecated_must_exist: false,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3746,30 +3629,9 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "",
-                                        field: "flow_document",
-                                        user_provided: false,
-                                        is_partition_key: false,
-                                        is_primary_key: false,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "object",
-                                                ],
-                                                deprecated_must_exist: true,
-                                                string: None,
-                                                title: "",
-                                                description: "",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
-                                            },
-                                        ),
-                                    },
-                                    Projection {
                                         ptr: "/int",
                                         field: "int",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: true,
                                         inference: Some(
@@ -3777,7 +3639,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3790,7 +3651,7 @@ All {
                                     Projection {
                                         ptr: "/len",
                                         field: "len",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3798,7 +3659,6 @@ All {
                                                 types: [
                                                     "integer",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: None,
                                                 title: "",
                                                 description: "",
@@ -3811,7 +3671,7 @@ All {
                                     Projection {
                                         ptr: "/str",
                                         field: "str",
-                                        user_provided: false,
+                                        explicit: false,
                                         is_partition_key: false,
                                         is_primary_key: false,
                                         inference: Some(
@@ -3819,7 +3679,6 @@ All {
                                                 types: [
                                                     "string",
                                                 ],
-                                                deprecated_must_exist: true,
                                                 string: Some(
                                                     String {
                                                         content_type: "",
@@ -4606,7 +4465,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4622,7 +4480,6 @@ All {
                 types: [
                     "array",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4638,7 +4495,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4654,7 +4510,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4670,7 +4525,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4691,7 +4545,6 @@ All {
                     "object",
                     "string",
                 ],
-                deprecated_must_exist: true,
                 string: Some(
                     String {
                         content_type: "",
@@ -4715,7 +4568,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4731,7 +4583,6 @@ All {
                 types: [
                     "array",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4747,7 +4598,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4763,7 +4613,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4779,7 +4628,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4795,7 +4643,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4816,7 +4663,6 @@ All {
                     "object",
                     "string",
                 ],
-                deprecated_must_exist: true,
                 string: Some(
                     String {
                         content_type: "",
@@ -4840,7 +4686,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4856,7 +4701,6 @@ All {
                 types: [
                     "array",
                 ],
-                deprecated_must_exist: false,
                 string: None,
                 title: "",
                 description: "",
@@ -4872,7 +4716,6 @@ All {
                 types: [
                     "boolean",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4888,7 +4731,6 @@ All {
                 types: [
                     "boolean",
                 ],
-                deprecated_must_exist: false,
                 string: None,
                 title: "",
                 description: "",
@@ -4904,7 +4746,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4920,7 +4761,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4936,7 +4776,6 @@ All {
                 types: [
                     "string",
                 ],
-                deprecated_must_exist: true,
                 string: Some(
                     String {
                         content_type: "",
@@ -4960,7 +4799,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4976,7 +4814,6 @@ All {
                 types: [
                     "boolean",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -4992,7 +4829,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -5008,7 +4844,6 @@ All {
                 types: [
                     "string",
                 ],
-                deprecated_must_exist: true,
                 string: Some(
                     String {
                         content_type: "",
@@ -5032,7 +4867,6 @@ All {
                 types: [
                     "object",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -5048,7 +4882,6 @@ All {
                 types: [
                     "boolean",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -5064,7 +4897,6 @@ All {
                 types: [
                     "integer",
                 ],
-                deprecated_must_exist: true,
                 string: None,
                 title: "",
                 description: "",
@@ -5080,7 +4912,6 @@ All {
                 types: [
                     "string",
                 ],
-                deprecated_must_exist: true,
                 string: Some(
                     String {
                         content_type: "",
@@ -5212,6 +5043,18 @@ All {
             spec: "/arr/1/aKey",
         },
         Projection {
+            scope: test://example/array-key#/collections/testing~1array-key/projections/flow_document,
+            collection: testing/array-key,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/from-array-key#/collections/testing~1from-array-key/projections/flow_document,
+            collection: testing/from-array-key,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,
             collection: testing/int-halve,
             field: Extra,
@@ -5233,6 +5076,12 @@ All {
             spec: "",
         },
         Projection {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse/projections/flow_document,
+            collection: testing/int-reverse,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
             collection: testing/int-string,
             field: Int,
@@ -5246,6 +5095,18 @@ All {
               "location": "/bit",
               "partition": true
             },
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string/projections/flow_document,
+            collection: testing/int-string,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string.v2/projections/flow_document,
+            collection: testing/int-string.v2,
+            field: flow_document,
+            spec: "",
         },
     ],
     resources: [

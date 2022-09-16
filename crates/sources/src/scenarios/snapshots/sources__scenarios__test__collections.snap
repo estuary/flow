@@ -84,6 +84,18 @@ Sources {
               "partition": false
             },
         },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection/projections/flow_document,
+            collection: test/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/projections/flow_document,
+            collection: test/collection/with-journals,
+            field: flow_document,
+            spec: "",
+        },
     ],
     resources: [
         Resource {

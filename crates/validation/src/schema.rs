@@ -276,14 +276,8 @@ pub fn walk_all_schema_refs<'a>(
             })
             // Generate a canonical projection field for each location.
             .map(|(ptr, shape, exists)| {
-                let field = if ptr.is_empty() {
-                    "flow_document".to_string()
-                } else {
-                    // Canonical projection field is the JSON pointer
-                    // stripped of its leading '/'.
-                    ptr.chars().skip(1).collect::<String>()
-                };
-
+                // Canonical projection field is the JSON pointer stripped of its leading '/'.
+                let field = ptr.chars().skip(1).collect::<String>();
                 (field, models::JsonPointer::new(ptr), shape, exists)
             })
             // Re-order to walk in ascending field name order.
@@ -296,7 +290,10 @@ pub fn walk_all_schema_refs<'a>(
         for (field, ptr, shape, exists) in merged {
             // Note we're already ordered on |field|.
             inferences.insert_row(schema, &ptr, assemble::inference(shape, exists));
-            fields.push((field, ptr));
+
+            if !field.is_empty() {
+                fields.push((field, ptr));
+            }
         }
 
         schema_shapes.push(Shape {
@@ -339,9 +336,10 @@ pub fn walk_composite_key(
 ) {
     for ptr in key.iter() {
         // An explicit field should be attached to the schema shape
-        // for every composite key component pointer we encounter.
+        // for every composite key component pointer we encounter...
+        // with the exception of the document root.
         assert!(
-            schema.fields.iter().find(|(_, p)| p == ptr).is_some(),
+            schema.fields.iter().find(|(_, p)| p == ptr).is_some() || ptr.is_empty(),
             "scope {} key {} not found in schema {}",
             scope.to_string(),
             ptr.as_str(),

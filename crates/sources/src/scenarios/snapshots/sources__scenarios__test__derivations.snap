@@ -192,7 +192,26 @@ Sources {
             version: ~v2,
         },
     ],
-    projections: [],
+    projections: [
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d1~1collection/projections/flow_document,
+            collection: d1/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d2~1collection/projections/flow_document,
+            collection: d2/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/projections/flow_document,
+            collection: d3/collection,
+            field: flow_document,
+            spec: "",
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/a-schema.json,

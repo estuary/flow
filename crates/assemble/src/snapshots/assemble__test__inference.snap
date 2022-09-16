@@ -8,7 +8,6 @@ expression: "&[out1, out2]"
             "boolean",
             "string",
         ],
-        deprecated_must_exist: true,
         string: Some(
             String {
                 content_type: "a/type",
@@ -28,7 +27,6 @@ expression: "&[out1, out2]"
         types: [
             "boolean",
         ],
-        deprecated_must_exist: false,
         string: None,
         title: "the title",
         description: "the description",

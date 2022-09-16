@@ -38,7 +38,6 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 
     flow::Inference {
         types: shape.type_.to_vec(),
-        deprecated_must_exist: matches!(exists, flow::inference::Exists::Must),
         exists: exists as i32,
         title: shape.title.clone().unwrap_or_default(),
         description: shape.description.clone().unwrap_or_default(),
