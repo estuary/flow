@@ -28,7 +28,7 @@ pub struct Reader {
     journal: String,
     write_head: i64,
     current_offset: i64,
-    response_stream: Streaming<broker::ReadResponse>,
+    response_stream: Option<Streaming<broker::ReadResponse>>,
     current_content: Option<Content>,
     current_fragment_metadata: Option<broker::Fragment>,
 }
@@ -43,22 +43,48 @@ impl Reader {
             journal,
             write_head: 0,
             current_offset: start_offset,
-            response_stream: stream,
+            response_stream: Some(stream),
             current_content: None,
             current_fragment_metadata: None,
         }
     }
 
+    /// Returns metadata on the fragment that's currently being read by the reader.
     pub fn current_fragment(&self) -> Option<&broker::Fragment> {
         self.current_fragment_metadata.as_ref()
     }
 
+    /// Returns the current write head of the journal, or 0 if unknown.
     pub fn write_head(&self) -> i64 {
         self.write_head
     }
 
+    /// Returns the current read offset within the journal, accounting for the bytes that have been read so far.
+    /// Note that this offset may jump forward if there are gaps in journal content caused by deleted fragment files.
     pub fn current_offset(&self) -> i64 {
         self.current_offset
+    }
+
+    /// When reading directly from fragment files, we expect a single fragment url before the response stream closes.
+    /// This function just reads the remaining messages from the stream. This should normally just observe the end of
+    // the stream and then move on.
+    fn poll_response_stream_drained(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<io::Result<()>> {
+        if let Some(s) = self.response_stream.as_mut() {
+            if let Some(result) = ready!(Pin::new(s).poll_next(cx)) {
+                let msg = async_try!(result.map_err(io_err));
+                check_status(&msg).map_err(io_err)?;
+                tracing::warn!(ignored = ?msg, "ignoring response because response stream is being drained pending direct fragment read");
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            } else {
+                tracing::debug!(journal = %self.journal, "end of read response stream");
+            }
+        }
+        self.response_stream.take();
+        return Poll::Ready(Ok(()));
     }
 }
 
@@ -68,6 +94,20 @@ impl AsyncRead for Reader {
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        // If we're going to read a fragment directly, then we need to first
+        // read the response stream to completion. This is so that we don't hold open an
+        // idle grpc streaming response while reading the fragment, since it could take
+        // a while.
+        if self
+            .current_content
+            .as_ref()
+            .map(Content::is_fragment)
+            .unwrap_or_default()
+            && self.response_stream.is_some()
+        {
+            ready!(self.poll_response_stream_drained(cx))?;
+        }
+
         let res = self
             .current_content
             .as_mut()
@@ -80,7 +120,7 @@ impl AsyncRead for Reader {
                 self.current_content.take();
             }
             Some(Poll::Ready(Ok(n))) => {
-                tracing::debug!(current_offset = %self.current_offset, n = %n, "read bytes from raw reader");
+                tracing::trace!(current_offset = %self.current_offset, n = %n, "read bytes from raw reader");
                 self.current_offset += n as i64;
                 return Poll::Ready(Ok(n));
             }
@@ -89,7 +129,11 @@ impl AsyncRead for Reader {
         };
 
         // We need to read another response
-        let next_result = ready!(Pin::new(&mut self.response_stream).poll_next(cx));
+        let next_result = if let Some(stream) = self.response_stream.as_mut() {
+            ready!(Pin::new(stream).poll_next(cx))
+        } else {
+            None
+        };
         if let Some(result) = next_result {
             let mut resp = async_try!(result.map_err(io_err));
             async_try!(check_status(&resp).map_err(io_err));
@@ -114,9 +158,10 @@ impl AsyncRead for Reader {
             // is perfectly acceptable). So we'll update our current_offset to the one from the
             // response. It's worth logger, though, because it ought to be very rare.
             if resp.offset > self.current_offset {
-                // TODO: I think maybe the Go client returns an error in this case, and expects the
-                // caller to restart a new read with the corrected offset. Dunno if that's
-                // important.
+                // The Go client returns an error in this case, and expects the caller to restart
+                // a new read with the corrected offset. While that behavior may or may not be important
+                // for Go use cases, it's not important for the Rust client at this time, so we're just
+                // logging and moving on.
                 tracing::info!(prev_offset = self.current_offset, next_offset = resp.offset, journal = %self.journal, "gap in journal offset");
                 self.current_offset = resp.offset;
             }
@@ -134,7 +179,7 @@ impl AsyncRead for Reader {
                     ))));
                 }
             } else if !resp.content.is_empty() {
-                tracing::debug!(nbytes = resp.content.len(), "got content for journal");
+                tracing::trace!(nbytes = resp.content.len(), "got content for journal");
                 self.current_content = Some(Content::Resp(Cursor::new(resp.content)));
             } else {
                 // This was a metadata-only message
@@ -162,6 +207,15 @@ fn check_status(resp: &broker::ReadResponse) -> Result<(), Error> {
 enum Content {
     Resp(Cursor<Vec<u8>>),
     Fragment(FragmentReader),
+}
+
+impl Content {
+    fn is_fragment(&self) -> bool {
+        match self {
+            Content::Fragment(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl futures::io::AsyncRead for Content {
