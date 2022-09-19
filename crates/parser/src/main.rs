@@ -4,20 +4,20 @@ use std::io;
 use std::mem::ManuallyDrop;
 use std::ops::DerefMut;
 use std::os::unix::io::FromRawFd;
-use structopt::StructOpt;
+use clap::Parser;
 
 /// parser is a program that parses a variety of formats and emits records in jsonl format.
 /// Data can be passed either as a
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 pub struct Args {
-    #[structopt(long, global = true, default_value = "warn", env = "PARSER_LOG")]
+    #[clap(long, global = true, default_value = "warn", env = "PARSER_LOG")]
     pub log: String,
 
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     pub command: Command,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, clap::Subcommand)]
 pub enum Command {
     /// Parse the given `--file` (stdin by default) and print the parsed records in jsonl format.
     Parse(ParseArgs),
@@ -25,11 +25,11 @@ pub enum Command {
     Spec,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, clap::Args)]
 pub struct ParseArgs {
     /// Path to the configuration file to use for the parse operation. Run the `spec` subcommand to
     /// see the JSON schema of the config file, which includes descriptions of all the fields.
-    #[structopt(long = "config-file", env = "PARSE_CONFIG_FILE")]
+    #[clap(long = "config-file", env = "PARSE_CONFIG_FILE")]
     pub config_file: Option<String>,
 
     /// Path to a file with the data to parse. Defaults to '-', which represents stdin.
@@ -38,12 +38,12 @@ pub struct ParseArgs {
     /// able to seek around the file. This option enables those files to be passed as files, which
     /// allows the parser to avoid duplicating the work of writing the stream to a temporary file.
     /// Note that that's not actually implemented yet, but that's the intent of this option.
-    #[structopt(long = "file", default_value = "-")]
+    #[clap(long = "file", default_value = "-")]
     pub file: String,
 }
 
 fn main() {
-    let args = Args::from_args();
+    let args = Args::parse();
 
     // Logs are written to stderr in jsonl format. This format is very compatible with Flow's log
     // parsing, which means that they will get forwarded with the proper level and will retain the
