@@ -13,6 +13,7 @@ flow_cli_common = { path = "../flow_cli_common" }
 network-tunnel = { path = "../network-tunnel", version = "0.1.0" }
 proto-flow = { path = "../proto-flow", version = "0.0.0" }
 
+anyhow = "*"
 async-trait = "*"
 bytelines = "*"
 byteorder = "*"

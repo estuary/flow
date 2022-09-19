@@ -12,7 +12,7 @@ pub enum Error {
     #[error("go.estuary.dev/E002: Failed to execute command: {0}")]
     CommandExecutionError(String),
 
-    #[error("go.estuary.dev/E003: \"{0}\" key already exists in connector's endpoint specification schema, unable to add this key to the endpoint specification schema")]
+    #[error("go.estuary.dev/E003: {0:?} key already exists in connector's endpoint specification schema, unable to add this key to the endpoint specification schema")]
     DuplicatedKeyError(&'static str),
 
     #[error("go.estuary.dev/E004: Unable to find the entrypoint of the connector's container. Please make sure your container defines a valid entrypoint")]
@@ -27,28 +27,28 @@ pub enum Error {
     #[error("go.estuary.dev/E007: The connector's protocol does not match the requested protocol. Connector protocol is {0}, requested protocol is {1}")]
     MismatchingRuntimeProtocol(String, &'static str),
 
-    #[error("go.estuary.dev/E008: IO Error: {0}")]
+    #[error("go.estuary.dev/E008: IO Error")]
     IOError(#[from] std::io::Error),
 
-    #[error("go.estuary.dev/E009: Json Error: {0}")]
+    #[error("go.estuary.dev/E009: Json Error")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("go.estuary.dev/E010: Decoding protobuf RPC messages: {0}")]
+    #[error("go.estuary.dev/E010: Decoding protobuf RPC messages")]
     MessageDecodeError(#[from] prost::DecodeError),
 
-    #[error("go.estuary.dev/E010: Encoding protobuf RPC messages: {0}")]
+    #[error("go.estuary.dev/E010: Encoding protobuf RPC messages")]
     MessageEncodeError(#[from] prost::EncodeError),
 
     #[error("go.estuary.dev/E011: Missing required image inspect file. Specify it via --image-inspect-json-path in command line")]
     MissingImageInspectFile,
 
-    #[error("go.estuary.dev/E012: Network Tunnel: {0}")]
+    #[error("go.estuary.dev/E012: Network Tunnel")]
     NetworkTunnelError(#[from] network_tunnel::errors::Error),
 
-    #[error("go.estuary.dev/E013: Creating and persisting temporary file: {0}")]
+    #[error("go.estuary.dev/E013: Creating and persisting temporary file")]
     TempfilePersistError(#[from] tempfile::PersistError),
 
-    #[error("go.estuary.dev/E014: Executing and joining a concurrent task failed: {0}")]
+    #[error("go.estuary.dev/E014: Executing and joining a concurrent task failed")]
     TokioTaskExecutionError(#[from] tokio::task::JoinError),
 
     #[error("go.estuary.dev/E015: Airbyte connector's pending checkpoint was not committed, this can happen if the connector exits abruptly")]
