@@ -75,7 +75,7 @@ static DEFAULT_CONNECTOR_ENTRYPOINT: &str = "/connector/connector";
 //    functionalities to be triggered during the communications.
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let Args {
         image_inspect_json_path,
         proxy_command,
@@ -86,17 +86,12 @@ async fn main() {
     let result = async_main(image_inspect_json_path, proxy_command).await;
 
     match result {
-        Err(Error::CommandExecutionError(_)) => {
-            // This error summarizes an error of a child process.
-            // As its stderr is passed through, we don't log its failure again here.
-            std::process::exit(1);
-        }
         Err(err) => {
-            tracing::error!(error = ?err, message = "connector-proxy failed");
-            std::process::exit(1);
+            Err(err.into())
         }
         Ok(()) => {
             tracing::info!(message = "connector-proxy exiting");
+            Ok(())
         }
     }
 }
