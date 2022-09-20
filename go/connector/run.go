@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"syscall"
 
 	"github.com/estuary/flow/go/flow/ops"
-	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 )
@@ -26,17 +26,7 @@ const (
 	Materialize
 )
 
-// proxyCommand returns a ProxyCommand of crates/connector_proxy/src/main.rs
-func (c Protocol) proxyCommand() string {
-	switch c {
-	case Capture:
-		return "proxy-flow-capture"
-	case Materialize:
-		return "proxy-flow-materialize"
-	default:
-		panic(fmt.Sprintf("go.estuary.dev/E100: unexpected protocol %v", c))
-	}
-}
+const DockerHostInternal = "host.docker.internal"
 
 // Run the given Docker |image| with |args|.
 //
@@ -66,34 +56,24 @@ func Run(
 	output io.WriteCloser,
 	logger ops.Logger,
 ) error {
-	var tmpProxy, tmpInspect *os.File
-
-	// Copy `flowConnectorProxy` binary to $TMPDIR, from where it may be
-	// mounted into the connector.
-	if rPath, err := pkgbin.Locate(flowConnectorProxy); err != nil {
-		return fmt.Errorf("go.estuary.dev/E101: finding %q binary: %w", flowConnectorProxy, err)
-	} else if r, err := os.Open(rPath); err != nil {
-		return fmt.Errorf("go.estuary.dev/E102: opening %s: %w", rPath, err)
-	} else if tmpProxy, err = copyToTempFile(r, 0555); err != nil {
-		return fmt.Errorf("go.estuary.dev/E103: copying %s to tmpfile: %w", rPath, err)
-	}
-	defer os.Remove(tmpProxy.Name())
-
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return err
-	} else if out, err := InspectImage(ctx, image); err != nil {
-		return err
-	} else if tmpInspect, err = copyToTempFile(bytes.NewReader(out), 0444); err != nil {
-		return fmt.Errorf("go.estuary.dev/E104: writing image inspect output: %w", err)
 	}
-	defer os.Remove(tmpInspect.Name())
 
 	// If `networkName` is undefined, use an explicit of "bridge".
 	// This is docker run's default behavior if --network is not provided.
 	if networkName == "" {
 		networkName = "bridge"
 	}
+
+	// By leaving the port empty, a port is automatically assigned
+	var socketAddr = "127.0.0.1:"
+	socket, err := net.Listen("tcp", socketAddr)
+	if err != nil {
+		return fmt.Errorf("listen error: %w", err)
+	}
+	defer socket.Close()
 
 	var imageArgs = []string{
 		"docker",
@@ -118,17 +98,11 @@ func Run(
 		"--log-driver", "none",
 		// Network to which the container should attach.
 		"--network", networkName,
-		// The entrypoint into a connector is always `flow-connector-proxy`,
-		// which will delegate to the actual entrypoint of the connector.
-		"--entrypoint", "/flow-connector-proxy",
-		// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
-		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
-		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+		// Add a special host record on the container which points to the host, this allows
+		// the container to use the TCP server started by this process
+		"--add-host", fmt.Sprintf("%s:host-gateway", DockerHostInternal),
 		image,
-		// Arguments following `image` are arguments of the connector proxy and not of docker:
-		"--image-inspect-json-path=/image-inspect.json",
 		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
-		protocol.proxyCommand(),
 	}
 
 	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
@@ -136,7 +110,7 @@ func Run(
 		"operation":        strings.Join(args, " "),
 	})
 
-	return runCommand(ctx, append(imageArgs, args...), writeLoop, output, logger)
+	return runCommand(ctx, append(imageArgs, args...), socket, writeLoop, output, logger)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -149,6 +123,7 @@ func Run(
 func runCommand(
 	ctx context.Context,
 	args []string,
+	socket net.Listener,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
@@ -167,22 +142,10 @@ func runCommand(
 	var cmd = exec.Command(args[0], args[1:]...)
 	var fe = new(firstError)
 
-	// Copy |writeLoop| into connector stdin.
-	wc, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("StdinPipe: %w", err)
-	}
-	go func() {
-		defer wc.Close()
-		fe.onError(writeLoop(wc))
-	}()
-
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
-
-	// Decode and forward connector stdout to |output|, but intercept a
+	// Decode and forward connector output from socket to |output|, but intercept a
 	// returned error to cancel our context and report through |fe|.
 	// If we didn't cancel, then the connector would run indefinitely.
-	cmd.Stdout = &writeErrInterceptor{
+	var outputInterceptor = &writeErrInterceptor{
 		delegate: output,
 		onError: func(err error) error {
 			fe.onError(err)
@@ -190,6 +153,44 @@ func runCommand(
 			return err
 		},
 	}
+
+	// Routine waiting for a connection from connector to be established to start
+	// streaming input/output
+	var conn net.Conn
+	go func() {
+		// Accept connection on the socket
+		var err error
+		conn, err = socket.Accept()
+		if err != nil {
+			fe.onError(fmt.Errorf("accepting connection from socket: %w", err))
+			return
+		}
+
+		// Copy |writeLoop| into socket
+		go func() {
+			fe.onError(writeLoop(conn))
+		}()
+
+		// Read from socket connection and delegate to output through the error interceptor
+		go func() {
+			var _, err = io.Copy(outputInterceptor, conn)
+			fe.onError(err)
+		}()
+	}()
+
+	// Give ready signal to connector, specifying the socket type and address
+	cmdStdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("StdinPipe: %w", err)
+	}
+	_, port, err := net.SplitHostPort(socket.Addr().String())
+	if err != nil {
+		return fmt.Errorf("splitting socket address: %w", err)
+	}
+	cmdStdin.Write([]byte(fmt.Sprintf("tcp %s:%s\n", DockerHostInternal, port)))
+
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
+
 	cmd.Stderr = &connectorStderr{delegate: stderrForwarder}
 
 	logger.Log(logrus.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
@@ -209,22 +210,23 @@ func runCommand(
 		}
 	}(cmd.Process.Signal)
 
-	err = cmd.Wait()
-	var closeErr = cmd.Stdout.(io.Closer).Close()
-	// Ignore error on closing stderr because it's already logged by the forwarder
+	var waitErr = cmd.Wait()
+	if waitErr != nil {
+		if ctx.Err() == nil {
+			// Expect a clean exit if the context wasn't cancelled.
+			// Log the raw error, since we've already logged everything that was printed to stderr.
+			logger.Log(logrus.ErrorLevel, logrus.Fields{"error": waitErr}, "connector failed")
+			fe.onError(fmt.Errorf("go.estuary.dev/E116: connector failed, with error: %w\nwith stderr:\n\n%s",
+				waitErr, cmd.Stderr.(*connectorStderr).buffer.String()))
+		} else {
+			fe.onError(ctx.Err())
+		}
+	}
 	_ = stderrForwarder.Close()
 
-	if err == nil {
-		// Expect clean output after a clean exit, regardless of cancellation status.
+	var closeErr = conn.Close()
+	if closeErr != nil {
 		fe.onError(closeErr)
-	} else if ctx.Err() == nil {
-		// Expect a clean exit if the context wasn't cancelled.
-		// Log the raw error, since we've already logged everything that was printed to stderr.
-		logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
-		fe.onError(fmt.Errorf("go.estuary.dev/E116: connector failed, with error: %w\nwith stderr:\n\n%s",
-			err, cmd.Stderr.(*connectorStderr).buffer.String()))
-	} else {
-		fe.onError(ctx.Err())
 	}
 
 	logger.Log(logrus.InfoLevel, logrus.Fields{
