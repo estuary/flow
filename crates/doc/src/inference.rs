@@ -1168,34 +1168,46 @@ impl Shape {
             ),
 
             Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
-                if let Some(property) = self.object.properties.iter().find(|p| p.name == property) {
-                    let exists = if self.type_ == types::OBJECT && property.is_required {
-                        // A property must exist iff this location can _only_ be an object,
-                        // and it's marked as a required property.
-                        Exists::Must
-                    } else {
-                        Exists::May
-                    };
+                self.obj_property_location(property)
+            }
 
-                    (&property.shape, exists)
-                } else if let Some(pattern) = self
-                    .object
-                    .patterns
-                    .iter()
-                    .find(|p| regex_matches(&p.re, property))
-                {
-                    (&pattern.shape, Exists::May)
-                } else if let Some(addl) = &self.object.additional {
-                    (addl.as_ref(), Exists::May)
-                } else {
-                    (&SENTINEL_SHAPE, Exists::Implicit)
-                }
+            Token::Index(index) if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location(&index.to_string())
+            }
+
+            Token::NextIndex if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location("-")
             }
 
             // Match arms for cases where types don't overlap.
             Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
+        }
+    }
+
+    fn obj_property_location(&self, prop: &str) -> (&Shape, Exists) {
+        if let Some(property) = self.object.properties.iter().find(|p| p.name == prop) {
+            let exists = if self.type_ == types::OBJECT && property.is_required {
+                // A property must exist iff this location can _only_ be an object,
+                // and it's marked as a required property.
+                Exists::Must
+            } else {
+                Exists::May
+            };
+
+            (&property.shape, exists)
+        } else if let Some(pattern) = self
+            .object
+            .patterns
+            .iter()
+            .find(|p| regex_matches(&p.re, prop))
+        {
+            (&pattern.shape, Exists::May)
+        } else if let Some(addl) = &self.object.additional {
+            (addl.as_ref(), Exists::May)
+        } else {
+            (&SENTINEL_SHAPE, Exists::Implicit)
         }
     }
 
@@ -2152,7 +2164,16 @@ mod test {
                 properties:
                     child: {const: multi-type-child}
                 required: [child]
-        required: [parent]
+            1:
+                type: object
+                properties:
+                    -:
+                        type: object
+                        properties:
+                            2: { const: int-prop }
+                        required: ["2"]
+                required: ["-"]
+        required: [parent, "1"]
 
         patternProperties:
             pattern+: {const: pattern}
@@ -2178,6 +2199,7 @@ mod test {
         );
 
         let cases = &[
+            (&obj, "/1/-/2", ("int-prop", Exists::Must)),
             (&obj, "/prop", ("prop", Exists::May)),
             (&obj, "/missing", ("addl-prop", Exists::May)),
             (&obj, "/parent/opt-child", ("opt-child", Exists::May)),
@@ -2187,8 +2209,8 @@ mod test {
             (&obj, "/parent/impossible", ("<missing>", Exists::Cannot)),
             (&obj, "/pattern", ("pattern", Exists::May)),
             (&obj, "/patternnnnnn", ("pattern", Exists::May)),
-            (&obj, "/123", ("<missing>", Exists::Cannot)),
-            (&obj, "/-", ("<missing>", Exists::Cannot)),
+            (&obj, "/123", ("addl-prop", Exists::May)),
+            (&obj, "/-", ("addl-prop", Exists::May)),
             (&arr1, "/0", ("zero", Exists::Must)),
             (&arr1, "/1", ("one", Exists::Must)),
             (&arr1, "/2", ("two", Exists::May)),
@@ -2227,6 +2249,9 @@ mod test {
             obj_locations,
             vec![
                 ("", false, types::OBJECT, Exists::Must),
+                ("/1", false, types::OBJECT, Exists::Must),
+                ("/1/-", false, types::OBJECT, Exists::Must),
+                ("/1/-/2", false, types::STRING, Exists::Must),
                 (
                     "/multi-type",
                     false,
@@ -2318,11 +2343,6 @@ mod test {
                 oneOf:
                     - $ref: '#/properties/nested-array'
                     - type: string
-
-            "123": {type: boolean}  # Allowed (integers are ok).
-            "-": {type: boolean}    # Allowed.
-            "-123": {type: boolean} # Allowed.
-            "12.0": {type: boolean} # Allowed.
 
         patternProperties:
             merge-wrong-type:

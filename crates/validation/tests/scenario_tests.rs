@@ -180,35 +180,6 @@ test://example/int-reverse:
 }
 
 #[test]
-fn test_integers_as_props() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      schema:
-        $ref: test://example/int-string.schema
-        properties:
-          1: { type: boolean }
-          2: { type: string }
-          3:
-            type: object
-            properties:
-              hello: { type: string }
-              4:
-                type: array
-                items: { type: string }
-        required: ["1"]
-      key: [/1]
-      projections:
-        something_else: /2
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_invalid_transform_names_and_duplicates() {
     let errors = run_test_errors(
         &GOLDEN,
