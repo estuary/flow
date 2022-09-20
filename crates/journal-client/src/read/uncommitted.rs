@@ -11,7 +11,7 @@ use crate::read::{async_try, io_err, Error};
 use crate::Client;
 use futures::io::AsyncRead;
 use proto_gazette::broker;
-use std::{fmt::Debug, future::Future, io, pin::Pin, sync::Arc, task::Poll};
+use std::{fmt::Debug, future::Future, io, pin::Pin, task::Poll};
 
 pub use retry::{ExponentialBackoff, NoRetry, Retry};
 
