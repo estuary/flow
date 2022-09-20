@@ -65,10 +65,11 @@ impl Pointer {
         s.split('/')
             .skip(if s.starts_with('/') { 1 } else { 0 })
             .map(|t| t.replace("~1", "/").replace("~0", "~"))
-            .for_each(|t| {
+            .enumerate()
+            .for_each(|(idx, t)| {
                 if t == "-" {
                     tape.push(Token::NextIndex);
-                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) {
+                } else if t.starts_with('+') || (t.starts_with('0') && t.len() > 1) || idx == 0 {
                     tape.push(Token::Property(&t));
                 } else if let Ok(ind) = usize::from_str(&t) {
                     tape.push(Token::Index(ind));
