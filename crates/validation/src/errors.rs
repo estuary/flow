@@ -103,7 +103,7 @@ pub enum Error {
         field: String,
         collection: String,
     },
-    #[error("projection {field} is the canonical field name of location {canonical_ptr}, and cannot re-map it to {wrong_ptr}")]
+    #[error("projection {field} is the canonical field name of location {canonical_ptr:?}, and cannot re-map it to {wrong_ptr:?}")]
     ProjectionRemapsCanonicalField {
         field: String,
         canonical_ptr: String,

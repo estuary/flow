@@ -285,8 +285,6 @@ driver:
           resourcePath: [Web!hook, foo bar]
 
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
-            # `Root`, as a user-defined projection, is selected over `flow_document`.
             Root: { type: 1, reason: "location required" }
             int: { type: 0, reason: "required" }
             Extra: { type: 1, reason: "location required" }

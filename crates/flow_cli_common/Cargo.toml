@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "*"
-clap = {version = "*", features = ["derive"]}
+clap = {version = "^3", features = ["derive"]}
 atty = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["json", "env-filter", "fmt", "time"]}

@@ -102,7 +102,7 @@ func TestProtoRecordBreaks(t *testing.T) {
 	// If the message header is too large, we error
 	// (rather than attempting to allocate it).
 	var n, err = s.Write([]byte{0xff, 0xff, 0xff, 0xff})
-	require.EqualError(t, err, "message is too large: 4294967295")
+	require.EqualError(t, err, "go.estuary.dev/E108: message is too large: 4294967295")
 	require.Equal(t, 0, n)
 }
 

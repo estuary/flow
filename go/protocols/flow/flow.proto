@@ -171,8 +171,9 @@ message Projection {
   string ptr = 1;
   // Field is the flattened, tabular alias of this projection.
   string field = 2;
-  // Was this projection user provided ?
-  bool user_provided = 3;
+  // Was this projection explicitly provided ?
+  // (As opposed to implicitly created through static analysis of the schema).
+  bool explicit = 3;
   // Does this projection constitute a logical partitioning of the collection?
   bool is_partition_key = 4;
   // Does this location form (part of) the collection key?
@@ -207,10 +208,6 @@ message Inference {
   // Subset of ["null", "boolean", "object", "array", "integer", "numeric",
   // "string"].
   repeated string types = 1;
-  // Whether the projection must always exist (either as a location within)
-  // the source document, or as a null-able column in the database.
-  // Deprecated. Use |exists|.
-  bool deprecated_must_exist = 2;
   // String type-specific inferences, or nil iff types doesn't include "string".
   message String {
     // Annotated Content-Type when the projection is of "string" type.

@@ -33,8 +33,8 @@ protobuf-parse = "*"
 schemars = "*"
 serde = {version = "*", features=["derive"]}
 serde_json = {version = "*", features = ["raw_value"]}
-structopt = "*"
 tempfile = "*"
+clap = { version = "^3", features=["derive", "env"]}
 thiserror = "*"
 tracing = "*"
 tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}

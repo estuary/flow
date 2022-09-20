@@ -210,3 +210,26 @@ captures:
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+## Performance considerations
+
+### Data sampling
+
+The Google Analytics Reporting API enforces compute thresholds for ad-hoc queries and reports.
+If a threshold is exceeded, the API will apply sampling to limit the number of sessions analyzed for the specified time range.
+These thresholds can be found [here](https://support.google.com/analytics/answer/2637192?hl=en&ref_topic=2601030&visit_id=637868645346124317-2833523666&rd=1#thresholds&zippy=%2Cin-this-article).
+
+If your account is on the Analytics 360 tier, you're less likely to run into these limitations.
+For Analytics Standard accounts, you can avoid sampling by keeping the `window_in_days` parameter set to its default value, `1`.
+This makes it less likely that you will exceed the threshold.
+When sampling occurs, a warning is written to the capture log.
+
+### Processing latency
+
+Data in Google Analytics reports may continue to update [up to 48 hours after it appears](https://support.google.com/analytics/answer/1070983?hl=en#DataProcessingLatency&zippy=%2Cin-this-article).
+
+To ensure data correctness, each time it reads from Google Analytics,
+this connector automatically applies a lookback window of 2 days prior to its last read.
+This allows it to double-check and correct for any changes in reports resulting from latent data updates.
+
+This mechanism relies on the `isDataGolden` flag in the [Google Analytics Reporting API](https://developers.google.com/analytics/devguides/reporting/core/v4/rest/v4/reports/batchGet#reportdata).

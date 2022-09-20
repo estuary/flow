@@ -519,12 +519,31 @@ impl<F: Fetcher> Loader<F> {
         let schema = std::mem::replace(&mut spec.schema, models::Schema::Bool(false));
 
         // Visit all collection projections.
+        let mut saw_root = false;
         for (field, spec) in projections {
+            if spec.as_parts().0.as_ref() == "" {
+                saw_root = true;
+            }
+
             self.tables.borrow_mut().projections.insert_row(
                 scope.push_prop("projections").push_prop(&field).flatten(),
                 collection_name,
                 field,
                 spec,
+            );
+        }
+
+        // If we didn't see an explicit projection of the root document,
+        // add a default projection with field "flow_document".
+        if !saw_root {
+            self.tables.borrow_mut().projections.insert_row(
+                scope
+                    .push_prop("projections")
+                    .push_prop("flow_document")
+                    .flatten(),
+                collection_name,
+                models::Field::new("flow_document"),
+                models::Projection::Pointer(models::JsonPointer::new("")),
             );
         }
 

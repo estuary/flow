@@ -465,7 +465,7 @@ fn walk_materialization_response(
 
     // Sort projections so that we walk, in order:
     // * Fields which *must* be included.
-    // * Fields which are user-defined, and should be selected preferentially
+    // * Fields which are explicitly-defined, and should be selected preferentially
     //   for locations where we need only one field.
     // * Everything else.
     let projections = projections
@@ -477,7 +477,7 @@ fn walk_materialization_response(
                     .map(|c| c.r#type == Type::FieldRequired as i32)
                     .unwrap_or_default();
 
-            (!must_include, !p.user_provided) // Negate to order before.
+            (!must_include, !p.explicit) // Negate to order before.
         })
         .collect::<Vec<_>>();
 

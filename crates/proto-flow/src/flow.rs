@@ -166,9 +166,10 @@ pub struct Projection {
     /// Field is the flattened, tabular alias of this projection.
     #[prost(string, tag="2")]
     pub field: ::prost::alloc::string::String,
-    /// Was this projection user provided ?
+    /// Was this projection explicitly provided ?
+    /// (As opposed to implicitly created through static analysis of the schema).
     #[prost(bool, tag="3")]
-    pub user_provided: bool,
+    pub explicit: bool,
     /// Does this projection constitute a logical partitioning of the collection?
     #[prost(bool, tag="4")]
     pub is_partition_key: bool,
@@ -188,11 +189,6 @@ pub struct Inference {
     /// "string"].
     #[prost(string, repeated, tag="1")]
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Whether the projection must always exist (either as a location within)
-    /// the source document, or as a null-able column in the database.
-    /// Deprecated. Use |exists|.
-    #[prost(bool, tag="2")]
-    pub deprecated_must_exist: bool,
     #[prost(message, optional, tag="3")]
     pub string: ::core::option::Option<inference::String>,
     /// The title from the schema, if provided.

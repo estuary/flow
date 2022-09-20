@@ -1,12 +1,12 @@
-use crate::schema::formats::validate_format;
 use crate::schema::{index, intern, Annotation, Application, Keyword, Schema, Validation, *};
 use crate::{LocatedItem, LocatedProperty, Location, Number, Span, Walker};
 use fxhash::FxHashSet as HashSet;
 use std::borrow::Cow;
+use std::fmt::Display;
 
 pub enum ValidationResult {
     Valid,
-    Invalid(Option<String>)
+    Invalid(Option<String>),
 }
 
 impl From<bool> for ValidationResult {
@@ -19,8 +19,11 @@ impl From<bool> for ValidationResult {
     }
 }
 
-impl <S,E> From<Result<S,E>> for ValidationResult where E:ToString {
-    fn from(val: Result<S,E>) -> Self {
+impl<S, E> From<Result<S, E>> for ValidationResult
+where
+    E: ToString,
+{
+    fn from(val: Result<S, E>) -> Self {
         match val {
             Ok(_) => ValidationResult::Valid,
             Err(e) => ValidationResult::Invalid(Some(e.to_string())),
@@ -144,6 +147,27 @@ pub enum Outcome<'sm, A: Annotation> {
     Annotation(&'sm A),
 }
 
+impl<A: Annotation> Display for Outcome<'_, A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Outcome::*;
+        match self {
+            Invalid(validation, err) => {
+                write!(f, "Invalid: {}.", validation)?;
+                if let Some(err) = err {
+                    write!(f, "{}", err)?;
+                }
+                Ok(())
+            }
+            NotIsValid => write!(f, "Document matches the \"not\" schema, and hence is invalid"),
+            AnyOfNotMatched => write!(f, "Document does not match any of the \"anyOf\" schemas"),
+            OneOfNotMatched => write!(f, "Document does not match any of the \"oneOf\" schemas"),
+            OneOfMultipleMatched => write!(f, "Document matches more than one of \"oneOf\" schemas"),
+            ReferenceNotFound(url) => write!(f, "Could not find reference {}", url),
+            Annotation(a) => write!(f, "Annotation: {:?}", a),
+        }
+    }
+}
+
 impl<'sm, A: Annotation> Outcome<'sm, A> {
     pub fn is_error(&self) -> bool {
         match self {
@@ -166,7 +190,7 @@ pub fn build_basic_output<'sm, C: Context, A: Annotation>(
     let errors = outcomes
         .iter()
         .filter(|(o, _)| o.is_error())
-        .map(|(outcome, ctx)| ctx.basic_output_entry(format!("{:?}", outcome)))
+        .map(|(outcome, ctx)| ctx.basic_output_entry(format!("{}", outcome)))
         .collect::<Vec<_>>();
 
     serde_json::json!({
@@ -482,7 +506,7 @@ where
         self.check_validations(span, loc, |validation, _| {
             use Validation::*;
 
-            ValidationResult::from( match validation {
+            ValidationResult::from(match validation {
                 False => false,
                 Type(expect) => {
                     let actual = match num {
@@ -525,11 +549,13 @@ where
                 False => ValidationResult::from(false),
                 Type(expect) => ValidationResult::from(expect.overlaps(types::STRING)),
                 Const(literal) => ValidationResult::from(literal.hash == span.hashed),
-                Enum { variants } => ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed)),
+                Enum { variants } => {
+                    ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed))
+                }
                 MinLength(bound) => ValidationResult::from(*bound <= s.chars().count()),
                 MaxLength(bound) => ValidationResult::from(*bound >= s.chars().count()),
                 Pattern(re) => ValidationResult::from(regex_matches(re, s)),
-                Format(format) => validate_format(format, s),
+                Format(format) => format.validate(s),
                 _ => ValidationResult::Valid,
             }
         });
@@ -546,7 +572,9 @@ where
                 False => ValidationResult::from(false),
                 Type(expect) => ValidationResult::from(expect.overlaps(types::NULL)),
                 Const(literal) => ValidationResult::from(literal.hash == span.hashed),
-                Enum { variants } => ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed)),
+                Enum { variants } => {
+                    ValidationResult::from(variants.iter().any(|l| l.hash == span.hashed))
+                }
                 _ => ValidationResult::Valid,
             })
         });
@@ -682,8 +710,8 @@ where
                             Outcome::Invalid(val, msg),
                             C::with_details(loc, span, scope, parents),
                         );
-                    },
-                    ValidationResult::Valid => {},
+                    }
+                    ValidationResult::Valid => {}
                 }
             }
         }
