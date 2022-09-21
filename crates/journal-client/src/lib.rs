@@ -3,11 +3,14 @@ pub mod list;
 pub mod read;
 
 use proto_grpc::broker::journal_client::JournalClient;
-use tonic::{codegen::http::HeaderValue, transport::channel::Channel};
+use tonic::{
+    codegen::InterceptedService, metadata::AsciiMetadataValue, service::Interceptor,
+    transport::channel::Channel,
+};
 
 pub use proto_gazette::broker;
 
-pub type Client = JournalClient<WithAuthToken>;
+pub type Client = JournalClient<InterceptedService<Channel, AuthHeader>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -45,47 +48,24 @@ pub async fn connect_journal_client(
         .await?;
 
     tracing::trace!("channel is connected");
-    let client = JournalClient::new(WithAuthToken {
-        inner: channel,
-        token_header: auth_header,
-    });
-
-    Ok(client)
+    Ok(JournalClient::with_interceptor(
+        channel,
+        AuthHeader(auth_header),
+    ))
 }
 
 #[derive(Clone)]
-pub struct WithAuthToken {
-    inner: Channel,
-    token_header: Option<HeaderValue>,
-}
-
-impl tonic::client::GrpcService<tonic::body::BoxBody> for WithAuthToken {
-    type ResponseBody = <::tonic::transport::Channel as tonic::client::GrpcService<
-        tonic::body::BoxBody,
-    >>::ResponseBody;
-    type Error =
-        <::tonic::transport::Channel as tonic::client::GrpcService<tonic::body::BoxBody>>::Error;
-    type Future =
-        <::tonic::transport::Channel as tonic::client::GrpcService<tonic::body::BoxBody>>::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
+pub struct AuthHeader(Option<AsciiMetadataValue>);
+impl Interceptor for AuthHeader {
     fn call(
         &mut self,
-        mut request: tonic::codegen::http::Request<tonic::body::BoxBody>,
-    ) -> Self::Future {
-        tracing::trace!(?request, "sending grpc request");
-
-        if let Some(header) = self.token_header.as_ref() {
+        mut request: tonic::Request<()>,
+    ) -> Result<tonic::Request<()>, tonic::Status> {
+        if let Some(bearer) = self.0.as_ref() {
             request
-                .headers_mut()
-                .insert("Authorization", header.clone());
+                .metadata_mut()
+                .insert("authorization", bearer.clone());
         }
-        self.inner.call(request)
+        Ok(request)
     }
 }

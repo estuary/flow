@@ -5,9 +5,6 @@ use proto_gazette::broker;
 pub enum Error {
     #[error("grpc error: {0}")]
     GRPC(#[from] tonic::Status),
-
-    #[error("read response not OK: {0:?}")]
-    NotOk(::proto_gazette::broker::Status),
 }
 
 /// Returns journal fragments one at a time based on the given request, automatically fetching

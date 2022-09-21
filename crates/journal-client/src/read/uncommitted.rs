@@ -24,7 +24,7 @@ pub enum ReadStart {
     WriteHead,
 
     /// Start reading at the given (inclusive) byte offset. Reads will return an error if this
-    /// offset is greater than the current write head of the journal.
+    /// offset is greater than the current write head of the journal unless this is a blocking read.
     Offset(u64),
 }
 
