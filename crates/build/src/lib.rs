@@ -1,7 +1,10 @@
 use anyhow::Context;
 use protocol::flow;
 use serde_json::value::RawValue;
-use std::path::Path;
+use std::{
+    io::{stderr, stdout, Write},
+    path::Path,
+};
 use url::Url;
 
 mod api;
@@ -237,14 +240,12 @@ fn npm_cmd(package_dir: &std::path::Path, args: &[&str]) -> Result<(), anyhow::E
 
     tracing::info!(?package_dir, ?args, "invoking `npm`");
 
-    let status = cmd
-        .spawn()
-        .and_then(|mut c| c.wait())
-        .context("failed to spawn `npm` command")?;
+    let output = cmd.output().context("failed to spawn `npm` command")?;
 
-    if !status.success() {
-        anyhow::bail!("npm command {:?} failed with {}", args.join(" "), status);
+    if !output.status.success() {
+        stdout().write(output.stdout.as_slice()).context("failed to write `npm` output to stdout")?;
+        stderr().write(output.stderr.as_slice()).context("failed to write `npm` output to stderr")?;
+        anyhow::bail!("npm command {:?} failed, output logged", args.join(" "))
     }
-
     Ok(())
 }

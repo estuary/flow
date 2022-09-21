@@ -405,7 +405,7 @@ func PullImage(ctx context.Context, image string) error {
 	// Pull the image if it's not expected to be local.
 	if strings.HasSuffix(image, ":local") {
 		// Don't pull images having this tag.
-	} else if _, err := exec.CommandContext(ctx, "docker", "pull", image).Output(); err != nil {
+	} else if _, err := exec.CommandContext(ctx, "docker", "pull", "--quiet", image).Output(); err != nil {
 		return fmt.Errorf("go.estuary.dev/E110: pull of container image %q failed: %w", image, err)
 	}
 	return nil
