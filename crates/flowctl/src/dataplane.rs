@@ -27,6 +27,7 @@ pub async fn fetch_data_plane_access_token(
     let resp = req
         .send()
         .await
+        .and_then(|r| r.error_for_status())
         .context("requesting data plane gateway auth token")?;
     let json: serde_json::Value = resp.json().await?;
     tracing::trace!(response_body = ?json, "got response from control-plane");
