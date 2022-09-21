@@ -27,6 +27,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
 chrono = { workspace = true }
+crossterm = { workspace = true }
 humantime = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }

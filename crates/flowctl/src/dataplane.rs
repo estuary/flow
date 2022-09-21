@@ -32,7 +32,7 @@ pub async fn fetch_data_plane_access_token(
     tracing::trace!(response_body = ?json, "got response from control-plane");
     let mut auths: Vec<DataPlaneAccess> =
         serde_json::from_value(json).context("failed to decode response")?;
-    let mut access = auths.pop().ok_or_else(|| {
+    let access = auths.pop().ok_or_else(|| {
         anyhow::anyhow!(
             "no data-plane access tokens were returned for the given prefixes, access is denied"
         )

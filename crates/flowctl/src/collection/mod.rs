@@ -1,10 +1,11 @@
 pub mod read;
 
-use crate::config::Config;
-use crate::dataplane::journal_client_for;
 use assemble::percent_encode_partition_value;
 use journal_client::list;
 use proto_gazette::broker;
+
+use crate::dataplane::journal_client_for;
+use crate::output::{to_table_row, CliOutput, JsonCell};
 
 use self::read::ReadArgs;
 
@@ -96,35 +97,63 @@ pub struct Collections {
 pub enum Command {
     /// Read data from a Flow collection and output to stdout.
     Read(ReadArgs),
-    // TODO: add list-journals and list-journal-fragments once we have better output formatting support.
-    // ListJournals(CollectionJournalSelector),
+    /// List the individual journals of a flow collection
+    ListJournals(CollectionJournalSelector),
 }
 
 impl Collections {
-    pub async fn run(&self, config: &mut Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Read(args) => do_read(config, args).await,
-            // Command::ListJournals(selector) => do_list_journals(config, selector).await,
+            Command::Read(args) => do_read(ctx, args).await,
+            Command::ListJournals(selector) => do_list_journals(ctx, selector).await,
         }
     }
 }
 
-async fn do_read(config: &Config, args: &ReadArgs) -> Result<(), anyhow::Error> {
+async fn do_read(ctx: &mut crate::CliContext, args: &ReadArgs) -> Result<(), anyhow::Error> {
     tracing::debug!(?args, "executing read");
-    read::read_collection(config, args).await?;
+    read::read_collection(ctx, args).await?;
     Ok(())
+}
+
+impl CliOutput for broker::JournalSpec {
+    type TableAlt = ();
+    type CellValue = JsonCell;
+
+    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+        vec![
+            "Name",
+            "Max Append Rate",
+            "Fragment Length",
+            "Fragment Flush Interval",
+            "Fragment Primary Store",
+        ]
+    }
+
+    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+        to_table_row(
+            self,
+            &[
+                "/name",
+                "/maxAppendRate",
+                "/fragment/length",
+                "/fragment/flushInterval",
+                "/fragment/stores/0",
+            ],
+        )
+    }
 }
 
 /// Dead code currently. This should be wired up again once we have a factoring for output formatting that makes it easier to output tables.
 async fn do_list_journals(
-    config: &Config,
+    ctx: &mut crate::CliContext,
     args: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let mut client = journal_client_for(config, vec![args.collection.clone()]).await?;
+    let mut client = journal_client_for(ctx.config(), vec![args.collection.clone()]).await?;
 
     let journals = list::list_journals(&mut client, &args.build_label_selector()).await?;
-    serde_json::to_writer_pretty(std::io::stdout(), &journals)?;
-    Ok(())
+
+    ctx.write_all(journals, ())
 }
 
 #[cfg(test)]
