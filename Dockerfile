@@ -105,6 +105,7 @@ RUN cd fetch-open-graph && \
 RUN cargo build --release
 FROM ubuntu:20.04
 COPY --from=builder /animated-carnival/target/release/agent /usr/local/bin
+COPY --from=builder /animated-carnival/target/release/flowctl /usr/local/bin
 COPY --from=builder /usr/local/bin/fetch-open-graph /usr/local/bin/fetch-open-graph
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
