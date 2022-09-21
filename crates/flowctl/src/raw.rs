@@ -1,5 +1,3 @@
-use super::config;
-
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Advanced {
@@ -81,18 +79,18 @@ pub struct Bundle {
 }
 
 impl Advanced {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Get(get) => do_get(&cfg, get).await,
-            Command::Update(update) => do_update(&cfg, update).await,
-            Command::Rpc(rpc) => do_rpc(&cfg, rpc).await,
-            Command::Bundle(bundle) => do_bundle(&cfg, bundle).await,
+            Command::Get(get) => do_get(ctx, get).await,
+            Command::Update(update) => do_update(ctx, update).await,
+            Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
+            Command::Bundle(bundle) => do_bundle(ctx, bundle).await,
         }
     }
 }
 
-async fn do_get(cfg: &config::Config, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let req = cfg.client()?.from(table).build().query(query);
+async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
+    let req = ctx.client()?.from(table).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -100,10 +98,10 @@ async fn do_get(cfg: &config::Config, Get { table, query }: &Get) -> anyhow::Res
 }
 
 async fn do_update(
-    cfg: &config::Config,
+    ctx: &mut crate::CliContext,
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
-    let req = cfg.client()?.from(table).update(body).build().query(query);
+    let req = ctx.client()?.from(table).update(body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -111,21 +109,24 @@ async fn do_update(
 }
 
 async fn do_rpc(
-    cfg: &config::Config,
+    ctx: &mut crate::CliContext,
     Rpc {
         function,
         query,
         body,
     }: &Rpc,
 ) -> anyhow::Result<()> {
-    let req = cfg.client()?.rpc(function, body).build().query(query);
+    let req = ctx.client()?.rpc(function, body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
     Ok(())
 }
 
-pub async fn do_bundle(_cfg: &config::Config, Bundle { source }: &Bundle) -> anyhow::Result<()> {
+pub async fn do_bundle(
+    _ctx: &mut crate::CliContext,
+    Bundle { source }: &Bundle,
+) -> anyhow::Result<()> {
     let catalog = crate::source::bundle(source).await?;
     serde_json::to_writer_pretty(std::io::stdout(), &catalog)?;
     Ok(())

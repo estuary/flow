@@ -1,4 +1,3 @@
-use super::config;
 use anyhow::Context;
 use proto_flow::flow;
 
@@ -36,15 +35,15 @@ pub struct Generate {
 }
 
 impl TypeScript {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Generate(Generate { source }) => do_generate(cfg, &source).await,
+            Command::Generate(Generate { source }) => do_generate(ctx, &source).await,
         }
     }
 }
 
 pub async fn do_generate(
-    _cfg: &config::Config,
+    _ctx: &mut crate::CliContext,
     source_path: &std::path::Path,
 ) -> anyhow::Result<()> {
     let source_path = std::fs::canonicalize(source_path)

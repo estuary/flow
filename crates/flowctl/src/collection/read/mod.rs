@@ -1,5 +1,4 @@
 use crate::collection::CollectionJournalSelector;
-use crate::config::Config;
 use crate::dataplane;
 use chrono::{DateTime, Utc};
 use journal_client::{
@@ -45,12 +44,12 @@ pub struct ReadBounds {
 /// - Only uncommitted reads are supported
 /// - Any acknowledgements (documents with `/_meta/ack` value `true`) are also printed
 /// These limitations should all be addressed in the future when we add support for committed reads.
-pub async fn read_collection(config: &Config, args: &ReadArgs) -> anyhow::Result<()> {
+pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> anyhow::Result<()> {
     if !args.uncommitted {
         anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
     }
     let mut data_plane_client =
-        dataplane::journal_client_for(config, vec![args.selector.collection.clone()]).await?;
+        dataplane::journal_client_for(ctx.config(), vec![args.selector.collection.clone()]).await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");

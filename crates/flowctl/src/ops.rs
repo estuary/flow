@@ -2,7 +2,6 @@ use crate::collection::{
     read::{read_collection, ReadArgs, ReadBounds},
     CollectionJournalSelector, Partition,
 };
-use crate::config::Config;
 
 #[derive(clap::Args, Debug)]
 pub struct Logs {
@@ -14,9 +13,9 @@ pub struct Logs {
 }
 
 impl Logs {
-    pub async fn run(&self, config: &Config) -> anyhow::Result<()> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let read_args = read_args(&self.task.task, "logs", &self.bounds);
-        read_collection(config, &read_args).await?;
+        read_collection(ctx, &read_args).await?;
         Ok(())
     }
 }
@@ -31,9 +30,9 @@ pub struct Stats {
 }
 
 impl Stats {
-    pub async fn run(&self, config: &Config) -> anyhow::Result<()> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let read_args = read_args(&self.task.task, "stats", &self.bounds);
-        read_collection(config, &read_args).await?;
+        read_collection(ctx, &read_args).await?;
         Ok(())
     }
 }
@@ -114,7 +113,7 @@ fn tenant(task_name: &str) -> &str {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    // use super::*;
 
     /*
     #[test]

@@ -1,5 +1,6 @@
-use crate::{api_exec, config};
-use serde::{Deserialize, Serialize};
+use crate::api_exec;
+use crate::catalog::SpecSummaryItem;
+use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -9,8 +10,11 @@ pub struct Author {
     source: String,
 }
 
-pub async fn do_author(cfg: &config::Config, Author { source }: &Author) -> anyhow::Result<()> {
-    let cur_draft = cfg.cur_draft()?;
+pub async fn do_author(
+    ctx: &mut crate::CliContext,
+    Author { source }: &Author,
+) -> anyhow::Result<()> {
+    let cur_draft = ctx.config().cur_draft()?;
 
     let models::Catalog {
         collections,
@@ -94,13 +98,8 @@ pub async fn do_author(cfg: &config::Config, Author { source }: &Author) -> anyh
     }
     body.push(']' as u8);
 
-    #[derive(Deserialize)]
-    struct Row {
-        catalog_name: String,
-        spec_type: String,
-    }
-    let rows: Vec<Row> = api_exec(
-        cfg.client()?
+    let rows: Vec<SpecSummaryItem> = api_exec(
+        ctx.client()?
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(String::from_utf8(body).expect("serialized JSON is always UTF-8"))
@@ -108,11 +107,5 @@ pub async fn do_author(cfg: &config::Config, Author { source }: &Author) -> anyh
     )
     .await?;
 
-    let mut table = crate::new_table(vec!["Name", "Type"]);
-    for row in rows {
-        table.add_row(vec![row.catalog_name, row.spec_type]);
-    }
-    println!("{table}");
-
-    Ok(())
+    ctx.write_all(rows, ())
 }

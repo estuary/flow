@@ -31,6 +31,7 @@ chardetng = "0.1"
 chrono = "0.4"
 clap = { version = "3.2", features = ["derive", "env"]}
 comfy-table = "6.1"
+crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
 encoding_rs = {version = "0.8", features = ["serde"]}

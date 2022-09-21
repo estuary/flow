@@ -1,4 +1,5 @@
-use crate::{api_exec, config};
+use crate::api_exec;
+use crate::output::CliOutput;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -83,17 +84,17 @@ pub struct Revoke {
 }
 
 impl Roles {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Grant(grant) => do_grant(cfg, grant).await,
-            Command::List => do_list(cfg).await,
-            Command::Revoke(revoke) => do_revoke(cfg, revoke).await,
+            Command::Grant(grant) => do_grant(ctx, grant).await,
+            Command::List => do_list(ctx).await,
+            Command::Revoke(revoke) => do_revoke(ctx, revoke).await,
         }
     }
 }
 
-pub async fn do_list(cfg: &mut config::Config) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+pub async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         capability: String,
         created_at: crate::Timestamp,
@@ -105,8 +106,39 @@ pub async fn do_list(cfg: &mut config::Config) -> anyhow::Result<()> {
         user_full_name: Option<String>,
         user_id: Option<uuid::Uuid>,
     }
+
+    impl CliOutput for Row {
+        type TableAlt = ();
+
+        type CellValue = String;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec![
+                "Subject",
+                "Capability",
+                "Object",
+                "Detail",
+                "Created",
+                "Updated",
+            ]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            vec![
+                match self.subject_role {
+                    Some(s) => s,
+                    None => crate::format_user(self.user_email, self.user_full_name, self.user_id),
+                },
+                self.capability,
+                self.object_role,
+                self.detail.unwrap_or_default(),
+                self.created_at.to_string(),
+                self.updated_at.to_string(),
+            ]
+        }
+    }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("combined_grants_ext")
             .select(
                 vec![
@@ -126,34 +158,11 @@ pub async fn do_list(cfg: &mut config::Config) -> anyhow::Result<()> {
     )
     .await?;
 
-    let mut table = crate::new_table(vec![
-        "Subject",
-        "Capability",
-        "Object",
-        "Detail",
-        "Created",
-        "Updated",
-    ]);
-    for row in rows {
-        table.add_row(vec![
-            match row.subject_role {
-                Some(s) => s,
-                None => crate::format_user(row.user_email, row.user_full_name, row.user_id),
-            },
-            row.capability,
-            row.object_role,
-            row.detail.unwrap_or_default(),
-            row.created_at.to_string(),
-            row.updated_at.to_string(),
-        ]);
-    }
-
-    println!("{table}");
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
 pub async fn do_grant(
-    cfg: &mut config::Config,
+    ctx: &mut crate::CliContext,
     Grant {
         subject_user_id,
         subject_role,
@@ -167,7 +176,7 @@ pub async fn do_grant(
     // Upsert user grants to `user_grants` and role grants to `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -184,7 +193,7 @@ pub async fn do_grant(
         .await?
     } else if let Some(subject_role) = subject_role {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -203,12 +212,11 @@ pub async fn do_grant(
         panic!("expected subject role or user ID");
     };
 
-    print_grant_revoke_table(rows);
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
 pub async fn do_revoke(
-    cfg: &mut config::Config,
+    ctx: &mut crate::CliContext,
     Revoke {
         subject_user_id,
         subject_role,
@@ -220,7 +228,7 @@ pub async fn do_revoke(
     // Revoke user grants from `user_grants` and role grants from `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .eq("user_id", subject_user_id.to_string())
@@ -230,7 +238,7 @@ pub async fn do_revoke(
         .await?
     } else if let Some(subject_role) = subject_role {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .eq("subject_role", subject_role)
@@ -242,17 +250,38 @@ pub async fn do_revoke(
         panic!("expected subject role or user ID");
     };
 
-    print_grant_revoke_table(rows);
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 struct GrantRevokeRow {
     capability: String,
     created_at: crate::Timestamp,
     detail: Option<String>,
     object_role: String,
     updated_at: crate::Timestamp,
+}
+
+impl CliOutput for GrantRevokeRow {
+    type TableAlt = ();
+    type CellValue = crate::output::JsonCell;
+
+    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+        vec!["Capability", "Object", "Detail", "Created", "Updated"]
+    }
+
+    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+        crate::output::to_table_row(
+            self,
+            &[
+                "/capability",
+                "/created_at",
+                "/detail",
+                "/object_role",
+                "/updated_at",
+            ],
+        )
+    }
 }
 
 fn grant_revoke_columns() -> String {
@@ -264,18 +293,4 @@ fn grant_revoke_columns() -> String {
         "updated_at",
     ]
     .join(",")
-}
-
-fn print_grant_revoke_table(rows: Vec<GrantRevokeRow>) {
-    let mut table = crate::new_table(vec!["Capability", "Object", "Detail", "Created", "Updated"]);
-    for row in rows {
-        table.add_row(vec![
-            row.capability,
-            row.object_role,
-            row.detail.unwrap_or_default(),
-            row.created_at.to_string(),
-            row.updated_at.to_string(),
-        ]);
-    }
-    println!("{table}");
 }
