@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This script migrates a pre-directives local stack (or production) to a post-directives install.
-# You must first create an 'accounts@estuary.dev' user or the migration will fail to apply & rollback.
+# You must first create an 'support@estuary.dev' user or the migration will fail to apply & rollback.
 # Then rebuild / restart your control-plane agent to have it automatically provision the 'ops/' tenant.
 
 set -o errexit
@@ -53,9 +53,9 @@ insert into directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
   ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751');
 
--- Provision the ops/ tenant owned by the accounts@estuary.dev user.
+-- Provision the ops/ tenant owned by the support@estuary.dev user.
 with accounts_root_user as (
-  select (select id from auth.users where email = 'accounts@estuary.dev' limit 1) as accounts_id
+  select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
 insert into applied_directives (directive_id, user_id, user_claims)
   select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
