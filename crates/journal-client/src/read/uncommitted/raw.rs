@@ -12,8 +12,8 @@ use tonic::codec::Streaming;
 pub async fn start_read(client: &mut Client, req: broker::ReadRequest) -> Result<Reader, Error> {
     let offset = req.offset;
     let journal = req.journal.clone();
+    tracing::debug!(%journal, %offset, "starting new read of journal");
     let response = client.read(req).await?;
-    tracing::debug!(foo = ?response.metadata(), "got read response");
     // TODO: see if there's anything in the response we should check or log before proceeding to read
     Ok(Reader::new(journal, offset, response.into_inner()))
 }
@@ -170,8 +170,18 @@ impl AsyncRead for Reader {
             // signed cloud storage URL that can be fetched in order to read the content.
             if !resp.fragment_url.is_empty() {
                 if let Some(fragment) = self.current_fragment_metadata.as_ref() {
-                    let content =
-                        Content::Fragment(FragmentReader::new(resp.fragment_url, fragment.clone()));
+                    // Do we need to skip some bytes within this fragment
+                    let discard_bytes =
+                        (self.current_offset.max(0) - fragment.begin).max(0) as usize;
+                    if discard_bytes > 0 {
+                        tracing::debug!(discard = %discard_bytes, "will need to discard some bytes at the start of the fragment in order to begin reading at the requested offset");
+                    } else {
+                        tracing::debug!(current_offset=%self.current_offset, ?fragment, "why no discarding");
+                    }
+                    let content = Content::Fragment {
+                        discard_bytes,
+                        fragment: FragmentReader::new(resp.fragment_url, fragment.clone()),
+                    };
                     self.current_content = Some(content);
                 } else {
                     return Poll::Ready(Err(io_err(Error::ProtocolError(
@@ -203,16 +213,22 @@ fn check_status(resp: &broker::ReadResponse) -> Result<(), Error> {
 }
 
 /// Used by `Reader` to adapt streaming reads and direct reads from fragment files to a single
-/// interface.
+/// interface. Also handles discarding unneeded bytes at the beginning of fragment files in cases
+/// where the requested offset falls in between the begin and end offsets of the fragment.
 enum Content {
     Resp(Cursor<Vec<u8>>),
-    Fragment(FragmentReader),
+    Fragment {
+        /// The number of bytes to be discarded from the beginning of the fragment.
+        // This value is mutated towards 0 as bytes are discarded.
+        discard_bytes: usize,
+        fragment: FragmentReader,
+    },
 }
 
 impl Content {
     fn is_fragment(&self) -> bool {
         match self {
-            Content::Fragment(_) => true,
+            Content::Fragment { .. } => true,
             _ => false,
         }
     }
@@ -226,7 +242,32 @@ impl futures::io::AsyncRead for Content {
     ) -> std::task::Poll<io::Result<usize>> {
         match self.get_mut() {
             Content::Resp(cursor) => Poll::Ready(cursor.read(buf)),
-            Content::Fragment(frag) => Pin::new(frag).poll_read(cx, buf),
+            Content::Fragment {
+                ref mut discard_bytes,
+                ref mut fragment,
+            } => {
+                while *discard_bytes > 0 {
+                    let n = async_try!(ready!(poll_discard_unused_fragment_prefix(
+                        *discard_bytes,
+                        cx,
+                        fragment
+                    )));
+                    *discard_bytes -= n;
+                    tracing::trace!(discarded_bytes = %n, remaining_to_discard = %*discard_bytes, "discarded unneeded bytes from fragment file");
+                }
+                Pin::new(fragment).poll_read(cx, buf)
+            }
         }
     }
+}
+
+fn poll_discard_unused_fragment_prefix(
+    discard_bytes: usize,
+    cx: &mut std::task::Context<'_>,
+    frag: &mut FragmentReader,
+) -> Poll<io::Result<usize>> {
+    const MAX_DISCARD_BUF_SIZE: usize = 32 * 1024;
+    let mut raw_buf = [0; MAX_DISCARD_BUF_SIZE];
+    let buf = &mut raw_buf[..MAX_DISCARD_BUF_SIZE.min(discard_bytes)];
+    Pin::new(frag).poll_read(cx, buf)
 }

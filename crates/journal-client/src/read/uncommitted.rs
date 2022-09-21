@@ -273,7 +273,7 @@ impl<R: Retry> futures::io::AsyncRead for Reader<R> {
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 } else {
-                    tracing::debug!(offset = %self.read.offset, wirte_head = %self.target_write_head, ndr = %self.needs_direct_read, req = ?self.read_req(), "EEEEOOOOOOOFFF");
+                    tracing::debug!(offset = %self.read.offset, wirte_head = %self.target_write_head, ndr = %self.needs_direct_read, req = ?self.read_req(), "EOF");
                     Poll::Ready(Ok(0))
                 }
             }
