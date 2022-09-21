@@ -1195,6 +1195,7 @@ dependencies = [
  "chrono",
  "clap 3.2.22",
  "comfy-table",
+ "crossterm",
  "dirs",
  "doc",
  "futures",
