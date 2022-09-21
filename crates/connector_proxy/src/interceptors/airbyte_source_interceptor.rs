@@ -163,7 +163,7 @@ impl AirbyteSourceInterceptor {
             let connection_status = message.connection_status.unwrap();
 
             if connection_status.status != Status::Succeeded {
-                return Err(Error::ConnectionStatusUnsuccessful)
+                return Err(Error::ConnectionStatusUnsuccessful(connection_status.message.unwrap_or_default()))
             }
 
             let req = validate_request.lock().await;
