@@ -8,3 +8,6 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 [env]
 FLOW_VERSION = "dev"
 SQLX_OFFLINE = "true"
+# Provide a default DATABASE_URL which is used if none others are set.
+# This is the database presented by a local `supabase start`.
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
