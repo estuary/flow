@@ -6,7 +6,6 @@ use json::{
     schema::{formats, types, Application, CoreAnnotation, Keyword, Validation},
     LocatedProperty, Location,
 };
-use lazy_static::lazy_static;
 use serde_json::Value;
 use url::Url;
 
@@ -1169,34 +1168,46 @@ impl Shape {
             ),
 
             Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
-                if let Some(property) = self.object.properties.iter().find(|p| p.name == property) {
-                    let exists = if self.type_ == types::OBJECT && property.is_required {
-                        // A property must exist iff this location can _only_ be an object,
-                        // and it's marked as a required property.
-                        Exists::Must
-                    } else {
-                        Exists::May
-                    };
+                self.obj_property_location(property)
+            }
 
-                    (&property.shape, exists)
-                } else if let Some(pattern) = self
-                    .object
-                    .patterns
-                    .iter()
-                    .find(|p| regex_matches(&p.re, property))
-                {
-                    (&pattern.shape, Exists::May)
-                } else if let Some(addl) = &self.object.additional {
-                    (addl.as_ref(), Exists::May)
-                } else {
-                    (&SENTINEL_SHAPE, Exists::Implicit)
-                }
+            Token::Index(index) if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location(&index.to_string())
+            }
+
+            Token::NextIndex if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location("-")
             }
 
             // Match arms for cases where types don't overlap.
             Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
+        }
+    }
+
+    fn obj_property_location(&self, prop: &str) -> (&Shape, Exists) {
+        if let Some(property) = self.object.properties.iter().find(|p| p.name == prop) {
+            let exists = if self.type_ == types::OBJECT && property.is_required {
+                // A property must exist iff this location can _only_ be an object,
+                // and it's marked as a required property.
+                Exists::Must
+            } else {
+                Exists::May
+            };
+
+            (&property.shape, exists)
+        } else if let Some(pattern) = self
+            .object
+            .patterns
+            .iter()
+            .find(|p| regex_matches(&p.re, prop))
+        {
+            (&pattern.shape, Exists::May)
+        } else if let Some(addl) = &self.object.additional {
+            (addl.as_ref(), Exists::May)
+        } else {
+            (&SENTINEL_SHAPE, Exists::Implicit)
         }
     }
 
@@ -1314,10 +1325,6 @@ pub enum Error {
         "{0} location's parent has 'set' reduction strategy, restricted to 'add'/'remove'/'intersect' properties"
     )]
     SetInvalidProperty(String),
-    #[error(
-        "{0} is a disallowed object property (it's an object property that looks like an array index)"
-    )]
-    DigitInvalidProperty(String),
 }
 
 impl Shape {
@@ -1328,9 +1335,6 @@ impl Shape {
     }
 
     fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
-        lazy_static! {
-            static ref ARRAY_PROPERTY: Regex = Regex::new(r"^([\d]+|-)$").unwrap();
-        }
         // Enumerations over array sub-locations.
         let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
             (
@@ -1406,11 +1410,6 @@ impl Shape {
             .chain(patterns)
             .chain(addl_props)
         {
-            if matches!(loc, Location::Property(prop) if regex_matches(&*ARRAY_PROPERTY, prop.name))
-            {
-                out.push(Error::DigitInvalidProperty(loc.pointer_str().to_string()));
-            }
-
             if matches!(self.reduction, Reduction::Unset)
                 && !matches!(child.reduction, Reduction::Unset)
             {
@@ -2165,7 +2164,16 @@ mod test {
                 properties:
                     child: {const: multi-type-child}
                 required: [child]
-        required: [parent]
+            1:
+                type: object
+                properties:
+                    -:
+                        type: object
+                        properties:
+                            2: { const: int-prop }
+                        required: ["2"]
+                required: ["-"]
+        required: [parent, "1"]
 
         patternProperties:
             pattern+: {const: pattern}
@@ -2191,6 +2199,7 @@ mod test {
         );
 
         let cases = &[
+            (&obj, "/1/-/2", ("int-prop", Exists::Must)),
             (&obj, "/prop", ("prop", Exists::May)),
             (&obj, "/missing", ("addl-prop", Exists::May)),
             (&obj, "/parent/opt-child", ("opt-child", Exists::May)),
@@ -2200,8 +2209,8 @@ mod test {
             (&obj, "/parent/impossible", ("<missing>", Exists::Cannot)),
             (&obj, "/pattern", ("pattern", Exists::May)),
             (&obj, "/patternnnnnn", ("pattern", Exists::May)),
-            (&obj, "/123", ("<missing>", Exists::Cannot)),
-            (&obj, "/-", ("<missing>", Exists::Cannot)),
+            (&obj, "/123", ("addl-prop", Exists::May)),
+            (&obj, "/-", ("addl-prop", Exists::May)),
             (&arr1, "/0", ("zero", Exists::Must)),
             (&arr1, "/1", ("one", Exists::Must)),
             (&arr1, "/2", ("two", Exists::May)),
@@ -2240,6 +2249,9 @@ mod test {
             obj_locations,
             vec![
                 ("", false, types::OBJECT, Exists::Must),
+                ("/1", false, types::OBJECT, Exists::Must),
+                ("/1/-", false, types::OBJECT, Exists::Must),
+                ("/1/-/2", false, types::STRING, Exists::Must),
                 (
                     "/multi-type",
                     false,
@@ -2332,11 +2344,6 @@ mod test {
                     - $ref: '#/properties/nested-array'
                     - type: string
 
-            "123": {type: boolean}  # Disallowed.
-            "-": {type: boolean}    # Disallowed.
-            "-123": {type: boolean} # Allowed (cannot be an index).
-            "12.0": {type: boolean} # Allowed (also cannot be an index).
-
         patternProperties:
             merge-wrong-type:
                 reduce: {strategy: merge}
@@ -2374,8 +2381,6 @@ mod test {
                 Error::SetNotObject("/0".to_owned(), types::ANY),
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
-                Error::DigitInvalidProperty("/-".to_owned()),
-                Error::DigitInvalidProperty("/123".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
                 Error::SumNotNumber(
