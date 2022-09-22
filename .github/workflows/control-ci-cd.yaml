@@ -1,0 +1,83 @@
+name: Estuary Control-Plane CI/CD
+
+# Run on all pushes.
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    # Permissions required of the Github token in order for
+    # federated identity and authorization to work.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Prepare
+        id: prep
+        run: |
+          TAG=$(echo $GITHUB_SHA | head -c7)
+          echo ::set-output name=tag::${TAG}
+
+      - name: Install supabase CLI
+        run: wget https://github.com/supabase/cli/releases/download/v0.26.0/supabase_0.26.0_linux_amd64.deb && sudo dpkg --install supabase_0.26.0_linux_amd64.deb
+
+      - name: start Supabase
+        run: supabase start
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.18"
+
+      - name: Cache/Restore Go dependencies.
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Setup buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: |
+            network=host
+
+      - name: login to github container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build And Push (non-mainline)
+        if: ${{ github.ref != 'refs/heads/main' }}
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          network: host
+          push: true
+          tags: ghcr.io/estuary/animated-carnival:${{ steps.prep.outputs.tag }}
+          build-args: |
+            DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Build And Push (mainline)
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          network: host
+          push: true
+          tags: ghcr.io/estuary/animated-carnival:${{ steps.prep.outputs.tag }},ghcr.io/estuary/animated-carnival:latest
+          build-args: |
+            DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Deploy Supabase Edge Functions
+        if: ${{ github.ref == 'refs/heads/main' }}
+        id: deploy-supabase-fn
+        run: |
+          echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
+          supabase functions deploy oauth --project-ref eyrcnmuzzyriypdajwdk

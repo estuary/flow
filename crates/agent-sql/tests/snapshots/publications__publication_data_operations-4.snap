@@ -1,0 +1,116 @@
+---
+source: crates/agent-sql/tests/publications.rs
+expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<Vec<_>>()"
+---
+[
+  {
+    "catalog_name": "aliceCo/First/Thing",
+    "connector_image_name": "an/image",
+    "connector_image_tag": "a-tag",
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "reads_from": [
+      "reads/from"
+    ],
+    "spec": 2,
+    "spec_type": "collection",
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": [
+      "writes/to"
+    ]
+  },
+  {
+    "catalog_name": "aliceCo/New/Thing",
+    "connector_image_name": "an/image",
+    "connector_image_tag": "a-tag",
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "reads_from": [
+      "reads/from"
+    ],
+    "spec": 2,
+    "spec_type": "collection",
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": [
+      "writes/to"
+    ]
+  },
+  {
+    "catalog_name": "aliceCo/Second/Thing",
+    "connector_image_name": "an/image",
+    "connector_image_tag": "a-tag",
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "reads_from": [
+      "reads/from"
+    ],
+    "spec": null,
+    "spec_type": null,
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": [
+      "writes/to"
+    ]
+  },
+  {
+    "catalog_name": "aliceCo/Test/Fixture",
+    "connector_image_name": "an/image",
+    "connector_image_tag": "a-tag",
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "reads_from": [
+      "reads/from"
+    ],
+    "spec": 2,
+    "spec_type": "test",
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": [
+      "writes/to"
+    ]
+  },
+  {
+    "catalog_name": "aliceCo/Unrelated/Thing",
+    "connector_image_name": null,
+    "connector_image_tag": null,
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "bb:bb:bb:bb:bb:bb:bb:bb",
+    "last_pub_id": "bb:bb:bb:bb:bb:bb:bb:bb",
+    "reads_from": null,
+    "spec": 1,
+    "spec_type": "collection",
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": null
+  },
+  {
+    "catalog_name": "otherCo/Not/AliceCo",
+    "connector_image_name": "an/image",
+    "connector_image_tag": "a-tag",
+    "created_at": "<redacted-timestamp>",
+    "detail": null,
+    "id": "<redacted-id>",
+    "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "reads_from": [
+      "reads/from"
+    ],
+    "spec": 2,
+    "spec_type": "collection",
+    "updated_at": "<redacted-timestamp>",
+    "writes_to": [
+      "writes/to"
+    ]
+  }
+]

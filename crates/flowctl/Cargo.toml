@@ -1,0 +1,43 @@
+[package]
+name = "flowctl"
+# The version here is ignored for release builds. During releases, this is instead set by the env
+# variable FLOWCTL_RELEASE_VERSION, based on the git tag.
+version = "0.1.0-dev"
+edition = "2021"
+
+[dependencies]
+
+assemble = { git = "https://github.com/estuary/flow", branch = "master" }
+doc = { git = "https://github.com/estuary/flow", branch = "master" }
+labels = { git = "https://github.com/estuary/flow", branch = "master" }
+models = { git = "https://github.com/estuary/flow", branch = "master" }
+proto-flow = { git = "https://github.com/estuary/flow", branch = "master" }
+sources = { git = "https://github.com/estuary/flow", branch = "master" }
+tables = { git = "https://github.com/estuary/flow", branch = "master" }
+validation = { git = "https://github.com/estuary/flow", branch = "master" }
+
+postgrest = { git = "https://github.com/estuary/postgrest-rs", branch = "johnny/patches" }
+
+anyhow = "*"
+bytes = "*"
+clap = { version = "*", features = ["derive", "env"] }
+comfy-table = "*"
+dirs = "*"
+futures = "*"
+itertools = "*"
+reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+serde_yaml = "*"
+serde-transcode = "*"
+superslice = "*"
+time = { version = "0.3", features = ["serde-well-known"] }
+tokio = { version = "1", features = ["rt", "net", "macros"] }
+tracing = "*"
+tracing-subscriber = {version = "*", features = ["env-filter", "json", "time"]}
+url = "*"
+uuid = { version = "*", features = ["serde"] }
+
+[dev-dependencies]
+assert_cmd = "*"
+tempfile = "*"

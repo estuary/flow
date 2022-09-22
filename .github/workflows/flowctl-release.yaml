@@ -1,0 +1,74 @@
+name: Flowctl release
+
+# Run whenever a github release is published
+on:
+  release:
+    types: [published]
+
+jobs:
+  release_binaries:
+    name: Release binaries
+    runs-on: ${{ matrix.config.os }} # we run a build per os
+    env:
+      ASSET_NAME: ${{ matrix.config.assetName }}
+      # build.rs reads this env variable and uses to set the value that's printed by flowctl --version
+      FLOWCTL_RELEASE_VERSION: ${{ github.event.release.tag_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - os: ubuntu-latest
+            assetName: flowctl-x86_64-linux
+          - os: macos-latest
+            assetName: flowctl-multiarch-macos
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Linux build steps:
+      # Linux builds need the non-default musl target.
+      - name: Install Rust
+        if: matrix.config.os == 'ubuntu-latest'
+        uses: actions-rs/toolchain@v1
+        with:
+          target: x86_64-unknown-linux-musl
+      - name: Build Linux
+        if: matrix.config.os == 'ubuntu-latest'
+        run: |-
+          sudo apt-get update && \
+          sudo apt-get install -y musl-tools && \
+          cargo build -p flowctl --release --target x86_64-unknown-linux-musl && \
+          mv target/x86_64-unknown-linux-musl/release/flowctl ${ASSET_NAME}
+
+      # Mac build steps:
+      # We need multiple targets for mac builds, so they will be manually added
+      # during the build step.
+      - name: Install Rust
+        if: matrix.config.os == 'macos-latest'
+        uses: actions-rs/toolchain@v1
+      # This one mac build should hopefully run on intel or m1 macs
+      - name: Build Mac
+        if: matrix.config.os == 'macos-latest'
+        # The toolchain action always gives you the default target, but we always need both
+        # the x86_64 and aarch64 targets. I couldn't find anything in github's docs that actually
+        # says that macos runners are on intel cpus, so we just always add both targets since it's a
+        # fast no-op if it's already installed.
+        # Also note that the Apple docs say that it doesn't matter which architecture we build on,
+        # as we can cross compile either direction.
+        run: |-
+          rustup target add aarch64-apple-darwin && \
+          rustup target add x86_64-apple-darwin && \
+          cargo build -p flowctl --release --target x86_64-apple-darwin && \
+          cargo build -p flowctl --release --target aarch64-apple-darwin && \
+          lipo -create -output ${ASSET_NAME} target/x86_64-apple-darwin/release/flowctl target/aarch64-apple-darwin/release/flowctl
+
+      # This step applies to all platforms
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_name: ${{ matrix.config.assetName }}
+          asset_path: ./${{ matrix.config.assetName }}
+          asset_content_type: application/octet-stream
