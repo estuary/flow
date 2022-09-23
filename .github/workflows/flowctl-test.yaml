@@ -1,0 +1,26 @@
+name: Flowctl Tests on macos
+
+# Run on pushes that impact the flowctl crate.
+on:
+  push:
+    paths:
+      - "crates/flowctl/**"
+      - "Cargo.lock"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test flowctl on macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Run tests
+        run: cargo test -p flowctl

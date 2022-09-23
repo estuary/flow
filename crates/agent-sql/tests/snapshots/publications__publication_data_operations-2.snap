@@ -1,0 +1,140 @@
+---
+source: crates/agent-sql/tests/publications.rs
+expression: resolved
+---
+[
+  {
+    "catalog_name": "aliceCo/First/Thing",
+    "draft_spec": 2,
+    "draft_spec_id": "1100000000000000",
+    "draft_type": "Collection",
+    "expect_pub_id": null,
+    "last_build_id": "bbbbbbbbbbbbbbbb",
+    "last_pub_id": "bbbbbbbbbbbbbbbb",
+    "live_spec": 1,
+    "live_spec_id": "<redacted>",
+    "live_type": "Collection",
+    "spec_capabilities": [
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "aliceCo/",
+        "capability": "write"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "examples/",
+        "capability": "admin"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "ops/aliceCo/",
+        "capability": "read"
+      }
+    ],
+    "user_capability": "admin"
+  },
+  {
+    "catalog_name": "aliceCo/Second/Thing",
+    "draft_spec": null,
+    "draft_spec_id": "2200000000000000",
+    "draft_type": null,
+    "expect_pub_id": null,
+    "last_build_id": "bbbbbbbbbbbbbbbb",
+    "last_pub_id": "bbbbbbbbbbbbbbbb",
+    "live_spec": 1,
+    "live_spec_id": "<redacted>",
+    "live_type": "Collection",
+    "spec_capabilities": [
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "aliceCo/",
+        "capability": "write"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "examples/",
+        "capability": "admin"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "ops/aliceCo/",
+        "capability": "read"
+      }
+    ],
+    "user_capability": "admin"
+  },
+  {
+    "catalog_name": "aliceCo/Test/Fixture",
+    "draft_spec": 2,
+    "draft_spec_id": "5500000000000000",
+    "draft_type": "Test",
+    "expect_pub_id": null,
+    "last_build_id": "bbbbbbbbbbbbbbbb",
+    "last_pub_id": "bbbbbbbbbbbbbbbb",
+    "live_spec": 1,
+    "live_spec_id": "<redacted>",
+    "live_type": "Test",
+    "spec_capabilities": [
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "aliceCo/",
+        "capability": "write"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "examples/",
+        "capability": "admin"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "ops/aliceCo/",
+        "capability": "read"
+      }
+    ],
+    "user_capability": "admin"
+  },
+  {
+    "catalog_name": "aliceCo/New/Thing",
+    "draft_spec": 2,
+    "draft_spec_id": "3300000000000000",
+    "draft_type": "Collection",
+    "expect_pub_id": null,
+    "last_build_id": "eeeeeeeeeeeeeeee",
+    "last_pub_id": "eeeeeeeeeeeeeeee",
+    "live_spec": null,
+    "live_spec_id": "<redacted>",
+    "live_type": null,
+    "spec_capabilities": [
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "aliceCo/",
+        "capability": "write"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "examples/",
+        "capability": "admin"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "ops/aliceCo/",
+        "capability": "read"
+      }
+    ],
+    "user_capability": "admin"
+  },
+  {
+    "catalog_name": "otherCo/Not/AliceCo",
+    "draft_spec": 2,
+    "draft_spec_id": "4400000000000000",
+    "draft_type": "Collection",
+    "expect_pub_id": null,
+    "last_build_id": "eeeeeeeeeeeeeeee",
+    "last_pub_id": "eeeeeeeeeeeeeeee",
+    "live_spec": null,
+    "live_spec_id": "<redacted>",
+    "live_type": null,
+    "spec_capabilities": [],
+    "user_capability": null
+  }
+]

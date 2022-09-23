@@ -1,0 +1,28 @@
+name: Estuary Control-Plane CI/CD
+
+on:
+  push:
+    # Only on pushes to the master branch
+    branches: [master]
+    # Only run if function code has changed.
+    paths:
+      - supabase/functions/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: supabase/setup-cli@v1
+
+      - name: Deploy Supabase Edge Functions
+        if: ${{ github.ref == 'refs/heads/main' }}
+        id: deploy-supabase-fn
+        run: |
+          echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
+          supabase functions deploy oauth --project-ref eyrcnmuzzyriypdajwdk
