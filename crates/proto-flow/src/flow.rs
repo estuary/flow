@@ -40,8 +40,8 @@ pub struct LambdaSpec {
 }
 /// Shuffle is a description of a document shuffle, where each document
 /// is mapped into:
-///  * An extracted, packed composite key (a "shuffle key").
-///  * A rotated Clock value (an "r-clock").
+///   * An extracted, packed composite key (a "shuffle key").
+///   * A rotated Clock value (an "r-clock").
 /// The packed key and r-clock can then be compared to individual reader
 /// RangeSpec's.
 ///
@@ -58,8 +58,8 @@ pub struct LambdaSpec {
 pub struct Shuffle {
     /// Group to which this shuffle belongs. It's used to suffix all journal
     /// reads undertaken by this shuffle, and must be stable. Examples:
-    ///  `derive/{derivation}/{transform}`
-    ///  `materialize/{materialization}`
+    ///   `derive/{derivation}/{transform}`
+    ///   `materialize/{materialization}`
     #[prost(string, tag="1")]
     pub group_name: ::prost::alloc::string::String,
     /// Source collection read by this transform.
@@ -123,10 +123,10 @@ pub struct Shuffle {
     /// We always validate documents, but may do so either within the Shuffle
     /// server or later, within the shuffle client:
     /// - Derivations set `validate_schema_json`, as the derivation runtime can
-    ///   then by-pass a round of JSON parsing and validation.
+    ///    then by-pass a round of JSON parsing and validation.
     /// - Materializations don't, as the materialization runtime immediately
-    ///   combines over the document which requires parsing & validation
-    ///   anyway.
+    ///    combines over the document which requires parsing & validation
+    ///    anyway.
     ///
     /// Unlike other schema_json protobuf fields, we don't use a RawMessage
     /// casttype so that the generated Go equals method will work.
@@ -249,6 +249,21 @@ pub mod inference {
         /// array bounds, or is a disallowed property, or has an impossible type.
         Cannot = 4,
     }
+    impl Exists {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Exists::Invalid => "INVALID",
+                Exists::Must => "MUST",
+                Exists::May => "MAY",
+                Exists::Implicit => "IMPLICIT",
+                Exists::Cannot => "CANNOT",
+            }
+        }
+    }
 }
 /// Next tag: 10.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -259,9 +274,9 @@ pub struct CollectionSpec {
     /// JSON-schema URI against which collection documents are validated,
     /// and which provides reduction annotations.
     /// * If this collection is local to this build, then |schema_uri|
-    ///   is the resource URL and fragment pointer of its schema.
+    ///    is the resource URL and fragment pointer of its schema.
     /// * If this is a foreign collection, then |schema_uri| is a synthetic
-    ///   and unique URL which stands in for the collection's schema.
+    ///    and unique URL which stands in for the collection's schema.
     #[prost(string, tag="2")]
     pub schema_uri: ::prost::alloc::string::String,
     /// Bundled JSON-schema of the collection
@@ -579,6 +594,18 @@ pub mod test_spec {
             Ingest = 0,
             Verify = 1,
         }
+        impl Type {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Type::Ingest => "INGEST",
+                    Type::Verify => "VERIFY",
+                }
+            }
+        }
     }
 }
 /// RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
@@ -724,6 +751,21 @@ pub mod extract_api {
         /// Fields extracted from a document (Rust -> Go).
         ExtractedFields = 4,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Configure => "CONFIGURE",
+                Code::Extract => "EXTRACT",
+                Code::ExtractedUuid => "EXTRACTED_UUID",
+                Code::ExtractedFields => "EXTRACTED_FIELDS",
+            }
+        }
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CombineApi {
@@ -789,6 +831,26 @@ pub mod combine_api {
         DrainedFields = 204,
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
         DrainedStats = 205,
+    }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Configure => "CONFIGURE",
+                Code::ReduceLeft => "REDUCE_LEFT",
+                Code::CombineRight => "COMBINE_RIGHT",
+                Code::DrainChunk => "DRAIN_CHUNK",
+                Code::DrainedCombinedDocument => "DRAINED_COMBINED_DOCUMENT",
+                Code::DrainedReducedDocument => "DRAINED_REDUCED_DOCUMENT",
+                Code::DrainedKey => "DRAINED_KEY",
+                Code::DrainedFields => "DRAINED_FIELDS",
+                Code::DrainedStats => "DRAINED_STATS",
+            }
+        }
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API
@@ -956,6 +1018,35 @@ pub mod derive_api {
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
         DrainedStats = 205,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Open => "OPEN",
+                Code::RestoreCheckpoint => "RESTORE_CHECKPOINT",
+                Code::Configure => "CONFIGURE",
+                Code::BeginTransaction => "BEGIN_TRANSACTION",
+                Code::NextDocumentHeader => "NEXT_DOCUMENT_HEADER",
+                Code::NextDocumentBody => "NEXT_DOCUMENT_BODY",
+                Code::Trampoline => "TRAMPOLINE",
+                Code::TrampolineInvoke => "TRAMPOLINE_INVOKE",
+                Code::FlushTransaction => "FLUSH_TRANSACTION",
+                Code::FlushedTransaction => "FLUSHED_TRANSACTION",
+                Code::PrepareToCommit => "PREPARE_TO_COMMIT",
+                Code::ClearRegisters => "CLEAR_REGISTERS",
+                Code::DrainChunk => "DRAIN_CHUNK",
+                Code::DrainedCombinedDocument => "DRAINED_COMBINED_DOCUMENT",
+                Code::DrainedReducedDocument => "DRAINED_REDUCED_DOCUMENT",
+                Code::DrainedKey => "DRAINED_KEY",
+                Code::DrainedFields => "DRAINED_FIELDS",
+                Code::DrainedStats => "DRAINED_STATS",
+            }
+        }
+    }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API
 /// bridge.
@@ -1029,6 +1120,25 @@ pub mod build_api {
         /// Generate catalog specification JSON schema (Go <-> Rust)
         CatalogSchema = 100,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Begin => "BEGIN",
+                Code::Poll => "POLL",
+                Code::Trampoline => "TRAMPOLINE",
+                Code::TrampolineFetch => "TRAMPOLINE_FETCH",
+                Code::TrampolineValidateCapture => "TRAMPOLINE_VALIDATE_CAPTURE",
+                Code::TrampolineValidateMaterialization => "TRAMPOLINE_VALIDATE_MATERIALIZATION",
+                Code::Done => "DONE",
+                Code::DoneWithErrors => "DONE_WITH_ERRORS",
+                Code::CatalogSchema => "CATALOG_SCHEMA",
+            }
+        }
+    }
 }
 /// ResetStateRequest is the request of the Testing.ResetState RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1090,6 +1200,21 @@ pub enum EndpointType {
     AirbyteSource = 7,
     FlowSink = 8,
 }
+impl EndpointType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EndpointType::Invalid => "INVALID",
+            EndpointType::Sqlite => "SQLITE",
+            EndpointType::Ingest => "INGEST",
+            EndpointType::AirbyteSource => "AIRBYTE_SOURCE",
+            EndpointType::FlowSink => "FLOW_SINK",
+        }
+    }
+}
 /// LogLevelFilter is a common representation of a simple logging filter, which
 /// is shared between Rust and Go code. This enum is not used directly within
 /// other messages here because logging is configured at the time that Rust
@@ -1104,6 +1229,22 @@ pub enum LogLevelFilter {
     Debug = 4,
     Trace = 5,
 }
+impl LogLevelFilter {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            LogLevelFilter::Off => "OFF",
+            LogLevelFilter::Error => "ERROR",
+            LogLevelFilter::Warn => "WARN",
+            LogLevelFilter::Info => "INFO",
+            LogLevelFilter::Debug => "DEBUG",
+            LogLevelFilter::Trace => "TRACE",
+        }
+    }
+}
 /// ContentType enumerates the content types understood by Flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1114,4 +1255,20 @@ pub enum ContentType {
     NpmPackage = 3,
     Config = 4,
     DocumentsFixture = 5,
+}
+impl ContentType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ContentType::Catalog => "CATALOG",
+            ContentType::JsonSchema => "JSON_SCHEMA",
+            ContentType::TypescriptModule => "TYPESCRIPT_MODULE",
+            ContentType::NpmPackage => "NPM_PACKAGE",
+            ContentType::Config => "CONFIG",
+            ContentType::DocumentsFixture => "DOCUMENTS_FIXTURE",
+        }
+    }
 }
