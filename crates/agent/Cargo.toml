@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 agent-sql = { path = "../agent-sql" }
-models = { git = "https://github.com/estuary/flow", branch = "master" }
-tables = { git = "https://github.com/estuary/flow", branch = "master", features = ["persist"] }
+models = { path = "../models" }
+tables = { path = "../tables", features = ["persist"] }
 
 anyhow = "*"
 async-trait = "*"

@@ -11,13 +11,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_CACHE_VERSION: 0.8.2
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  flowctl:
+  gnu-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -28,7 +29,12 @@ jobs:
 
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.18"
+          go-version: "1.19"
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -36,6 +42,9 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
+
+      - uses: supabase/setup-cli@v1
+      - run: supabase start
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
@@ -52,7 +61,7 @@ jobs:
       - run: make install-tools
       - run: go mod download
       - run: make rust-test
-      - run: make rust-binaries
+      - run: make gnu-binaries
 
       - name: Ensure that generated files are unchanged.
         run: |
@@ -63,11 +72,11 @@ jobs:
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
-          name: flowctl_binaries
+          name: gnu_binaries
           path: |
             .build/package/bin/*
 
-  musl:
+  musl-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -75,6 +84,12 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
@@ -95,7 +110,7 @@ jobs:
 
   assembly:
     runs-on: ubuntu-20.04
-    needs: [flowctl, musl]
+    needs: [gnu-binaries, musl-binaries]
 
     services:
       postgres:
@@ -177,8 +192,13 @@ jobs:
       - name: make catalog-test
         run: |
           make catalog-test \
+          -o /home/runner/work/flow/flow/target/release/libbindings.a \
+          -o /home/runner/work/flow/flow/target/release/librocks-exp/librocksdb.a \
+          -o /home/runner/work/flow/flow/crates/bindings/flow_bindings.h \
+          -o /home/runner/work/flow/flow/.build/package/bin/agent \
           -o /home/runner/work/flow/flow/.build/package/bin/etcd \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-admin \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
@@ -191,8 +211,13 @@ jobs:
       - name: make go-test-ci
         run: |
           make go-test-ci \
+          -o /home/runner/work/flow/flow/target/release/libbindings.a \
+          -o /home/runner/work/flow/flow/target/release/librocks-exp/librocksdb.a \
+          -o /home/runner/work/flow/flow/crates/bindings/flow_bindings.h \
+          -o /home/runner/work/flow/flow/.build/package/bin/agent \
           -o /home/runner/work/flow/flow/.build/package/bin/etcd \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-admin \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
@@ -205,8 +230,13 @@ jobs:
       - name: make end-to-end-test
         run: |
           make end-to-end-test \
+          -o /home/runner/work/flow/flow/target/release/libbindings.a \
+          -o /home/runner/work/flow/flow/target/release/librocks-exp/librocksdb.a \
+          -o /home/runner/work/flow/flow/crates/bindings/flow_bindings.h \
+          -o /home/runner/work/flow/flow/.build/package/bin/agent \
           -o /home/runner/work/flow/flow/.build/package/bin/etcd \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-admin \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
@@ -219,8 +249,13 @@ jobs:
       - name: make package (tar only)
         run: |
           make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz \
+          -o /home/runner/work/flow/flow/target/release/libbindings.a \
+          -o /home/runner/work/flow/flow/target/release/librocks-exp/librocksdb.a \
+          -o /home/runner/work/flow/flow/crates/bindings/flow_bindings.h \
+          -o /home/runner/work/flow/flow/.build/package/bin/agent \
           -o /home/runner/work/flow/flow/.build/package/bin/etcd \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
+          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-admin \
           -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
           -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
