@@ -10,15 +10,15 @@ name = "flow-schema-inference"
 path = "src/main.rs"
 
 [dependencies]
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc" }
+json = { path = "../json" }
 
-anyhow = "1.0.57"
-clap = {version = "3.2.5", features=["derive"]}
-itertools = {version = "0.10.3"}
-schemars = "0.8.10"
-serde = {version = "1.0.137", features=["derive"]}
-serde_json = {version = "1.0.81", features = ["raw_value"]}
+anyhow = { workspace = true }
+clap = { workspace = true }
+itertools = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
-insta = "*"
+insta = { workspace = true }

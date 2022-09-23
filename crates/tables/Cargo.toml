@@ -12,15 +12,15 @@ models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 
-anyhow = "*"
-bytes = "*"
-pathfinding = "*"
-prost = "*"
-rusqlite = { version = "*", features = ["bundled-full"], optional = true}
-serde = "*"
-serde_json = "*"
-superslice = "*"
-url = "*"
+anyhow = { workspace = true }
+bytes = { workspace = true }
+pathfinding = { workspace = true }
+prost = { workspace = true }
+rusqlite = { workspace = true, optional = true}
+serde = { workspace = true }
+serde_json = { workspace = true }
+superslice = { workspace = true }
+url = { workspace = true }
 
 [features]
 default = []
