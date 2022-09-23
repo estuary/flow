@@ -16,18 +16,18 @@ sources = { path = "../sources" }
 tables = { path = "../tables" }
 validation = { path = "../validation" }
 
-anyhow = "*"
-bytes = "*"
-clap = {version = "*", features = ["derive"]}
-futures = "*"
-itertools = "*"
-reqwest = { version = "*", default_features = false, features = ["json", "native-tls"] }
-serde_json = "*"
-superslice = "*"
-tokio = { version = "1", features = ["rt", "net"] }
-tracing = "*"
-url = "*"
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+superslice = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "*"
-tempfile = "*"
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }

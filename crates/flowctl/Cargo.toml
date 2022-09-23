@@ -16,28 +16,29 @@ sources = { path = "../sources" }
 tables = { path = "../tables" }
 validation = { path = "../validation" }
 
-postgrest = { git = "https://github.com/estuary/postgrest-rs", branch = "johnny/patches" }
+postgrest = { workspace = true }
 
-anyhow = "*"
-bytes = "*"
-clap = { version = "*", features = ["derive", "env"] }
-comfy-table = "*"
-dirs = "*"
-futures = "*"
-itertools = "*"
-reqwest = { version = "*", default_features = false, features = ["json", "rustls-tls"] }
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-serde_yaml = "*"
-serde-transcode = "*"
-superslice = "*"
-time = { version = "0.3", features = ["serde-well-known"] }
-tokio = { version = "1", features = ["rt", "net", "macros"] }
-tracing = "*"
-tracing-subscriber = {version = "*", features = ["env-filter", "json", "time"]}
-url = "*"
-uuid = { version = "*", features = ["serde"] }
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+comfy-table = { workspace = true }
+dirs = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+serde-transcode = { workspace = true }
+superslice = { workspace = true }
+time = { workspace = true }
+# tokio = { version = "1", features = ["rt", "net", "macros"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "*"
-tempfile = "*"
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }

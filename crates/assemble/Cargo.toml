@@ -14,21 +14,21 @@ proto-gazette = { path = "../proto-gazette" }
 tables = { path = "../tables" }
 typescript = { path = "../typescript" }
 
-bytes = "*"
-itertools = "*"
-lazy_static = "*"
-percent-encoding = "*"
-regex = "*"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-superslice = "*"
-thiserror = "*"
-tracing = "*"
-url = "*"
+bytes = { workspace = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+percent-encoding = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+superslice = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 sources = { path = "../sources" }
 
-insta = "*"
-lazy_static = "*"
-serde_yaml = "*"
+insta = { workspace = true }
+lazy_static = { workspace = true }
+serde_yaml = { workspace = true }

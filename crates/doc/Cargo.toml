@@ -7,18 +7,18 @@ edition = "2018"
 [dependencies]
 json = { path = "../json", version = "0.0.0" }
 
-itertools = "*"
-lazy_static = "*"
-fancy-regex = "*"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-thiserror = "*"
-tinyvec = {version = "*", features = ["alloc"]}
-tracing = "*"
-url = "*"
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+fancy-regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tinyvec = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
-insta = "*"
-quickcheck = "*"
-quickcheck_macros = "*"
-serde_yaml = "*"
+insta = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+serde_yaml = { workspace = true }
