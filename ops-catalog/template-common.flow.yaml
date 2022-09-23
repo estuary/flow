@@ -1,0 +1,112 @@
+collections:
+  ops/TENANT/logs:
+    schema: ops-log-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/TENANT/stats:
+    schema: ops-stats-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/TENANT/stats-by-hour:
+    schema:
+      $ref: ops-stats-schema.json
+      properties:
+        shard:
+          properties:
+            split:
+              description: "The ID of this shard: the beginning value of its assigned key range composed with the beginning value of its assigned rClock range."
+              type: string
+              format: macaddr8
+              pattern: "[0-9a-f]{8}:[0-9a-f]{8}"
+          required: [split]
+
+    key: [/shard/name, /shard/split, /ts]
+    projections:
+      # This derivation aggregates timestamps to UTC hour.
+      hourstamp: /ts
+      shard_split: /shard/split
+      task_name: /shard/name
+      task_type: /shard/kind
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "by-hour.ts" }
+      transform:
+        byHour:
+          source:
+            name: ops/TENANT/stats
+          publish: { lambda: typescript }
+
+tests:
+  ops/TENANT/tests/stats-by-hour:
+    - ingest:
+        collection: ops/TENANT/stats
+        documents:
+          - shard: &shard
+              kind: capture
+              name: tenant/test/cap
+              keyBegin: "aabbccdd"
+              rClockBegin: "00112233"
+            ts: "2022-04-03T01:02:03.45678Z"
+            capture:
+              tenant/test/collection:
+                right: { docsTotal: 3, bytesTotal: 99 }
+                out: { docsTotal: 3, bytesTotal: 99 }
+            txnCount: 2
+            openSecondsTotal: 0.012
+          - shard: *shard
+            ts: "2022-04-03T01:37:33.45678Z"
+            capture:
+              tenant/test/collection:
+                right: { docsTotal: 1, bytesTotal: 2 }
+                out: { docsTotal: 2, bytesTotal: 4 }
+            txnCount: 1
+            openSecondsTotal: 0.02
+          - shard: *shard
+            ts: "2022-04-03T02:04:00.123Z"
+            capture:
+              tenant/test/collection:
+                right: { docsTotal: 3, bytesTotal: 8 }
+                out: { docsTotal: 7, bytesTotal: 9 }
+            txnCount: 1
+            openSecondsTotal: 0.03
+    - verify:
+        collection: ops/TENANT/stats-by-hour
+        documents:
+          - shard: &mappedShard
+              <<: *shard
+              split: "aabbccdd:00112233"
+            ts: "2022-04-03T01:00:00.000Z"
+            capture:
+              tenant/test/collection:
+                right: { docsTotal: 4, bytesTotal: 101 }
+                out: { docsTotal: 5, bytesTotal: 103 }
+            txnCount: 3
+            openSecondsTotal: 0.032
+          - shard: *mappedShard
+            ts: "2022-04-03T02:00:00.000Z"
+            capture:
+              tenant/test/collection:
+                right: { docsTotal: 3, bytesTotal: 8 }
+                out: { docsTotal: 7, bytesTotal: 9 }
+            txnCount: 1
+            openSecondsTotal: 0.03
+
+# TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
