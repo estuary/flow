@@ -14,7 +14,7 @@ lazy_static = "*"
 thiserror = "*"
 futures-core = "*"
 reqwest = {version = "*", features = ["stream"]}
-tonic = {version = "*", features = [ "tls", "tls-roots"]}
+tonic = {version = "0.7", features = [ "tls", "tls-roots"]} # Would love to upgrade to 0.8
 tokio = {version = "*", features = ["rt", "net", "macros"]}
 tracing = "0.1"
 tower = "0.4"

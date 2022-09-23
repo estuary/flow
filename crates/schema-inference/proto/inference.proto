@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package schema_inference;
+
+message InferenceRequest {
+    string flow_collection = 1;
+}
+
+message InferenceResponse {
+    oneof body {
+        InferredSchema schema = 1;
+    }
+}
+
+message InferredSchema {
+    string schema_json = 1;
+    uint64 documents_read = 2;
+}
+
+service InferenceService {
+    rpc InferSchema (InferenceRequest) returns (InferenceResponse);
+}
