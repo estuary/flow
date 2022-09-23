@@ -5,10 +5,10 @@ authors = ["Estuary Technologies, Inc"]
 edition = "2021"
 
 [dependencies]
-json = { path = "../json", version = "0.0.0" }
-doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json" }
+doc = { path = "../doc" }
 
-lazy_static = "*"
-regex = "*"
-serde_json = "*"
-url = "*"
+lazy_static = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }

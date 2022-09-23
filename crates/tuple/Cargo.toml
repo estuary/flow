@@ -20,7 +20,6 @@ work (MIT or Apache 2), which is available at:
 """
 
 [dependencies]
-memchr = "*"
-serde_json = "*"
+memchr = { workspace = true }
+serde_json = { workspace = true }
 
-[dev-dependencies]

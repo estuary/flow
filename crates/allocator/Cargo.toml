@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2018"
 
 [dependencies]
-lazy_static = "*"
-jemallocator = "*"
-jemalloc-ctl = "*"
+lazy_static = { workspace = true }
+jemallocator = { workspace = true }
+jemalloc-ctl = { workspace = true }
 

@@ -12,20 +12,20 @@ models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables" }
 
-anyhow = "*"
-base64 = "*"
-bytes = "*"
-futures = "*"
-schemars = "*"
-serde = { version = "*", features = ["derive"] }
-serde-transcode = "*"
-serde_json = { version =  "*", features = ["raw_value"] }
-serde_yaml = "*"
-thiserror = "*"
-tracing = "*"
-url = "*"
-yaml-merge-keys = { version = "*", features = ["serde_yaml"] }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+yaml-merge-keys = { workspace = true }
 
 [dev-dependencies]
 
-insta = "*"
+insta = { workspace = true }
