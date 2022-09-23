@@ -12,13 +12,29 @@ path = "src/main.rs"
 [dependencies]
 doc = { path = "../doc", version = "0.0.0" }
 json = { path = "../json", version = "0.0.0" }
+journal-client = { path = "../journal-client", version = "0.0.0" }
+assemble = { path = "../assemble", version = "0.0.0" }
+models = { path = "../models", version = "0.0.0" }
+proto-gazette = { path = "../proto-gazette" }
 
 anyhow = "1.0.57"
 clap = {version = "3.2.5", features=["derive"]}
-itertools = {version = "0.10.3"}
+itertools = "0.10.3"
 schemars = "0.8.10"
 serde = {version = "1.0.137", features=["derive"]}
 serde_json = {version = "1.0.81", features = ["raw_value"]}
+tonic = "0.7" # Only to be compatible with existing crates using 0.7
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.36"
+tracing-subscriber = {version = "0.3.15", features = ["env-filter", "json", "time"]}
+prost = "0.10"
+thiserror = "1.0.35"
+tokio-util = {version="0.7.4", features=["io", "compat"]}
+futures-util = "0.3.24"
+futures = "0.3.24"
 
 [dev-dependencies]
 insta = "*"
+
+[build-dependencies]
+tonic-build = "0.7.2"

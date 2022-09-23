@@ -9,6 +9,7 @@ mod raw;
 
 use crate::read::{async_try, io_err, Error};
 use crate::Client;
+use futures::future::BoxFuture;
 use futures::io::AsyncRead;
 use proto_gazette::broker;
 use std::{fmt::Debug, future::Future, io, pin::Pin, task::Poll};
@@ -313,7 +314,7 @@ impl<R: Retry> futures::io::AsyncRead for Reader<R> {
 /// Models the state of this simple state machine. Either we are opening a new
 /// `raw::Reader`, reading data from said reader, or waiting on a backoff to try again.
 enum State {
-    StartReq(Pin<Box<dyn Future<Output = Result<raw::Reader, Error>>>>),
+    StartReq(BoxFuture<'static,Result<raw::Reader, Error>>),
     Reading(raw::Reader),
     Backoff(Pin<Box<tokio::time::Sleep>>),
 }
@@ -350,7 +351,7 @@ fn read_err(err: &io::Error) -> Option<&Error> {
 fn start_new_read(
     client: Client,
     req: broker::ReadRequest,
-) -> Pin<Box<dyn Future<Output = Result<raw::Reader, Error>>>> {
+) -> BoxFuture<'static,Result<raw::Reader, Error>> {
     Box::pin(async move {
         let mut c = client;
         raw::start_read(&mut c, req).await
