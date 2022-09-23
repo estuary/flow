@@ -136,6 +136,8 @@ go-install/%: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 ${PKGDIR}/bin/gazette: go-install/go.gazette.dev/core/cmd/gazette
 ${PKGDIR}/bin/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
 ${PKGDIR}/bin/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl-go
+${PKGDIR}/bin/fetch-open-graph:
+	cd fetch-open-graph && go build -o ${PKGDIR}/
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${PKGDIR}/bin/sops:
@@ -159,6 +161,11 @@ ${RUSTBIN}/librocks-exp/librocksdb.a:
 ${RUSTBIN}/flowctl-admin:
 	cargo build --release --locked -p flowctl-admin
 
+.PHONY: ${RUSTBIN}/agent
+${RUSTBIN}/agent:
+	cargo build --release --locked -p agent
+
+
 # Statically linked binaries using MUSL:
 
 .PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
@@ -181,11 +188,15 @@ ${RUST_MUSL_BIN}/flow-schema-inference:
 ${RUST_MUSL_BIN}/flow-schemalate:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
 
+.PHONY: ${RUST_MUSL_BIN}/flowctl
+${RUST_MUSL_BIN}/flowctl:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl
 
 ########################################################################
 # Final output packaging:
 
-RUST_TARGETS = \
+GNU_TARGETS = \
+	${PKGDIR}/bin/agent \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl-admin \
 	${PKGDIR}/bin/flowctl-go \
@@ -193,19 +204,21 @@ RUST_TARGETS = \
 	${PKGDIR}/bin/sops
 
 MUSL_TARGETS = \
+	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flow-connector-proxy \
 	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
 
-.PHONY: rust-binaries
-rust-binaries: $(RUST_TARGETS)
+# TODO: rename gnu-binaries to gnu-binaries
+.PHONY: gnu-binaries
+gnu-binaries: $(GNU_TARGETS)
 
 .PHONY: musl-binaries
 musl-binaries: $(MUSL_TARGETS)
 
-${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: $(RUST_TARGETS) $(MUSL_TARGETS)
+${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: $(GNU_TARGETS) $(MUSL_TARGETS)
 	rm -f $@
 	cd ${PKGDIR}/bin && tar -zcf ../flow-$(PACKAGE_ARCH).tar.gz *
 
@@ -233,6 +246,15 @@ ${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${
 
 ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
+
+${PKGDIR}/bin/flowctl: ${RUST_MUSL_BIN}/flowctl | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flowctl $@
+
+# Control-plane binaries
+
+${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
+	cp ${RUSTBIN}/agent $@
+
 
 ##########################################################################
 # Make targets used by CI:
@@ -266,11 +288,11 @@ install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-test
 rust-test:
-	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy
+	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy --exclude flowctl
 
 .PHONY: musl-test
 musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy --package flowctl
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,

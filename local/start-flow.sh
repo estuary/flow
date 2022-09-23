@@ -14,7 +14,7 @@
 # [this intro+cheatsheet](https://www.hostinger.com/tutorials/tmux-beginners-guide-and-cheat-sheet/)
 #
 # You need to have all of these repositories checked out locally in order for this to work:
-# flow, animated-carnival, ui, data-plane-gateway
+# flow, ui, data-plane-gateway
 
 # This script will start the tmux session and create a window for each component. The starting of
 # each component is handled by start-component.sh. That script needs to find where you have those

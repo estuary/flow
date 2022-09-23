@@ -44,18 +44,18 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 # The parent directory of this repository, which is used to resolve the paths of all repositories
 # unless there's a specific env varaible for it.
-ANIMATED_CARNIVAL_PARENT_DIR="$(realpath "$SCRIPT_DIR/../../")"
+REPO_PARENT_DIR="$(realpath "$SCRIPT_DIR/../../")"
 
 function project_dir() {
     local project="$1"
 
-    # Look for an environment variable for this specific repo. If `project` is 'animated-carnival',
-    # then the expected variable name would be `animated_carnival_repo` (lowercase).
+    # Look for an environment variable for this specific repo. If `project` is 'flow',
+    # then the expected variable name would be `flow_repo` (lowercase).
     local env_var_name="${project//-/_}_repo"
     if [[ -n "${!env_var_name}" ]]; then
         echo "${!env_var_name}"
     else
-        echo "$ANIMATED_CARNIVAL_PARENT_DIR/$project"
+        echo "$REPO_PARENT_DIR/$project"
     fi
 }
 
@@ -84,16 +84,16 @@ function start_data_plane_gateway() {
 }
 
 function start_control_plane() {
-    cd "$(project_dir 'animated-carnival')"
+    cd "$(project_dir 'flow')"
     must_run supabase start
 }
 
 function start_control_plane_agent() {
     local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
-    cd "$(project_dir 'animated-carnival')/fetch-open-graph"
+    cd "$(project_dir 'flow')/fetch-open-graph"
     go build -o "$flow_bin_dir"
 
-    cd "$(project_dir 'animated-carnival')"
+    cd "$(project_dir 'flow')"
     # Start building immediately, since it could take a while
     must_run cargo build -p agent
 
@@ -112,7 +112,7 @@ function start_control_plane_agent() {
 }
 
 function start_oauth_edge() {
-    cd "$(project_dir 'animated-carnival')"
+    cd "$(project_dir 'flow')"
     must_run supabase functions serve oauth
 }
 

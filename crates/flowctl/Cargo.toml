@@ -7,14 +7,14 @@ edition = "2021"
 
 [dependencies]
 
-assemble = { git = "https://github.com/estuary/flow", branch = "master" }
-doc = { git = "https://github.com/estuary/flow", branch = "master" }
-labels = { git = "https://github.com/estuary/flow", branch = "master" }
-models = { git = "https://github.com/estuary/flow", branch = "master" }
-proto-flow = { git = "https://github.com/estuary/flow", branch = "master" }
-sources = { git = "https://github.com/estuary/flow", branch = "master" }
-tables = { git = "https://github.com/estuary/flow", branch = "master" }
-validation = { git = "https://github.com/estuary/flow", branch = "master" }
+assemble = { path = "../assemble" }
+doc = { path = "../doc" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+sources = { path = "../sources" }
+tables = { path = "../tables" }
+validation = { path = "../validation" }
 
 postgrest = { git = "https://github.com/estuary/postgrest-rs", branch = "johnny/patches" }
 
