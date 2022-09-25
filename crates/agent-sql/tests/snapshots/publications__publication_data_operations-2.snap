@@ -5,13 +5,17 @@ expression: resolved
 [
   {
     "catalog_name": "aliceCo/First/Thing",
-    "draft_spec": 2,
+    "draft_spec": {
+      "$serde_json::private::RawValue": "2"
+    },
     "draft_spec_id": "1100000000000000",
     "draft_type": "Collection",
     "expect_pub_id": null,
     "last_build_id": "bbbbbbbbbbbbbbbb",
     "last_pub_id": "bbbbbbbbbbbbbbbb",
-    "live_spec": 1,
+    "live_spec": {
+      "$serde_json::private::RawValue": "1"
+    },
     "live_spec_id": "<redacted>",
     "live_type": "Collection",
     "spec_capabilities": [
@@ -41,7 +45,9 @@ expression: resolved
     "expect_pub_id": null,
     "last_build_id": "bbbbbbbbbbbbbbbb",
     "last_pub_id": "bbbbbbbbbbbbbbbb",
-    "live_spec": 1,
+    "live_spec": {
+      "$serde_json::private::RawValue": "1"
+    },
     "live_spec_id": "<redacted>",
     "live_type": "Collection",
     "spec_capabilities": [
@@ -65,13 +71,17 @@ expression: resolved
   },
   {
     "catalog_name": "aliceCo/Test/Fixture",
-    "draft_spec": 2,
+    "draft_spec": {
+      "$serde_json::private::RawValue": "2"
+    },
     "draft_spec_id": "5500000000000000",
     "draft_type": "Test",
     "expect_pub_id": null,
     "last_build_id": "bbbbbbbbbbbbbbbb",
     "last_pub_id": "bbbbbbbbbbbbbbbb",
-    "live_spec": 1,
+    "live_spec": {
+      "$serde_json::private::RawValue": "1"
+    },
     "live_spec_id": "<redacted>",
     "live_type": "Test",
     "spec_capabilities": [
@@ -95,7 +105,9 @@ expression: resolved
   },
   {
     "catalog_name": "aliceCo/New/Thing",
-    "draft_spec": 2,
+    "draft_spec": {
+      "$serde_json::private::RawValue": "2"
+    },
     "draft_spec_id": "3300000000000000",
     "draft_type": "Collection",
     "expect_pub_id": null,
@@ -125,7 +137,9 @@ expression: resolved
   },
   {
     "catalog_name": "otherCo/Not/AliceCo",
-    "draft_spec": 2,
+    "draft_spec": {
+      "$serde_json::private::RawValue": "2"
+    },
     "draft_spec_id": "4400000000000000",
     "draft_type": "Collection",
     "expect_pub_id": null,
