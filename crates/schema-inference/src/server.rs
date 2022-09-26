@@ -1,26 +1,24 @@
+use crate::inference::infer_shape;
+use crate::schema::SchemaBuilder;
+use crate::shape;
+
+use assemble::journal_selector;
 use doc::inference::Shape;
 use journal_client::broker::JournalSpec;
 use journal_client::list::list_journals;
 use journal_client::read::uncommitted::{JournalRead, NoRetry, Reader};
-use std::collections::BTreeMap as Map;
-
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, to_value};
-use tokio_util::codec::{FramedRead, LinesCodec};
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tonic::{transport::Server, Request, Response, Status};
-
-use futures_util::StreamExt;
 use journal_client::{connect_journal_client, ConnectError};
-
-use assemble::journal_selector;
 use models;
 use schema_inference::inference_service_server::{InferenceService, InferenceServiceServer};
 use schema_inference::{InferenceRequest, InferenceResponse};
 
-use crate::inference::infer_shape;
-use crate::schema::SchemaBuilder;
-use crate::shape;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use serde_json::{to_value, Value};
+use std::collections::BTreeMap as Map;
+use tokio_util::codec::{FramedRead, LinesCodec};
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+use tonic::{transport::Server, Request, Response, Status};
 
 pub mod schema_inference {
     tonic::include_proto!("schema_inference"); // The string specified here must match the proto package name
@@ -81,7 +79,10 @@ impl InferenceService for InferenceServiceImpl {
             match shape {
                 Ok(Some((inferred_shape, docs_read))) => {
                     if let Some((accumulated_shape, docs_count)) = accumulator {
-                        accumulator = Some((shape::merge(accumulated_shape, inferred_shape), docs_count + docs_read))
+                        accumulator = Some((
+                            shape::merge(accumulated_shape, inferred_shape),
+                            docs_count + docs_read,
+                        ))
                     } else {
                         accumulator = Some((inferred_shape, docs_read))
                     }
@@ -98,7 +99,10 @@ impl InferenceService for InferenceServiceImpl {
                     .map_err(|e| Status::internal(e.to_string()))?;
                 Ok(Response::new(InferenceResponse {
                     body: Some(schema_inference::inference_response::Body::Schema(
-                        schema_inference::InferredSchema {schema_json:root, documents_read: docs_count },
+                        schema_inference::InferredSchema {
+                            schema_json: root,
+                            documents_read: docs_count,
+                        },
                     )),
                 }))
             }
