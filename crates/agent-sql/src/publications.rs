@@ -255,11 +255,14 @@ pub async fn resolve_expanded_rows(
               select * from seeds
         ),
         -- Further expand the resulting captures & materializations to their bound collections.
+        -- The "on" clause here accounts for collections included in the pass_one_b result set. We will only
+        -- expand from captures & materializations here, not from collections to derived collections. Derivations
+        -- are recursively walked in pass_two.
         -- This pass is non-recursive.
         pass_one_c(id) as (
             select case when p.id = e.source_id then e.target_id else e.source_id end
               from (select id from pass_one_b) as p join live_spec_flows as e
-              on p.id = e.source_id or p.id = e.target_id
+              on p.id = e.source_id and e.flow_type = 'capture' or p.id = e.target_id and e.flow_type = 'materialization'
         ),
         -- Second pass recursively walks backwards along data-flow edges to
         -- expand derivations and tests:
