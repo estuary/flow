@@ -1,8 +1,12 @@
 [package]
 name = "proto-flow"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 proto-gazette = { path = "../proto-gazette" }

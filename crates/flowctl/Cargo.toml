@@ -2,11 +2,15 @@
 name = "flowctl"
 # The version here is ignored for release builds. During releases, this is instead set by the env
 # variable FLOWCTL_RELEASE_VERSION, based on the git tag.
-version = "0.1.0-dev"
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-
 assemble = { path = "../assemble" }
 doc = { path = "../doc" }
 labels = { path = "../labels" }
@@ -32,7 +36,6 @@ serde_yaml = { workspace = true }
 serde-transcode = { workspace = true }
 superslice = { workspace = true }
 time = { workspace = true }
-# tokio = { version = "1", features = ["rt", "net", "macros"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
