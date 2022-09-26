@@ -211,7 +211,6 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
 
-# TODO: rename gnu-binaries to gnu-binaries
 .PHONY: linux-gnu-binaries
 linux-gnu-binaries: $(GNU_TARGETS)
 
@@ -313,8 +312,6 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
-#  ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
-#   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 .PHONY: go-test-ci
 go-test-ci:
 	PATH=${PKGDIR}/bin:$$PATH ;\
