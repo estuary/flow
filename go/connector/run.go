@@ -13,8 +13,10 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sirupsen/logrus"
 )
@@ -26,7 +28,19 @@ const (
 	Materialize
 )
 
-const DockerHostInternal = "host.docker.internal"
+const ConnectorTCPPortLabel = "FLOW_TCP_PORT"
+
+// proxyCommand returns a ProxyCommand of crates/connector_proxy/src/main.rs
+func (c Protocol) proxyCommand() string {
+	switch c {
+	case Capture:
+		return "proxy-flow-capture"
+	case Materialize:
+		return "proxy-flow-materialize"
+	default:
+		panic(fmt.Sprintf("go.estuary.dev/E100: unexpected protocol %v", c))
+	}
+}
 
 // Run the given Docker |image| with |args|.
 //
@@ -56,9 +70,41 @@ func Run(
 	output io.WriteCloser,
 	logger ops.Logger,
 ) error {
+	var imageInspectRaw json.RawMessage
+	var inspects = []ImageInspect{ImageInspect{}}
+	var inspect ImageInspect
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return err
+	} else if imageInspectRaw, err = InspectImage(ctx, image); err != nil {
+		return err
+	} else if err := json.Unmarshal(imageInspectRaw, &inspects); err != nil {
+		return fmt.Errorf("go.estuary.dev/E132: parsing container image %q inspect results: %w", image, err)
+	} else {
+		inspect = inspects[0]
+	}
+
+	var tmpProxy, tmpInspect *os.File
+
+	// Find out the port on which the connector will be listening. If there is no
+	// port specified, then fallback to using connector_proxy and stdio
+	var port string = inspect.Config.Labels[ConnectorTCPPortLabel]
+	if port == "" {
+		logger.Log(logrus.WarnLevel, logrus.Fields{}, "go.estuary.dev/W002: container did not specify port label, using stdio. Using stdio is deprecated and will be removed in the future.")
+
+		// Copy `flowConnectorProxy` binary to $TMPDIR, from where it may be
+		// mounted into the connector.
+		if rPath, err := pkgbin.Locate(flowConnectorProxy); err != nil {
+			return fmt.Errorf("go.estuary.dev/E101: finding %q binary: %w", flowConnectorProxy, err)
+		} else if r, err := os.Open(rPath); err != nil {
+			return fmt.Errorf("go.estuary.dev/E102: opening %s: %w", rPath, err)
+		} else if tmpProxy, err = copyToTempFile(r, 0555); err != nil {
+			return fmt.Errorf("go.estuary.dev/E103: copying %s to tmpfile: %w", rPath, err)
+		} else if tmpInspect, err = copyToTempFile(bytes.NewReader(imageInspectRaw), 0444); err != nil {
+			return fmt.Errorf("go.estuary.dev/E104: writing image inspect output: %w", err)
+		}
+		defer os.Remove(tmpProxy.Name())
+		defer os.Remove(tmpInspect.Name())
 	}
 
 	// If `networkName` is undefined, use an explicit of "bridge".
@@ -66,14 +112,6 @@ func Run(
 	if networkName == "" {
 		networkName = "bridge"
 	}
-
-	// By leaving the port empty, a port is automatically assigned
-	var socketAddr = "127.0.0.1:"
-	socket, err := net.Listen("tcp", socketAddr)
-	if err != nil {
-		return fmt.Errorf("listen error: %w", err)
-	}
-	defer socket.Close()
 
 	var imageArgs = []string{
 		"docker",
@@ -98,11 +136,35 @@ func Run(
 		"--log-driver", "none",
 		// Network to which the container should attach.
 		"--network", networkName,
-		// Add a special host record on the container which points to the host, this allows
-		// the container to use the TCP server started by this process
-		"--add-host", fmt.Sprintf("%s:host-gateway", DockerHostInternal),
+	}
+
+	if port != "" {
+		imageArgs = append(imageArgs,
+			"--publish",
+			fmt.Sprintf("%s:%s", port, port),
+		)
+	} else {
+		imageArgs = append(imageArgs,
+			// The entrypoint into a connector is always `flow-connector-proxy`,
+			// which will delegate to the actual entrypoint of the connector.
+			"--entrypoint", "/flow-connector-proxy",
+			// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
+			"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
+			"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+		)
+	}
+
+	imageArgs = append(imageArgs,
 		image,
 		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
+	)
+
+	if port == "" {
+		imageArgs = append(imageArgs,
+			// Arguments following `image` are arguments of the connector proxy and not of docker:
+			"--image-inspect-json-path=/image-inspect.json",
+			protocol.proxyCommand(),
+		)
 	}
 
 	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
@@ -110,7 +172,7 @@ func Run(
 		"operation":        strings.Join(args, " "),
 	})
 
-	return runCommand(ctx, append(imageArgs, args...), socket, writeLoop, output, logger)
+	return runCommand(ctx, append(imageArgs, args...), port, writeLoop, output, logger)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -123,7 +185,7 @@ func Run(
 func runCommand(
 	ctx context.Context,
 	args []string,
-	socket net.Listener,
+	port string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
@@ -154,40 +216,56 @@ func runCommand(
 		},
 	}
 
-	// Routine waiting for a connection from connector to be established to start
-	// streaming input/output
 	var conn net.Conn
-	go func() {
-		// Accept connection on the socket
-		var err error
-		conn, err = socket.Accept()
+	// If port is specified, use TCP socket
+	if port != "" {
+		// Routine dialing a connection to connector
+		go func() {
+			// Try to connect to the connector with a retry mechanism
+			var connectionCounter = 0
+			var err error
+			for {
+				conn, err = net.Dial("tcp", fmt.Sprintf("localhost:%s", port))
+				if err != nil {
+					if connectionCounter > 5 {
+						fe.onError(fmt.Errorf("dialing connection to port %s: %w", port, err))
+						return
+					} else {
+						// Retry after a short wait
+						connectionCounter = connectionCounter + 1
+						time.Sleep(1 * time.Second)
+						continue
+					}
+				}
+				break
+			}
+
+			// Copy |writeLoop| into socket
+			go func() {
+				fe.onError(writeLoop(conn))
+			}()
+
+			// Read from socket connection and delegate to output through the error interceptor
+			go func() {
+				var _, err = io.Copy(outputInterceptor, conn)
+				fe.onError(err)
+			}()
+		}()
+	} else {
+		// Otherwise, use the old stdio channels
+
+		// Copy |writeLoop| into connector stdin.
+		wc, err := cmd.StdinPipe()
 		if err != nil {
-			fe.onError(fmt.Errorf("accepting connection from socket: %w", err))
-			return
+			return fmt.Errorf("StdinPipe: %w", err)
 		}
-
-		// Copy |writeLoop| into socket
 		go func() {
-			fe.onError(writeLoop(conn))
+			defer wc.Close()
+			fe.onError(writeLoop(wc))
 		}()
 
-		// Read from socket connection and delegate to output through the error interceptor
-		go func() {
-			var _, err = io.Copy(outputInterceptor, conn)
-			fe.onError(err)
-		}()
-	}()
-
-	// Give ready signal to connector, specifying the socket type and address
-	cmdStdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("StdinPipe: %w", err)
+		cmd.Stdout = outputInterceptor
 	}
-	_, port, err := net.SplitHostPort(socket.Addr().String())
-	if err != nil {
-		return fmt.Errorf("splitting socket address: %w", err)
-	}
-	cmdStdin.Write([]byte(fmt.Sprintf("tcp %s:%s\n", DockerHostInternal, port)))
 
 	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
 
@@ -224,9 +302,11 @@ func runCommand(
 	}
 	_ = stderrForwarder.Close()
 
-	var closeErr = conn.Close()
-	if closeErr != nil {
-		fe.onError(closeErr)
+	if port != "" {
+		var closeErr = conn.Close()
+		if closeErr != nil {
+			fe.onError(closeErr)
+		}
 	}
 
 	logger.Log(logrus.InfoLevel, logrus.Fields{
@@ -411,6 +491,14 @@ func PullImage(ctx context.Context, image string) error {
 		return fmt.Errorf("go.estuary.dev/E110: pull of container image %q failed: %w", image, err)
 	}
 	return nil
+}
+
+type ImageConfig struct {
+	Labels map[string]string
+}
+
+type ImageInspect struct {
+	Config *ImageConfig
 }
 
 // InspectImage and return its Docker-compatible metadata JSON encoding.
