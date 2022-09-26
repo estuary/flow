@@ -9,8 +9,8 @@ use journal_client::list::list_journals;
 use journal_client::read::uncommitted::{JournalRead, NoRetry, Reader};
 use journal_client::{connect_journal_client, ConnectError};
 use models;
-use schema_inference::inference_service_server::{InferenceService, InferenceServiceServer};
-use schema_inference::{InferenceRequest, InferenceResponse};
+use schema_inference_autogen::inference_service_server::{InferenceService, InferenceServiceServer};
+use schema_inference_autogen::{InferenceRequest, InferenceResponse};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tonic::{transport::Server, Request, Response, Status};
 
-pub mod schema_inference {
+pub mod schema_inference_autogen {
     tonic::include_proto!("schema_inference"); // The string specified here must match the proto package name
 }
 
@@ -98,8 +98,8 @@ impl InferenceService for InferenceServiceImpl {
                 let root = serde_json::ser::to_string(&root_schema)
                     .map_err(|e| Status::internal(e.to_string()))?;
                 Ok(Response::new(InferenceResponse {
-                    body: Some(schema_inference::inference_response::Body::Schema(
-                        schema_inference::InferredSchema {
+                    body: Some(schema_inference_autogen::inference_response::Body::Schema(
+                        schema_inference_autogen::InferredSchema {
                             schema_json: root,
                             documents_read: docs_count,
                         },
