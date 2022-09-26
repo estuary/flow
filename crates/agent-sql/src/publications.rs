@@ -241,8 +241,12 @@ pub async fn resolve_expanded_rows(
             from seeds s join live_spec_flows e
             on s.id = e.source_id and e.flow_type = 'collection'
         ),
-        -- Expand seed collections to bound captures & materializations.
-        -- This pass is non-recursive.
+        -- Expand seed collections to include bound captures & materializations.
+        -- The "on" clause ensures we only expand if the seed spec is itself a collection.
+        -- The "union" is included here to retain the seed spec if it is a capture or materialization already.
+        -- This has the side effect of including the seed spec if is a collection as well, so the seed spec does
+        -- not need to be union'd into the pass_two selection subquery.
+        -- This pass is non-recursive: The "union" does not involve pass_one_b recursively.
         pass_one_b(id) as (
             select case when s.id = e.source_id then e.target_id else e.source_id end
               from seeds as s join live_spec_flows as e
