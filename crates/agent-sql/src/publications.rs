@@ -244,7 +244,7 @@ pub async fn resolve_expanded_rows(
         -- Expand seed collections to include bound captures & materializations.
         -- The "on" clause ensures we only expand if the seed spec is itself a collection.
         -- The "union" is included here to retain the seed spec if it is a capture or materialization already.
-        -- This has the side effect of including the seed spec if is a collection as well, so the seed spec does
+        -- This has the side effect of including the seed spec if it is a collection, so the seed spec does
         -- not need to be union'd into the pass_two selection subquery.
         -- This pass is non-recursive: The "union" does not involve pass_one_b recursively.
         pass_one_b(id) as (
