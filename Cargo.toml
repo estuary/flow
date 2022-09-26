@@ -2,6 +2,16 @@
 resolver = "2"
 members = [ "crates/*"]
 
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.64"
+authors = ["Estuary developers <engineering@estuary.dev>"]
+readme = "./README.md"
+homepage = "https://estuary.dev/"
+repository = "https://github.com/estuary/flow"
+license = "BSL"
+
 [workspace.dependencies]
 addr = {version="0.15.4", features=["idna", "std","psl"]}
 anyhow = "1.0"
@@ -61,7 +71,6 @@ protobuf-parse = "3.1"
 rand = "0.8"
 regex = "1.5"
 
-# TODO: some usages of reqwest were using native-tls. Verify it's ok to use rustls everywhere.
 reqwest = { version = "0.11", default_features = false, features = ["json", "rustls-tls", "stream"] }
 rocksdb = { version = "0.17", default-features = false, features = ["snappy", "rtti"] }
 rusqlite = { version = "0.27", features = ["bundled-full"]}
@@ -82,7 +91,6 @@ tempdir = "0.3"
 thiserror = "1.0"
 time = { version = "0.3", features = ["serde-well-known", "macros", "formatting", "parsing"] }
 tinyvec = {version = "1.6", features = ["alloc"]}
-# TODO: verify if it's ok to use "full" feature here, or if we need to be more conservative and selectively enable feeatures in crates
 tokio = { version = "1.15", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tonic = {version = "0.8", features = [ "tls", "tls-roots"]}
@@ -103,7 +111,6 @@ zstd = "0.11.2"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
-# TODO: upgrade insta. Version 1.15 seems to contain a breaking change to the serialization of RawValue, so holding off until I can confirm that's all it is.
 insta = { version = "1.20", features = ["redactions", "json", "yaml"]}
 criterion = "0.3"
 glob = "0.3"
