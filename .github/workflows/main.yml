@@ -49,7 +49,7 @@ jobs:
       - run: make extra-ci-runner-setup
       - run: make print-versions
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -95,7 +95,7 @@ jobs:
       - run: make extra-ci-runner-setup
       - run: make print-versions
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       # Build and test all the things.
       - run: go mod download
@@ -148,7 +148,7 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
