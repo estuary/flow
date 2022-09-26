@@ -26,7 +26,7 @@ checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "agent"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "agent-sql",
  "anyhow",
@@ -59,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "agent-sql"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "insta",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "flow_cli_common"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "atty",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "flowctl"
-version = "0.1.0-dev"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "assemble",
@@ -1222,7 +1222,7 @@ dependencies = [
 
 [[package]]
 name = "flowctl-admin"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "assemble",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "network-tunnel"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -2349,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "parser"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "assert_cmd",
  "avro-rs",
@@ -2788,9 +2788,9 @@ dependencies = [
 
 [[package]]
 name = "protobuf"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee4a7d8b91800c8f167a6268d1a1026607368e1adc84e98fe044aeb905302f7"
+checksum = "b55bad9126f378a853655831eb7363b7b01b81d19f8cb1218861086ca4a1a61e"
 dependencies = [
  "once_cell",
  "protobuf-support",
@@ -2799,9 +2799,9 @@ dependencies = [
 
 [[package]]
 name = "protobuf-json-mapping"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be57102eab3e96da74543c6d4cb44b375d87497b4e8959c2fbdc637f2c92ea1a"
+checksum = "ce19fee00c35e62179f79d622f440c27466c9f8dff68ca907d8f59dfc8a88adb"
 dependencies = [
  "protobuf",
  "protobuf-support",
@@ -2810,9 +2810,9 @@ dependencies = [
 
 [[package]]
 name = "protobuf-parse"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1447dd751c434cc1b415579837ebd0411ed7d67d465f38010da5d7cd33af4d"
+checksum = "9d39b14605eaa1f6a340aec7f320b34064feb26c93aec35d6a9a2272a8ddfa49"
 dependencies = [
  "anyhow",
  "indexmap",
@@ -2826,9 +2826,9 @@ dependencies = [
 
 [[package]]
 name = "protobuf-support"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ca157fe12fc7ee2e315f2f735e27df41b3d97cdd70ea112824dac1ffb08ee1c"
+checksum = "a5d4d7b8601c814cfb36bcebb79f0e61e45e1e93640cf778837833bbed05c372"
 dependencies = [
  "thiserror",
 ]
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "schema-inference"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 3.2.22",
@@ -3743,9 +3743,9 @@ checksum = "ab16ced94dbd8a46c82fd81e3ed9a8727dac2977ea869d217bcc4ea1f122e81f"
 
 [[package]]
 name = "syn"
-version = "1.0.100"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52205623b1b0f064a4e71182c3b18ae902267282930c6d5462c91b859668426e"
+checksum = "e90cde112c4b9690b8cbe810cba9ddd8bc1d7472e2cae317b69e9438c1cba7d2"
 dependencies = [
  "proc-macro2",
  "quote",
