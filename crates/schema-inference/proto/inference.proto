@@ -15,6 +15,7 @@ message InferenceResponse {
 message InferredSchema {
     string schema_json = 1;
     uint64 documents_read = 2;
+    bool exceeded_deadline = 3;
 }
 
 service InferenceService {

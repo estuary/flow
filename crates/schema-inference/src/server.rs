@@ -1,22 +1,31 @@
+use std::time::Duration;
+
 use crate::inference::infer_shape;
+use crate::json_decoder::JsonCodec;
 use crate::schema::SchemaBuilder;
 use crate::shape;
 
 use assemble::journal_selector;
 use doc::inference::Shape;
-use journal_client::broker::JournalSpec;
+use futures::{Stream, TryStreamExt};
+use journal_client::broker::{fragments_response, FragmentsRequest, JournalSpec};
+use journal_client::fragments::FragmentIter;
 use journal_client::list::list_journals;
-use journal_client::read::uncommitted::{JournalRead, NoRetry, Reader};
+use journal_client::read::uncommitted::{
+    ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader,
+};
 use journal_client::{connect_journal_client, ConnectError};
 use models;
-use schema_inference_autogen::inference_service_server::{InferenceService, InferenceServiceServer};
+use schema_inference_autogen::inference_service_server::{
+    InferenceService, InferenceServiceServer,
+};
 use schema_inference_autogen::{InferenceRequest, InferenceResponse};
 
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
-use serde_json::{to_value, Value};
-use std::collections::BTreeMap as Map;
-use tokio_util::codec::{FramedRead, LinesCodec};
+use serde_json::Value;
+use tokio::sync::broadcast::Receiver;
+use tokio::time::sleep;
+use tokio_util::codec::{FramedRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -27,6 +36,7 @@ pub mod schema_inference_autogen {
 #[derive(Debug, Default)]
 pub struct InferenceServiceImpl {
     pub broker_url: String,
+    pub max_inference_secs: u32
 }
 
 #[tonic::async_trait]
@@ -41,6 +51,13 @@ impl InferenceService for InferenceServiceImpl {
         let InferenceRequest {
             flow_collection: collection_name,
         } = request.get_ref();
+
+        let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
+
+        let handle = tokio::spawn(async move {
+            sleep(Duration::from_secs(10)).await;
+            abort_tx.send(()).unwrap();
+        });
 
         let Authentication { token } = request
             .extensions()
@@ -63,36 +80,11 @@ impl InferenceService for InferenceServiceImpl {
 
         tracing::debug!("Got {} journals", journals.len());
 
-        // This lets us control parallelism on the journal axis.
-        // As it stands, we frequently only have one journal so it doesn't really matter,
-        // but it's a good proof-of-concept for splitting up `journal_to_shape` by fragments,
-        // where we'd want to do the same thing for much higher parallelism impact
         let buffered = futures::stream::iter(journals)
-            .map(|j| journal_to_shape(j.clone(), client.clone()))
+            .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.resubscribe()))
             .buffer_unordered(3);
 
-        let shapes = buffered.collect::<Vec<_>>().await;
-
-        let mut accumulator: Option<(Shape, u64)> = None;
-
-        for shape in shapes {
-            match shape {
-                Ok(Some((inferred_shape, docs_read))) => {
-                    if let Some((accumulated_shape, docs_count)) = accumulator {
-                        accumulator = Some((
-                            shape::merge(accumulated_shape, inferred_shape),
-                            docs_count + docs_read,
-                        ))
-                    } else {
-                        accumulator = Some((inferred_shape, docs_read))
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => return Err(e),
-            }
-        }
-
-        match accumulator {
+        let root_schema = match reduce_shape_stream(buffered).await? {
             Some((shape, docs_count)) => {
                 let root_schema = SchemaBuilder::new(shape).root_schema();
                 let root = serde_json::ser::to_string(&root_schema)
@@ -102,72 +94,99 @@ impl InferenceService for InferenceServiceImpl {
                         schema_inference_autogen::InferredSchema {
                             schema_json: root,
                             documents_read: docs_count,
+                            exceeded_deadline: abort_rx.len() > 0
                         },
                     )),
                 }))
             }
             None => Err(Status::not_found("No documents found, cannot infer shape")),
-        }
+        };
+
+        handle.abort();
+        root_schema
     }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct JournalMeta {
-    uuid: String,
-    #[serde(skip_serializing)]
-    ack: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct JournalMessage {
-    #[serde(rename = "_meta")]
-    meta: JournalMeta,
-    #[serde(flatten)]
-    body: Map<String, Value>,
 }
 
 async fn journal_to_shape(
     journal: JournalSpec,
     client: journal_client::Client,
+    abort_signal: Receiver<()>
 ) -> Result<Option<(Shape, u64)>, Status> {
-    // TODO: Split this request up into parallelizable chunks.
-    // The reason we can't just split in to N even-sized chunks is that
-    // we could very easily split in the middle of a document.
-    // One option is to enumerate fragments in order to determine reasonable
-    // split points, and then use the Reader to read to those in parallel.
+    let mut frag_iter = FragmentIter::new(
+        client.clone(),
+        FragmentsRequest {
+            journal: journal.name.clone(),
+            ..Default::default()
+        },
+    );
+
+    let frag_stream = frag_iter
+        .as_stream()
+        .map_err(|e| Status::internal(e.to_string()))
+        .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.resubscribe()))
+        .try_buffer_unordered(5)
+        .into_stream();
+
+    reduce_shape_stream(frag_stream).await
+}
+
+/// Read all documents in a particular fragment and return the most-strict [Shape]
+/// that matches every document. 
+/// 
+/// We explicitly omit documents containing
+/// `{"_meta": {"ack": true}}`, as those documents are not relevant to user data,
+/// and would just confuse users of the schema inference API
+async fn fragment_to_shape(
+    client: journal_client::Client,
+    fragment: fragments_response::Fragment,
+    abort_signal: Receiver<()>
+) -> Result<Option<(Shape, u64)>, Status> {
+    let fragment_spec = fragment
+        .spec
+        .ok_or(Status::internal("Missing fragment spec"))?;
 
     let reader = Reader::start_read(
         client.clone(),
-        JournalRead::new(journal.name.clone()),
-        NoRetry,
+        JournalRead::new(fragment_spec.journal)
+            .starting_at(ReadStart::Offset(fragment_spec.begin.try_into().unwrap()))
+            .read_until(ReadUntil::Offset(fragment_spec.end.try_into().unwrap())),
+        ExponentialBackoff::new(3),
     );
 
-    let codec = LinesCodec::new(); // do we want to limit length here? LinesCodec::new_with_max_length(...) does this
+    let mut owned_abort_channel = abort_signal.resubscribe();
+
+    let codec = JsonCodec::new(); // do we want to limit length here? LinesCodec::new_with_max_length(...) does this
     let mut doc_bytes_stream = FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec);
 
     let mut accumulator: Option<Shape> = None;
     let mut docs: u64 = 0;
 
-    while let Some(maybe_doc_body) = doc_bytes_stream.next().await {
-        match maybe_doc_body {
-            Ok(doc_str) => {
-                let parsed: JournalMessage = serde_json::de::from_str(doc_str.as_str())
-                    .map_err(|e| Status::aborted(e.to_string()))?;
-                // There should probably be a higher-level API for this in `journal-client`
-
-                if parsed.meta.ack.is_none() {
-                    let re_serialized = to_value(parsed).unwrap();
-                    let inferred_shape = infer_shape(&re_serialized);
-
-                    if let Some(accumulated_shape) = accumulator {
-                        accumulator = Some(shape::merge(accumulated_shape, inferred_shape))
-                    } else {
-                        accumulator = Some(inferred_shape)
+    loop {
+        tokio::select! {
+            Some(maybe_doc_body) = doc_bytes_stream.next() => {
+                match maybe_doc_body {
+                    Ok(doc_val) => {
+                        let parsed: Value = doc_val;
+                        // There should probably be a higher-level API for this in `journal-client`
+        
+                        if parsed.pointer("/_meta/ack").is_none() {
+                            let inferred_shape = infer_shape(&parsed);
+        
+                            if let Some(accumulated_shape) = accumulator {
+                                accumulator = Some(shape::merge(accumulated_shape, inferred_shape))
+                            } else {
+                                accumulator = Some(inferred_shape)
+                            }
+                            docs = docs + 1;
+                        }
                     }
-                    docs = docs + 1;
+                    Err(e) => return Err(Status::aborted(e.to_string())),
                 }
             }
-            Err(e) => return Err(Status::aborted(e.to_string())),
+            _ = owned_abort_channel.recv() => {
+                tracing::debug!("Aborting schma inference early! Processed {} documents", docs);
+                break
+            }
         }
     }
 
@@ -175,6 +194,32 @@ async fn journal_to_shape(
         Some(accum) => Ok(Some((accum, docs))),
         None => Ok(None),
     }
+}
+
+async fn reduce_shape_stream(
+    stream: impl Stream<Item = Result<Option<(Shape, u64)>, Status>>,
+) -> Result<Option<(Shape, u64)>, Status> {
+    let mut accumulator: Option<(Shape, u64)> = None;
+    tokio::pin!(stream);
+
+    while let Some(shape) = stream.next().await {
+        match shape {
+            Ok(Some((inferred_shape, docs_read))) => {
+                if let Some((accumulated_shape, docs_count)) = accumulator {
+                    accumulator = Some((
+                        shape::merge(accumulated_shape, inferred_shape),
+                        docs_count + docs_read,
+                    ))
+                } else {
+                    accumulator = Some((inferred_shape, docs_read))
+                }
+            }
+            Ok(None) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(accumulator)
 }
 
 #[derive(Debug, clap::Args)]
@@ -186,6 +231,9 @@ pub struct ServeArgs {
     /// URL for a Gazette broker that is a member of the cluster
     #[clap(long, value_parser)]
     broker_url: String,
+    /// Maximum number of seconds to run inference. This exists to preserve system performance and reliability in the face of large collections
+    #[clap(long, value_parser, default_value_t=10)]
+    inference_deadline: u32
 }
 
 impl ServeArgs {
@@ -193,6 +241,7 @@ impl ServeArgs {
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let svc = InferenceServiceImpl {
             broker_url: self.broker_url.clone(),
+            max_inference_secs: self.inference_deadline
         };
         let addr = format!("{}:{}", self.hostname, self.port).parse()?;
 
@@ -212,7 +261,7 @@ struct Authentication {
 }
 
 fn require_auth(mut req: Request<()>) -> Result<Request<()>, Status> {
-    match req.metadata().clone().get("authorization") {
+    match req.metadata().get("authorization").cloned() {
         Some(t) /* TODO: validate JWT token */ => {
             req.extensions_mut().insert(Authentication {
                 token: t
