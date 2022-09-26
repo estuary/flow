@@ -1,7 +1,12 @@
 [package]
 name = "flowctl-admin"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
