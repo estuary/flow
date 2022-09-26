@@ -120,6 +120,63 @@ async fn test_materialization_expansions() {
 }
 
 #[tokio::test]
+async fn test_shared_collection_expansions() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    sqlx::query(
+        r#"
+    with specs as (
+        insert into live_specs (id, catalog_name, spec, spec_type) values
+        ('aa00000000000000', 'g/capture1', '1', 'capture'),
+        ('bb00000000000000', 'g/capture2', '1', 'capture'),
+        ('cc00000000000000', 'g/collection', '1', 'collection'),
+        ('dd00000000000000', 'g/materialization1', '1', 'materialization'),
+        ('ee00000000000000', 'g/materialization2', '1', 'materialization')
+    ),
+    flows as (
+        insert into live_spec_flows(source_id, target_id, flow_type) values
+        ('aa00000000000000', 'cc00000000000000', 'capture'),
+        ('bb00000000000000', 'cc00000000000000', 'capture'),
+        ('cc00000000000000', 'dd00000000000000', 'materialization'),
+        ('cc00000000000000', 'ee00000000000000', 'materialization')
+    )
+    select 1;
+    "#,
+    )
+    .execute(&mut txn)
+    .await
+    .unwrap();
+
+    assert_set(
+        vec![0xaa],
+        vec![0xcc],
+        &mut txn,
+        "capture expands to its destination, but not other captures to that destination",
+    )
+    .await;
+
+    assert_set(
+        vec![0xdd],
+        vec![0xcc],
+        &mut txn,
+        "materialization expands to its source, but not materializations from that source",
+    )
+    .await;
+
+    assert_set(
+        vec![0xcc],
+        vec![0xaa, 0xbb, 0xdd, 0xee],
+        &mut txn,
+        "collection expands to all bound captures & materializations",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_test_expansions() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await

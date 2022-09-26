@@ -241,20 +241,21 @@ pub async fn resolve_expanded_rows(
             from seeds s join live_spec_flows e
             on s.id = e.source_id and e.flow_type = 'collection'
         ),
-        -- Expand seed collections, captures, and materializations through
-        -- edges that connect captures and materializations to their bound
-        -- collections:
-        --   * A seed capture expands to all bound collections.
-        --   * A seed materialization expands to all bound collections.
-        --   * A seed collection expands to captures or materializations which bind it,
-        --      and from there to all of its other bound collections.
+        -- Expand seed collections to bound captures & materializations.
+        -- This pass is non-recursive.
         pass_one_b(id) as (
-            select id from seeds
-          union
+            select case when s.id = e.source_id then e.target_id else e.source_id end
+              from seeds as s join live_spec_flows as e
+              on s.id = e.source_id and e.flow_type = 'materialization' or s.id = e.target_id and e.flow_type = 'capture'
+            union
+              select * from seeds
+        ),
+        -- Further expand the resulting captures & materializations to their bound collections.
+        -- This pass is non-recursive.
+        pass_one_c(id) as (
             select case when p.id = e.source_id then e.target_id else e.source_id end
-            from pass_one_b as p join live_spec_flows as e
-            on p.id = e.source_id or p.id = e.target_id
-            where e.flow_type in ('capture', 'materialization')
+              from (select id from pass_one_b) as p join live_spec_flows as e
+              on p.id = e.source_id or p.id = e.target_id
         ),
         -- Second pass recursively walks backwards along data-flow edges to
         -- expand derivations and tests:
@@ -262,7 +263,7 @@ pub async fn resolve_expanded_rows(
         --   * A collection or derivation is expanded to tests which write (ingest) into it.
         --   * A test is expanded to collections or derivations it reads (verifies).
         pass_two(id) as (
-            (select id from pass_one_a union select id from pass_one_b)
+            (select id from pass_one_a union select id from pass_one_b union select id from pass_one_c)
           union
             select e.source_id
             from pass_two as p join live_spec_flows as e
