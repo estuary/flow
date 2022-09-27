@@ -211,14 +211,23 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
 
-# TODO: rename gnu-binaries to gnu-binaries
-.PHONY: gnu-binaries
-gnu-binaries: $(GNU_TARGETS)
+.PHONY: linux-gnu-binaries
+linux-gnu-binaries: $(GNU_TARGETS)
 
-.PHONY: musl-binaries
-musl-binaries: $(MUSL_TARGETS)
+.PHONY: linux-musl-binaries
+linux-musl-binaries: | ${PKGDIR}
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl -p connector_proxy -p network-tunnel -p parser -p schema-inference -p schemalate
+	cp -f target/x86_64-unknown-linux-musl/release/flowctl .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-proxy .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-schema-inference .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-schemalate .build/package/bin/
 
-${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: $(GNU_TARGETS) $(MUSL_TARGETS)
+.PHONY: linux-binaries
+linux-binaries: linux-gnu-binaries linux-musl-binaries
+
+${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz:
 	rm -f $@
 	cd ${PKGDIR}/bin && tar -zcf ../flow-$(PACKAGE_ARCH).tar.gz *
 
@@ -286,12 +295,12 @@ print-versions:
 .PHONY: install-tools
 install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
-.PHONY: rust-test
-rust-test:
+.PHONY: rust-gnu-test
+rust-gnu-test:
 	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy --exclude flowctl
 
-.PHONY: musl-test
-musl-test:
+.PHONY: rust-musl-test
+rust-musl-test:
 	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy --package flowctl
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
@@ -304,17 +313,30 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
+go-test-ci:
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
+.PHONY: data-plane-test-setup
+data-plane-test-setup:
+
+ifeq ($(SKIP_BUILD),true)
+data-plane-test-setup:
+	@echo "testing using pre-built binaries:"
+	@ls -al ${PKGDIR}/bin/ 
+	${PKGDIR}/bin/flowctl-admin json-schema > flow.schema.json
+else
+data-plane-test-setup: ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+endif
+
+
 .PHONY: catalog-test
-catalog-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+catalog-test: data-plane-test-setup
 	${PKGDIR}/bin/flowctl-admin test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+end-to-end-test: data-plane-test-setup
 	./tests/run-all.sh
 
 flow.schema.json: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go

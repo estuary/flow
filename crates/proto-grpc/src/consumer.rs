@@ -3,6 +3,7 @@
 pub mod shard_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     /// Shard is the Consumer service API for interacting with Shards. Applications
     /// are able to wrap or alter the behavior of Shard API implementations via the
     /// Service.ShardAPI structure. They're also able to implement additional gRPC
@@ -33,6 +34,10 @@ pub mod shard_client {
             let inner = tonic::client::Grpc::new(inner);
             Self { inner }
         }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
@@ -52,19 +57,19 @@ pub mod shard_client {
         {
             ShardClient::new(InterceptedService::new(inner, interceptor))
         }
-        /// Compress requests with `gzip`.
+        /// Compress requests with the given encoding.
         ///
         /// This requires the server to support it otherwise it might respond with an
         /// error.
         #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
             self
         }
-        /// Enable decompressing responses with `gzip`.
+        /// Enable decompressing responses.
         #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
             self
         }
         /// Stat returns detailed status of a given Shard.
@@ -72,9 +77,9 @@ pub mod shard_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::StatRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::StatResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_gazette::consumer::StatResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -93,9 +98,9 @@ pub mod shard_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::ListRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::ListResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_gazette::consumer::ListResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -114,9 +119,9 @@ pub mod shard_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::ApplyResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_gazette::consumer::ApplyResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -135,9 +140,9 @@ pub mod shard_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::GetHintsRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -156,9 +161,9 @@ pub mod shard_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::UnassignRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::UnassignResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_gazette::consumer::UnassignResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -187,41 +192,41 @@ pub mod shard_server {
             &self,
             request: tonic::Request<::proto_gazette::consumer::StatRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::StatResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_gazette::consumer::StatResponse>,
+            tonic::Status,
+        >;
         /// List Shards, their ShardSpecs and their processing status.
         async fn list(
             &self,
             request: tonic::Request<::proto_gazette::consumer::ListRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::ListResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_gazette::consumer::ListResponse>,
+            tonic::Status,
+        >;
         /// Apply changes to the collection of Shards managed by the consumer.
         async fn apply(
             &self,
             request: tonic::Request<::proto_gazette::consumer::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::ApplyResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_gazette::consumer::ApplyResponse>,
+            tonic::Status,
+        >;
         /// GetHints fetches hints for a shard.
         async fn get_hints(
             &self,
             request: tonic::Request<::proto_gazette::consumer::GetHintsRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
+            tonic::Status,
+        >;
         /// Unassign a Shard.
         async fn unassign(
             &self,
             request: tonic::Request<::proto_gazette::consumer::UnassignRequest>,
         ) -> Result<
-                tonic::Response<::proto_gazette::consumer::UnassignResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_gazette::consumer::UnassignResponse>,
+            tonic::Status,
+        >;
     }
     /// Shard is the Consumer service API for interacting with Shards. Applications
     /// are able to wrap or alter the behavior of Shard API implementations via the
@@ -230,8 +235,8 @@ pub mod shard_server {
     #[derive(Debug)]
     pub struct ShardServer<T: Shard> {
         inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Shard> ShardServer<T> {
@@ -254,6 +259,18 @@ pub mod shard_server {
             F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShardServer<T>
@@ -512,7 +529,7 @@ pub mod shard_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: Shard> tonic::transport::NamedService for ShardServer<T> {
+    impl<T: Shard> tonic::server::NamedService for ShardServer<T> {
         const NAME: &'static str = "consumer.Shard";
     }
 }

@@ -1,8 +1,12 @@
 [package]
 name = "build"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
@@ -15,19 +19,19 @@ sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
 
-anyhow = "*"
-bytes = "*"
-futures = "*"
-prost = "*"
-rusqlite = { version = "*", features = ["bundled-full"] }
-serde = { version = "*", features = ["derive"] }
-serde_json = { version =  "*" }
-thiserror = "*"
-tracing = "*"
-url = "*"
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 
-insta = "*"
-lazy_static = "*"
-serde_yaml = "*"
+insta = { workspace = true }
+lazy_static = { workspace = true }
+serde_yaml = { workspace = true }

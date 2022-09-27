@@ -26,7 +26,7 @@ pub struct ShardSpec {
     /// determine the minimum fragments of log which must be read to fully recover
     /// local store state. The complete hint key written by the shard primary is:
     ///
-    ///   "{hint_prefix}/{shard_id}.primary"
+    ///    "{hint_prefix}/{shard_id}.primary"
     ///
     /// The primary will regularly produce updated hints into this key, and
     /// players of the log will similarly utilize hints from this key.
@@ -36,7 +36,7 @@ pub struct ShardSpec {
     /// Backups of verified recovery log FSMHints, retained as a disaster-recovery
     /// mechanism. On completing playback, a player will write recovered hints to:
     ///
-    ///   "{hints_prefix}/{shard_id}.backup.0".
+    ///    "{hints_prefix}/{shard_id}.backup.0".
     ///
     /// It also move hints previously stored under
     /// "{hints_prefix/{shard_id}.backup.0" to
@@ -204,6 +204,21 @@ pub mod replica_status {
         Primary = 300,
         /// The replica has encountered an unrecoverable error.
         Failed = 400,
+    }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Idle => "IDLE",
+                Code::Backfill => "BACKFILL",
+                Code::Standby => "STANDBY",
+                Code::Primary => "PRIMARY",
+                Code::Failed => "FAILED",
+            }
+        }
     }
 }
 /// Checkpoint is processing metadata of a consumer shard which allows for its
@@ -470,4 +485,20 @@ pub enum Status {
     /// For example, a Stat RPC will return SHARD_STOPPED if the StatRequest
     /// cannot be satisfied.
     ShardStopped = 5,
+}
+impl Status {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Status::Ok => "OK",
+            Status::ShardNotFound => "SHARD_NOT_FOUND",
+            Status::NoShardPrimary => "NO_SHARD_PRIMARY",
+            Status::NotShardPrimary => "NOT_SHARD_PRIMARY",
+            Status::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
+            Status::ShardStopped => "SHARD_STOPPED",
+        }
+    }
 }

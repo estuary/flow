@@ -1,6 +1,7 @@
 name: Flowctl Tests on macos
 
-# Run on pushes that impact the flowctl crate.
+# Only run on pushes that impact the flowctl crate, since that's the only thing we
+# currently ship for macs.
 on:
   push:
     paths:
@@ -18,6 +19,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
