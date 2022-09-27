@@ -1,10 +1,7 @@
-# Use LLVM for faster linking. Drawn from:
-#  https://brokenco.de/2020/01/08/faster-rust-linking.html
-[build]
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
-
 # This just provides a default value for FLOW_VERSION during development, so that you can compile
 # without this being set. If FLOW_VERSION is defined, then this has no effect.
 [env]
 FLOW_VERSION = "dev"
-SQLX_OFFLINE = "true"
+# Provide a default DATABASE_URL which is used if none others are set.
+# This is the database presented by a local `supabase start`.
+DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"

@@ -1,0 +1,5 @@
+address: localhost:5432
+database: postgres
+password: stats_loader_password
+user: stats_loader
+schema: task_stat_partitions

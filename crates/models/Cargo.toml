@@ -1,32 +1,36 @@
 [package]
 name = "models"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
 # Users shouldn't _have_ to bring in all of our protobuf types as well.
 # Instead, consider the `assemble` crate for models <=> protobuf conversions.
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
-labels = { path = "../labels", version = "0.0.0" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+labels = { path = "../labels" }
 
 
-caseless = "*"
-humantime-serde = "*"
-lazy_static = "*"
-pathfinding = "*"
-regex = "*"
-schemars = "*"
-serde = { version = "*", features = ["derive"] }
-serde_json = { version =  "*", features = ["raw_value"] }
-superslice = "*"
-unicode-normalization = "*"
-url = "*"
-validator = { version = "*", features = ["derive"] }
+caseless = { workspace = true }
+humantime-serde = { workspace = true }
+lazy_static = { workspace = true }
+pathfinding = { workspace = true }
+regex = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+superslice = { workspace = true }
+unicode-normalization = { workspace = true }
+url = { workspace = true }
+validator = { workspace = true }
 
 [dev-dependencies]
-insta = "*"
-itertools = "*"
-serde_yaml = "*"
+insta = { workspace = true }
+itertools = { workspace = true }
+serde_yaml = { workspace = true }

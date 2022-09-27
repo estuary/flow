@@ -1,0 +1,20 @@
+# This is the dbBouncer endpoint for our database.
+address: db.eyrcnmuzzyriypdajwdk.supabase.co:6543
+database: postgres
+password_sops: ENC[AES256_GCM,data:X0aaH7/FlUVgMzqZxQXx2egsm2ShGTbAAJi9nLE28EJgnUJD,iv:aN4/LkzkSr5tAgn6IlylQ6kOlrU4zYC1DWx9lJnEIT4=,tag:T+I1C/4vwmT0X7ve4+bjvQ==,type:str]
+user: stats_loader
+schema: task_stat_partitions
+sops:
+    kms: []
+    gcp_kms:
+        - resource_id: projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/estuary-poc
+          created_at: "2022-09-13T02:37:46Z"
+          enc: CiQAKdYibVVaIMM2iRBlIQ2h5WE523adDkJgH5TQcwizZ6Dcw90SSQAva6jOpiuefUQuVKRrEYJ/TIJdncQgO1z33NDUta6Gi/RTBsFjuULhWCSteTBORPZU0ZFAM6e1fG+CgzlqNiDsO6TBHVC2qIQ=
+    azure_kv: []
+    hc_vault: []
+    age: []
+    lastmodified: "2022-09-21T04:28:22Z"
+    mac: ENC[AES256_GCM,data:YGPQL6CS4FZTjKuXu5S5jgDXqwHCM0fvpBPGikGs+OiLnXWFnQ4TFVX4NnrlteDUlVFHebZ0TvihryLxrGfWmYsoIchKsmrsHJ+z/JGTh+YIxHjAA722uetIAs1y331mGXSY7/D/gD5wNuiWaZfpM2fcKLWZ5HT0FGKkAlZIuB0=,iv:CjOgkgViOwnEBQYvPDbkd1n6lvTaVvS+hEkPaDAyfCg=,tag:L42HD6rhpxtaqfk7T1ItuA==,type:str]
+    pgp: []
+    encrypted_suffix: _sops
+    version: 3.7.1
