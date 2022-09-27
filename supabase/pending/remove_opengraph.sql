@@ -3,6 +3,7 @@
 -- and may require manual changes to the script to ensure changes are applied in the correct order.
 -- Please report an issue for any failure with the reproduction steps.
 
+begin;
 
 alter table public.connectors alter column title drop expression drop default;
 alter table public.connectors alter column short_description drop expression drop default;
@@ -89,3 +90,5 @@ ALTER TABLE IF EXISTS public.connectors DROP COLUMN IF EXISTS open_graph_raw;
 ALTER TABLE IF EXISTS public.connectors DROP COLUMN IF EXISTS open_graph_patch;
 
 DROP FUNCTION IF EXISTS public.generate_opengraph_value(opengraph_raw jsonb, opengraph_patch jsonb, field text);
+
+commit;
