@@ -76,6 +76,8 @@ jobs:
           path: |
             .build/package/bin/*
             target/x86_64-unknown-linux-gnu/release/libbindings.a
+            crates/bindings/flow_bindings.h
+            target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
 
   musl-binaries:
     runs-on: ubuntu-20.04
@@ -181,8 +183,9 @@ jobs:
           mkdir -p .build/package/bin && \
           mv linux-gnu-binaries/.build/package/bin/* .build/package/bin && \
           mkdir -p target/x86_64-unknown-linux-gnu/release && \
-          mv linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/
-
+          mv -f linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/ && \
+          mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
+ 
       - name: Download linux-musl-binaries
         uses: actions/download-artifact@v2
         with:
