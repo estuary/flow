@@ -38,13 +38,14 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors.| boolean | `false` |
+| `/advanced` |  | Options for advanced users. You should not typically need to modify these. | object |  |
+| `/advanced/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors.| boolean | `false` |
+| `/advanced/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
 | `/awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
 | `/awsSecretAccessKey` | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
 | **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
-| `/parser` | Parser Configuration | Configures how files are parsed | object |  |
+| `/parser` | Parser Configuration | Configures how files are parsed (optional, see below) | object |  |
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |

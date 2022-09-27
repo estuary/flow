@@ -90,7 +90,7 @@ The following properties reflect the Service Account Key authentication method. 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/credentials` | Credentials | Credentials for the service | object |  |
-| `/credentials/auth_type` | Authentication Type | Authentication method. Set to `Service`. | string | Required |
+| `/credentials/auth_type` | Authentication Type | Authentication method. Set to `Service` for manual configuration, or use OAuth in the web app. | string | Required |
 | `credentials/credentials_json` | Service Account Credentials | Contents of the JSON key file generated during setup. | string | Required |
 | `/custom_reports` | Custom Reports (Optional) | A JSON array describing the custom reports you want to sync from GA.  | string |  |
 | **`/start_date`** | Start Date | The date in the format YYYY-MM-DD. Any data before this date will not be replicated. | string | Required |
