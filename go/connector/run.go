@@ -72,7 +72,6 @@ func Run(
 ) error {
 	var imageInspectRaw json.RawMessage
 	var inspects = []ImageInspect{ImageInspect{}}
-	var inspect ImageInspect
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return err
@@ -80,15 +79,13 @@ func Run(
 		return err
 	} else if err := json.Unmarshal(imageInspectRaw, &inspects); err != nil {
 		return fmt.Errorf("go.estuary.dev/E132: parsing container image %q inspect results: %w", image, err)
-	} else {
-		inspect = inspects[0]
 	}
 
 	var tmpProxy, tmpInspect *os.File
 
 	// Find out the port on which the connector will be listening. If there is no
 	// port specified, then fallback to using connector_proxy and stdio
-	var port string = inspect.Config.Labels[ConnectorTCPPortLabel]
+	var port = inspects[0].Config.Labels[ConnectorTCPPortLabel]
 	if port == "" {
 		logger.Log(logrus.WarnLevel, logrus.Fields{}, "go.estuary.dev/W002: container did not specify port label, using stdio. Using stdio is deprecated and will be removed in the future.")
 
@@ -155,6 +152,7 @@ func Run(
 			// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+			"--interactive",
 		)
 	} else {
 		// Publish the tcp port of the container on a random port on host
