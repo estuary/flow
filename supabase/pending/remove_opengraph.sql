@@ -5,9 +5,15 @@
 
 begin;
 
-alter table public.connectors alter column title drop expression drop default;
-alter table public.connectors alter column short_description drop expression drop default;
-alter table public.connectors alter column logo_url drop expression drop default;
+alter table public.connectors 
+  alter column title drop expression if exists, 
+  alter column title drop default,
+  alter column short_description drop expression if exists, 
+  alter column short_description drop default,
+  alter column recommended drop expression if exists, 
+  alter column recommended drop default,
+  alter column logo_url drop expression if exists, 
+  alter column logo_url drop default;
 
 
 COMMENT ON COLUMN public.connectors.title
@@ -26,6 +32,7 @@ COMMENT ON COLUMN public.connectors.logo_url
 -- take account of the changes.
 drop view public.draft_specs_ext;
 DROP VIEW public.live_specs_ext;
+
 CREATE OR REPLACE VIEW public.live_specs_ext
     AS
      SELECT l.created_at,
@@ -89,6 +96,9 @@ ALTER TABLE IF EXISTS public.connectors DROP COLUMN IF EXISTS open_graph_raw;
 
 ALTER TABLE IF EXISTS public.connectors DROP COLUMN IF EXISTS open_graph_patch;
 
-DROP FUNCTION IF EXISTS public.generate_opengraph_value(opengraph_raw jsonb, opengraph_patch jsonb, field text);
 
+-- Running this seems to break in a way that feels buggy: it complains about the column `connectors.title`
+-- not existing... but it very clearly does exist, and above I removed the generation expression, so
+-- deleting this function shouldn't break anything, but it does. So we leave it for now
+-- DROP FUNCTION IF EXISTS public.generate_opengraph_value(opengraph_raw jsonb, opengraph_patch jsonb, field text);
 commit;
