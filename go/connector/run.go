@@ -76,7 +76,7 @@ func Run(
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return err
-	} else if imageInspectRaw, err = InspectImage(ctx, image); err != nil {
+	} else if imageInspectRaw, err = DockerInspect(ctx, image); err != nil {
 		return err
 	} else if err := json.Unmarshal(imageInspectRaw, &inspects); err != nil {
 		return fmt.Errorf("go.estuary.dev/E132: parsing container image %q inspect results: %w", image, err)
@@ -113,6 +113,15 @@ func Run(
 		networkName = "bridge"
 	}
 
+	// Docker --cidfile expects that the file does not exist in the provided path, so we create
+	// a temporary file and delete it just so we can use the allocated path
+	cidTmp, err := os.CreateTemp("", "connector-id")
+	if err != nil {
+		return fmt.Errorf("go.estuary.dev/E133: creating temporary file for CID: %w", err)
+	} else if err := os.Remove(cidTmp.Name()); err != nil {
+		return fmt.Errorf("go.estuary.dev:E134: cleaning temporary file for CID: %w", err)
+	}
+
 	var imageArgs = []string{
 		"docker",
 		"run",
@@ -120,10 +129,10 @@ func Run(
 		// send them a SIGTERM. Without this, the (potentially numerous) child processes within a
 		// container may never actually be stopped.
 		"--init",
-		// --interactive causes docker run to attach and proxy stdin to the container.
-		"--interactive",
 		// Remove the docker container upon its exit.
 		"--rm",
+		// Write the container ID to a temporary file
+		"--cidfile", cidTmp.Name(),
 		// Tell docker not to persist any container stdout/stderr output.
 		// Containers may write _lots_ of output to std streams, and docker's
 		// logging drivers may persist all or some of that to disk, which could
@@ -138,12 +147,7 @@ func Run(
 		"--network", networkName,
 	}
 
-	if port != "" {
-		imageArgs = append(imageArgs,
-			"--publish",
-			fmt.Sprintf("%s:%s", port, port),
-		)
-	} else {
+	if port == "" {
 		imageArgs = append(imageArgs,
 			// The entrypoint into a connector is always `flow-connector-proxy`,
 			// which will delegate to the actual entrypoint of the connector.
@@ -151,6 +155,11 @@ func Run(
 			// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+		)
+	} else {
+		// Publish the tcp port of the container on a random port on host
+		imageArgs = append(imageArgs,
+			"--publish", fmt.Sprintf("127.0.0.1::%s", port),
 		)
 	}
 
@@ -172,7 +181,7 @@ func Run(
 		"operation":        strings.Join(args, " "),
 	})
 
-	return runCommand(ctx, append(imageArgs, args...), port, writeLoop, output, logger)
+	return runCommand(ctx, append(imageArgs, args...), cidTmp.Name(), port, writeLoop, output, logger)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -185,6 +194,7 @@ func Run(
 func runCommand(
 	ctx context.Context,
 	args []string,
+	cidFilePath string,
 	port string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
@@ -217,27 +227,30 @@ func runCommand(
 	}
 
 	var conn net.Conn
+	var tcpAddress = make(chan string)
 	// If port is specified, use TCP socket
 	if port != "" {
 		// Routine dialing a connection to connector
 		go func() {
+			// Wait for the tcp address to be received after docker run
+			var addr = <-tcpAddress
+
 			// Try to connect to the connector with a retry mechanism
-			var connectionCounter = 0
+			var connectDeadline = time.Now().Add(time.Second * 5)
 			var err error
 			for {
-				conn, err = net.Dial("tcp", fmt.Sprintf("localhost:%s", port))
-				if err != nil {
-					if connectionCounter > 5 {
-						fe.onError(fmt.Errorf("dialing connection to port %s: %w", port, err))
-						return
-					} else {
-						// Retry after a short wait
-						connectionCounter = connectionCounter + 1
-						time.Sleep(1 * time.Second)
-						continue
-					}
+				conn, err = net.Dial("tcp", addr)
+				if err == nil {
+					break
 				}
-				break
+
+				if time.Now().After(connectDeadline) {
+					fe.onError(fmt.Errorf("dialing connection to %s: %w", addr, err))
+					return
+				} else {
+					// Retry after a short wait
+					time.Sleep(1 * time.Second)
+				}
 			}
 
 			// Copy |writeLoop| into socket
@@ -276,6 +289,29 @@ func runCommand(
 		fe.onError(fmt.Errorf("go.estuary.dev/E105: starting connector: %w", err))
 	}
 
+	// If port is specified, try to get the forwarded tcpAddress of the port on host
+	if port != "" {
+		// Try to read the cidFile in a retry loop until we get the ID
+		var cidFileReadDeadline = time.Now().Add(time.Second * 5)
+		for {
+			idBytes, err := os.ReadFile(cidFilePath)
+			if err == nil {
+				if containerPort, err := DockerPort(ctx, string(idBytes), port); err != nil {
+					return fmt.Errorf("inspecting container port failed: %w", err)
+				} else {
+					tcpAddress <- containerPort
+				}
+				break
+			} else {
+				if time.Now().After(cidFileReadDeadline) {
+					return fmt.Errorf("reading container id file timed out: %w", err)
+				} else {
+					time.Sleep(1 * time.Second)
+				}
+			}
+		}
+	}
+
 	// Arrange for the connector container to be signaled if |ctx| is cancelled.
 	// On being signalled, docker will propagate the signal to the container
 	// and wait for exit or for its shutdown timeout to elapse (10s default).
@@ -288,8 +324,7 @@ func runCommand(
 		}
 	}(cmd.Process.Signal)
 
-	var waitErr = cmd.Wait()
-	if waitErr != nil {
+	if waitErr := cmd.Wait(); waitErr != nil {
 		if ctx.Err() == nil {
 			// Expect a clean exit if the context wasn't cancelled.
 			// Log the raw error, since we've already logged everything that was printed to stderr.
@@ -302,7 +337,7 @@ func runCommand(
 	}
 	_ = stderrForwarder.Close()
 
-	if port != "" {
+	if port != "" && conn != nil {
 		var closeErr = conn.Close()
 		if closeErr != nil {
 			fe.onError(closeErr)
@@ -501,12 +536,20 @@ type ImageInspect struct {
 	Config *ImageConfig
 }
 
-// InspectImage and return its Docker-compatible metadata JSON encoding.
-func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
-	if o, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
-		return nil, fmt.Errorf("go.estuary.dev/E111: inspection of container image %q failed: %w", image, err)
+// DockerInspect and return its Docker-compatible metadata JSON encoding.
+func DockerInspect(ctx context.Context, entity string) (json.RawMessage, error) {
+	if o, err := exec.CommandContext(ctx, "docker", "inspect", entity).Output(); err != nil {
+		return nil, fmt.Errorf("go.estuary.dev/E111: inspection of docker entity %q failed: %w", entity, err)
 	} else {
 		return o, nil
+	}
+}
+
+func DockerPort(ctx context.Context, entity string, port string) (string, error) {
+	if o, err := exec.CommandContext(ctx, "docker", "port", entity, port).Output(); err != nil {
+		return "", fmt.Errorf("go.estuary.dev/E111: getting docker entity %q's port failed: %w", entity, err)
+	} else {
+		return strings.TrimRight(string(o), "\n"), nil
 	}
 }
 
