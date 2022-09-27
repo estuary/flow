@@ -66,27 +66,6 @@ where
     Ok(())
 }
 
-pub async fn update_open_graph_raw(
-    connector_id: Id,
-    open_graph_raw: Box<RawValue>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"update connectors set
-            open_graph_raw = $2,
-            updated_at = clock_timestamp()
-        where id = $1
-        returning 1 as "must_exist";
-        "#,
-        connector_id as Id,
-        Json(open_graph_raw) as Json<Box<RawValue>>,
-    )
-    .fetch_one(txn)
-    .await?;
-
-    Ok(())
-}
-
 pub async fn update_oauth2_spec(
     connector_id: Id,
     oauth2_spec: Box<RawValue>,
