@@ -19,18 +19,23 @@ Once you've signed up with your personal information, an Estuary team member wil
 After your account has been activated through the [web app](#get-started-with-the-flow-web-application), you can begin to work with your data flows from the command line.
 This is not required, but it enables more advanced workflows or might simply be your preference.
 
-Flow has a single binary, flowctl. flowctl binaries for MacOS and Linux are available.
+Flow has a single binary, **flowctl**.
+
+flowctl is available for:
+
+* **Linux** x86-64. All distributions are supported.
+* **MacOS** 11 (Big Sur) or later. Both Intel and M1 chips are supported.
 
 To install, copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your `PATH`.
 
    * For Linux:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
    * For Mac:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
 Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).

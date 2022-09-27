@@ -33,11 +33,12 @@ Use the below properties to configure a  materialization, which will direct the 
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/awsAccessKeyId`** | AWS Access Key ID | AWS credential used to connect to S3. | string | Required |
-| **`/awsSecretAccessKey`** | AWS Secret Access Key | AWS credential used to connect to S3. | string | Required |
+| `/advanced` |  | Options for advanced users. You should not typically need to modify these. | object |  |
+| `/advanced/endpoint` | Endpoint | The endpoint URI to connect to. Useful if you&#x27;re connecting to a S3-compatible API that isn&#x27;t provided by AWS. | string |  |
+| **`/awsAccessKeyId`** | Access Key ID | AWS credential used to connect to S3. | string | Required |
+| **`/awsSecretAccessKey`** | Secret Access Key | AWS credential used to connect to S3. | string | Required |
 | **`/bucket`** | Bucket | Name of the S3 bucket. | string | Required |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to, useful if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string. |  |
-| `/region` |  AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string |  |
+| **`/region`** | Region | The name of the AWS region where the S3 bucket is located. | string | Required |
 | **`/uploadIntervalInSeconds`** | Upload Interval in Seconds | Time interval, in seconds, at which to upload data from Flow to S3. | integer | Required |
 
 #### Bindings
