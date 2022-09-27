@@ -268,15 +268,13 @@ ${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
 ##########################################################################
 # Make targets used by CI:
 
-# We use LLVM for faster linking. See .cargo/config.
+# We use LLVM for faster linking. See RUSTFLAGS in .github/workflows/main.yml
 .PHONY: extra-ci-runner-setup
 extra-ci-runner-setup:
 	sudo apt install -y \
-		libprotobuf-dev \
 		libssl-dev \
 		musl-tools \
-		pkg-config \
-		protobuf-compiler
+		pkg-config
 	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
 .PHONY: print-versions
