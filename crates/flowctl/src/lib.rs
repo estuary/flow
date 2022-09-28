@@ -85,6 +85,10 @@ impl CliContext {
         &self.config
     }
 
+    pub fn output_args(&self) -> &output::Output {
+        &self.output
+    }
+
     pub fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
     where
         T: output::CliOutput,
