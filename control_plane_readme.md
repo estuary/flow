@@ -61,6 +61,33 @@ You'll need:
 * A local checkout of [github.com/estuary/config-encryption](https://github.com/estuary/config-encryption).
 * A local checkout of this repository.
 
+### Bootstrap:
+
+Required build tools and libs:
+* clang
+* curl
+* g++
+* gcc
+* git
+* libreadline-dev
+* libsqlite3-dev
+* libssl-dev
+* make
+* musl-tools
+* openssl
+* pkg-config
+* protobuf-compiler
+
+Install rust and go:
+```console
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup target add x86_64-unknown-linux-musl
+
+curl -0L https://go.dev/dl/go1.19.1.linux-amd64.tar.gz | tar -xvzf -
+export PATH=$PATH:`pwd`/go/bin
+```
+
 ### Start Supabase:
 
 Run within your checkout of this repository (for example, ~/estuary/animated-carnival):
@@ -96,6 +123,33 @@ Directly access your postgres database:
 
 ```console
 psql postgres://postgres:postgres@localhost:5432/postgres
+```
+
+### EXPERIMENTAL Start private PG (instead of Supabase for local development):
+
+Install and start pg:
+```console
+su postgres
+curl -0L https://ftp.postgresql.org/pub/source/v14.5/postgresql-14.5.tar.gz | tar -xvzf -
+cd postgresql-14.5 | ./configure --prefix=~/flow-pg | make install
+~/flow-pg/bin/initdb -D ~/flow-pg/data
+~/flow-pg/bin/pg_ctl -D ~/flow-pg/data -l logfile start
+```
+
+Apply init schema:
+```console
+curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/00-initial-schema.sql
+curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/01-auth-schema.sql
+curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/02-storage-schema.sql
+curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/03-post-setup.sql
+curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/04-pg-graphql.sql
+ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
+```
+
+Apply migrations from flow/supabase/migrations:
+```console
+cd [flow dir]/supabase/migrations
+ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
 ```
 
 ### Start `temp-data-plane`:
