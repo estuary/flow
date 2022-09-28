@@ -108,7 +108,7 @@ impl<F: Fetcher> Loader<F> {
 
         let content : Result<bytes::Bytes, anyhow::Error> = match inlined {
             // Resource has an inline definition of the expected content-type.
-            Some(models::ResourceDef{content, content_type: expected_type}) if assemble::content_type(expected_type) == content_type => {
+            Some(models::ResourceDef{content, content_type: expected_type}) if proto_content_type(expected_type) == content_type => {
                 if content.get().chars().next().unwrap() == '"' {
                     base64::decode(content.get()).context("base64-decode of inline resource failed").map(Into::into)
                 } else {
@@ -455,7 +455,7 @@ impl<F: Fetcher> Loader<F> {
                 if let Some(url) =
                     self.fallible(scope, scope.resource().join(import.relative_url()))
                 {
-                    self.load_import(scope, &url, assemble::content_type(import.content_type()))
+                    self.load_import(scope, &url, proto_content_type(import.content_type()))
                         .await;
                 }
             }
@@ -898,5 +898,15 @@ impl<F: Fetcher> Loader<F> {
                 None
             }
         }
+    }
+}
+
+fn proto_content_type(t: models::ContentType) -> flow::ContentType {
+    match t {
+        models::ContentType::Catalog => flow::ContentType::Catalog,
+        models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
+        models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
+        models::ContentType::Config => flow::ContentType::Config,
+        models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
     }
 }
