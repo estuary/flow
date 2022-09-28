@@ -293,7 +293,7 @@ func runCommand(
 		var cidFileReadDeadline = time.Now().Add(time.Second * 5)
 		for {
 			idBytes, err := os.ReadFile(cidFilePath)
-			if err == nil {
+			if err == nil && len(idBytes) > 0 {
 				if containerPort, err := DockerPort(ctx, string(idBytes), port); err != nil {
 					return fmt.Errorf("inspecting container port failed: %w", err)
 				} else {
