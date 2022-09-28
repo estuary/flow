@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -110,13 +111,15 @@ func Run(
 		networkName = "bridge"
 	}
 
-	// Docker --cidfile expects that the file does not exist in the provided path, so we create
-	// a temporary file and delete it just so we can use the allocated path
-	cidTmp, err := os.CreateTemp("", "connector-id")
-	if err != nil {
-		return fmt.Errorf("go.estuary.dev/E133: creating temporary file for CID: %w", err)
-	} else if err := os.Remove(cidTmp.Name()); err != nil {
-		return fmt.Errorf("go.estuary.dev:E134: cleaning temporary file for CID: %w", err)
+	// Find a free port on local system
+	var localAddress string
+	if port != "" {
+		localPort, err := GetFreePort()
+		if err != nil {
+			return fmt.Errorf("go.estuary.dev/E133: could not get a free port on host: %w", err)
+		}
+
+		localAddress = fmt.Sprintf("127.0.0.1:%s", localPort)
 	}
 
 	var imageArgs = []string{
@@ -128,8 +131,6 @@ func Run(
 		"--init",
 		// Remove the docker container upon its exit.
 		"--rm",
-		// Write the container ID to a temporary file
-		"--cidfile", cidTmp.Name(),
 		// Tell docker not to persist any container stdout/stderr output.
 		// Containers may write _lots_ of output to std streams, and docker's
 		// logging drivers may persist all or some of that to disk, which could
@@ -157,7 +158,7 @@ func Run(
 	} else {
 		// Publish the tcp port of the container on a random port on host
 		imageArgs = append(imageArgs,
-			"--publish", fmt.Sprintf("127.0.0.1::%s", port),
+			"--publish", fmt.Sprintf("%s:%s", localAddress, port),
 		)
 	}
 
@@ -179,7 +180,7 @@ func Run(
 		"operation":        strings.Join(args, " "),
 	})
 
-	return runCommand(ctx, append(imageArgs, args...), cidTmp.Name(), port, writeLoop, output, logger)
+	return runCommand(ctx, append(imageArgs, args...), localAddress, port, writeLoop, output, logger)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -192,7 +193,7 @@ func Run(
 func runCommand(
 	ctx context.Context,
 	args []string,
-	cidFilePath string,
+	localAddress string,
 	port string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
@@ -225,25 +226,21 @@ func runCommand(
 	}
 
 	var conn net.Conn
-	var tcpAddress = make(chan string)
 	// If port is specified, use TCP socket
 	if port != "" {
 		// Routine dialing a connection to connector
 		go func() {
-			// Wait for the tcp address to be received after docker run
-			var addr = <-tcpAddress
-
 			// Try to connect to the connector with a retry mechanism
 			var connectDeadline = time.Now().Add(time.Second * 5)
 			var err error
 			for {
-				conn, err = net.Dial("tcp", addr)
+				conn, err = net.Dial("tcp", localAddress)
 				if err == nil {
 					break
 				}
 
 				if time.Now().After(connectDeadline) {
-					fe.onError(fmt.Errorf("dialing connection to %s: %w", addr, err))
+					fe.onError(fmt.Errorf("dialing connection to %s: %w", localAddress, err))
 					return
 				} else {
 					// Retry after a short wait
@@ -285,29 +282,6 @@ func runCommand(
 	logger.Log(logrus.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
 	if err := cmd.Start(); err != nil {
 		fe.onError(fmt.Errorf("go.estuary.dev/E105: starting connector: %w", err))
-	}
-
-	// If port is specified, try to get the forwarded tcpAddress of the port on host
-	if port != "" {
-		// Try to read the cidFile in a retry loop until we get the ID
-		var cidFileReadDeadline = time.Now().Add(time.Second * 5)
-		for {
-			idBytes, err := os.ReadFile(cidFilePath)
-			if err == nil {
-				if containerPort, err := DockerPort(ctx, string(idBytes), port); err != nil {
-					return fmt.Errorf("inspecting container port failed: %w", err)
-				} else {
-					tcpAddress <- containerPort
-				}
-				break
-			} else {
-				if time.Now().After(cidFileReadDeadline) {
-					return fmt.Errorf("reading container id file timed out: %w", err)
-				} else {
-					time.Sleep(1 * time.Second)
-				}
-			}
-		}
 	}
 
 	// Arrange for the connector container to be signaled if |ctx| is cancelled.
@@ -543,12 +517,17 @@ func DockerInspect(ctx context.Context, entity string) (json.RawMessage, error) 
 	}
 }
 
-func DockerPort(ctx context.Context, entity string, port string) (string, error) {
-	if o, err := exec.CommandContext(ctx, "docker", "port", entity, port).Output(); err != nil {
-		return "", fmt.Errorf("go.estuary.dev/E111: getting docker entity %q's port failed: %w", entity, err)
-	} else {
-		return strings.TrimRight(string(o), "\n"), nil
+// GetFreePort asks the kernel for a free open port that is ready to use.
+func GetFreePort() (port string, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			defer l.Close()
+			return strconv.Itoa(l.Addr().(*net.TCPAddr).Port), nil
+		}
 	}
+	return
 }
 
 func copyToTempFile(r io.Reader, mode os.FileMode) (*os.File, error) {
