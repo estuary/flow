@@ -294,7 +294,7 @@ func runCommand(
 		for {
 			idBytes, err := os.ReadFile(cidFilePath)
 			if err == nil && len(idBytes) > 0 {
-				if containerPort, err := DockerPort(ctx, string(idBytes), port); err != nil {
+				if containerPort, err := DockerPort(ctx, string(idBytes), port, logger); err != nil {
 					return fmt.Errorf("inspecting container port failed: %w", err)
 				} else {
 					tcpAddress <- containerPort
@@ -543,10 +543,21 @@ func DockerInspect(ctx context.Context, entity string) (json.RawMessage, error) 
 	}
 }
 
-func DockerPort(ctx context.Context, entity string, port string) (string, error) {
+func DockerPort(ctx context.Context, entity string, port string, logger ops.Logger) (string, error) {
 	var deadline = time.Now().Add(time.Second * 5)
+	var cmd = exec.CommandContext(ctx, "docker", "port", entity, port)
+	var stderrForwarder = ops.NewLogForwardWriter("docker port stderr", logrus.InfoLevel, logger)
+	// forward stderr
+	go func() {
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			stderrForwarder.Write([]byte(fmt.Sprintf("error getting stderr pipe of docker port: %s\n", err)))
+		} else if _, err := io.Copy(stderrForwarder, stderr); err != nil {
+			stderrForwarder.Write([]byte(fmt.Sprintf("error copying stderr pipe of docker port: %s\n", err)))
+		}
+	}()
 	for {
-		if o, err := exec.CommandContext(ctx, "docker", "port", entity, port).Output(); err != nil {
+		if o, err := cmd.Output(); err != nil {
 			if time.Now().After(deadline) {
 				return "", fmt.Errorf("go.estuary.dev/E111: getting docker entity %q's port failed: %w", entity, err)
 			}
