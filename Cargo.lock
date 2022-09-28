@@ -3669,7 +3669,6 @@ name = "sources"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "assemble",
  "base64",
  "bytes",
  "doc",
