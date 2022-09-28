@@ -47,7 +47,7 @@ pub enum Command {
     /// Work with the current Flow catalog.
     Catalog(catalog::Catalog),
     /// Work with Flow collections.
-    Collection(collection::Collections),
+    Collections(collection::Collections),
     /// Work with your Flow catalog drafts.
     ///
     /// Drafts are in-progress specifications which are not yet "live".
@@ -142,7 +142,7 @@ impl Cli {
         match &self.cmd {
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
-            Command::Collection(collection) => collection.run(&mut context).await,
+            Command::Collections(collection) => collection.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Stats(stats) => stats.run(&mut context).await,
