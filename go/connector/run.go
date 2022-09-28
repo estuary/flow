@@ -544,10 +544,15 @@ func DockerInspect(ctx context.Context, entity string) (json.RawMessage, error) 
 }
 
 func DockerPort(ctx context.Context, entity string, port string) (string, error) {
-	if o, err := exec.CommandContext(ctx, "docker", "port", entity, port).Output(); err != nil {
-		return "", fmt.Errorf("go.estuary.dev/E111: getting docker entity %q's port failed: %w", entity, err)
-	} else {
-		return strings.TrimRight(string(o), "\n"), nil
+	var deadline = time.Now().Add(time.Second * 5)
+	for {
+		if o, err := exec.CommandContext(ctx, "docker", "port", entity, port).Output(); err != nil {
+			if time.Now().After(deadline) {
+				return "", fmt.Errorf("go.estuary.dev/E111: getting docker entity %q's port failed: %w", entity, err)
+			}
+		} else {
+			return strings.TrimRight(string(o), "\n"), nil
+		}
 	}
 }
 
