@@ -724,16 +724,6 @@ pub fn test_step_spec(
     }
 }
 
-pub fn content_type(t: models::ContentType) -> flow::ContentType {
-    match t {
-        models::ContentType::Catalog => flow::ContentType::Catalog,
-        models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
-        models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
-        models::ContentType::Config => flow::ContentType::Config,
-        models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
-    }
-}
-
 pub fn capture_endpoint_type(t: &models::CaptureEndpoint) -> flow::EndpointType {
     match t {
         models::CaptureEndpoint::Connector(_) => flow::EndpointType::AirbyteSource,
