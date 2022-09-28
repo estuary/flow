@@ -227,7 +227,7 @@ linux-musl-binaries: | ${PKGDIR}
 .PHONY: linux-binaries
 linux-binaries: linux-gnu-binaries linux-musl-binaries
 
-${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz:
+${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: linux-binaries
 	rm -f $@
 	cd ${PKGDIR}/bin && tar -zcf ../flow-$(PACKAGE_ARCH).tar.gz *
 
