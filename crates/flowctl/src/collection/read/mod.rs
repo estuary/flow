@@ -1,5 +1,5 @@
-use crate::collection::CollectionJournalSelector;
 use crate::dataplane;
+use crate::{collection::CollectionJournalSelector, output::OutputType};
 use chrono::{DateTime, Utc};
 use journal_client::{
     broker,
@@ -48,6 +48,22 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     if !args.uncommitted {
         anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
     }
+    // output can be either None or Some(OutputType::Json), but cannot be explicitly set to
+    // anything else. _Eventually_, we may want to support outputting collection data as yaml
+    // or a table, but certainly not right now.
+    if let Some(naughty_output_type) = ctx
+        .output_args()
+        .output
+        .filter(|ot| *ot != OutputType::Json)
+    {
+        let name = clap::ValueEnum::to_possible_value(&naughty_output_type)
+            .expect("possible value cannot be None")
+            .get_name();
+        anyhow::bail!(
+            "cannot use --output {name} when reading collection data (only json is supported)"
+        );
+    }
+
     let mut data_plane_client =
         dataplane::journal_client_for(ctx.config(), vec![args.selector.collection.clone()]).await?;
 

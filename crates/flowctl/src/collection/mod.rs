@@ -5,7 +5,7 @@ use journal_client::list;
 use proto_gazette::broker;
 
 use crate::dataplane::journal_client_for;
-use crate::output::{to_table_row, CliOutput, JsonCell};
+use crate::output::{self, to_table_row, CliOutput, JsonCell};
 
 use self::read::ReadArgs;
 
