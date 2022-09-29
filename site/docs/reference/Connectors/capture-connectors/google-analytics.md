@@ -1,7 +1,3 @@
----
-sidebar_position: 8
----
-
 # Google Analytics
 
 This connector captures data from a view in Google Analytics.
