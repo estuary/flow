@@ -32,7 +32,7 @@ struct Args {
     )]
     consumer_address: url::Url,
     /// Docker network for connector invocations.
-    #[clap(long = "connector-network", default_value = "host")]
+    #[clap(long = "connector-network", default_value = "bridge")]
     connector_network: String,
     /// Path to binaries like `flowctl`.
     #[clap(long = "bin-dir", env = "BIN_DIR")]
