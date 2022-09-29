@@ -12,7 +12,7 @@ jobs:
     env:
       ASSET_NAME: ${{ matrix.config.assetName }}
       # build.rs reads this env variable and uses to set the value that's printed by flowctl --version
-      FLOWCTL_RELEASE_VERSION: ${{ github.event.release.tag_name }}
+      FLOW_VERSION: ${{ github.event.release.tag_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +24,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Linux build steps:
       # Linux builds need the non-default musl target.
@@ -31,6 +35,7 @@ jobs:
         if: matrix.config.os == 'ubuntu-latest'
         uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
           target: x86_64-unknown-linux-musl
       - name: Build Linux
         if: matrix.config.os == 'ubuntu-latest'
@@ -46,6 +51,8 @@ jobs:
       - name: Install Rust
         if: matrix.config.os == 'macos-latest'
         uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       # This one mac build should hopefully run on intel or m1 macs
       - name: Build Mac
         if: matrix.config.os == 'macos-latest'

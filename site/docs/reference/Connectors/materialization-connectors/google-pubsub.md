@@ -62,6 +62,7 @@ Use the below properties to configure a Google Cloud Pub/Sub materialization, wh
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `identifier` | Resource Binding Identifier | Optional identifier for the resource binding if creating a [multiplex topic](#multiplex-topics). Included as \"identifier\" attribute in published messages if specified. | string | |
 | **`/topic`** | Topic Name | Name of the topic to publish materialized results to. | string | Required |
 
 ### Sample
@@ -82,6 +83,31 @@ materializations:
   	- resource:
       	topic: my_new_topic
       source: ${PREFIX}/${source_collection}
+```
+
+## Multiplex topics
+
+You can materialize multiple Flow collections to the same Pub/Sub topic. This is known as a **multiplex topic**.
+You do so by adding the optional `identifier` field to the [binding configuration](#bindings).
+
+When materializing to a multiplex topic, ensure that:
+
+* The bindings you want to combine have the same `topic` name.
+* Each binding pulls from a different Flow collection
+* Each binding has a unique `identifier`. It can be anything you'd like.
+
+The binding configuration will look similar to:
+
+```yaml
+bindings:
+  - resource:
+      identifier: one
+      topic: multiplex-topic
+    source: ${PREFIX}/source_collection_one
+  - resource:
+      identifier: two
+      topic: multiplex-topic
+    source: ${PREFIX}/source_collection_two
 ```
 
 ## Delta updates

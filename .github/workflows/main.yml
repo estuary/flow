@@ -35,6 +35,11 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -93,6 +98,11 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-unknown-linux-musl
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
@@ -137,20 +147,15 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Install protobuf compiler (it's not already included in CI runner)
-        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
           go-version: "1.19"
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
