@@ -120,6 +120,118 @@ async fn test_materialization_expansions() {
 }
 
 #[tokio::test]
+async fn test_shared_collection_expansions() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    // Fixture: 2 captures, 3 collections, and 2 materializations:
+    //  - Each capture/materialization is bound to 2 of the 3 collections
+    //  - The captures are bound such that their bindings are not identical, with 1 bound collection in common.
+    //      - Capture "A" is bound to collections "1" and "2"
+    //      - Capture "B" is bound to collections "2" and "3".
+    //      - Collection "2" is bound in common between the two.
+    //  - Materializations are the same.
+    //      - Materialization "C" is bound to collections "1" and "2"
+    //      - Materialization "D" is bound to colledtions "2" and "3"
+    //      - Collection "2" is bound in common between the two.
+    sqlx::query(
+        r#"
+    with specs as (
+        insert into live_specs (id, catalog_name, spec, spec_type) values
+        ('aa00000000000000', 'g/capture1', '1', 'capture'),
+        ('bb00000000000000', 'g/capture2', '1', 'capture'),
+        ('1100000000000000', 'g/collection1', '1', 'collection'),
+        ('2200000000000000', 'g/collection2', '1', 'collection'),
+        ('3300000000000000', 'g/collection3', '1', 'collection'),
+        ('cc00000000000000', 'g/materialization1', '1', 'materialization'),
+        ('dd00000000000000', 'g/materialization2', '1', 'materialization')
+    ),
+    flows as (
+        insert into live_spec_flows(source_id, target_id, flow_type) values
+        ('aa00000000000000', '1100000000000000', 'capture'),
+        ('aa00000000000000', '2200000000000000', 'capture'),
+        ('bb00000000000000', '2200000000000000', 'capture'),
+        ('bb00000000000000', '3300000000000000', 'capture'),
+        ('1100000000000000', 'cc00000000000000', 'materialization'),
+        ('2200000000000000', 'cc00000000000000', 'materialization'),
+        ('2200000000000000', 'dd00000000000000', 'materialization'),
+        ('3300000000000000', 'dd00000000000000', 'materialization')
+    )
+    select 1;
+    "#,
+    )
+    .execute(&mut txn)
+    .await
+    .unwrap();
+
+    // Captures and materalizations expand to their bound collections, but not to other
+    // captures/materializations bound to those collections.
+    assert_set(
+        vec![0xaa],
+        vec![0x11, 0x22],
+        &mut txn,
+        "capture 'A' expands only to its bound collections",
+    )
+    .await;
+
+    assert_set(
+        vec![0xbb],
+        vec![0x22, 0x33],
+        &mut txn,
+        "capture 'B' expands only to its bound collections",
+    )
+    .await;
+
+    assert_set(
+        vec![0xcc],
+        vec![0x11, 0x22],
+        &mut txn,
+        "materialization 'C' expands only to its bound collections",
+    )
+    .await;
+
+    assert_set(
+        vec![0xdd],
+        vec![0x22, 0x33],
+        &mut txn,
+        "materialization 'D' expands only to its bound collections",
+    )
+    .await;
+
+    // Collections expand to their bound captures/materializations + the bound collections of those
+    // captures/materializations, but not further to the captures/materializations bound to _those_
+    // collections.
+    assert_set(
+        vec![0x11],
+        vec![0x22, 0xaa, 0xcc],
+        &mut txn,
+        "collection '1' expands to bound captures and materializations + their bound collections",
+    )
+    .await;
+
+    assert_set(
+        vec![0x33],
+        vec![0x22, 0xbb, 0xdd],
+        &mut txn,
+        "collection '3' expands to bound captures and materializations + their bound collections",
+    )
+    .await;
+
+    // This collection expands to the entire graph, since its bound captures/materializations expand
+    // to the remaining collections.
+    assert_set(
+        vec![0x22],
+        vec![0x11, 0x33, 0xaa, 0xbb, 0xcc, 0xdd],
+        &mut txn,
+        "collection '2' expands to bound captures and materializations + their bound collections",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_test_expansions() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await
