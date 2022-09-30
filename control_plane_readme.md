@@ -127,16 +127,7 @@ psql postgres://postgres:postgres@localhost:5432/postgres
 
 ### EXPERIMENTAL Start private PG (instead of Supabase for local development):
 
-Install and start pg:
-```console
-su postgres
-curl -0L https://ftp.postgresql.org/pub/source/v14.5/postgresql-14.5.tar.gz | tar -xvzf -
-cd postgresql-14.5 | ./configure --prefix=~/flow-pg | make install
-~/flow-pg/bin/initdb -D ~/flow-pg/data
-~/flow-pg/bin/pg_ctl -D ~/flow-pg/data -l logfile start
-```
-
-Apply init schema:
+Start PG and apply init schema:
 ```console
 echo '
 anon
@@ -147,17 +138,17 @@ pgsodium_keyiduser
 service_role
 supabase_admin
 supabase_auth_admin
-supabase_storage_admin' | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/createuser -U postgres -s
+supabase_storage_admin' | xargs -n1 -t createuser -U postgres -s
 
-curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | PGHOST=/tmp ~/flow-db/bin/psql -U postgres -w -d postgres -f -
+curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | psql -U postgres -w -d postgres -f -
 ```
 
 Apply migrations from flow/supabase/migrations and seed test data:
 ```console
 cd [flow dir]/supabase/migrations
-ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
+ls -1 *.sql | xargs -n1 -t psql -U postgres -w -d postgres -f
 cd [flow dir]/supabase
-PGHOST=/tmp ~/flow-db/bin/psql -U postgres -w -d postgres -f seed.sql
+psql -U postgres -w -d postgres -f seed.sql
 ```
 
 ### Start `temp-data-plane`:
