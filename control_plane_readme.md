@@ -157,7 +157,7 @@ Apply migrations from flow/supabase/migrations and seed test data:
 cd [flow dir]/supabase/migrations
 ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
 cd [flow dir]/supabase
-PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f seed.sql
+PGHOST=/tmp ~/flow-db/bin/psql -U postgres -w -d postgres -f seed.sql
 ```
 
 ### Start `temp-data-plane`:
