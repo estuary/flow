@@ -1,11 +1,13 @@
 pub mod read;
 
+use crate::Timestamp;
 use assemble::percent_encode_partition_value;
-use journal_client::list;
+use journal_client::{fragments, list};
 use proto_gazette::broker;
+use time::OffsetDateTime;
 
 use crate::dataplane::journal_client_for;
-use crate::output::{self, to_table_row, CliOutput, JsonCell};
+use crate::output::{to_table_row, CliOutput, JsonCell};
 
 use self::read::ReadArgs;
 
@@ -99,6 +101,8 @@ pub enum Command {
     Read(ReadArgs),
     /// List the individual journals of a flow collection
     ListJournals(CollectionJournalSelector),
+    /// List the journal fragments of a flow collection
+    ListFragments(ListFragmentsArgs),
 }
 
 impl Collections {
@@ -106,6 +110,7 @@ impl Collections {
         match &self.cmd {
             Command::Read(args) => do_read(ctx, args).await,
             Command::ListJournals(selector) => do_list_journals(ctx, selector).await,
+            Command::ListFragments(args) => do_list_fragments(ctx, args).await,
         }
     }
 }
@@ -144,7 +149,115 @@ impl CliOutput for broker::JournalSpec {
     }
 }
 
-/// Dead code currently. This should be wired up again once we have a factoring for output formatting that makes it easier to output tables.
+#[derive(clap::Args, Debug)]
+pub struct ListFragmentsArgs {
+    #[clap(flatten)]
+    pub selector: CollectionJournalSelector,
+
+    /// If provided, then the frament listing will include a pre-signed URL for each fragment, which is valid for the given duration.
+    /// This can be used to fetch fragment data directly from cloud storage.
+    #[clap(long)]
+    pub signature_ttl: Option<humantime::Duration>,
+
+    /// Only include fragments which were written within the provided duration from the present.
+    /// For example, `--since 10m` will only output fragments that have been written within the last 10 minutes.
+    #[clap(long)]
+    pub since: Option<humantime::Duration>,
+}
+
+impl CliOutput for broker::fragments_response::Fragment {
+    type TableAlt = bool;
+
+    type CellValue = String;
+
+    fn table_headers(signed_urls: Self::TableAlt) -> Vec<&'static str> {
+        let mut headers = vec!["Journal", "Begin Offset", "Size", "Store", "Mod Time"];
+        if signed_urls {
+            headers.push("Signed URL");
+        }
+        headers
+    }
+
+    fn into_table_row(mut self, signed_urls: Self::TableAlt) -> Vec<Self::CellValue> {
+        let spec = self.spec.take().expect("missing spec of FragmentsResponse");
+        let store = if spec.backing_store.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "{}{}{}",
+                spec.backing_store, spec.journal, spec.path_postfix
+            )
+        };
+
+        let size = ::size::Size::from_bytes(spec.end - spec.begin);
+
+        let mod_timestamp = if spec.mod_time > 0 {
+            Timestamp::from_unix_timestamp(spec.mod_time)
+                .map(|ts| ts.to_string())
+                .unwrap_or_else(|_| {
+                    tracing::error!(
+                        mod_time = spec.mod_time,
+                        "fragment has invalid mod_time value"
+                    );
+                    String::from("invalid timestamp")
+                })
+        } else {
+            String::new()
+        };
+        let mut columns = vec![
+            spec.journal,
+            spec.begin.to_string(),
+            size.to_string(),
+            store,
+            mod_timestamp,
+        ];
+        if signed_urls {
+            columns.push(self.signed_url);
+        }
+        columns
+    }
+}
+
+async fn do_list_fragments(
+    ctx: &mut crate::CliContext,
+    args: &ListFragmentsArgs,
+) -> Result<(), anyhow::Error> {
+    let mut client =
+        journal_client_for(ctx.config(), vec![args.selector.collection.clone()]).await?;
+
+    let journals = list::list_journals(&mut client, &args.selector.build_label_selector()).await?;
+
+    let start_time = if let Some(since) = args.since {
+        let timepoint = OffsetDateTime::now_utc() - *since;
+        tracing::debug!(%since, begin_mod_time = %timepoint, "resolved --since to begin_mod_time");
+        timepoint.unix_timestamp()
+    } else {
+        0
+    };
+
+    let signature_ttl = args
+        .signature_ttl
+        .map(|ttl| std::time::Duration::from(*ttl).into());
+    let mut fragments = Vec::with_capacity(32);
+    for journal in journals {
+        let req = broker::FragmentsRequest {
+            journal: journal.name.clone(),
+            begin_mod_time: start_time,
+            page_limit: 500,
+            signature_ttl: signature_ttl.clone(),
+            ..Default::default()
+        };
+
+        let mut fragment_iter = fragments::FragmentIter::new(client.clone(), req);
+
+        while let Some(fragment) = fragment_iter.next().await {
+            fragments.push(fragment?);
+        }
+    }
+
+    ctx.write_all(fragments, args.signature_ttl.is_some())
+}
+
 async fn do_list_journals(
     ctx: &mut crate::CliContext,
     args: &CollectionJournalSelector,
