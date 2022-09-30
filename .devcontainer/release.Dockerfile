@@ -8,21 +8,23 @@ RUN apt update -y \
       ca-certificates \
       curl \
       gpg \
+      lsb-release \
  && echo "Add NodeSource keyring for more recent nodejs packages" \
  && export NODE_KEYRING=/usr/share/keyrings/nodesource.gpg \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee "$NODE_KEYRING" >/dev/null \
  && gpg --no-default-keyring --keyring "$NODE_KEYRING" --list-keys \
  && echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_14.x bullseye main" | tee /etc/apt/sources.list.d/nodesource.list \
+ && mkdir -p /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+  $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
  && apt update -y \
  && apt upgrade -y \
  && apt install --no-install-recommends -y \
       jq \
       nodejs \
+      docker-ce-cli \
  && rm -rf /var/lib/apt/lists/*
-
-RUN curl -o docker-cli.deb 'https://download.docker.com/linux/debian/dists/bullseye/pool/stable/amd64/docker-ce-cli_20.10.7~3-0~debian-bullseye_amd64.deb' && \
-    dpkg -i docker-cli.deb && \
-    rm docker-cli.deb
 
 # Create a non-privileged "flow" user.
 RUN useradd flow --create-home --shell /usr/sbin/nologin
