@@ -14,7 +14,8 @@ pub struct Logs {
 
 impl Logs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let read_args = read_args(&self.task.task, "logs", &self.bounds);
+        let uncommitted = true; // logs reads are always 'uncommitted' because logs aren't written inside transactions.
+        let read_args = read_args(&self.task.task, "logs", &self.bounds, uncommitted);
         read_collection(ctx, &read_args).await?;
         Ok(())
     }
@@ -27,17 +28,28 @@ pub struct Stats {
 
     #[clap(flatten)]
     pub bounds: ReadBounds,
+
+    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
+    /// This flag is currently required, but will be made optional in the future as we add support for
+    /// committed reads, which will become the default.
+    #[clap(long)]
+    pub uncommitted: bool,
 }
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let read_args = read_args(&self.task.task, "stats", &self.bounds);
+        let read_args = read_args(&self.task.task, "stats", &self.bounds, self.uncommitted);
         read_collection(ctx, &read_args).await?;
         Ok(())
     }
 }
 
-fn read_args(task_name: &str, logs_or_stats: &'static str, bounds: &ReadBounds) -> ReadArgs {
+fn read_args(
+    task_name: &str,
+    logs_or_stats: &'static str,
+    bounds: &ReadBounds,
+    uncommitted: bool,
+) -> ReadArgs {
     let tenant = tenant(task_name);
     let collection = format!("ops/{tenant}/{logs_or_stats}");
     let selector = CollectionJournalSelector {
@@ -50,7 +62,7 @@ fn read_args(task_name: &str, logs_or_stats: &'static str, bounds: &ReadBounds) 
     };
     ReadArgs {
         selector,
-        uncommitted: true,
+        uncommitted,
         bounds: bounds.clone(),
     }
 }
