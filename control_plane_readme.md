@@ -138,18 +138,26 @@ cd postgresql-14.5 | ./configure --prefix=~/flow-pg | make install
 
 Apply init schema:
 ```console
-curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/00-initial-schema.sql
-curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/01-auth-schema.sql
-curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/02-storage-schema.sql
-curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/03-post-setup.sql
-curl -OL https://raw.githubusercontent.com/supabase/supabase/master/docker/volumes/db/init/04-pg-graphql.sql
-ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
+echo '
+anon
+authenticated
+dashboard_user
+pgbouncer
+pgsodium_keyiduser
+service_role
+supabase_admin
+supabase_auth_admin
+supabase_storage_admin' | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/createuser -U postgres -s
+
+curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | PGHOST=/tmp ~/flow-db/bin/psql -U postgres -w -d postgres -f -
 ```
 
-Apply migrations from flow/supabase/migrations:
+Apply migrations from flow/supabase/migrations and seed test data:
 ```console
 cd [flow dir]/supabase/migrations
 ls -1 *.sql | PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f
+cd [flow dir]/supabase
+PGHOST=/tmp xargs -n1 -t ~/flow-db/bin/psql -U postgres -w -d postgres -f seed.sql
 ```
 
 ### Start `temp-data-plane`:
