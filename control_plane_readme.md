@@ -61,6 +61,33 @@ You'll need:
 * A local checkout of [github.com/estuary/config-encryption](https://github.com/estuary/config-encryption).
 * A local checkout of this repository.
 
+### Bootstrap:
+
+Required build tools and libs:
+* clang
+* curl
+* g++
+* gcc
+* git
+* libreadline-dev
+* libsqlite3-dev
+* libssl-dev
+* make
+* musl-tools
+* openssl
+* pkg-config
+* protobuf-compiler
+
+Install rust and go:
+```console
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup target add x86_64-unknown-linux-musl
+
+curl -0L https://go.dev/dl/go1.19.1.linux-amd64.tar.gz | tar -xvzf -
+export PATH=$PATH:`pwd`/go/bin
+```
+
 ### Start Supabase:
 
 Run within your checkout of this repository (for example, ~/estuary/animated-carnival):
@@ -96,6 +123,32 @@ Directly access your postgres database:
 
 ```console
 psql postgres://postgres:postgres@localhost:5432/postgres
+```
+
+### EXPERIMENTAL Start private PG (instead of Supabase for local development):
+
+Start PG and apply init schema:
+```console
+echo '
+anon
+authenticated
+dashboard_user
+pgbouncer
+pgsodium_keyiduser
+service_role
+supabase_admin
+supabase_auth_admin
+supabase_storage_admin' | xargs -n1 -t createuser -U postgres -s
+
+curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | psql -U postgres -w -d postgres -f -
+```
+
+Apply migrations from flow/supabase/migrations and seed test data:
+```console
+cd [flow dir]/supabase/migrations
+ls -1 *.sql | xargs -n1 -t psql -U postgres -w -d postgres -f
+cd [flow dir]/supabase
+psql -U postgres -w -d postgres -f seed.sql
 ```
 
 ### Start `temp-data-plane`:
