@@ -1,6 +1,5 @@
 use crate::dataplane;
 use crate::{collection::CollectionJournalSelector, output::OutputType};
-use chrono::{DateTime, Utc};
 use journal_client::{
     broker,
     fragments::FragmentIter,
@@ -8,6 +7,7 @@ use journal_client::{
     read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
     Client,
 };
+use time::OffsetDateTime;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -86,7 +86,8 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     })?;
 
     let start = if let Some(since) = args.bounds.since {
-        let start_time = Utc::now() - chrono::Duration::from_std(*since)?;
+        let start_time = OffsetDateTime::now_utc() - *since;
+        tracing::debug!(%since, begin_mod_time = %start_time, "resolved --since to begin_mod_time");
         find_start_offset(data_plane_client.clone(), journal.name.clone(), start_time).await?
     } else {
         ReadStart::Offset(0)
@@ -113,12 +114,12 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
 async fn find_start_offset(
     client: Client,
     journal: String,
-    start_time: DateTime<Utc>,
+    start_time: OffsetDateTime,
 ) -> anyhow::Result<ReadStart> {
     let frag_req = broker::FragmentsRequest {
         journal,
         header: None,
-        begin_mod_time: start_time.timestamp(),
+        begin_mod_time: start_time.unix_timestamp(),
         end_mod_time: 0,
         next_page_token: 0,
         page_limit: 1,
