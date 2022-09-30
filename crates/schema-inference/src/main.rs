@@ -73,7 +73,6 @@ async fn main() -> Result<(), anyhow::Error> {
                 .with_default_directive(LevelFilter::INFO.into())
                 .from_env_lossy(),
         )
-        // .with_writer(std::io::stderr) // Log to stderr since `analyze` uses stdout
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 

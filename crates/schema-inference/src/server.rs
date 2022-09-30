@@ -54,9 +54,13 @@ impl InferenceService for InferenceServiceImpl {
 
         let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
 
+        let max_duration = Duration::from_secs(self.max_inference_secs.into());
+
+        // This seems to want to be set on a block, rather than a single expression :(
+        #[allow(unused_must_use)] 
         let handle = tokio::spawn(async move {
-            sleep(Duration::from_secs(10)).await;
-            abort_tx.send(()).unwrap();
+            sleep(max_duration).await;
+            abort_tx.send(());
         });
 
         let Authentication { token } = request
@@ -78,7 +82,7 @@ impl InferenceService for InferenceServiceImpl {
         let selector = journal_selector(&flow_collection, None);
         let journals = list_journals(&mut client, &selector).await?;
 
-        tracing::debug!("Got {} journals", journals.len());
+        tracing::debug!(num_journals = journals.len(), "Got journals");
 
         let buffered = futures::stream::iter(journals)
             .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.resubscribe()))
@@ -112,7 +116,7 @@ async fn journal_to_shape(
     client: journal_client::Client,
     abort_signal: Receiver<()>
 ) -> Result<Option<(Shape, u64)>, Status> {
-    let mut frag_iter = FragmentIter::new(
+    let frag_iter = FragmentIter::new(
         client.clone(),
         FragmentsRequest {
             journal: journal.name.clone(),
@@ -121,7 +125,7 @@ async fn journal_to_shape(
     );
 
     let frag_stream = frag_iter
-        .as_stream()
+        .into_stream()
         .map_err(|e| Status::internal(e.to_string()))
         .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.resubscribe()))
         .try_buffer_unordered(5)
@@ -136,6 +140,7 @@ async fn journal_to_shape(
 /// We explicitly omit documents containing
 /// `{"_meta": {"ack": true}}`, as those documents are not relevant to user data,
 /// and would just confuse users of the schema inference API
+#[tracing::instrument(skip_all, fields(journal_name, offset_start, offset_end))]
 async fn fragment_to_shape(
     client: journal_client::Client,
     fragment: fragments_response::Fragment,
@@ -144,6 +149,10 @@ async fn fragment_to_shape(
     let fragment_spec = fragment
         .spec
         .ok_or(Status::internal("Missing fragment spec"))?;
+
+    tracing::Span::current().record("journal_name", &fragment_spec.journal);
+    tracing::Span::current().record("offset_start", &fragment_spec.begin);
+    tracing::Span::current().record("offset_end", &fragment_spec.end);
 
     let reader = Reader::start_read(
         client.clone(),
@@ -184,7 +193,7 @@ async fn fragment_to_shape(
                 }
             }
             _ = owned_abort_channel.recv() => {
-                tracing::debug!("Aborting schma inference early! Processed {} documents", docs);
+                tracing::debug!(docs_processed = docs, "Aborting schma inference early!");
                 break
             }
         }

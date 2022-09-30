@@ -9,7 +9,7 @@ use tokio_util::codec::Decoder;
 
 #[derive(Default)]
 pub struct JsonCodec<Dec = Value> {
-    dec: PhantomData<Dec>
+    _dec: PhantomData<Dec>
 }
 
 impl<Dec> JsonCodec<Dec>
@@ -19,7 +19,7 @@ where
     /// Creates a new `JsonCodec` with the associated types
     pub fn new() -> JsonCodec<Dec> {
         JsonCodec {
-            dec: PhantomData,
+            _dec: PhantomData,
         }
     }
 }
@@ -58,17 +58,33 @@ where
 
         // Attempt to fetch an item and generate response
         let res = match iter.next() {
-            Some(Ok(v)) => Ok(Some(v)),
+            // We successfully decoded something
+            // Let's move up the left-hand-side of the buffer to the end of the parsed document
+            // and return that document, then come back around for another iteration
+            Some(Ok(v)) => {
+                // How many bytes to "throw away", since they represented the document we just parsed
+                let offset = iter.byte_offset();
+                buf.advance(offset);
+
+                Ok(Some(v))
+            },
+            // We reached EOF without successfully parsing a document, so we're done
             Some(Err(ref e)) if e.is_eof() => Ok(None),
-            Some(Err(e)) => Err(e.into()),
-            None => Ok(None),
+            // We errored while parsing a document
+            Some(Err(e)) => return Err(e.into()),
+            // We failed to decode a document, but also didn't error or reach EOF.
+            // This means that the buffer contains less than one full document's worth of bytes,
+            // So let's ask for more and then come back around once that request has been fulfilled
+            None => {
+                // Theoretically we could grow the amount of additional bytes we ask for
+                // each time we fail to deserialize a record binary-search style
+                // but 1mb feels like a reasonable upper bound, and also not an unreasonable size for a buffer to grow by
+                // so let's go with this for now
+                buf.reserve(1_000_000);
+                Ok(None)
+            },
         };
 
-        // Update offset from iterator
-        let offset = iter.byte_offset();
-
-        // Advance buffer
-        buf.advance(offset);
 
         res
     }

@@ -51,8 +51,8 @@ impl FragmentIter {
         next.map(|r| Ok(r))
     }
 
-    pub fn as_stream<'a>(&'a mut self) -> impl TryStream<Ok = broker::fragments_response::Fragment, Error = Error> + 'a {
-        futures::stream::try_unfold(self, |iter| async {
+    pub fn into_stream(self) -> impl TryStream<Ok = broker::fragments_response::Fragment, Error = Error> + 'static {
+        futures::stream::try_unfold(self, |mut iter| async {
             let val = iter.next().await;
             if let Some(maybe_res) = val {
                 match maybe_res {
