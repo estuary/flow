@@ -252,6 +252,13 @@ impl std::fmt::Display for Timestamp {
     }
 }
 
+impl Timestamp {
+    pub fn from_unix_timestamp(epoch_time_seconds: i64) -> Result<Timestamp, anyhow::Error> {
+        let offset_date_time = time::OffsetDateTime::from_unix_timestamp(epoch_time_seconds)?;
+        Ok(Timestamp(offset_date_time))
+    }
+}
+
 fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid::Uuid>) -> String {
     format!(
         "{full_name} <{email}>\n{id}",
