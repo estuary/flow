@@ -7,6 +7,19 @@ This connector captures streaming data from Apache Kafka topics.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
+## Supported data types
+
+This connector supports Kafka messages that contain JSON data.
+Flow [collections](../../../concepts/collections.md) store data as JSON.
+Before deploying this connector, you should modify [schema(s)](../../../concepts/schemas.md)
+of the Flow collection(s) you're creating to reflect the structure of your JSON Kafka messages.
+
+At this time, the connector does not support other data types in Kafka messages.
+
+:::info Beta
+Support for Avro Kafka messages will be added soon. For more information, [contact the Estuary team](mailto:info@estuary.dev).
+:::
+
 ## Prerequisites
 
 * A Kafka cluster with:
