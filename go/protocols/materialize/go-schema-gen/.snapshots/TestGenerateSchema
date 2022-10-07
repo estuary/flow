@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/estuary/flow/go/protocols/materialize/go-schema-gen/test-config",
+  "properties": {
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Secret password.",
+      "order": 1,
+      "secret": true
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Test user.",
+      "order": 0
+    },
+    "advanced": {
+      "properties": {
+        "long_advanced": {
+          "type": "string",
+          "title": "Example",
+          "description": "Some long description.",
+          "multiline": true
+        },
+        "secret_advanced": {
+          "type": "string",
+          "title": "Secret Advanced",
+          "description": "Some secret advanced config with ordering.",
+          "order": 0,
+          "secret": true
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "advanced": true
+    }
+  },
+  "type": "object",
+  "required": [
+    "password",
+    "username"
+  ],
+  "title": "Test Schema"
+}
