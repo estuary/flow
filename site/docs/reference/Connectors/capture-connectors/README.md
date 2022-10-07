@@ -51,6 +51,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 All the third-party connectors available currently were created by [Airbyte](https://airbyte.com/connectors).
 The versions made available in Flow have been adapted for compatibility.
 
+* Amazon Ads
+  * [Configuration](./amazon-ads.md)
+  * Package - ghrc.io/estuary/source-amazon-ads.dev
 * Amplitude
   * [Configuration](./amplitude.md)
   * Package - ghcr.io/estuary/source-amplitude:dev
@@ -69,6 +72,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Google Analytics
   * [Configuration](./google-analytics.md)
   * Package - ghcr.io/estuary/source-google-analytics-v4:dev
+* Google Search Console
+  * [Configuration](./google-search-console.md)
+  * Package - ghcr.io/estuary/source-google-search-console:dev
 * Google Sheets
   * [Configuration](./google-sheets.md)
   * Package - ghcr.io/estuary/source-google-sheets:dev
