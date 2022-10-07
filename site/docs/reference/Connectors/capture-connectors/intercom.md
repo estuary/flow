@@ -1,7 +1,3 @@
----
-sidebar_position: 14
----
-
 # Intercom
 
 This connector captures data from Intercom into Flow collections.

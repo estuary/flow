@@ -1,12 +1,16 @@
 # Materialization connectors
 
-Estuary's available materialization connectors are listed in this section. Each connector has a unique configuration you must follow as you create your Flow catalog.
+Estuary's available materialization connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name.
 
-Also listed are links to the most recent Docker image, which you'll need for certain configuration methods.
+Also listed are links to the most recent Docker images for each connector. You'll need these to write Flow specifications manually (if you're [developing locally](../../../concepts/flowctl.md)). If you're using the Flow web app, they aren't necessary.
 
 Estuary is actively developing new connectors, so check back regularly for the latest additions. We’re prioritizing the development of high-scale technological systems, as well as client needs.
 
+At this time, all the available materialization connectors are created by Estuary.
+In the future, other open-source materialization connectors from third parties could be supported.
+
 ## Available materialization connectors
+
 * Apache Parquet in S3
   * [Configuration](./Parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev

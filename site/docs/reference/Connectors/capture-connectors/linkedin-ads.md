@@ -1,7 +1,3 @@
----
-sidebar_position: 15
----
-
 # LinkedIn Ads
 
 This connector captures data from LinkedIn Ads into Flow collections through the LinkedIn Marketing API.

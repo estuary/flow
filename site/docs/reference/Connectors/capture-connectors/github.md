@@ -1,6 +1,3 @@
----
-sidebar_position: 6
----
 # GitHub
 
 This connector captures data from GitHub repositories and organizations into Flow collections via GitHub's REST API.

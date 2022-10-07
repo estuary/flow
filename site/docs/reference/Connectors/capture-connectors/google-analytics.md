@@ -1,7 +1,3 @@
----
-sidebar_position: 8
----
-
 # Google Analytics
 
 This connector captures data from a view in Google Analytics.
@@ -51,7 +47,7 @@ You can find this using Google's [Account Explorer](https://ga-dev-tools.web.app
 
 * Your Google account username and password.
 
-### Configuring the connector specification manually
+### Authenticating manually with a service account key
 
 * The View ID for your Google Analytics account.
 You can find this using Google's [Account Explorer](https://ga-dev-tools.web.app/account-explorer/) tool.
