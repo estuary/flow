@@ -1,7 +1,3 @@
----
-sidebar_position: 7
----
-
 # Google Ads
 
 This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Flow collections via the Google Ads API.
@@ -109,7 +105,7 @@ so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Google Ad resource from which a collections is captured. | string | Required |
+| **`/stream`** | Stream | Google Ad resource from which a collection is captured. | string | Required |
 | **`/syncMode`** | Sync Mode | Connection method. | string | Required |
 
 ### Sample

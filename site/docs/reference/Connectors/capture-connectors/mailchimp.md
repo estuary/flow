@@ -1,7 +1,3 @@
----
-sidebar_position: 16
----
-
 # Mailchimp
 
 This connector captures data from a Mailchimp account.

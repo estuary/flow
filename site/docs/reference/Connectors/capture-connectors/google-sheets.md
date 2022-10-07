@@ -1,7 +1,3 @@
----
-sidebar_position: 11
----
-
 # Google Sheets
 
 This connector captures data from a Google Sheets spreadsheet.

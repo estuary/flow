@@ -1,5 +1,5 @@
 ---
-sidebar_position: 18
+sidebar_position: 8
 ---
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
