@@ -6,32 +6,16 @@ create domain jsonb_internationalized_value as jsonb check (
 comment on domain jsonb_internationalized_value is
   'jsonb_internationalized_value is JSONB object which is required to at least have en-US internationalized values';
 
-CREATE OR REPLACE FUNCTION 
-generate_opengraph_value( opengraph_raw jsonb, opengraph_patch jsonb, field text )
-RETURNS jsonb_internationalized_value
-AS $CODE$
-BEGIN
-    RETURN json_build_object('en-US',internal.jsonb_merge_patch(opengraph_raw, opengraph_patch) #>> ('{"en-US", "'|| field ||'"}')::text[]);
-END
-$CODE$
-LANGUAGE plpgsql IMMUTABLE;
-
 -- Known connectors.
 create table connectors (
   like internal._model including all,
 
   external_url           text not null,
   image_name             text unique not null,
-  -- To be deleted in a future change --
-  open_graph             jsonb_obj
-    generated always as (internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)) stored,
-  open_graph_raw         jsonb_obj,
-  open_graph_patch       jsonb_obj,
-  --        End to be deleted        --
-  title                  jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'title')) stored,
-  short_description      jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'description')) stored,
-  logo_url               jsonb_internationalized_value generated always as (generate_opengraph_value(open_graph_raw, open_graph_patch,'image')) stored,
-  recommended            boolean not null generated always as (case when internal.jsonb_merge_patch(open_graph_raw, open_graph_patch)->'en-US'->>'recommended'::text = 'True' then TRUE else FALSE end) stored,
+  title                  jsonb_internationalized_value not null,
+  short_description      jsonb_internationalized_value not null,
+  logo_url               jsonb_internationalized_value not null,
+  recommended            boolean not null default false,
   oauth2_client_id       text,
   oauth2_client_secret   text,
   oauth2_injected_values jsonb_obj,
@@ -51,12 +35,6 @@ comment on column connectors.external_url is
   'External URL which provides more information about the endpoint';
 comment on column connectors.image_name is
   'Name of the connector''s container (Docker) image, for example "ghcr.io/estuary/source-postgres"';
-comment on column connectors.open_graph is
-  'Open-graph metadata for the connector, such as title, description, and image';
-comment on column connectors.open_graph_raw is
-  'Open-graph metadata as returned by the external_url';
-comment on column connectors.open_graph_patch is
-  'Patches to open-graph metadata, as a JSON merge patch';
 comment on column connectors.oauth2_client_id is
   'oauth client id';
 comment on column connectors.oauth2_client_secret is
@@ -72,49 +50,9 @@ comment on column public.connectors.title is
 comment on column public.connectors.short_description is
   'A short description of this connector, at most a few sentences. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
 
--- don't expose details of open_graph raw responses & patching and oauth2 secret
+-- don't expose details of oauth2 secret
 -- authenticated may select other columns for all connectors connectors.
-grant select(id, detail, updated_at, created_at, image_name, external_url, open_graph, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
-
-
--- TODO(johnny): Here's the plan for open graph:
--- For any given connector, we need to identify a suitable URL which is typically
--- just it's website, like https://postgresql.org or https://hubspot.com.
--- We can fetch Open Graph responses from these URL as an administrative scripted task.
--- We can shell out for this, and this tool seems to do a pretty good job of it:
---   go install github.com/johnreutersward/opengraph/cmd/opengraph@latest
---
--- Example:
--- ~/go/bin/opengraph -json https://postgresql.org | jq 'map( { (.Property|tostring): .Content } ) | add'
--- {
---   "url": "https://www.postgresql.org/",
---   "type": "article",
---   "image": "https://www.postgresql.org/media/img/about/press/elephant.png",
---   "title": "PostgreSQL",
---   "description": "The world's most advanced open source database.",
---   "site_name": "PostgreSQL"
--- }
---
--- We'll store these responses verbatim in `open_graph_raw`.
--- Payloads almost always include `title`, `image`, `description`, `url`, sometimes `site_name`,
--- and sometimes other things. Often the responses are directly suitable for inclusion
--- in user-facing UI components. A few sites don't support any scrapping at all
--- (a notable example is Google analytics), and others return fields which aren't quite
--- right or suited for direct display within our UI.
---
--- So, we'll need to tweak many of them, and we'll do this by maintaining minimal
--- patches of open-graph responses in the `open_graph_patch`. These can be dynamically
--- edited via Supabase as needed, as an administrative function, and are applied
--- via JSON merge patch to the raw responses, with the merged object stored in the
--- user-facing `open_graph` column. Keeping patches in the database allows non-technical
--- folks to use Supabase, Retool, or similar to edit this stuff without getting
--- an engineer involved.
---
--- We can, for example, specify '{"title":"A better title"}' within the connector patch,
--- which will update the `open_graph` response while leaving all other fields (say, the
--- `description` or `image`) as they are in the raw response. This is important because
--- it gives us an easy means to periodically update connector logos, text copy, etc.
-
+grant select(id, detail, updated_at, created_at, image_name, external_url, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
 
 create table connector_tags (
   like internal._model_async including all,
