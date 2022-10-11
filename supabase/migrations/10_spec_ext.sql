@@ -81,7 +81,6 @@ select
   l.*,
   c.external_url as connector_external_url,
   c.id as connector_id,
-  c.open_graph as connector_open_graph, -- To be removed
   c.title as connector_title,
   c.short_description as connector_short_description,
   c.logo_url as connector_logo_url,
