@@ -55,19 +55,19 @@ pub struct Develop {
 }
 
 impl Auth {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::Token(Token { token }) => {
-                cfg.api = Some(config::API::managed(token.clone()));
+                ctx.config_mut().api = Some(config::API::managed(token.clone()));
                 println!("Configured access token.");
                 Ok(())
             }
             Command::Develop(Develop { token }) => {
-                cfg.api = Some(config::API::development(token.clone()));
+                ctx.config_mut().api = Some(config::API::development(token.clone()));
                 println!("Configured for local development.");
                 Ok(())
             }
-            Command::Roles(roles) => roles.run(cfg).await,
+            Command::Roles(roles) => roles.run(ctx).await,
         }
     }
 }

@@ -29,7 +29,7 @@ The agent is a non-user-facing component which lives under [crates/agent/](crate
 
 Today this includes:
 
-* Fetching connector details, such as open-graph metadata and endpoint / resource JSON-schemas.
+* Fetching connector details, such as endpoint / resource JSON-schemas.
 * Running connector discovery operations to produce proposed catalog specifications.
 * Publishing catalog drafts by testing and then activating them into the data-plane.
 
@@ -60,6 +60,33 @@ You'll need:
 * A local checkout of [github.com/estuary/ui](https://github.com/estuary/ui).
 * A local checkout of [github.com/estuary/config-encryption](https://github.com/estuary/config-encryption).
 * A local checkout of this repository.
+
+### Bootstrap:
+
+Required build tools and libs:
+* clang
+* curl
+* g++
+* gcc
+* git
+* libreadline-dev
+* libsqlite3-dev
+* libssl-dev
+* make
+* musl-tools
+* openssl
+* pkg-config
+* protobuf-compiler
+
+Install rust and go:
+```console
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup target add x86_64-unknown-linux-musl
+
+curl -0L https://go.dev/dl/go1.19.1.linux-amd64.tar.gz | tar -xvzf -
+export PATH=$PATH:`pwd`/go/bin
+```
 
 ### Start Supabase:
 
@@ -98,6 +125,32 @@ Directly access your postgres database:
 psql postgres://postgres:postgres@localhost:5432/postgres
 ```
 
+### EXPERIMENTAL Start private PG (instead of Supabase for local development):
+
+Start PG and apply init schema:
+```console
+echo '
+anon
+authenticated
+dashboard_user
+pgbouncer
+pgsodium_keyiduser
+service_role
+supabase_admin
+supabase_auth_admin
+supabase_storage_admin' | xargs -n1 -t createuser -U postgres -s
+
+curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | psql -U postgres -w -d postgres -f -
+```
+
+Apply migrations from flow/supabase/migrations and seed test data:
+```console
+cd [flow dir]/supabase/migrations
+ls -1 *.sql | xargs -n1 -t psql -U postgres -w -d postgres -f
+cd [flow dir]/supabase
+psql -U postgres -w -d postgres -f seed.sql
+```
+
 ### Start `temp-data-plane`:
 
 Suppose that `${BIN_DIR}` is the `make package` binaries under `.build/package/bin` of your Flow checkout.
@@ -128,15 +181,6 @@ data-plane-gateway
 ```
 
 _Note: The gateway allows for configuring the port, the Flow service ports, the signing secret, and the CORS settings. The defaults should work out of the box._
-
-### Build `fetch-open-graph`:
-
-Build the fetch-open-graph helper to the same location where the flow binaries live. This is the same path that will be provided to the agent using `--bin--dir` argument:
-
-```console
-cd fetch-open-graph/
-go build -o ~/estuary/flow/.build/package/bin/
-```
 
 ### Start the `agent`:
 

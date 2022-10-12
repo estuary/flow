@@ -31,6 +31,7 @@ chardetng = "0.1"
 chrono = "0.4"
 clap = { version = "3.2", features = ["derive", "env"]}
 comfy-table = "6.1"
+crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
 encoding_rs = {version = "0.8", features = ["serde"]}
@@ -41,6 +42,7 @@ futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 fxhash = "0.2"
+humantime = "2.1"
 humantime-serde = "1.1"
 itertools = "0.10"
 indexmap = { version = "1.8", features = ["serde"]}
@@ -80,6 +82,7 @@ serde = { version = "1.0", features = ["derive"]}
 serde_json = { version = "1.0.85", features = ["raw_value"]}
 serde_yaml = "0.8"
 serde-transcode = "1.1"
+size = "0.4"
 strsim = "0.10"
 strum = {version = "0.24", features = ["derive"]}
 strum_macros = "0.24"

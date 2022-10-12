@@ -60,6 +60,8 @@ export async function encryptConfig(req: Record<string, any>) {
   });
 
   if (response.status >= 400) {
+    console.error(await response.text());
+
     return new Response(
       JSON.stringify({
         error: {

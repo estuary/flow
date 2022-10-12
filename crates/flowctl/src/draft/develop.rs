@@ -1,4 +1,4 @@
-use crate::{api_exec, config};
+use crate::api_exec;
 use anyhow::Context;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub struct Develop {
 }
 
 pub async fn do_develop(
-    cfg: &config::Config,
+    ctx: &mut crate::CliContext,
     Develop { root_dir, json }: &Develop,
 ) -> anyhow::Result<()> {
     #[derive(Deserialize)]
@@ -31,11 +31,11 @@ pub async fn do_develop(
         spec_type: String,
     }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("draft_specs")
             .select("catalog_name,spec,spec_type")
             .not("is", "spec_type", "null")
-            .eq("draft_id", cfg.cur_draft()?),
+            .eq("draft_id", ctx.config().cur_draft()?),
     )
     .await?;
 
@@ -274,7 +274,7 @@ pub async fn do_develop(
     )?;
     tracing::info!(%root_catalog_url, "wrote root catalog");
 
-    crate::typescript::do_generate(cfg, &root_catalog_path)
+    crate::typescript::do_generate(ctx, &root_catalog_path)
         .await
         .context("generating TypeScript project")?;
 

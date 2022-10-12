@@ -1194,25 +1194,31 @@ dependencies = [
  "bytes",
  "clap 3.2.22",
  "comfy-table",
+ "crossterm",
  "dirs",
  "doc",
  "futures",
+ "humantime",
  "itertools",
+ "journal-client",
  "labels",
  "models",
  "postgrest",
  "proto-flow",
+ "proto-gazette",
  "reqwest",
  "serde",
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "size",
  "sources",
  "superslice",
  "tables",
  "tempfile",
  "time 0.3.14",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -3515,6 +3521,12 @@ name = "similar"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62ac7f900db32bf3fd12e0117dd3dc4da74bc52ebaac97f39668446d89694803"
+
+[[package]]
+name = "size"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63c9c8350184b6b037d09dc77df55f1324df076a706d0191b79ec270cc4d756b"
 
 [[package]]
 name = "slab"

@@ -1,18 +1,23 @@
 use std::fmt::Debug;
 
-use anyhow::Context;
+use anyhow::Context as _;
 use clap::Parser;
 use proto_flow::flow;
 
 mod auth;
 mod catalog;
+mod collection;
 mod config;
+mod dataplane;
 mod draft;
+mod ops;
+mod output;
 mod poll;
 mod raw;
 mod source;
 mod typescript;
 
+use output::{Output, OutputType};
 use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary Flow.
@@ -26,6 +31,10 @@ pub struct Cli {
     /// or development endpoints.
     #[clap(long, default_value = "default")]
     profile: String,
+
+    #[clap(flatten)]
+    output: Output,
+
     #[clap(subcommand)]
     cmd: Command,
 }
@@ -37,16 +46,74 @@ pub enum Command {
     Auth(auth::Auth),
     /// Work with the current Flow catalog.
     Catalog(catalog::Catalog),
+    /// Work with Flow collections.
+    Collections(collection::Collections),
     /// Work with your Flow catalog drafts.
     ///
     /// Drafts are in-progress specifications which are not yet "live".
     /// They can be edited, developed, and tested while still a draft.
     /// Then when you're ready, publish your draft to make your changes live.
     Draft(draft::Draft),
+    /// Prints the runtime logs of a task (capture, derivation, or materialization).
+    Logs(ops::Logs),
+    /// Prints the runtime stats of a task (capture, derivation, or materialization).
+    Stats(ops::Stats),
     /// Develop TypeScript modules of your local Flow catalog source files.
     Typescript(typescript::TypeScript),
     /// Advanced and low-level commands which are less common.
     Raw(raw::Advanced),
+}
+
+#[derive(Debug)]
+pub struct CliContext {
+    config_dirty: bool,
+    config: config::Config,
+    output: output::Output,
+}
+
+impl CliContext {
+    pub fn client(&self) -> anyhow::Result<postgrest::Postgrest> {
+        self.config.client()
+    }
+
+    pub fn config_mut(&mut self) -> &mut config::Config {
+        self.config_dirty = true;
+        &mut self.config
+    }
+
+    pub fn config(&self) -> &config::Config {
+        &self.config
+    }
+
+    pub fn output_args(&self) -> &output::Output {
+        &self.output
+    }
+
+    pub fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
+    where
+        T: output::CliOutput,
+        I: IntoIterator<Item = T>,
+    {
+        match self.get_output_type() {
+            OutputType::Json => output::print_json(items),
+            OutputType::Yaml => output::print_yaml(items),
+            OutputType::Table => output::print_table(table_alt, items),
+        }
+    }
+
+    pub fn get_output_type(&mut self) -> OutputType {
+        use crossterm::tty::IsTty;
+
+        if let Some(ty) = self.output.output {
+            ty
+        } else {
+            if std::io::stdout().is_tty() {
+                OutputType::Table
+            } else {
+                OutputType::Yaml
+            }
+        }
+    }
 }
 
 impl Cli {
@@ -58,29 +125,38 @@ impl Cli {
 
         let config_file = config_dir.join(format!("{}.json", &self.profile));
 
-        let mut config = config::Config::default();
-        match std::fs::read(&config_file) {
-            Ok(v) => {
-                config = serde_json::from_slice(&v).context("parsing config")?;
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                // Pass.
-            }
+        let config = match std::fs::read(&config_file) {
+            Ok(v) => serde_json::from_slice(&v).context("parsing config")?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => config::Config::default(),
             Err(err) => {
-                Err(err).context("opening config")?;
+                return Err(err).context("opening config");
             }
-        }
+        };
+        let output = self.output.clone();
+        let mut context = CliContext {
+            config,
+            output,
+            config_dirty: false,
+        };
 
         match &self.cmd {
-            Command::Auth(auth) => auth.run(&mut config).await,
-            Command::Catalog(catalog) => catalog.run(&mut config).await,
-            Command::Draft(draft) => draft.run(&mut config).await,
-            Command::Typescript(typescript) => typescript.run(&mut config).await,
-            Command::Raw(advanced) => advanced.run(&mut config).await,
+            Command::Auth(auth) => auth.run(&mut context).await,
+            Command::Catalog(catalog) => catalog.run(&mut context).await,
+            Command::Collections(collection) => collection.run(&mut context).await,
+            Command::Draft(draft) => draft.run(&mut context).await,
+            Command::Logs(logs) => logs.run(&mut context).await,
+            Command::Stats(stats) => stats.run(&mut context).await,
+            Command::Typescript(typescript) => typescript.run(&mut context).await,
+            Command::Raw(advanced) => advanced.run(&mut context).await,
         }?;
 
-        std::fs::write(&config_file, &serde_json::to_vec(&config).unwrap())
+        if context.config_dirty {
+            std::fs::write(
+                &config_file,
+                &serde_json::to_vec(&context.config()).unwrap(),
+            )
             .context("writing config")?;
+        }
 
         Ok(())
     }
@@ -163,7 +239,7 @@ async fn fetch_async(resource: url::Url) -> Result<bytes::Bytes, anyhow::Error> 
     }
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct Timestamp(#[serde(with = "time::serde::rfc3339")] time::OffsetDateTime);
 
 impl std::fmt::Display for Timestamp {
@@ -173,6 +249,13 @@ impl std::fmt::Display for Timestamp {
             .format(&time::format_description::well_known::Rfc3339)
             .unwrap();
         f.write_str(&ts)
+    }
+}
+
+impl Timestamp {
+    pub fn from_unix_timestamp(epoch_time_seconds: i64) -> Result<Timestamp, anyhow::Error> {
+        let offset_date_time = time::OffsetDateTime::from_unix_timestamp(epoch_time_seconds)?;
+        Ok(Timestamp(offset_date_time))
     }
 }
 

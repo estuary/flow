@@ -35,17 +35,20 @@ export async function accessToken(req: Record<string, any>) {
     ...params,
   });
 
-  const bodyTemplate = Handlebars.compile(
-    oauth2_spec.accessTokenBody
-  );
-  const body = bodyTemplate({
-    redirect_uri,
-    client_id: oauth2_client_id,
-    client_secret: oauth2_client_secret,
-    config,
-    ...oauth2_injected_values,
-    ...params,
-  });
+  let body = null;
+  if (oauth2_spec.accessTokenBody) {
+    const bodyTemplate = Handlebars.compile(
+      oauth2_spec.accessTokenBody
+    );
+    body = bodyTemplate({
+      redirect_uri,
+      client_id: oauth2_client_id,
+      client_secret: oauth2_client_secret,
+      config,
+      ...oauth2_injected_values,
+      ...params,
+    });
+  }
 
   let headers = {};
   if (oauth2_spec.accessTokenHeaders) {

@@ -89,7 +89,7 @@ GO_BUILD_DEPS = \
 # Build rules:
 
 .PHONY: default
-default: package
+default: linux-binaries package
 
 # Rules for protocols
 .PHONY: protoc-gen-gogo

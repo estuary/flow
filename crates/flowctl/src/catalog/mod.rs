@@ -1,4 +1,5 @@
-use crate::{api_exec, config};
+use crate::api_exec;
+use crate::output::{to_table_row, CliOutput, JsonCell};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -77,16 +78,16 @@ pub struct Draft {
 }
 
 impl Catalog {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::List(list) => do_list(cfg, list).await,
-            Command::History(history) => do_history(cfg, history).await,
-            Command::Draft(draft) => do_draft(cfg, draft).await,
+            Command::List(list) => do_list(ctx, list).await,
+            Command::History(history) => do_history(ctx, history).await,
+            Command::Draft(draft) => do_draft(ctx, draft).await,
         }
     }
 }
 
-async fn do_list(cfg: &config::Config, List { flows }: &List) -> anyhow::Result<()> {
+async fn do_list(ctx: &mut crate::CliContext, List { flows }: &List) -> anyhow::Result<()> {
     let mut columns = vec![
         "catalog_name",
         "id",
@@ -96,16 +97,12 @@ async fn do_list(cfg: &config::Config, List { flows }: &List) -> anyhow::Result<
         "spec_type",
         "updated_at",
     ];
-    let mut headers = vec!["ID", "Name", "Type", "Updated", "Updated By"];
-
     if *flows {
         columns.push("reads_from");
         columns.push("writes_to");
-        headers.push("Reads From");
-        headers.push("Writes To");
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     struct Row {
         catalog_name: String,
         id: String,
@@ -117,40 +114,50 @@ async fn do_list(cfg: &config::Config, List { flows }: &List) -> anyhow::Result<
         reads_from: Option<Vec<String>>,
         writes_to: Option<Vec<String>>,
     }
+    impl crate::output::CliOutput for Row {
+        type TableAlt = bool;
+        type CellValue = String;
+
+        fn table_headers(flows: Self::TableAlt) -> Vec<&'static str> {
+            let mut headers = vec!["ID", "Name", "Type", "Updated", "Updated By"];
+            if flows {
+                headers.push("Reads From");
+                headers.push("Writes To");
+            }
+            headers
+        }
+
+        fn into_table_row(self, flows: Self::TableAlt) -> Vec<Self::CellValue> {
+            let mut out = vec![
+                self.id,
+                self.catalog_name,
+                self.spec_type.unwrap_or_default(),
+                self.updated_at.to_string(),
+                crate::format_user(
+                    self.last_pub_user_email,
+                    self.last_pub_user_full_name,
+                    self.last_pub_user_id,
+                ),
+            ];
+            if flows {
+                out.push(self.reads_from.iter().flatten().join("\n"));
+                out.push(self.writes_to.iter().flatten().join("\n"));
+            }
+            out
+        }
+    }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("live_specs_ext")
             .select(columns.join(",")),
     )
     .await?;
 
-    let mut table = crate::new_table(headers);
-    for row in rows {
-        let mut out = vec![
-            row.id,
-            row.catalog_name,
-            row.spec_type.unwrap_or_default(),
-            row.updated_at.to_string(),
-            crate::format_user(
-                row.last_pub_user_email,
-                row.last_pub_user_full_name,
-                row.last_pub_user_id,
-            ),
-        ];
-        if *flows {
-            out.push(row.reads_from.iter().flatten().join("\n"));
-            out.push(row.writes_to.iter().flatten().join("\n"));
-        }
-
-        table.add_row(out);
-    }
-    println!("{table}");
-
-    Ok(())
+    ctx.write_all(rows, *flows)
 }
 
-async fn do_history(cfg: &config::Config, History { name }: &History) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         catalog_name: String,
         detail: Option<String>,
@@ -162,8 +169,39 @@ async fn do_history(cfg: &config::Config, History { name }: &History) -> anyhow:
         user_full_name: Option<String>,
         user_id: Option<uuid::Uuid>,
     }
+
+    impl crate::output::CliOutput for Row {
+        type TableAlt = ();
+        type CellValue = String;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec![
+                "Name",
+                "Type",
+                "Publication ID",
+                "Published",
+                "Published By",
+                "Details",
+            ]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            vec![
+                self.catalog_name,
+                self.spec_type.unwrap_or_default(),
+                if self.pub_id == self.last_pub_id {
+                    format!("{}\n(current)", self.pub_id)
+                } else {
+                    self.pub_id
+                },
+                self.published_at.to_string(),
+                crate::format_user(self.user_email, self.user_full_name, self.user_id),
+                self.detail.unwrap_or_default(),
+            ]
+        }
+    }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("publication_specs_ext")
             .like("catalog_name", format!("{name}%"))
             .select(
@@ -183,42 +221,18 @@ async fn do_history(cfg: &config::Config, History { name }: &History) -> anyhow:
     )
     .await?;
 
-    let mut table = crate::new_table(vec![
-        "Name",
-        "Type",
-        "Publication ID",
-        "Published",
-        "Published By",
-        "Details",
-    ]);
-    for row in rows {
-        table.add_row(vec![
-            row.catalog_name,
-            row.spec_type.unwrap_or_default(),
-            if row.pub_id == row.last_pub_id {
-                format!("{}\n(current)", row.pub_id)
-            } else {
-                row.pub_id
-            },
-            row.published_at.to_string(),
-            crate::format_user(row.user_email, row.user_full_name, row.user_id),
-            row.detail.unwrap_or_default(),
-        ]);
-    }
-    println!("{table}");
-
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
 async fn do_draft(
-    cfg: &config::Config,
+    ctx: &mut crate::CliContext,
     Draft {
         name,
         delete,
         publication_id,
     }: &Draft,
 ) -> anyhow::Result<()> {
-    let draft_id = cfg.cur_draft()?;
+    let draft_id = ctx.config().cur_draft()?;
 
     #[derive(Deserialize)]
     struct Row {
@@ -237,7 +251,7 @@ async fn do_draft(
         mut spec_type,
     } = if let Some(publication_id) = publication_id {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
                 .eq("pub_id", publication_id)
@@ -247,7 +261,7 @@ async fn do_draft(
         .await?
     } else {
         api_exec(
-            cfg.client()?
+            ctx.client()?
                 .from("live_specs")
                 .eq("catalog_name", name)
                 .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
@@ -280,13 +294,8 @@ async fn do_draft(
     };
     tracing::debug!(?draft_spec, "inserting draft");
 
-    #[derive(Deserialize)]
-    struct Row2 {
-        catalog_name: String,
-        spec_type: Option<String>,
-    }
-    let rows: Vec<Row2> = api_exec(
-        cfg.client()?
+    let rows: Vec<SpecSummaryItem> = api_exec(
+        ctx.client()?
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_spec).unwrap())
@@ -294,11 +303,24 @@ async fn do_draft(
     )
     .await?;
 
-    let mut table = crate::new_table(vec!["Name", "Type"]);
-    for row in rows {
-        table.add_row(vec![row.catalog_name, row.spec_type.unwrap_or_default()]);
-    }
-    println!("{table}");
+    ctx.write_all(rows, ())
+}
 
-    Ok(())
+/// Used for simple listings of specs, such as for listing the specs contained within a draft.
+#[derive(Deserialize, Serialize)]
+pub struct SpecSummaryItem {
+    pub catalog_name: String,
+    pub spec_type: String,
+}
+impl CliOutput for SpecSummaryItem {
+    type TableAlt = ();
+    type CellValue = JsonCell;
+
+    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+        vec!["Name", "Type"]
+    }
+
+    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+        to_table_row(self, &["/catalog_name", "/spec_type"])
+    }
 }

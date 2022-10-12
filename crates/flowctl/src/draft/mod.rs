@@ -1,5 +1,6 @@
-use crate::{api_exec, config};
-use serde::Deserialize;
+use crate::api_exec;
+use crate::output::{to_table_row, CliOutput, JsonCell};
+use serde::{Deserialize, Serialize};
 
 mod author;
 use author::do_author;
@@ -75,29 +76,41 @@ pub struct Select {
 }
 
 impl Draft {
-    pub async fn run(&self, cfg: &mut config::Config) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Author(author) => do_author(cfg, author).await,
-            Command::Create => do_create(cfg).await,
-            Command::Delete => do_delete(cfg).await,
-            Command::Describe => do_describe(cfg).await,
-            Command::Develop(develop) => do_develop(cfg, develop).await,
-            Command::List => do_list(cfg).await,
-            Command::Publish => do_publish(cfg, false).await,
-            Command::Select(select) => do_select(cfg, select).await,
-            Command::Test => do_publish(cfg, true).await,
+            Command::Author(author) => do_author(ctx, author).await,
+            Command::Create => do_create(ctx).await,
+            Command::Delete => do_delete(ctx).await,
+            Command::Describe => do_describe(ctx).await,
+            Command::Develop(develop) => do_develop(ctx, develop).await,
+            Command::List => do_list(ctx).await,
+            Command::Publish => do_publish(ctx, false).await,
+            Command::Select(select) => do_select(ctx, select).await,
+            Command::Test => do_publish(ctx, true).await,
         }
     }
 }
 
-async fn do_create(cfg: &mut config::Config) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         id: String,
         created_at: crate::Timestamp,
     }
+    impl CliOutput for Row {
+        type TableAlt = ();
+        type CellValue = JsonCell;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec!["Created Draft ID", "Created"]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            to_table_row(self, &["/id", "/created_at"])
+        }
+    }
     let row: Row = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("drafts")
             .select("id, created_at")
             .insert(serde_json::json!({"detail": "Created by flowctl"}).to_string())
@@ -105,40 +118,44 @@ async fn do_create(cfg: &mut config::Config) -> anyhow::Result<()> {
     )
     .await?;
 
-    let mut table = crate::new_table(vec!["Created Draft ID", "Created"]);
-    table.add_row(vec![row.id.clone(), row.created_at.to_string()]);
-    println!("{table}");
-
-    cfg.draft = Some(row.id);
-    Ok(())
+    ctx.config_mut().draft = Some(row.id.clone());
+    ctx.write_all(Some(row), ())
 }
 
-async fn do_delete(cfg: &mut config::Config) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         id: String,
         updated_at: crate::Timestamp,
     }
+    impl CliOutput for Row {
+        type TableAlt = ();
+        type CellValue = JsonCell;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec!["Deleted Draft ID", "Last Updated"]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            to_table_row(self, &["/id", "/updated_at"])
+        }
+    }
     let row: Row = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("drafts")
             .select("id,updated_at")
             .delete()
-            .eq("id", cfg.cur_draft()?)
+            .eq("id", ctx.config().cur_draft()?)
             .single(),
     )
     .await?;
 
-    let mut table = crate::new_table(vec!["Deleted Draft ID", "Last Updated"]);
-    table.add_row(vec![row.id, row.updated_at.to_string()]);
-    println!("{table}");
-
-    cfg.draft = None;
-    Ok(())
+    ctx.config_mut().draft.take();
+    ctx.write_all(Some(row), ())
 }
 
-async fn do_describe(cfg: &config::Config) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         catalog_name: String,
         detail: Option<String>,
@@ -147,8 +164,31 @@ async fn do_describe(cfg: &config::Config) -> anyhow::Result<()> {
         spec_type: Option<String>,
         updated_at: crate::Timestamp,
     }
+    impl CliOutput for Row {
+        type TableAlt = ();
+        type CellValue = String;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec!["Name", "Type", "Updated", "Expected Publish ID", "Details"]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            vec![
+                self.catalog_name,
+                self.spec_type.unwrap_or_default(),
+                self.updated_at.to_string(),
+                match (self.expect_pub_id, self.last_pub_id) {
+                    (None, _) => "(any)".to_string(),
+                    (Some(expect), Some(last)) if expect == last => expect,
+                    (Some(expect), Some(last)) => format!("{expect}\n(stale; current is {last})"),
+                    (Some(expect), None) => format!("{expect}\n(does not exist)"),
+                },
+                self.detail.unwrap_or_default(),
+            ]
+        }
+    }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -161,38 +201,15 @@ async fn do_describe(cfg: &config::Config) -> anyhow::Result<()> {
                 ]
                 .join(","),
             )
-            .eq("draft_id", cfg.cur_draft()?),
+            .eq("draft_id", ctx.config().cur_draft()?),
     )
     .await?;
 
-    let mut table = crate::new_table(vec![
-        "Name",
-        "Type",
-        "Updated",
-        "Expected Publish ID",
-        "Details",
-    ]);
-    for row in rows {
-        table.add_row(vec![
-            row.catalog_name,
-            row.spec_type.unwrap_or_default(),
-            row.updated_at.to_string(),
-            match (row.expect_pub_id, row.last_pub_id) {
-                (None, _) => "(any)".to_string(),
-                (Some(expect), Some(last)) if expect == last => expect,
-                (Some(expect), Some(last)) => format!("{expect}\n(stale; current is {last})"),
-                (Some(expect), None) => format!("{expect}\n(does not exist)"),
-            },
-            row.detail.unwrap_or_default(),
-        ]);
-    }
-    println!("{table}");
-
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
-async fn do_list(cfg: &config::Config) -> anyhow::Result<()> {
-    #[derive(Deserialize)]
+async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    #[derive(Deserialize, Serialize)]
     struct Row {
         created_at: crate::Timestamp,
         detail: Option<String>,
@@ -200,40 +217,47 @@ async fn do_list(cfg: &config::Config) -> anyhow::Result<()> {
         num_specs: u32,
         updated_at: crate::Timestamp,
     }
+    impl CliOutput for Row {
+        type TableAlt = ();
+        type CellValue = JsonCell;
+
+        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+            vec!["Id", "# of Specs", "Created", "Updated", "Details"]
+        }
+
+        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+            to_table_row(
+                self,
+                &["/id", "/num_specs", "/created_at", "/updated_at", "/detail"],
+            )
+        }
+    }
     let rows: Vec<Row> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
     )
     .await?;
 
-    let cur_draft = cfg.draft.clone().unwrap_or_default();
+    // Decorate the id to mark the selected draft, but only if we're outputting a table
+    let cur_draft = ctx.config().draft.clone().unwrap_or_default();
+    let output_type = ctx.get_output_type();
+    let rows = rows.into_iter().map(move |mut row| {
+        if output_type == crate::output::OutputType::Table && row.id == cur_draft {
+            row.id = format!("{} (selected)", row.id);
+        }
+        row
+    });
 
-    let mut table = crate::new_table(vec!["Id", "# of Specs", "Created", "Updated", "Details"]);
-    for row in rows {
-        table.add_row(vec![
-            if row.id == cur_draft {
-                format!("{} (selected)", row.id)
-            } else {
-                row.id
-            },
-            format!("{}", row.num_specs),
-            row.created_at.to_string(),
-            row.updated_at.to_string(),
-            row.detail.unwrap_or_default(),
-        ]);
-    }
-    println!("{table}");
-
-    Ok(())
+    ctx.write_all(rows, ())
 }
 
 async fn do_select(
-    cfg: &mut config::Config,
+    ctx: &mut crate::CliContext,
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
     let matched: Vec<serde_json::Value> = api_exec(
-        cfg.client()?
+        ctx.client()?
             .from("drafts")
             .eq("id", select_id)
             .select("id"),
@@ -244,13 +268,13 @@ async fn do_select(
         anyhow::bail!("draft {select_id} does not exist");
     }
 
-    cfg.draft = Some(select_id.clone());
-    do_list(cfg).await
+    ctx.config_mut().draft = Some(select_id.clone());
+    do_list(ctx).await
 }
 
-async fn do_publish(cfg: &mut config::Config, dry_run: bool) -> anyhow::Result<()> {
-    let cur_draft = cfg.cur_draft()?;
-    let client = cfg.client()?;
+async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Result<()> {
+    let cur_draft = ctx.config().cur_draft()?;
+    let client = ctx.client()?;
 
     #[derive(Deserialize)]
     struct Row {
@@ -300,7 +324,7 @@ async fn do_publish(cfg: &mut config::Config, dry_run: bool) -> anyhow::Result<(
     tracing::info!(%id, %dry_run, "publication successful");
 
     if !dry_run {
-        cfg.draft = None;
+        ctx.config_mut().draft.take();
     }
     Ok(())
 }
