@@ -61,12 +61,7 @@ impl InferenceService for InferenceServiceImpl {
             abort_tx.send(());
         });
 
-        let Authentication { token } = request
-            .extensions()
-            .get::<Authentication>()
-            .ok_or(Status::unauthenticated("No token provided"))?;
-
-        let mut client = connect_journal_client(self.broker_url.clone(), token.clone())
+        let mut client = connect_journal_client(self.broker_url.clone(), None)
             .await
             .map_err(|e| match e {
                 ConnectError::BadUri(_) => Status::invalid_argument(e.to_string()),
@@ -257,34 +252,10 @@ impl ServeArgs {
         tracing::info!("🚀 Serving gRPC on {}", addr);
 
         Server::builder()
-            .add_service(InferenceServiceServer::with_interceptor(svc, require_auth))
+            .add_service(InferenceServiceServer::new(svc))
             .serve(addr)
             .await?;
 
         Ok(())
-    }
-}
-
-struct Authentication {
-    token: Option<String>,
-}
-
-fn require_auth(mut req: Request<()>) -> Result<Request<()>, Status> {
-    match req.metadata().get("authorization").cloned() {
-        Some(t) => {
-            req.extensions_mut().insert(Authentication {
-                token: Some(
-                    t.to_str()
-                        .map_err(|e| Status::unauthenticated(format!("Token invalid: {}", e)))?
-                        .to_string(),
-                ),
-            });
-
-            Ok(req)
-        }
-        None => {
-            req.extensions_mut().insert(Authentication { token: None });
-            Ok(req)
-        }
     }
 }
