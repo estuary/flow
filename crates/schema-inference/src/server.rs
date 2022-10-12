@@ -25,7 +25,7 @@ use futures_util::StreamExt;
 use serde_json::Value;
 use tokio::sync::broadcast::Receiver;
 use tokio::time::sleep;
-use tokio_util::codec::{FramedRead};
+use tokio_util::codec::FramedRead;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -36,7 +36,7 @@ pub mod schema_inference_autogen {
 #[derive(Debug, Default)]
 pub struct InferenceServiceImpl {
     pub broker_url: String,
-    pub max_inference_secs: u32
+    pub max_inference_secs: u32,
 }
 
 #[tonic::async_trait]
@@ -57,7 +57,7 @@ impl InferenceService for InferenceServiceImpl {
         let max_duration = Duration::from_secs(self.max_inference_secs.into());
 
         // This seems to want to be set on a block, rather than a single expression :(
-        #[allow(unused_must_use)] 
+        #[allow(unused_must_use)]
         let handle = tokio::spawn(async move {
             sleep(max_duration).await;
             abort_tx.send(());
@@ -68,7 +68,7 @@ impl InferenceService for InferenceServiceImpl {
             .get::<Authentication>()
             .ok_or(Status::unauthenticated("No token provided"))?;
 
-        let mut client = connect_journal_client(self.broker_url.clone(), Some(token.clone()))
+        let mut client = connect_journal_client(self.broker_url.clone(), token.clone())
             .await
             .map_err(|e| match e {
                 ConnectError::BadUri(_) => Status::invalid_argument(e.to_string()),
@@ -98,7 +98,7 @@ impl InferenceService for InferenceServiceImpl {
                         schema_inference_autogen::InferredSchema {
                             schema_json: root,
                             documents_read: docs_count,
-                            exceeded_deadline: abort_rx.len() > 0
+                            exceeded_deadline: abort_rx.len() > 0,
                         },
                     )),
                 }))
@@ -114,7 +114,7 @@ impl InferenceService for InferenceServiceImpl {
 async fn journal_to_shape(
     journal: JournalSpec,
     client: journal_client::Client,
-    abort_signal: Receiver<()>
+    abort_signal: Receiver<()>,
 ) -> Result<Option<(Shape, u64)>, Status> {
     let frag_iter = FragmentIter::new(
         client.clone(),
@@ -135,8 +135,8 @@ async fn journal_to_shape(
 }
 
 /// Read all documents in a particular fragment and return the most-strict [Shape]
-/// that matches every document. 
-/// 
+/// that matches every document.
+///
 /// We explicitly omit documents containing
 /// `{"_meta": {"ack": true}}`, as those documents are not relevant to user data,
 /// and would just confuse users of the schema inference API
@@ -144,7 +144,7 @@ async fn journal_to_shape(
 async fn fragment_to_shape(
     client: journal_client::Client,
     fragment: fragments_response::Fragment,
-    abort_signal: Receiver<()>
+    abort_signal: Receiver<()>,
 ) -> Result<Option<(Shape, u64)>, Status> {
     let fragment_spec = fragment
         .spec
@@ -177,10 +177,10 @@ async fn fragment_to_shape(
                     Ok(doc_val) => {
                         let parsed: Value = doc_val;
                         // There should probably be a higher-level API for this in `journal-client`
-        
+
                         if parsed.pointer("/_meta/ack").is_none() {
                             let inferred_shape = infer_shape(&parsed);
-        
+
                             if let Some(accumulated_shape) = accumulator {
                                 accumulator = Some(shape::merge(accumulated_shape, inferred_shape))
                             } else {
@@ -241,8 +241,8 @@ pub struct ServeArgs {
     #[clap(long, value_parser)]
     broker_url: String,
     /// Maximum number of seconds to run inference. This exists to preserve system performance and reliability in the face of large collections
-    #[clap(long, value_parser, default_value_t=10)]
-    inference_deadline: u32
+    #[clap(long, value_parser, default_value_t = 10)]
+    inference_deadline: u32,
 }
 
 impl ServeArgs {
@@ -250,7 +250,7 @@ impl ServeArgs {
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let svc = InferenceServiceImpl {
             broker_url: self.broker_url.clone(),
-            max_inference_secs: self.inference_deadline
+            max_inference_secs: self.inference_deadline,
         };
         let addr = format!("{}:{}", self.hostname, self.port).parse()?;
 
@@ -266,21 +266,25 @@ impl ServeArgs {
 }
 
 struct Authentication {
-    token: String,
+    token: Option<String>,
 }
 
 fn require_auth(mut req: Request<()>) -> Result<Request<()>, Status> {
     match req.metadata().get("authorization").cloned() {
-        Some(t) /* TODO: validate JWT token */ => {
+        Some(t) => {
             req.extensions_mut().insert(Authentication {
-                token: t
-                    .to_str()
-                    .map_err(|e|Status::unauthenticated(format!("Token invalid: {}",e)))?
-                    .to_string()
+                token: Some(
+                    t.to_str()
+                        .map_err(|e| Status::unauthenticated(format!("Token invalid: {}", e)))?
+                        .to_string(),
+                ),
             });
 
             Ok(req)
-        },
-        _ => Err(Status::unauthenticated("No valid auth token")),
+        }
+        None => {
+            req.extensions_mut().insert(Authentication { token: None });
+            Ok(req)
+        }
     }
 }

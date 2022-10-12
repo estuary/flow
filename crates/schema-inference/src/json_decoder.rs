@@ -1,15 +1,14 @@
 /// Largely copied from https://github.com/mxinden/asynchronous-codec/blob/master/src/codec/json.rs
-
 use std::marker::PhantomData;
 
-use bytes::{BytesMut, Buf};
+use bytes::{Buf, BytesMut};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio_util::codec::Decoder;
 
 #[derive(Default)]
 pub struct JsonCodec<Dec = Value> {
-    _dec: PhantomData<Dec>
+    _dec: PhantomData<Dec>,
 }
 
 impl<Dec> JsonCodec<Dec>
@@ -18,9 +17,7 @@ where
 {
     /// Creates a new `JsonCodec` with the associated types
     pub fn new() -> JsonCodec<Dec> {
-        JsonCodec {
-            _dec: PhantomData,
-        }
+        JsonCodec { _dec: PhantomData }
     }
 }
 
@@ -67,7 +64,7 @@ where
                 buf.advance(offset);
 
                 Ok(Some(v))
-            },
+            }
             // We reached EOF without successfully parsing a document, so we're done
             Some(Err(ref e)) if e.is_eof() => Ok(None),
             // We errored while parsing a document
@@ -82,9 +79,8 @@ where
                 // so let's go with this for now
                 buf.reserve(1_000_000);
                 Ok(None)
-            },
+            }
         };
-
 
         res
     }
