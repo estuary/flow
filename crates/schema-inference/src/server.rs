@@ -228,7 +228,7 @@ async fn reduce_shape_stream(
 pub struct ServeArgs {
     #[clap(long, value_parser, default_value_t = 50051, env)]
     port: u16,
-    #[clap(long, value_parser, default_value = "[::1]", env)]
+    #[clap(long, value_parser, default_value = "0.0.0.0", env)]
     hostname: String,
     /// URL for a Gazette broker that is a member of the cluster
     #[clap(long, value_parser, env)]
