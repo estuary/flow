@@ -6,6 +6,13 @@ import { returnPostgresError, handlebarsHelpers } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
+interface OauthSettings {
+  oauth2_client_id: string,
+  oauth2_client_secret: string,
+  oauth2_injected_values: any,
+  oauth2_spec: any
+}
+
 export async function accessToken(req: Record<string, any>) {
   const { state, config, redirect_uri, ...params } = req;
   Handlebars.registerHelper(handlebarsHelpers);
@@ -13,7 +20,7 @@ export async function accessToken(req: Record<string, any>) {
   const decodedState = JSON.parse(atob(state));
   const { connector_id } = decodedState;
 
-  const { data, error } = await supabaseClient
+  const { data, error }: { data: OauthSettings | null, error: any } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_client_secret,oauth2_injected_values,oauth2_spec")
     .eq("id", connector_id)
@@ -21,9 +28,10 @@ export async function accessToken(req: Record<string, any>) {
 
   if (error != null) {
     returnPostgresError(error);
-  }
+  } 
+  // TODO - check for empty data
 
-  const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data;
+  const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data as OauthSettings;
 
   const urlTemplate = Handlebars.compile(oauth2_spec.accessTokenUrlTemplate);
   const url = urlTemplate({
