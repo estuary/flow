@@ -21,6 +21,7 @@ assemble = { path = "../assemble" }
 models = { path = "../models" }
 proto-gazette = { path = "../proto-gazette" }
 
+humantime = {workspace=true}
 anyhow = {workspace=true}
 clap = {workspace=true}
 itertools = {workspace=true}

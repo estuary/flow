@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::inference::infer_shape;
 use crate::json_decoder::JsonCodec;
 use crate::schema::SchemaBuilder;
@@ -36,7 +34,7 @@ pub mod schema_inference_autogen {
 #[derive(Debug, Default)]
 pub struct InferenceServiceImpl {
     pub broker_url: String,
-    pub max_inference_secs: u32,
+    pub max_inference_duration: std::time::Duration,
 }
 
 #[tonic::async_trait]
@@ -54,7 +52,7 @@ impl InferenceService for InferenceServiceImpl {
 
         let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
 
-        let max_duration = Duration::from_secs(self.max_inference_secs.into());
+        let max_duration = self.max_inference_duration.clone();
 
         // This seems to want to be set on a block, rather than a single expression :(
         #[allow(unused_must_use)]
@@ -233,16 +231,18 @@ async fn reduce_shape_stream(
 
 #[derive(Debug, clap::Args)]
 pub struct ServeArgs {
-    #[clap(long, value_parser, default_value_t = 50051)]
+    #[clap(long, value_parser, default_value_t = 50051, env)]
     port: u16,
-    #[clap(long, value_parser, default_value = "[::1]")]
+    #[clap(long, value_parser, default_value = "[::1]", env)]
     hostname: String,
     /// URL for a Gazette broker that is a member of the cluster
-    #[clap(long, value_parser)]
+    #[clap(long, value_parser, env)]
     broker_url: String,
-    /// Maximum number of seconds to run inference. This exists to preserve system performance and reliability in the face of large collections
-    #[clap(long, value_parser, default_value_t = 10)]
-    inference_deadline: u32,
+    /// Maximum number of seconds to run inference. This exists to preserve system performance and reliability in the face of large collections.
+    ///
+    /// Example values: 1m, 30s, 300ms
+    #[clap(long("timeout"), default_value = "10s", env("TIMEOUT"))]
+    inference_deadline: humantime::Duration,
 }
 
 impl ServeArgs {
@@ -250,7 +250,7 @@ impl ServeArgs {
     pub async fn run(&self) -> Result<(), anyhow::Error> {
         let svc = InferenceServiceImpl {
             broker_url: self.broker_url.clone(),
-            max_inference_secs: self.inference_deadline,
+            max_inference_duration: self.inference_deadline.into(),
         };
         let addr = format!("{}:{}", self.hostname, self.port).parse()?;
 

@@ -3258,6 +3258,7 @@ dependencies = [
  "doc",
  "futures",
  "futures-util",
+ "humantime",
  "insta",
  "itertools",
  "journal-client",
