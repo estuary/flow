@@ -30,4 +30,5 @@ services:
       - tunnel
 networks:
   tunnel:
+    external: true
     name: tunnel
