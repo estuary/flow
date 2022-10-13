@@ -23,6 +23,7 @@ type apiDiscover struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
+	Name        string                `long:"name" description:"The Docker container name."`
 	Config      string                `long:"config" description:"Path to the connector endpoint configuration"`
 	Output      string                `long:"output" choice:"json" choice:"proto" default:"json"`
 }
@@ -44,7 +45,7 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 		return nil, err
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, ops.StdLogger())
+	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, cmd.Name, ops.StdLogger())
 	if err != nil {
 		return nil, fmt.Errorf("building client: %w", err)
 	}

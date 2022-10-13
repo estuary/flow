@@ -266,6 +266,7 @@ func (c *Capture) startReadingMessages(
 			c.spec.EndpointType,
 			c.spec.EndpointSpecJson,
 			c.host.Config.Flow.Network,
+			shard.Spec().Id,
 			c.LogPublisher,
 		)
 		if err != nil {

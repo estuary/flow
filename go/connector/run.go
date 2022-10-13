@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,13 +67,14 @@ func Run(
 	image string,
 	protocol Protocol,
 	networkName string,
+	containerName string,
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
 ) error {
 	var imageInspectRaw json.RawMessage
-	var inspects = []ImageInspect{ImageInspect{}}
+	var inspects = []ImageInspect{{}}
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return err
@@ -143,6 +145,16 @@ func Run(
 		"--log-driver", "none",
 		// Network to which the container should attach.
 		"--network", networkName,
+	}
+
+	if containerName != "" {
+		// Replace non-alphanum chars.
+		// Container names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+.
+		// FIXME handle names prefixed with [_.-+/]+.
+		containerName = strings.NewReplacer("+", "_", "/", "_").Replace(containerName)
+		imageArgs = append(imageArgs,
+			"--name", containerName,
+		)
 	}
 
 	if port == "" {
