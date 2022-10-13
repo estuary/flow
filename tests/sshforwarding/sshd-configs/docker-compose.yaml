@@ -19,16 +19,15 @@ services:
       - PASSWORD_ACCESS=false
       - USER_NAME=flowssh
     networks: 
-      - tunnel
+      - flow-test-network
     restart: unless-stopped
   postgres:
     image: 'postgres:latest'
     command: ["postgres"]
     environment: {"POSTGRES_DB": "flow", "POSTGRES_USER": "flow", "POSTGRES_PASSWORD": "flow"}
-    ports: ["2345:5432"]
     networks: 
-      - tunnel
+      - flow-test-network
 networks:
   tunnel:
     driver: bridge
-    name: tunnel
+    name: flow-test-network

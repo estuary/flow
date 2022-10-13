@@ -53,7 +53,7 @@ ${FLOWCTL} api build \
     --build-id ${BUILD_ID} \
     --directory ${TESTDIR}/builds \
     --log.level info \
-    --network tunnel \
+    --network flow-test-network \
     --source ${TEST_ROOT}/flow.yaml \
     --ts-package \
     1>$TESTDIR/build.out 2>&1
@@ -84,7 +84,7 @@ export CONSUMER_ADDRESS=unix://localhost${TESTDIR}/consumer.sock
 # --unix-sockets to create UDS socket files in TESTDIR in well-known locations.
 ${FLOWCTL} temp-data-plane \
     --log.level info \
-    --network tunnel \
+    --network flow-test-network \
     --poll \
     --sigterm \
     --tempdir ${TESTDIR} \
@@ -110,7 +110,7 @@ ${FLOWCTL} api activate \
     --all \
     --build-id ${BUILD_ID} \
     --log.level=info \
-    --network tunnel \
+    --network flow-test-network \
     1>$TESTDIR/activate.out 2>&1
 
 if [ $? -ne 0 ]; then
@@ -237,7 +237,7 @@ ${FLOWCTL} api delete \
     --all \
     --build-id ${BUILD_ID} \
     --log.level=info \
-    --network tunnel \
+    --network flow-test-network \
     1>$TESTDIR/delete.out 2>&1
 
 if [ $? -ne 0 ]; then
