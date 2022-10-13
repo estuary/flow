@@ -30,5 +30,5 @@ services:
       - tunnel
 networks:
   tunnel:
-    external: true
+    enable_ipv6: true
     name: tunnel
