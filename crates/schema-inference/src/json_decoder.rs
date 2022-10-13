@@ -54,7 +54,7 @@ where
         let mut iter = de.into_iter::<Dec>();
 
         // Attempt to fetch an item and generate response
-        let res = match iter.next() {
+        match iter.next() {
             // We successfully decoded something
             // Let's move up the left-hand-side of the buffer to the end of the parsed document
             // and return that document, then come back around for another iteration
@@ -65,14 +65,12 @@ where
 
                 Ok(Some(v))
             }
-            // We reached EOF without successfully parsing a document, so we're done
-            Some(Err(ref e)) if e.is_eof() => Ok(None),
             // We errored while parsing a document
-            Some(Err(e)) => return Err(e.into()),
-            // We failed to decode a document, but also didn't error or reach EOF.
-            // This means that the buffer contains less than one full document's worth of bytes,
-            // So let's ask for more and then come back around once that request has been fulfilled
-            None => {
+            Some(Err(e)) if !e.is_eof() => return Err(e.into()),
+            // Either the buffer is empty or entirely whitespace (None),
+            // or it only contains a partial document (premature EOF). Either way,
+            // let's indicate to the Framed instance that it needs to read some more bytes before calling this method again.
+            None | Some(Err(_)) => {
                 // Theoretically we could grow the amount of additional bytes we ask for
                 // each time we fail to deserialize a record binary-search style
                 // but 1mb feels like a reasonable upper bound, and also not an unreasonable size for a buffer to grow by
@@ -80,8 +78,6 @@ where
                 buf.reserve(1_000_000);
                 Ok(None)
             }
-        };
-
-        res
+        }
     }
 }
