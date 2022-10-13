@@ -61,6 +61,7 @@ func Run(
 	image string,
 	protocol Protocol,
 	networkName string,
+	containerName string,
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
@@ -124,12 +125,24 @@ func Run(
 		// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
+	}
+
+	if containerName != "" {
+		// Replace non-alphanum chars.
+		// Container names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+.
+		// FIXME handle names prefixed with [_.-+/]+.
+		containerName = strings.NewReplacer("+", "_", "/", "_").Replace(containerName)
+		imageArgs = append(imageArgs,
+			"--name", containerName,
+		)
+	}
+
+	imageArgs = append(imageArgs,
 		image,
 		// Arguments following `image` are arguments of the connector proxy and not of docker:
 		"--image-inspect-json-path=/image-inspect.json",
 		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
-		protocol.proxyCommand(),
-	}
+		protocol.proxyCommand())
 
 	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
 		ops.LogSourceField: image,
