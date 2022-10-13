@@ -5,9 +5,9 @@ database: flow
 networkTunnel:
   sshForwarding:
     localPort: 16666
-    forwardHost: localhost
+    forwardHost: openssh-server
     forwardPort: 2345
-    sshEndpoint: ssh://flowssh@localhost:2222
+    sshEndpoint: ssh://flowssh@openssh-server:2222
     privateKey: |2
       -----BEGIN OPENSSH PRIVATE KEY-----
       b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
