@@ -30,5 +30,5 @@ services:
       - tunnel
 networks:
   tunnel:
-    enable_ipv6: true
+    driver: bridge
     name: tunnel
