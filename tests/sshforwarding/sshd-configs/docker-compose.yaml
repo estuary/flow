@@ -28,6 +28,6 @@ services:
     networks: 
       - flow-test-network
 networks:
-  tunnel:
+  flow-test-network:
     driver: bridge
     name: flow-test-network
