@@ -29,7 +29,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/googleCredentials`** | Credentials | Google Cloud Service Account JSON credentials. | string | Required |
-| **`/scan_interval`** | Scan Interval | How frequently to scan all collections to ensure consistency. [See supported values](https://pkg.go.dev/time#ParseDuration). To turn off scans use the value &#x27;never&#x27;. | string | Required, `"12h"` |
+| `/database` | Database | Optional name of the database to capture from. Leave blank to autodetect. Typically &quot;projects&#x2F;&#x24;PROJECTID&#x2F;databases&#x2F;(default)&quot;. | string |  |
 
 #### Bindings
 
@@ -57,7 +57,6 @@ captures:
             "token_uri": "https://accounts.google.com/o/oauth2/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/service-account-email"
-          scan_interval: "24h"
     bindings:
       - resource:
           path: orgs/*/runs/*/runResults/*/queryResults

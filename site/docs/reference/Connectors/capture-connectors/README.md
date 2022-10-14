@@ -57,6 +57,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Amplitude
   * [Configuration](./amplitude.md)
   * Package - ghcr.io/estuary/source-amplitude:dev
+* Bing Ads
+  * [Configuration](./bing-ads.md)
+  * Package - ghcr.io/estuary/source-bing-ads:dev
 * Exchange Rates API
   * [Configuration](./exchange-rates.md)
   * Package - ghcr.io/estuary/source-exchange-rates:dev
