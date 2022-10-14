@@ -45,6 +45,9 @@ set estuary_schema = 'ESTUARY_SCHEMA';
 -- create role and schema for Estuary
 create role if not exists identifier($estuary_role);
 grant role identifier($estuary_role) to role SYSADMIN;
+-- Create snowflake DB
+create database if not exists identifier($database_name);
+use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
@@ -52,7 +55,7 @@ password = $estuary_password
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
-grant all on schema identifier($estuary_schema) to identifier($estuary_user);
+grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
 warehouse_size = xsmall
@@ -60,8 +63,6 @@ warehouse_type = standard
 auto_suspend = 60
 auto_resume = true
 initially_suspended = true;
--- Create snowflake DB
-create database if not exists identifier($database_name);
 -- grant Estuary role access to warehouse
 grant USAGE
 on warehouse identifier($warehouse_name)
