@@ -1,12 +1,9 @@
-address: localhost:16666
+address: postgres:5432
 user: flow
 password: flow
 database: flow
 networkTunnel:
   sshForwarding:
-    localPort: 16666
-    forwardHost: postgres
-    forwardPort: 5432
     sshEndpoint: ssh://flowssh@openssh-server:2222
     privateKey: |2
       -----BEGIN OPENSSH PRIVATE KEY-----
