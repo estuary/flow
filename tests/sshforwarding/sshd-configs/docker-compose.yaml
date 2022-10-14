@@ -18,10 +18,16 @@ services:
       - SUDO_ACCESS=false
       - PASSWORD_ACCESS=false
       - USER_NAME=flowssh
-    network_mode: "host"
+    networks: 
+      - flow-test-network
     restart: unless-stopped
   postgres:
     image: 'postgres:latest'
     command: ["postgres"]
     environment: {"POSTGRES_DB": "flow", "POSTGRES_USER": "flow", "POSTGRES_PASSWORD": "flow"}
-    ports: ["2345:5432"]
+    networks: 
+      - flow-test-network
+networks:
+  flow-test-network:
+    driver: bridge
+    name: flow-test-network
