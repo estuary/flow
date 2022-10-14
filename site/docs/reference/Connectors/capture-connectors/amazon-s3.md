@@ -26,10 +26,10 @@ You might organize your S3 bucket using [prefixes](https://docs.aws.amazon.com/A
 This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#flowctl-discover) phase of setup, and later, when the capture is running.
 
 * You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
-* You're required to specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
+* If using the flowctl CLI to write your specification locally, you can specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
 and informs how the capture will behave in production.
 
-To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
+To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket. (This is the only available method in the web app.)
 :::
 
 ### Properties
