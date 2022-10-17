@@ -12,7 +12,7 @@ This connector captures data from your Google Firestore collections into Flow co
 
 * A Google service account with:
 
-    * Read access to your Firestore data, via [roles/datastore.viewer](https://cloud.google.com/datastore/docs/access/iam).
+    * Read access to your Firestore database, via [roles/datastore.viewer](https://cloud.google.com/datastore/docs/access/iam).
     You can assign this role when you [create the service account](https://cloud.google.com/iam/docs/creating-managing-service-accounts#creating), or [add it to an existing service account](https://cloud.google.com/iam/docs/granting-changing-revoking-access#single-role).
 
     * A generated [JSON service account key](https://cloud.google.com/iam/docs/creating-managing-service-account-keys#creating) for the account.
