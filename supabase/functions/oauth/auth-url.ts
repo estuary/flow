@@ -15,6 +15,11 @@ const generateUniqueRandomKey = () => {
   return String.fromCharCode.apply(null, array);
 };
 
+interface OauthSettings {
+  oauth2_client_id: string,
+  oauth2_spec: any,
+}
+
 export async function authURL(req: {
   connector_id: string;
   config: object;
@@ -25,7 +30,7 @@ export async function authURL(req: {
 
   const { connector_id, config, redirect_uri, state } = req;
 
-  const { data, error } = await supabaseClient
+  const { data, error }: { data: OauthSettings | null, error: any } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_spec")
     .eq("id", connector_id)
@@ -34,8 +39,9 @@ export async function authURL(req: {
   if (error != null) {
     returnPostgresError(error);
   }
+  // TODO - check for empty data
 
-  const { oauth2_spec, oauth2_client_id } = data;
+  const { oauth2_spec, oauth2_client_id } = data as OauthSettings;
 
   const finalState = btoa(
     JSON.stringify({

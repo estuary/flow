@@ -10,10 +10,20 @@ const CREDENTIALS_KEY = "credentials";
 
 const CLIENT_CREDS_INJECTION = "_injectedDuringEncryption_";
 
+interface OauthSettings {
+  oauth2_client_id: string,
+  oauth2_client_secret: string,
+  oauth2_injected_values: any
+}
+
+interface ConnectorTagsResponse {
+  endpoint_spec_schema: any
+}
+
 export async function encryptConfig(req: Record<string, any>) {
   const { connector_id, connector_tag_id, config } = req;
 
-  const { data, error } = await supabaseClient
+  const { data, error }: { data: OauthSettings | null, error: any } = await supabaseClient
     .from("connectors")
     .select("oauth2_client_id,oauth2_client_secret,oauth2_injected_values")
     .eq("id", connector_id)
@@ -22,8 +32,9 @@ export async function encryptConfig(req: Record<string, any>) {
   if (error != null) {
     returnPostgresError(error);
   }
+  // TODO - check for empty data
 
-  const { oauth2_client_id, oauth2_client_secret, oauth2_injected_values } = data;
+  const { oauth2_client_id, oauth2_client_secret, oauth2_injected_values } = data as OauthSettings;
 
   if (
     config?.[CREDENTIALS_KEY]?.["client_id"] === CLIENT_CREDS_INJECTION &&
@@ -45,7 +56,7 @@ export async function encryptConfig(req: Record<string, any>) {
     returnPostgresError(error);
   }
 
-  const { endpoint_spec_schema } = connectorTagData;
+  const { endpoint_spec_schema } = connectorTagData as ConnectorTagsResponse;
 
   const response = await fetch(ENCRYPTION_SERVICE, {
     method: "POST",
