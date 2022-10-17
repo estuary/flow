@@ -106,7 +106,7 @@ function start_control_plane_agent() {
     # the case if the temp-data-plane is running.
     export RUST_LOG=info
     must_run cargo run -p flowctl -- raw bundle --source ./ops-catalog/template-local.flow.yaml |
-        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin
+        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin --connector-network=host
 }
 
 function start_oauth_edge() {
