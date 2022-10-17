@@ -232,7 +232,7 @@ pub struct ServeArgs {
     #[clap(long, value_parser, default_value_t = 50051, env)]
     port: u32,
     #[clap(long, value_parser, default_value = "0.0.0.0", env)]
-    hostname: IpAddr,
+    bind_address: IpAddr,
     /// URL for a Gazette broker that is a member of the cluster
     #[clap(long, value_parser, env)]
     broker_url: String,
@@ -250,11 +250,11 @@ impl ServeArgs {
             broker_url: self.broker_url.clone(),
             max_inference_duration: self.inference_deadline.into(),
         };
-        let addr = format!("{}:{}", self.hostname, self.port)
+        let addr = format!("{}:{}", self.bind_address, self.port)
             .parse()
             .context(format!(
                 "Failed to parse server listen socket \"{}:{}\"",
-                self.hostname, self.port
+                self.bind_address, self.port
             ))?;
 
         tracing::info!("🚀 Serving gRPC on {}", addr);
