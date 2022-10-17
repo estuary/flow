@@ -1,8 +1,11 @@
+use std::net::IpAddr;
+
 use crate::inference::infer_shape;
 use crate::json_decoder::JsonCodec;
 use crate::schema::SchemaBuilder;
 use crate::shape;
 
+use anyhow::Context;
 use assemble::journal_selector;
 use doc::inference::Shape;
 use futures::{Stream, TryStreamExt};
@@ -227,9 +230,9 @@ async fn reduce_shape_stream(
 #[derive(Debug, clap::Args)]
 pub struct ServeArgs {
     #[clap(long, value_parser, default_value_t = 50051, env)]
-    port: u16,
+    port: u32,
     #[clap(long, value_parser, default_value = "0.0.0.0", env)]
-    hostname: String,
+    hostname: IpAddr,
     /// URL for a Gazette broker that is a member of the cluster
     #[clap(long, value_parser, env)]
     broker_url: String,
@@ -247,14 +250,20 @@ impl ServeArgs {
             broker_url: self.broker_url.clone(),
             max_inference_duration: self.inference_deadline.into(),
         };
-        let addr = format!("{}:{}", self.hostname, self.port).parse()?;
+        let addr = format!("{}:{}", self.hostname, self.port)
+            .parse()
+            .context(format!(
+                "Failed to parse server listen socket \"{}:{}\"",
+                self.hostname, self.port
+            ))?;
 
         tracing::info!("🚀 Serving gRPC on {}", addr);
 
         Server::builder()
             .add_service(InferenceServiceServer::new(svc))
             .serve(addr)
-            .await?;
+            .await
+            .context("Could not start listening")?;
 
         Ok(())
     }
