@@ -1,27 +1,27 @@
 ---
 sidebar_position: 1
 ---
-# Create a simple data flow
+# Create a basic Data Flow
 
-This guide walks you through the process of creating an end-to-end data flow in the
+This guide walks you through the process of creating an end-to-end Data Flow in the
 Flow web application.
 
 :::info Beta
-The Flow web application is currently available to users in the Estuary [beta program](https://go.estuary.dev/sign-up).
+The Flow web application is currently available to users in the Estuary beta program. Sign up for a free [discovery call](https://go.estuary.dev/sign-up)
+or email support@estuary.dev for your free account.
 :::
 
 ## Prerequisites
 
 This guide is intended for new Flow users and briefly introduces Flow's key concepts.
 Though it's not required, you may find it helpful to read
-the [high level concepts](../concepts/README.md) documentation for more detail before you begin.
+the [high level concepts](../concepts/README.md#essential-concepts) documentation for more detail before you begin.
 
 ## Introduction
 
-In Estuary Flow, you create data flows to connect data **source** and **destination** systems.
-The set of specifications that defines a data flow is known as a **catalog**, and is made of several important entities.
+In Estuary Flow, you create Data Flows to connect data **source** and **destination** systems.
 
-The simplest Flow catalog comprises three types of entities:
+The simplest Data Flow comprises three types of entities:
 
 * A data **capture**, which ingests data from an external source
 * One or more **collections**, which store that data in a cloud-backed data lake
@@ -29,7 +29,7 @@ The simplest Flow catalog comprises three types of entities:
 
 Almost always, the capture and materialization each rely on a **connector**.
 A connector is a plug-in component that interfaces between Flow and whatever data system you need to connect to.
-Here, we'll walk through how to leverage various connectors, configure them, and deploy your catalog to create an active data flow.
+Here, we'll walk through how to leverage various connectors, configure them, and deploy your Data Flow.
 
 ## Create a capture
 
@@ -41,15 +41,17 @@ credentials provided by your Estuary account manager.
 
 2. Click the **Captures** tab and choose **New capture**.
 
-3. On the **Create Capture** page, choose a name for your capture.
-Your capture name must begin with a [prefix](../concepts/README.md#namespace) to which you [have access](../reference/authentication.md).
-Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
-Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
-
-4. Use the **Connector** drop down to choose your desired data source.
+3. Choose the appropriate **Connector** for your desired data source.
 
   A form appears with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/capture-connectors/README.md).
+
+4. Type a name for your capture.
+
+   Your capture name must begin with a [prefix](../concepts/catalogs.md#namespace) to which you [have access](../reference/authentication.md).
+
+    Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
+    Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
 
 5. Fill out the required properties and click **Discover Endpoint**.
 
@@ -60,12 +62,12 @@ Append a unique capture name after the `/` to create the full name, for example 
 
 6. Look over the generated capture definition and the schema of the resulting Flow **collection(s)**.
 
-  Flow generates catalog specifications as YAML files.
+  Flow generates these specifications as YAML files.
   You can modify it by filling in new values in the form and clicking **Discover Endpoint**,
   or by editing the YAML files directly in the web application.
   (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
 
-  It's not always necessary to review and edit the YAML — Flow will prevent the publication of invalid catalogs.
+  It's not always necessary to review and edit the YAML — Flow will prevent the publication of invalid specifications.
 
 7. Once you're satisfied with the configuration, click **Save and publish**. You'll see a notification when the capture publishes successfully.
 
@@ -75,32 +77,33 @@ Append a unique capture name after the `/` to create the full name, for example 
 
 Now that you've captured data into one or more collections, you can materialize it to a destination.
 
-The **New Materializations** page is pre-populated with the capture and collection you just created.
 
-1.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
+1. Select the **Connector** tile for your desired data destination.
 
-2. Use the **Connector** drop down to choose your desired data destination.
-
-  The rest of the page populates with the properties required for that connector.
+  The page populates with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
+
+  Details of the collection you just created are already filled in.
+
+2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
 
 3. Fill out the required properties and click **Discover Endpoint**.
 
-  Flow initiates a connection with the destination system, and creates a binding to map each collection in your catalog to a **resource** in the destination.
+  Flow initiates a connection with the destination system, and creates a binding to map each collection from your capture to a **resource** in the destination.
   Again, these may be tables, data streams, or something else.
-  When you publish the complete catalog, Flow will create these new resources in the destination.
+  When you publish the Data Flow, Flow will create these new resources in the destination.
 
 4. Look over the generated materialization definition and edit it, if you'd like.
 
-5. Click **Save and publish**. You'll see a notification when the full data flow publishes successfully.
+5. Click **Save and publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 
-Now that you've deployed your first data flow, you can explore more possibilities.
+Now that you've deployed your first Data Flow, you can explore more possibilities.
 
 * Read the [high level concepts](../concepts/README.md) to better understand how Flow works and what's possible.
 
-* Create more complex data flows by mixing and matching collections in your captures and materializations. For example:
+* Create more complex Data Flows by mixing and matching collections in your captures and materializations. For example:
 
    * Materialize the same collection to multiple destinations.
 

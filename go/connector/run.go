@@ -231,7 +231,7 @@ func runCommand(
 		// Routine dialing a connection to connector
 		go func() {
 			// Try to connect to the connector with a retry mechanism
-			var connectDeadline = time.Now().Add(time.Second * 5)
+			var connectDeadline = time.Now().Add(time.Second * 10)
 			var err error
 			for {
 				conn, err = net.Dial("tcp", localAddress)
