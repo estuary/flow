@@ -267,7 +267,7 @@ async fn reduce_shape_stream(
 
 #[derive(Debug, clap::Args)]
 pub struct ServeArgs {
-    #[clap(long, value_parser, default_value_t = 50051, env)]
+    #[clap(long, value_parser, default_value_t = 9090, env)]
     port: u32,
     #[clap(long, value_parser, default_value = "0.0.0.0", env)]
     bind_address: IpAddr,
