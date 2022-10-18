@@ -37,7 +37,7 @@ tokio-util ={workspace=true}
 futures-util ={workspace=true}
 futures = {workspace=true}
 bytes ={workspace=true}
-warp = "0.3.3"
+warp = {workspace=true}
 
 [dev-dependencies]
 insta = {workspace=true}
