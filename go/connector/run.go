@@ -225,38 +225,40 @@ func runCommand(
 		},
 	}
 
+	var group = sync.WaitGroup{}
 	var conn net.Conn
 	// If port is specified, use TCP socket
 	if port != "" {
+		// We're going to need to await 3 separate async tasks:
+		// The attempt to dial, and the two copy operations in
+		// and out of the established connection.
+		group.Add(3)
 		// Routine dialing a connection to connector
 		go func() {
 			// Try to connect to the connector with a retry mechanism
-			var connectDeadline = time.Now().Add(time.Second * 10)
-			var err error
-			for {
-				conn, err = net.Dial("tcp", localAddress)
-				if err == nil {
-					break
-				}
-
-				if time.Now().After(connectDeadline) {
-					fe.onError(fmt.Errorf("dialing connection to %s: %w", localAddress, err))
-					return
-				} else {
-					// Retry after a short wait
-					time.Sleep(1 * time.Second)
-				}
+			// Don't retry on context cancellation
+			// Retry after a short wait
+			conn, connErr := connectTCP(ctx, conn, localAddress)
+			group.Add(-1)
+			if connErr != nil {
+				fe.onError(connErr)
+				// We're not going to run the copy goroutines, so decrement
+				// the waitgroup now.
+				group.Add(-2)
+				return
 			}
 
 			// Copy |writeLoop| into socket
 			go func() {
 				fe.onError(writeLoop(conn))
+				group.Add(-1)
 			}()
 
 			// Read from socket connection and delegate to output through the error interceptor
 			go func() {
 				var _, err = io.Copy(outputInterceptor, conn)
 				fe.onError(err)
+				group.Add(-1)
 			}()
 		}()
 	} else {
@@ -307,7 +309,10 @@ func runCommand(
 			fe.onError(ctx.Err())
 		}
 	}
+	// Wait for any TCP copy operations to finish. This must be done after the process exits.
+	group.Wait()
 	_ = stderrForwarder.Close()
+	_ = output.Close()
 
 	if port != "" && conn != nil {
 		var closeErr = conn.Close()
@@ -322,6 +327,27 @@ func runCommand(
 	}, "connector exited")
 
 	return fe.unwrap()
+}
+
+func connectTCP(ctx context.Context, conn net.Conn, localAddress string) (net.Conn, error) {
+	var connectDeadline = time.Now().Add(time.Second * 10)
+	var err error
+	for {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+		var dialer = net.Dialer{}
+		conn, err = dialer.DialContext(ctx, "tcp", localAddress)
+		if err == nil {
+			return conn, nil
+		}
+
+		if time.Now().After(connectDeadline) {
+			return nil, fmt.Errorf("dialing connection to %s: %w", localAddress, err)
+		} else {
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 type writeErrInterceptor struct {
