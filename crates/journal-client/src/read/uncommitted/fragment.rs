@@ -1,4 +1,5 @@
 use crate::read::Error;
+use futures::future::BoxFuture;
 use futures::{io::AsyncRead, ready};
 use proto_gazette::broker;
 use std::pin::Pin;
@@ -85,7 +86,7 @@ impl AsyncRead for FragmentReader {
 fn new_fragment_response_reader(
     compression: broker::CompressionCodec,
     resp: reqwest::Response,
-) -> Result<Box<dyn AsyncRead + Unpin>, Error> {
+) -> Result<Box<dyn AsyncRead + Unpin + Send>, Error> {
     use async_compression::futures::bufread::{GzipDecoder, ZstdDecoder};
     use broker::CompressionCodec;
     use futures::{
@@ -116,8 +117,8 @@ fn new_fragment_response_reader(
 }
 
 enum FragmentReadState {
-    PendingResponse(Pin<Box<dyn Future<Output = reqwest::Result<reqwest::Response>>>>),
-    Reading(Box<dyn AsyncRead + Unpin>),
+    PendingResponse(BoxFuture<'static, reqwest::Result<reqwest::Response>>),
+    Reading(Box<dyn AsyncRead + Unpin + Send>),
     Done,
 }
 
