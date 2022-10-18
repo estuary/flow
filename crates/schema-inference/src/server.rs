@@ -5,6 +5,7 @@ use crate::inference::infer_shape;
 use crate::json_decoder::{JsonCodec, JsonCodecError};
 use crate::schema::SchemaBuilder;
 use crate::shape;
+use serde_json::json;
 
 use anyhow::Context;
 use assemble::journal_selector;
@@ -81,6 +82,13 @@ impl InferenceError {
         });
 
         warp::reply::with_status(json, code).into_response()
+    }
+}
+
+async fn healthz(broker_url: String) -> Response {
+    match connect_journal_client(broker_url.clone(), None).await {
+        Ok(_) => warp::reply::json(&json!({"status": "OK"})).into_response(),
+        Err(err) => InferenceError::from(err).into_response(),
     }
 }
 
@@ -321,6 +329,15 @@ impl ServeArgs {
                 }
             });
 
+        let broker_url = self.broker_url.clone();
+        let healthz_endpoint = warp::get().and(warp::path!("healthz")).and_then(move || {
+            let broker_url_cloned = broker_url.clone();
+            async move {
+                Ok(healthz(broker_url_cloned).await)
+                    as Result<warp::reply::Response, core::convert::Infallible>
+            }
+        });
+
         let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
             .parse()
             .context(format!(
@@ -330,7 +347,9 @@ impl ServeArgs {
 
         tracing::info!("🚀 Serving schema inference on {}", addr);
 
-        warp::serve(inference_endpoint).run(addr).await;
+        warp::serve(inference_endpoint.or(healthz_endpoint))
+            .run(addr)
+            .await;
         Ok(())
     }
 }
