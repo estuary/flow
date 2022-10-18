@@ -1,7 +1,8 @@
-use std::net::IpAddr;
+use std::convert::Infallible;
+use std::net::{IpAddr, SocketAddr};
 
 use crate::inference::infer_shape;
-use crate::json_decoder::JsonCodec;
+use crate::json_decoder::{JsonCodec, JsonCodecError};
 use crate::schema::SchemaBuilder;
 use crate::shape;
 
@@ -17,101 +18,140 @@ use journal_client::read::uncommitted::{
 };
 use journal_client::{connect_journal_client, ConnectError};
 use models;
-use schema_inference_autogen::inference_service_server::{
-    InferenceService, InferenceServiceServer,
-};
-use schema_inference_autogen::{InferenceRequest, InferenceResponse};
 
 use futures_util::StreamExt;
+use schemars::schema::RootSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thiserror::Error;
 use tokio::sync::broadcast::Receiver;
 use tokio::time::sleep;
 use tokio_util::codec::FramedRead;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tonic::{transport::Server, Request, Response, Status};
+use warp::hyper::StatusCode;
+use warp::reply::Response;
+use warp::{Filter, Reply};
 
-pub mod schema_inference_autogen {
-    tonic::include_proto!("schema_inference"); // The string specified here must match the proto package name
+#[derive(Error, Debug)]
+enum InferenceError {
+    #[error(transparent)]
+    ConnectionError(#[from] ConnectError),
+    #[error("No documents found, cannot infer shape")]
+    NoDocsFound,
+    #[error("Missing fragment spec")]
+    NoFragmentSpec(),
+    #[error("{}", .0.to_string())]
+    TonicStatus(#[from] tonic::Status),
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    JournalClientFragmentError(#[from] journal_client::fragments::Error),
+    #[error(transparent)]
+    JsonCodecError(#[from] JsonCodecError),
 }
 
-#[derive(Debug, Default)]
-pub struct InferenceServiceImpl {
-    pub broker_url: String,
-    pub max_inference_duration: std::time::Duration,
+/// An API error serializable to JSON.
+#[derive(Serialize)]
+struct ErrorMessage {
+    code: u16,
+    message: String,
 }
 
-#[tonic::async_trait]
-impl InferenceService for InferenceServiceImpl {
-    // #[tracing::instrument(skip_all, fields(collection=?request.get_ref().flow_collection))]
-    async fn infer_schema(
-        &self,
-        request: Request<InferenceRequest>,
-    ) -> Result<Response<InferenceResponse>, Status> {
-        tracing::debug!("Starting inference");
+impl InferenceError {
+    fn into_response(self) -> Response {
+        let message = self.to_string();
 
-        let InferenceRequest {
-            flow_collection: collection_name,
-        } = request.get_ref();
-
-        let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
-
-        let max_duration = self.max_inference_duration.clone();
-
-        // This seems to want to be set on a block, rather than a single expression :(
-        #[allow(unused_must_use)]
-        let handle = tokio::spawn(async move {
-            sleep(max_duration).await;
-            abort_tx.send(());
-        });
-
-        let mut client = connect_journal_client(self.broker_url.clone(), None)
-            .await
-            .map_err(|e| match e {
-                ConnectError::BadUri(_) => Status::invalid_argument(e.to_string()),
-                ConnectError::Grpc(_) => Status::internal(e.to_string()), // Should this be `unavailable`?
-                ConnectError::InvalidBearerToken => Status::unauthenticated(e.to_string()),
-            })?;
-
-        tracing::debug!("Got inference client");
-
-        let flow_collection = models::Collection::new(collection_name);
-        let selector = journal_selector(&flow_collection, None);
-        let journals = list_journals(&mut client, &selector).await?;
-
-        tracing::debug!(num_journals = journals.len(), "Got journals");
-
-        let buffered = futures::stream::iter(journals)
-            .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.resubscribe()))
-            .buffer_unordered(3);
-
-        let root_schema = match reduce_shape_stream(buffered).await? {
-            Some((shape, docs_count)) => {
-                let root_schema = SchemaBuilder::new(shape).root_schema();
-                let root = serde_json::ser::to_string(&root_schema)
-                    .map_err(|e| Status::internal(e.to_string()))?;
-                Ok(Response::new(InferenceResponse {
-                    body: Some(schema_inference_autogen::inference_response::Body::Schema(
-                        schema_inference_autogen::InferredSchema {
-                            schema_json: root,
-                            documents_read: docs_count,
-                            exceeded_deadline: abort_rx.len() > 0,
-                        },
-                    )),
-                }))
-            }
-            None => Err(Status::not_found("No documents found, cannot infer shape")),
+        let code = match self {
+            InferenceError::ConnectionError(err) => match err {
+                ConnectError::BadUri(_) => StatusCode::BAD_REQUEST,
+                ConnectError::Grpc(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                ConnectError::InvalidBearerToken => StatusCode::UNAUTHORIZED,
+            },
+            InferenceError::NoDocsFound => StatusCode::NOT_FOUND,
+            InferenceError::NoFragmentSpec() => StatusCode::INTERNAL_SERVER_ERROR,
+            InferenceError::TonicStatus(_) => StatusCode::BAD_REQUEST,
+            InferenceError::SerdeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            InferenceError::JournalClientFragmentError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            InferenceError::JsonCodecError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
-        handle.abort();
-        root_schema
+        let json = warp::reply::json(&ErrorMessage {
+            code: code.as_u16(),
+            message: message.into(),
+        });
+
+        warp::reply::with_status(json, code).into_response()
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct InferenceResponse {
+    schema: RootSchema,
+    documents_read: u64,
+    exceeded_deadline: bool,
+}
+
+impl InferenceResponse {
+    fn into_response(self) -> Response {
+        warp::reply::json(&self).into_response()
+    }
+}
+
+async fn infer_schema(
+    broker_url: String,
+    max_inference_duration: std::time::Duration,
+    collection_name: String,
+) -> Result<InferenceResponse, InferenceError> {
+    tracing::debug!("Starting inference");
+
+    let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
+
+    let max_duration = max_inference_duration.clone();
+
+    // This seems to want to be set on a block, rather than a single expression :(
+    #[allow(unused_must_use)]
+    let handle = tokio::spawn(async move {
+        sleep(max_duration).await;
+        abort_tx.send(());
+    });
+
+    let mut client = connect_journal_client(broker_url.clone(), None)
+        .await
+        .map_err(InferenceError::from)?;
+
+    tracing::debug!("Got inference client");
+
+    let flow_collection = models::Collection::new(collection_name);
+    let selector = journal_selector(&flow_collection, None);
+    let journals = list_journals(&mut client, &selector).await?;
+
+    tracing::debug!(num_journals = journals.len(), "Got journals");
+
+    let buffered = futures::stream::iter(journals)
+        .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.resubscribe()))
+        .buffer_unordered(3);
+
+    let root_schema = match reduce_shape_stream(buffered).await? {
+        Some((shape, docs_count)) => {
+            let root_schema = SchemaBuilder::new(shape).root_schema();
+            Ok(InferenceResponse {
+                schema: root_schema,
+                documents_read: docs_count,
+                exceeded_deadline: abort_rx.len() > 0,
+            })
+        }
+        None => Err(InferenceError::NoDocsFound),
+    };
+
+    handle.abort();
+    root_schema
 }
 
 async fn journal_to_shape(
     journal: JournalSpec,
     client: journal_client::Client,
     abort_signal: Receiver<()>,
-) -> Result<Option<(Shape, u64)>, Status> {
+) -> Result<Option<(Shape, u64)>, InferenceError> {
     let frag_iter = FragmentIter::new(
         client.clone(),
         FragmentsRequest {
@@ -122,7 +162,7 @@ async fn journal_to_shape(
 
     let frag_stream = frag_iter
         .into_stream()
-        .map_err(|e| Status::internal(e.to_string()))
+        .map_err(InferenceError::from)
         .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.resubscribe()))
         .try_buffer_unordered(5)
         .into_stream();
@@ -141,10 +181,8 @@ async fn fragment_to_shape(
     client: journal_client::Client,
     fragment: fragments_response::Fragment,
     abort_signal: Receiver<()>,
-) -> Result<Option<(Shape, u64)>, Status> {
-    let fragment_spec = fragment
-        .spec
-        .ok_or(Status::internal("Missing fragment spec"))?;
+) -> Result<Option<(Shape, u64)>, InferenceError> {
+    let fragment_spec = fragment.spec.ok_or(InferenceError::NoFragmentSpec())?;
 
     tracing::Span::current().record("journal_name", &fragment_spec.journal);
     tracing::Span::current().record("offset_start", &fragment_spec.begin);
@@ -185,7 +223,7 @@ async fn fragment_to_shape(
                             docs = docs + 1;
                         }
                     }
-                    Err(e) => return Err(Status::aborted(e.to_string())),
+                    Err(e) => return Err(InferenceError::from(e)),
                 }
             }
             _ = owned_abort_channel.recv() => {
@@ -202,8 +240,8 @@ async fn fragment_to_shape(
 }
 
 async fn reduce_shape_stream(
-    stream: impl Stream<Item = Result<Option<(Shape, u64)>, Status>>,
-) -> Result<Option<(Shape, u64)>, Status> {
+    stream: impl Stream<Item = Result<Option<(Shape, u64)>, InferenceError>>,
+) -> Result<Option<(Shape, u64)>, InferenceError> {
     let mut accumulator: Option<(Shape, u64)> = None;
     tokio::pin!(stream);
 
@@ -243,28 +281,56 @@ pub struct ServeArgs {
     inference_deadline: humantime::Duration,
 }
 
+#[derive(Serialize, Deserialize)]
+struct QueryParams {
+    collection_name: String,
+}
+
+async fn handle_inference_api(
+    broker_url: String,
+    max_inference_duration: std::time::Duration,
+    collection_name: String,
+) -> Response {
+    let resp = infer_schema(broker_url, max_inference_duration, collection_name).await;
+
+    match resp {
+        Ok(success) => return success.into_response(),
+        Err(err) => return err.into_response(),
+    }
+}
+
 impl ServeArgs {
     #[tracing::instrument(skip(self))]
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        let svc = InferenceServiceImpl {
-            broker_url: self.broker_url.clone(),
-            max_inference_duration: self.inference_deadline.into(),
-        };
-        let addr = format!("{}:{}", self.bind_address, self.port)
+        let broker_url = self.broker_url.clone();
+        let inference_deadline = self.inference_deadline.clone();
+        let inference_endpoint = warp::get()
+            .and(warp::path!("infer_schema"))
+            .and(warp::query::<QueryParams>())
+            .and_then(move |params: QueryParams| {
+                let broker_url_cloned = broker_url.clone();
+                let inference_deadline_cloned = inference_deadline.clone();
+                async move {
+                    Ok(handle_inference_api(
+                        broker_url_cloned,
+                        inference_deadline_cloned.into(),
+                        params.collection_name,
+                    )
+                    .await)
+                        as Result<warp::reply::Response, core::convert::Infallible>
+                }
+            });
+
+        let addr: SocketAddr = format!("{}:{}", self.bind_address, self.port)
             .parse()
             .context(format!(
                 "Failed to parse server listen socket \"{}:{}\"",
                 self.bind_address, self.port
             ))?;
 
-        tracing::info!("🚀 Serving gRPC on {}", addr);
+        tracing::info!("🚀 Serving schema inference on {}", addr);
 
-        Server::builder()
-            .add_service(InferenceServiceServer::new(svc))
-            .serve(addr)
-            .await
-            .context("Could not start listening")?;
-
+        warp::serve(inference_endpoint).run(addr).await;
         Ok(())
     }
 }
