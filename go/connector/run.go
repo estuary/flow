@@ -45,7 +45,7 @@ func (c Protocol) proxyCommand() string {
 
 // Run the given Docker |image| with |args|.
 //
-// |writeLoop| is called with a Writer that's connected to the container's stdin.
+// |writeLoop| is called with a Writer that's connected to the container's input.
 // The callback should produce input into the Writer, and then return when all
 // input has been produced and the container's stdin is to be closed.
 //
@@ -219,7 +219,7 @@ func runCommand(
 	var outputInterceptor = &writeErrInterceptor{
 		delegate: output,
 		onError: func(err error) error {
-			fe.onError(err)
+			fe.onError(fmt.Errorf("outputInterceptor err: %w", err))
 			cancel() // Signal to exit.
 			return err
 		},
@@ -250,13 +250,17 @@ func runCommand(
 
 			// Copy |writeLoop| into socket
 			go func() {
-				fe.onError(writeLoop(conn))
+				if err := writeLoop(conn); err != nil {
+					fe.onError(fmt.Errorf("writeLoop: %w", err))
+				}
 			}()
 
 			// Read from socket connection and delegate to output through the error interceptor
 			go func() {
 				var _, err = io.Copy(outputInterceptor, conn)
-				fe.onError(err)
+				if err != nil {
+					fe.onError(fmt.Errorf("outputInterceptor copy: %w", err))
+				}
 			}()
 		}()
 	} else {
@@ -304,7 +308,7 @@ func runCommand(
 			fe.onError(fmt.Errorf("go.estuary.dev/E116: connector failed, with error: %w\nwith stderr:\n\n%s",
 				waitErr, cmd.Stderr.(*connectorStderr).buffer.String()))
 		} else {
-			fe.onError(ctx.Err())
+			fe.onError(fmt.Errorf("ctx err: %w", ctx.Err()))
 		}
 	}
 	_ = stderrForwarder.Close()
@@ -312,7 +316,7 @@ func runCommand(
 	if port != "" && conn != nil {
 		var closeErr = conn.Close()
 		if closeErr != nil {
-			fe.onError(closeErr)
+			fe.onError(fmt.Errorf("conn.Close: %w", closeErr))
 		}
 	}
 
@@ -321,7 +325,12 @@ func runCommand(
 		"cancelled": ctx.Err() != nil,
 	}, "connector exited")
 
-	return fe.unwrap()
+	err := fe.unwrap()
+	if err != nil {
+		return fmt.Errorf("connector.runCommand: %w", err)
+	}
+
+	return nil
 }
 
 type writeErrInterceptor struct {
