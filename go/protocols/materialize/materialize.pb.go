@@ -572,7 +572,6 @@ var xxx_messageInfo_TransactionRequest proto.InternalMessageInfo
 // cannot issue further commits. The driver MUST return its stored checkpoint
 // for this materialization and range [key_begin, key_end] in its Opened
 // response.
-//
 type TransactionRequest_Open struct {
 	// Materialization to be transacted.
 	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
