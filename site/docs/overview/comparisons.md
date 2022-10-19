@@ -24,7 +24,7 @@ Because Flow combines many functionalities, it is related to multiple types of t
 
 Flow’s most apt comparison is to Apache Beam. You may use a variety of runners (processing engines) for your Beam deployment. One of the most popular, Google Cloud Dataflow, is a more robust redistribution under an additional SDK. Regardless of how you use Beam, there’s a lot of conceptual overlap with Flow. This makes Beam and Flow alternatives rather than complementary technologies, but there are key differences.
 
-Like Beam, Flow’s primary primitive is a **collection**. You build a processing graph (called a **pipeline** in Beam and a **catalog** in Flow) by relating multiple collections together through procedural transformations, or lambdas. As with Beam, Flow’s runtime performs automatic data shuffles and is designed to allow fully automatic scaling. Also like Beam, collections have associated schemas.
+Like Beam, Flow’s primary primitive is a **collection**. You build a processing graph (called a **pipeline** in Beam and a **Data Flow** in Flow) by relating multiple collections together through procedural transformations, or lambdas. As with Beam, Flow’s runtime performs automatic data shuffles and is designed to allow fully automatic scaling. Also like Beam, collections have associated schemas.
 
 Unlike Beam, Flow doesn’t distinguish between batch and streaming contexts. Flow unifies these paradigms under a single collection concept, allowing you to seamlessly work with both data types.
 
@@ -54,7 +54,7 @@ You can think of a Flow **collection** as a set of RDDs with common associated m
 
 Unlike Spark RDDs, Flow collections are backed by one or more unbounded append-only logs. Therefore, you don't create a new collection each time data arrives; you simply append to the existing one. Collections can be partitioned and can support extremely large volumes of data.
 
-Spark's processing primitives, **applications**, **jobs**, and **tasks**, don't translate perfectly to Flow, but we can make some useful analogies. This is partly because Spark is not very opinionated about what an application does. Your Spark application could read data from cloud storage, then transform it, then write the results out to a database. The closest analog to a Spark application in Flow is the **catalog**. A Flow catalog is a composition of Flow tasks, which are quite different from tasks in Spark.
+Spark's processing primitives, **applications**, **jobs**, and **tasks**, don't translate perfectly to Flow, but we can make some useful analogies. This is partly because Spark is not very opinionated about what an application does. Your Spark application could read data from cloud storage, then transform it, then write the results out to a database. The closest analog to a Spark application in Flow is the **Data Flow**. A Data Flow is a composition of Flow tasks, which are quite different from tasks in Spark.
 
 In Flow, a task is a logical unit of work that does _one_ of capture (ingest), derive (transform), or materialize (write results to an external system). What Spark calls a task is actually closer to a Flow **shard**. In Flow, a task is a logical unit of work, and [shards](../concepts/advanced/shards.md) represent the potentially numerous processes that actually carry out that work. Shards are the unit of parallelism in Flow, and you can easily split them for turnkey scaling.
 
@@ -76,7 +76,7 @@ In Flow, you instead define a **capture** of data from the source, which runs co
 
 ## Fivetran, Airbyte, and other ELT solutions
 
-Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the world in terms of independent scheduled jobs that copy data from source to destination, Flow catalogs model a directed graph of
+Tools like Fivetran and Airbyte are purpose-built to move data from one place to another. These ELT tools typically model sources and destinations, and run regularly scheduled jobs to export from the source directly to the destination. Flow models things differently. Instead of modeling the world in terms of independent scheduled jobs that copy data from source to destination, Data Flows model a directed graph of
 [**captures**](../../concepts/captures) (reads from sources),
 [**derivations**](../../concepts/derivations) (transforms), and
 [**materializations**](../../concepts/materialization) (writes to destinations).
@@ -130,7 +130,7 @@ For further explanation, read the section below on OLAP databases.
 
 Flow differs from OLAP databases mainly in that it's not a database. Flow has no query interface, and no plans to add one. Instead, Flow allows you to use the query interfaces of any database by **materializing** views into it.
 
-Flow is similar to OLAP databases in that it can be the source of truth for all analytics data (though it's also capable enough to handle operational workloads). Instead of schemas and tables, Flow catalogs define **collections**. These collections are conceptually similar to database tables in the sense that they are containers for data with an associated (primary) key. Under the hood, Flow collections are each backed by append-only logs, where each document in the log represents a delta update for a given key.
+Flow is similar to OLAP databases in that it can be the source of truth for all analytics data (though it's also capable enough to handle operational workloads). Instead of schemas and tables, Flow defines **collections**. These collections are conceptually similar to database tables in the sense that they are containers for data with an associated (primary) key. Under the hood, Flow collections are each backed by append-only logs, where each document in the log represents a delta update for a given key.
 
 Collections can be easily materialized into a variety of external systems, such as Snowflake or BigQuery. This creates a table in your OLAP database that is continuously kept up to date with the collection. With Flow, there's no need to schedule exports to these systems, and thus no need to orchestrate the timing of those exports. You can also materialize a given collection into multiple destination systems, so you can always use whichever system is best for the type of queries you want to run.
 
