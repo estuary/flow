@@ -40,6 +40,21 @@ To install, copy and paste the appropriate script below into your terminal. This
 
 Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
+Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
+
+1. Sign into the Flow web application.
+
+2. Click the **Admin** tab.
+
+3. On the Admin page, click the **CLI-API** tab. Copy the token from the **Access Token** box.
+
+4. In the terminal of your local development environment, run:
+   ``` console
+   flowctl auth token --token=<copied-token>
+   ```
+
+The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
+
 [Learn more about using flowctl.](../concepts/flowctl.md)
 
 ## Self-hosting Flow

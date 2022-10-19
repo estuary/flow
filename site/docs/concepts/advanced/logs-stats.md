@@ -2,10 +2,6 @@
 
 Flow collects logs and statistics of catalog tasks to aid in debugging and refinement of your workflows.
 
-:::caution
-Access to statistics is still a work in progress. For now, this documentation deals strictly with logs.
-:::
-
 ## Logs
 
 Each organization that uses Flow has a `logs` collection under the global `ops` prefix.
@@ -15,10 +11,10 @@ These can be thought of as standard application logs:
 they store information about events that occur at runtime.
 They’re distinct from [recovery logs](./shards.md#recovery-logs), which track the state of various task shards.
 
-Regardless of how many Flow catalogs your organization has, all logs are stored in the same collection,
+Regardless of how many Data Flows your organization has, all logs are stored in the same collection,
 which is read-only and [logically partitioned](./projections.md#logical-partitions) on [tasks](../README.md#tasks).
 Logs are collected from events that occur within the Flow runtime,
-as well as the capture and materialization [connectors](../connectors.md) your catalog is using.
+as well as the capture and materialization [connectors](../connectors.md) your Data Flow is using.
 
 ### Log level
 
@@ -41,6 +37,27 @@ materializations:
     endpoint:
         {}
 ```
+## Statistics
 
-To learn more about working with logs and statistics,
-see their [reference documentation](../../../reference/working-logs-stats/).
+Each organization that uses Flow has a `stats` collection under the global `ops` prefix.
+For the organization Acme Co, it would have the name `ops/acmeCo/stats`.
+
+Regardless of how many Data Flows your organization has, all stats are stored in the same collection,
+which is read-only and [logically partitioned](./projections.md#logical-partitions) on [tasks](../README.md#tasks).
+
+A new document is published to the `stats` collection for each task transaction.
+Each document includes information about the time and quantity of data inputs and outputs.
+Statistics vary by task type (capture, materialization, or derivation).
+
+Use stats to:
+
+* Evaluate the data throughput of a task; for example, a derivation.
+* Compare a data throughput of a task between platforms; for example, compare reported data capture by Flow to detected change rate in a source system.
+* Access the same information used by Estuary for billing.
+* Optimize your tasks for increased efficiency.
+
+[See a detailed table of the properties included in `stats` documents.](../../reference/working-logs-stats.md#available-statistics)
+
+## Working with logs and statistics
+
+[Learn more about working with logs and statistics](../../reference/working-logs-stats.md)

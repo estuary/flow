@@ -43,7 +43,9 @@ Important top-level flowctl subcommands are described below.
 It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
 
 * `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
- or add their specification files to a **draft**, where you can develop them further.
+ or add their specification files to a **draft**, where you can develop them further.f
+
+* `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
 * `draft` allows you to work with drafts. You can create, test, develop locally, and then **publish**, or deploy, them to the catalog.
 
@@ -65,7 +67,6 @@ With `draft`, you:
 * Develop the draft locally.
 * Author your local changes to the draft. This is equivalent to syncing changes.
 * Test and publish the draft to publish to the catalog.
-
 
 <Mermaid chart={`
 	graph LR;

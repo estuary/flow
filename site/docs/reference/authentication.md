@@ -59,13 +59,15 @@ To authenticate a local development session using the CLI, do the following:
 
 1. Sign into the Flow web application.
 
-2. Click the **Admin** tab, scroll to the **Access Token** box, and copy the token.
+2. Click the **Admin** tab.
 
-3. In the terminal of your local development environment, run:
+3. On the Admin page, click the **CLI-API** tab. Copy the token from the **Access Token** box.
+
+4. In the terminal of your local development environment, run:
    ``` console
    flowctl auth token --token=<copied-token>
    ```
-
+   
 The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
 
 ## Provisioning capabilities
