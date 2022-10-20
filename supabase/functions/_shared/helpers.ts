@@ -13,5 +13,8 @@ export const returnPostgresError = (error: any) => {
 export const handlebarsHelpers = {
   urlencode: function(s: string) {
     return encodeURIComponent(s)
+  },
+  basicauth: function(user: string, password: string) {
+    return btoa(`${user}:${password}`);
   }
 }
