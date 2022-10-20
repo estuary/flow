@@ -419,9 +419,16 @@ func (f *TxnClient) readLoop() (__out error) {
 
 		// These can never succeed, since we're no longer looping.
 		if f.rx.commitOps.DriverCommitted != nil {
+			// TODO: For now I'm just logging this to see if the err is ever nil in practice
+			if __out == nil {
+				logrus.Warn("readLoop completed with nil err, but DriverCommitted was not done")
+			}
 			f.rx.commitOps.DriverCommitted.Resolve(__out)
 		}
 		if f.rx.commitOps.Acknowledged != nil {
+			if __out == nil {
+				logrus.Warn("readLoop completed with nil err, but Acknowledged was not done")
+			}
 			f.rx.commitOps.Acknowledged.Resolve(__out)
 		}
 	}()

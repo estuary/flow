@@ -244,21 +244,22 @@ func runCommand(
 				fe.onError(connErr)
 				// We're not going to run the copy goroutines, so decrement
 				// the waitgroup now.
-				group.Add(-2)
+				group.Done()
+				group.Done()
 				return
 			}
 
 			// Copy |writeLoop| into socket
 			go func() {
 				fe.onError(writeLoop(conn))
-				group.Add(-1)
+				group.Done()
 			}()
 
 			// Read from socket connection and delegate to output through the error interceptor
 			go func() {
 				var _, err = io.Copy(outputInterceptor, conn)
 				fe.onError(err)
-				group.Add(-1)
+				group.Done()
 			}()
 		}()
 	} else {
@@ -336,7 +337,9 @@ func connectTCP(ctx context.Context, conn net.Conn, localAddress string) (net.Co
 		if err = ctx.Err(); err != nil {
 			return nil, err
 		}
-		var dialer = net.Dialer{}
+		var dialer = net.Dialer{
+			Timeout: time.Second * 10,
+		}
 		conn, err = dialer.DialContext(ctx, "tcp", localAddress)
 		if err == nil {
 			return conn, nil
