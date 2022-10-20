@@ -252,12 +252,14 @@ func runCommand(
 			// Copy |writeLoop| into socket
 			go func() {
 				fe.onError(writeLoop(conn))
+				os.Stderr.WriteString("writeLoop end\n")
 				group.Done()
 			}()
 
 			// Read from socket connection and delegate to output through the error interceptor
 			go func() {
 				var _, err = io.Copy(outputInterceptor, conn)
+				os.Stderr.WriteString("outputInterceptor write end\n")
 				fe.onError(err)
 				group.Done()
 			}()
@@ -310,10 +312,14 @@ func runCommand(
 			fe.onError(ctx.Err())
 		}
 	}
+	os.Stderr.WriteString("cmd.Wait done\n")
 	// Wait for any TCP copy operations to finish. This must be done after the process exits.
 	group.Wait()
+	os.Stderr.WriteString("group.Wait done\n")
 	_ = stderrForwarder.Close()
+	os.Stderr.WriteString("stderrForwarder closed\n")
 	_ = output.Close()
+	os.Stderr.WriteString("output closed\n")
 
 	if port != "" && conn != nil {
 		var closeErr = conn.Close()
