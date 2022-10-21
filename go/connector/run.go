@@ -3,6 +3,7 @@ package connector
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -128,18 +128,23 @@ func Run(
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
 	}
 
-	// Set UUID based name.
-	uuid := uuid.New().String()
-	imageArgs = append(imageArgs, "--name", uuid)
-
-	// Add readable shard/task ID and command labels.
+	// Name the container to avoid duplicate connectors.
+	// Container names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+.
+	// Set SHA hash of name+command as the container name and readable
+	// shard/task ID, command labels.
 	if containerName != "" {
+		hash := sha256.New()
+		hash.Write([]byte(containerName))
+
 		imageArgs = append(imageArgs,
 			"--label", fmt.Sprintf("shard=%s", containerName))
 		if len(args) > 0 {
 			imageArgs = append(imageArgs,
 				"--label", fmt.Sprintf("command=%s", args[0]))
+			hash.Write([]byte(args[0]))
 		}
+
+		imageArgs = append(imageArgs, "--name", fmt.Sprintf("%x", hash.Sum(nil)))
 	}
 
 	imageArgs = append(imageArgs,
