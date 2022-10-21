@@ -128,13 +128,13 @@ func Run(
 	}
 
 	if containerName != "" {
-		// Replace non-alphanum chars.
-		// Container names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+.
-		// FIXME handle names prefixed with [_.-+/]+.
-		containerName = strings.NewReplacer("+", "_", "/", "_").Replace(containerName)
+		// Use labels to avoid name collisions.
 		imageArgs = append(imageArgs,
-			"--name", containerName,
-		)
+			"--label", fmt.Sprintf("shard=%s", containerName))
+		if len(args) > 0 {
+			imageArgs = append(imageArgs,
+				"--label", fmt.Sprintf("command=%s", args[0]))
+		}
 	}
 
 	imageArgs = append(imageArgs,
