@@ -16,6 +16,7 @@ import (
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/pkgbin"
 	"github.com/gogo/protobuf/proto"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -127,8 +128,12 @@ func Run(
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
 	}
 
+	// Set UUID based name.
+	uuid := uuid.New().String()
+	imageArgs = append(imageArgs, "--name", uuid)
+
+	// Add readable shard/task ID and command labels.
 	if containerName != "" {
-		// Use labels to avoid name collisions.
 		imageArgs = append(imageArgs,
 			"--label", fmt.Sprintf("shard=%s", containerName))
 		if len(args) > 0 {
