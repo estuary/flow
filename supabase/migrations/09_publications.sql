@@ -64,6 +64,11 @@ alter table live_specs enable row level security;
 create unique index idx_live_specs_catalog_name on live_specs
   (catalog_name text_pattern_ops);
 
+create index idx_live_specs_spec_type on live_specs
+  (spec_type);
+
+create index idx_live_specs_updated_at on live_specs (updated_at desc nulls last);
+
 create policy "Users must be read-authorized to the specification catalog name"
   on live_specs as permissive for select
   using (auth_catalog(catalog_name, 'read'));
