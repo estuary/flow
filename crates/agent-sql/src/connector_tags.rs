@@ -1,9 +1,9 @@
 use super::{Id, TextJson as Json};
 
 use chrono::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::Uuid;
+use sqlx::{types::Uuid, FromRow};
 
 // Row is the dequeued task shape of a tag connector operation.
 #[derive(Debug)]
@@ -42,33 +42,45 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
+/// JobStatus is the possible outcomes of a handled connector tag.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum JobStatus {
+    Queued,
+    PullFailed,
+    SpecFailed,
+    OpenGraphFailed { error: String },
+    Success,
+}
+
 // ConnectorTags represent all of the tags defined for a particular connector
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 pub struct ConnectorTags {
     pub connector_id: Id,
     pub image_name: String,
-    pub tags: Option<Vec<String>>,
+    pub tags: sqlx::types::Json<Vec<(String, JobStatus)>>,
 }
 
 pub async fn find_tags(
     image_name: String,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<ConnectorTags> {
-    sqlx::query_as!(
-        ConnectorTags,
+) -> sqlx::Result<Option<ConnectorTags>> {
+    let res = sqlx::query_as::<_, ConnectorTags>(
         r#"select
-            connector.id as "connector_id: Id",
+            connector.id as connector_id,
             connector.image_name,
-            array_agg(tag.image_tag) as tags
+            json_agg(json_build_array(tag.image_tag, tag.job_status)) as tags
         from connectors as connector
         join connector_tags as tag on tag.connector_id = connector.id
         where connector.image_name = $1
         group by connector.id, tag.id
         order by tag.id asc;"#,
-        image_name
     )
-    .fetch_one(txn)
-    .await
+    .bind(image_name)
+    .fetch_optional(txn)
+    .await;
+
+    res
 }
 
 pub async fn resolve<S>(

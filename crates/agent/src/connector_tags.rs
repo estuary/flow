@@ -1,21 +1,10 @@
 use super::{jobs, logs, Handler, Id};
 
-use agent_sql::connector_tags::Row;
+use agent_sql::connector_tags::{JobStatus, Row};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tracing::info;
-
-/// JobStatus is the possible outcomes of a handled connector tag.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum JobStatus {
-    Queued,
-    PullFailed,
-    SpecFailed,
-    OpenGraphFailed { error: String },
-    Success,
-}
 
 /// A TagHandler is a Handler which evaluates tagged connector images.
 pub struct TagHandler {
@@ -143,11 +132,8 @@ impl TagHandler {
         .await?;
 
         if let Some(oauth2_spec) = oauth2_spec {
-            agent_sql::connector_tags::update_oauth2_spec(
-                row.connector_id,
-                oauth2_spec,
-                txn,
-            ).await?;
+            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2_spec, txn)
+                .await?;
         }
 
         return Ok((row.tag_id, JobStatus::Success));
