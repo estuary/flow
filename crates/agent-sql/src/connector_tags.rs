@@ -42,7 +42,7 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
-// Row is the dequeued task shape of a tag connector operation.
+// ConnectorTags represent all of the tags defined for a particular connector
 #[derive(Debug)]
 pub struct ConnectorTags {
     pub connector_id: Id,
