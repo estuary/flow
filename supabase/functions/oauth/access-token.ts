@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js';
-import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
+// import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
+import HandlebarsJS from 'https://esm.sh/handlebars';
 import jsonpointer from 'https://esm.sh/jsonpointer.js';
 import { returnPostgresError, handlebarsHelpers } from '../_shared/helpers.ts';
 import { corsHeaders } from '../_shared/cors.ts';

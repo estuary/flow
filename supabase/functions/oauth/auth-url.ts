@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js';
-import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
+// import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
+import HandlebarsJS from 'https://esm.sh/handlebars';
 import { corsHeaders } from '../_shared/cors.ts';
 import { returnPostgresError, handlebarsHelpers } from '../_shared/helpers.ts';
 import { supabaseClient } from '../_shared/supabaseClient.ts';
