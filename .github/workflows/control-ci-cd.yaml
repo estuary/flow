@@ -21,7 +21,7 @@ jobs:
       - uses: supabase/setup-cli@v1
 
       - name: Deploy Supabase Edge Functions
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ github.ref == 'refs/heads/master' }}
         id: deploy-supabase-fn
         run: |
           echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
