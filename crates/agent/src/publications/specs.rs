@@ -114,6 +114,18 @@ pub async fn insert_errors(
     Ok(())
 }
 
+pub async fn is_connector_tag_valid(
+    (image, tag): (String, String),
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<bool> {
+    let resp = agent_sql::connector_tags::find_tags(image.clone(), txn).await?;
+
+    Ok(resp
+        .tags
+        .context(format!("No connector tags found for {}", image))?
+        .contains(&tag))
+}
+
 pub fn extend_catalog<'a>(
     catalog: &mut models::Catalog,
     it: impl Iterator<Item = (CatalogType, &'a str, &'a RawValue)>,
@@ -166,11 +178,12 @@ pub fn extend_catalog<'a>(
     errors
 }
 
-pub fn validate_transition(
+pub async fn validate_transition(
     draft: &models::Catalog,
     live: &models::Catalog,
     pub_id: Id,
     spec_rows: &[SpecRow],
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Vec<Error> {
     let mut errors = Vec::new();
 
@@ -201,7 +214,31 @@ pub fn validate_transition(
             continue;
         }
         // Check that the specification is authorized to its referants.
-        let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
+        let (reads_from, writes_to, tag) = extract_spec_metadata(draft, spec_row);
+
+        if let Some((image_name, image_tag)) = tag {
+            match is_connector_tag_valid((image_name.clone(), image_tag.clone()), txn).await {
+                Ok(false) => errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "'{}:{}' is not an allowed connector tag",
+                        image_name, image_tag
+                    ),
+                    ..Default::default()
+                }),
+                Err(err) => errors.push(Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!(
+                        "Error validating connector tag {}:{}: {}",
+                        image_name,
+                        image_tag,
+                        err.to_string()
+                    ),
+                    ..Default::default()
+                }),
+                _ => {}
+            }
+        }
         for source in reads_from.iter().flatten() {
             if !spec_capabilities.iter().any(|c| {
                 source.starts_with(&c.object_role)
@@ -282,8 +319,8 @@ pub fn validate_transition(
 
         // Verify that the live specification has not existed and then been deleted in the past.
         // TODO(johnny): remove once we introduce data plane pet-names.
-        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id   {
-                errors.push(Error {
+        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id {
+            errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
                         "A specification with this name previously existed and then was deleted. At present Flow does not allow for re-creation with this same name."

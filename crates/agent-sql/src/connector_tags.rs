@@ -42,6 +42,35 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
+// Row is the dequeued task shape of a tag connector operation.
+#[derive(Debug)]
+pub struct ConnectorTags {
+    pub connector_id: Id,
+    pub image_name: String,
+    pub tags: Option<Vec<String>>,
+}
+
+pub async fn find_tags(
+    image_name: String,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<ConnectorTags> {
+    sqlx::query_as!(
+        ConnectorTags,
+        r#"select
+            connector.id as "connector_id: Id",
+            connector.image_name,
+            array_agg(tag.image_tag) as tags
+        from connectors as connector
+        join connector_tags as tag on tag.connector_id = connector.id
+        where connector.image_name = $1
+        group by connector.id, tag.id
+        order by tag.id asc;"#,
+        image_name
+    )
+    .fetch_one(txn)
+    .await
+}
+
 pub async fn resolve<S>(
     id: Id,
     status: S,
