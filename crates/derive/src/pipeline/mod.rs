@@ -317,7 +317,7 @@ impl Pipeline {
         let next = Block::new(self.next.id + 1, &self.updates_model, &self.publishes_model);
         let block = std::mem::replace(&mut self.next, next);
         self.await_update
-            .push(block.invoke_updates(&self.trampoline));
+            .push_back(block.invoke_updates(&self.trampoline));
     }
 
     // Poll pending Block invocations, processing all Blocks which immediately resolve.
@@ -349,7 +349,7 @@ impl Pipeline {
                     tracing::debug!(?block, "completed register updates, starting publishes");
 
                     self.await_publish
-                        .push(block.invoke_publish(&self.trampoline));
+                        .push_back(block.invoke_publish(&self.trampoline));
                 }
             }
         }
