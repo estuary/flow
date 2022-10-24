@@ -4,9 +4,10 @@ on:
   push:
     # Only on pushes to the master branch
     branches: [master]
-    # Only run if function code has changed.
+    # Only run if function code or the ci config itself has changed
     paths:
       - supabase/functions/**
+      - .github/workflows/control-ci-cd.yaml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
