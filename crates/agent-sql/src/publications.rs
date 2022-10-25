@@ -487,17 +487,20 @@ pub async fn insert_live_spec_flows(
     writes_to: Option<Vec<&str>>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
-    // Precondition: all of `reads_from` and `writes_to` must have a live_specs row.
-    // We use a left outer join to deliberately error (by violation a not-null
-    // constraint) if we fail to match a reads_from / write_to to a live_specs row.
+    // Precondition: `reads_from` and `writes_to` may or may not have a live_specs row,
+    // and we silently ignore entries which don't match a live_specs row.
+    //
+    // We do this because we insert data-flow edges *before* we validate specification
+    // references -- edges are used to expand the graph of specifications which participate
+    // in the build, and must thus be updated prior to the build being done.
     sqlx::query!(
         r#"
         insert into live_spec_flows (source_id, target_id, flow_type)
             select live_specs.id, $1, $2::catalog_spec_type
-            from unnest($3::text[]) as n left outer join live_specs on catalog_name = n
+            from unnest($3::text[]) as n inner join live_specs on catalog_name = n
         union
             select $1, live_specs.id, $2
-            from unnest($4::text[]) as n left outer join live_specs on catalog_name = n;
+            from unnest($4::text[]) as n inner join live_specs on catalog_name = n;
         "#,
         live_spec_id as Id,
         draft_type as &Option<CatalogType>,
