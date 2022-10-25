@@ -25,6 +25,7 @@ pub const ENDPOINT_ADDRESS_KEY: &str = "address";
 )]
 pub struct SshForwardingConfig {
     /// Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]
+    #[schemars(schema_with = "ssh_endpoint_schema")]
     pub ssh_endpoint: String,
     /// Deprecated field specifying the user used to connect to the SSH endpoint.
     /// User must now be specified as part of the ssh_endpoint, however to be backward-compatible
@@ -49,6 +50,16 @@ pub struct SshForwardingConfig {
     #[serde(default)]
     #[schemars(skip)]
     pub local_port: u16,
+}
+
+fn ssh_endpoint_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "title": "SSH Endpoint",
+        "description": "Endpoint of the remote SSH server that supports tunneling, in the form of ssh://user@hostname[:port]",
+        "type": "string",
+        "pattern": "^ssh://[^@]+@[^:]+(:[0-9]+)?$",
+    }))
+    .unwrap()
 }
 
 fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
