@@ -44,7 +44,7 @@ Additional options for `flowctl logs` and `flowctl stats` can be accessed throug
 
 You can materialize your `logs` or `stats` collections to an external system.
 This is typically the preferred method if you’d like to continuously work with or monitor logs or statistics.
-It's easiest to materialize the whole collection, but you can use a [partition selector](../../concepts/materialization/#partition-selectors) to only materialize specific tasks, as the `logs` and `stats` collections are partitioned on tasks.
+You can materialize the logs or statistics for all tasks, or select a subset of tasks using a [partition selector](../../concepts/materialization/#partition-selectors) (the `logs` and `stats` collections are partitioned on tasks).
 
 :::caution
 Be sure to add a partition selector to exclude the logs and statistics of the materialization
@@ -79,7 +79,8 @@ A thorough knowledge of Flow's [advanced concepts](../concepts/README.md#advance
 
 ### Shard information
 
-Each `stats` document begin with data about the shard processing the transaction.
+A `stats` document begins with data about the shard processing the transaction.
+Each processing shard is uniquely identified by the combination of its `name`, `keyBegin`, and `rClockBegin`.
 This information is important for tasks with multiple shards: it allows you to determine whether data throughput is
 evenly distributed amongst those shards.
 
@@ -102,13 +103,13 @@ and that the amount of data processed matches your expectations.
 |---|---|---|---|
 | `/ts` | Timestamp corresponding to the start of the transaction, rounded to the nearest minute | string | All |
 | `/openSecondsTotal` | Total time that the transaction was open before starting to commit | number | All |
-| `/txnCount` | Total number of transactions represented by this stats document. Used for reduction; will always be `1`. | integer | All |
+| `/txnCount` | Total number of transactions represented by this stats document. Used for reduction. | integer | All |
 | `/capture` | Capture stats, organized by collection | object | Capture |
 | `/materialize` | Materialization stats, organized by collection | object | Materialization |
 | `/derive` | Derivation statistics | object | Derivation |
-| `/<task-type>/right/`| Input documents from a the task's source | object | Capture, materialization |
-| `/<task-type>/left/`| Input documents from an external destination; used for [reduced updates](../concepts/materialization.md#how-continuous-materialization-works) in materializations | object | Materialization |
-| `/<task-type>/out/`| Output documents from the transaction | object | All |
+| `/<task-type>/<collection-name>/right/`| Input documents from a the task's source | object | Capture, materialization |
+| `/<task-type>/<collection-name>/left/`| Input documents from an external destination; used for [reduced updates](../concepts/materialization.md#how-continuous-materialization-works) in materializations | object | Materialization |
+| `/<task-type>/<collection-name>/out/`| Output documents from the transaction | object | All |
 | `/<task-type>/{}/docsTotal` | Total number of documents| integer| All |
 | `/<task-type>/{}/bytesTotal` | Total number of bytes representing the JSON encoded documents | integer | All |
 | `/derivations/transforms/transformStats` | Stats for a specific transform of a derivation, which will have an update, publish, or both | object | Derivation |

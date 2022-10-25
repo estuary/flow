@@ -40,10 +40,10 @@ Use `flowctl collections read --help` to see documentation for all options.
 :::info Beta
 While in beta, this command currently has the following limitations. They will be removed in a later release:
 
-* The `--uncommitted` flag is required. This means that all collection documents are read, regardless of whether they were successfully committed or if they part of a [transaction](../concepts/advanced/shards.md#transactions) that was rolled back or uncommitted.
+* The `--uncommitted` flag is required. This means that all collection documents are read, regardless of whether they were successfully committed or not.
 In the future, reads of committed documents will be the default.
 
-* Only collections comprising a single [journal](../concepts/advanced/journals.md) can be read.
+* Only reads of a single [partition](../concepts/advanced/projections.md#logical-partitions) are supported. If you need to read from a partitioned collection, use `--include-partition` or `--exclude-partition` to narrow down to a single partition.
 
 * The `--output` flag is not usable for this command. Only JSON data can be read from collections.
 :::
