@@ -28,7 +28,11 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-* The [access token](https://developers.intercom.com/building-apps/docs/authentication-types#section-how-to-get-your-access-token) for you Intercom account.
+There are two ways to authenticate with Intercom:
+
+* In the Flow web app, you sign in directly. You'll need the username and password associated with [a user with full permissions](https://www.intercom.com/help/en/articles/280-how-do-i-add-remove-or-delete-a-teammate) on your Intercom workspace.
+
+* Using the flowctl CLI, you configure authentication manually. You'll need the [access token](https://developers.intercom.com/building-apps/docs/authentication-types#section-how-to-get-your-access-token) for you Intercom account.
 
 ## Configuration
 
@@ -38,6 +42,9 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 ### Properties
 
 #### Endpoint
+
+The properties in the table below reflect manual authentication using the CLI. In the Flow web app,
+you'll sign in directly and won't need the access token.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
@@ -53,6 +60,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 
 ### Sample
+
+The sample below reflects manual authentication in the CLI.
 
 ```yaml
 captures:
