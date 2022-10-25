@@ -89,14 +89,14 @@ select
   t.documentation_url as connector_tag_documentation_url,
   p.detail as last_pub_detail,
   p.user_id as last_pub_user_id,
-  u.avatar_url as last_pub_user_avatar_url,
+  coalesce(u.raw_user_meta_data->>'picture', u.raw_user_meta_data->>'avatar_url') as last_pub_user_avatar_url,
   u.email as last_pub_user_email,
-  u.full_name as last_pub_user_full_name
+  coalesce(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name') as last_pub_user_full_name
 from live_specs l
 left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
 left outer join connectors c on c.image_name = l.connector_image_name
-left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag,
-lateral view_user_profile(p.user_id) u
+left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
+inner join auth.users u on u.id = p.user_id;
 ;
 alter view live_specs_ext owner to authenticated;
 
