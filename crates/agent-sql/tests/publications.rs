@@ -110,12 +110,16 @@ async fn test_publication_data_operations() {
     .unwrap();
 
     // Insert a number of flows between `aliceCo/Test/Fixture` and other specs.
-    // Expect all flows are resolved.
+    // Expect all flows that can be resolved, are resolved. Others are ignored.
     agent_sql::publications::insert_live_spec_flows(
         Id::new([0xcc, 0, 0, 0, 0, 0, 0, 0]),
         &Some(agent_sql::CatalogType::Test),
-        Some(vec!["aliceCo/First/Thing"]),
-        Some(vec!["aliceCo/First/Thing", "aliceCo/Second/Thing"]),
+        Some(vec!["aliceCo/First/Thing", "does/not/exist"]),
+        Some(vec![
+            "aliceCo/First/Thing",
+            "aliceCo/Second/Thing",
+            "also/does/not/exist",
+        ]),
         &mut txn,
     )
     .await
