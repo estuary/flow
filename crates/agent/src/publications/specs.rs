@@ -1,13 +1,13 @@
 use super::Error;
 use crate::Id;
 
-use agent_sql::publications::{ExpandedRow, SpecRow};
+use agent_sql::publications::{ExpandedRow, ResourceUsageChanges, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType};
 use anyhow::Context;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
@@ -282,8 +282,8 @@ pub fn validate_transition(
 
         // Verify that the live specification has not existed and then been deleted in the past.
         // TODO(johnny): remove once we introduce data plane pet-names.
-        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id   {
-                errors.push(Error {
+        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id {
+            errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
                         "A specification with this name previously existed and then was deleted. At present Flow does not allow for re-creation with this same name."
@@ -348,6 +348,238 @@ pub fn validate_transition(
     }
 
     errors
+}
+
+pub async fn enforce_resource_quotas(
+    draft: &models::Catalog,
+    live: &models::Catalog,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<Either<Vec<Error>, HashMap<String, ResourceUsageChanges>>> {
+    let mut catalog_change_map: HashMap<String, ResourceUsageChanges> = HashMap::new();
+
+    for captures_eob in draft
+        .captures
+        .iter()
+        .merge_join_by(live.captures.iter(), |(n1, _), (n2, _)| n1.cmp(n2))
+    {
+        match captures_eob {
+            itertools::EitherOrBoth::Left((capture_name, _)) => {
+                // This capture is being added
+                catalog_change_map
+                    .entry(capture_name.to_string())
+                    .or_default()
+                    .capture_count_change += 1;
+                tracing::debug!(capture = ?capture_name, "Capture added")
+            }
+            itertools::EitherOrBoth::Right((capture_name, _)) => {
+                // This capture is being removed
+                catalog_change_map
+                    .entry(capture_name.to_string())
+                    .or_default()
+                    .capture_count_change -= 1;
+                tracing::debug!(capture = ?capture_name, "Capture removed")
+            }
+            // This capture is being updated, so we the total count won't change
+            itertools::EitherOrBoth::Both(_, _) => {}
+        }
+    }
+
+    for materializations_eob in draft
+        .materializations
+        .iter()
+        .merge_join_by(live.materializations.iter(), |(n1, _), (n2, _)| n1.cmp(n2))
+    {
+        match materializations_eob {
+            itertools::EitherOrBoth::Left((materialization_name, _)) => {
+                // This materialization is being added
+                catalog_change_map
+                    .entry(materialization_name.to_string())
+                    .or_default()
+                    .materialization_count_change += 1;
+                tracing::debug!(materialization = ?materialization_name, "Materialization added")
+            }
+            itertools::EitherOrBoth::Right((materialization_name, _)) => {
+                // This materialization is being removed
+                catalog_change_map
+                    .entry(materialization_name.to_string())
+                    .or_default()
+                    .materialization_count_change -= 1;
+                tracing::debug!(materialization = ?materialization_name, "Materialization removed")
+            }
+            // This materialization is being updated, so we the total count won't change
+            itertools::EitherOrBoth::Both(_, _) => {}
+        }
+    }
+
+    for collections_eob in draft
+        .collections
+        .iter()
+        .merge_join_by(live.collections.iter(), |(n1, _), (n2, _)| n1.cmp(n2))
+    {
+        match collections_eob {
+            itertools::EitherOrBoth::Both((catalog_name, draft), (_, live)) => {
+                // This collection is being modified. Did it add or remove a derivation?
+                match (&draft.derivation, &live.derivation) {
+                    (None, None) | (Some(_), Some(_)) => {}
+                    (None, Some(_)) => {
+                        // Derivation is being removed
+                        catalog_change_map
+                            .entry(catalog_name.to_string())
+                            .or_default()
+                            .derivation_count_change -= 1;
+                        tracing::debug!(collection = ?catalog_name, "Derivation removed from existing collection")
+                    }
+                    (Some(_), None) => {
+                        // Derivation is being added
+                        catalog_change_map
+                            .entry(catalog_name.to_string())
+                            .or_default()
+                            .derivation_count_change += 1;
+                        tracing::debug!(collection = ?catalog_name, "Derivation added existing collection")
+                    }
+                }
+            }
+            itertools::EitherOrBoth::Left((catalog_name, draft)) => {
+                // This collection is being added
+                catalog_change_map
+                    .entry(catalog_name.to_string())
+                    .or_default()
+                    .collection_count_change += 1;
+                tracing::debug!(collection = ?catalog_name, "Collection added");
+
+                if draft.derivation.is_some() {
+                    catalog_change_map
+                        .entry(catalog_name.to_string())
+                        .or_default()
+                        .derivation_count_change += 1;
+                    tracing::debug!(collection = ?catalog_name, "Derivation added");
+                }
+            }
+            itertools::EitherOrBoth::Right((catalog_name, live)) => {
+                // This collection is being removed
+                catalog_change_map
+                    .entry(catalog_name.to_string())
+                    .or_default()
+                    .collection_count_change -= 1;
+                tracing::debug!(collection = ?catalog_name, "Collection removed");
+                if live.derivation.is_some() {
+                    catalog_change_map
+                        .entry(catalog_name.to_string())
+                        .or_default()
+                        .derivation_count_change -= 1;
+                    tracing::debug!(collection = ?catalog_name, "Derivation removed");
+                }
+            }
+        }
+    }
+
+    let mut tenant_grouped_changes: HashMap<String, ResourceUsageChanges> = HashMap::new();
+    let mut tenants: HashMap<String, Tenant> = HashMap::new();
+
+    // Is there a more idiomatic way to do this with mapping and iterators and stuff?
+
+    for (catalog_name, changes) in catalog_change_map.iter() {
+        let res = agent_sql::publications::find_tenant_for_catalog_name(catalog_name, txn)
+            .await
+            .map_err(|e| anyhow::Error::from(e))?;
+
+        match res {
+            Some(tenant) => {
+                tenant_grouped_changes
+                    .entry(tenant.name.clone())
+                    .or_default()
+                    .merge(changes);
+
+                tenants.insert(tenant.name.clone(), tenant);
+            }
+            None => {
+                tracing::debug!(catalog_name=?catalog_name, "Skipping quota enforcement because no tenant could be found");
+                continue;
+            }
+        }
+    }
+
+    let mut errors: Vec<Error> = Vec::new();
+
+    for (tenant_name, aggregated_changes) in tenant_grouped_changes.iter() {
+        let tenant = tenants.get(tenant_name).unwrap(); // We guarinteed earlier that this will exist
+
+        if tenant.captures_used + aggregated_changes.capture_count_change > tenant.captures_quota {
+            errors.push(Error {
+                detail: format!(
+                    "Request to add {} captures exceeds tenant '{}' quota of {}. {} are in use.",
+                    tenant.captures_used + aggregated_changes.capture_count_change,
+                    tenant_name,
+                    tenant.captures_quota,
+                    tenant.captures_used
+                ),
+                ..Default::default()
+            })
+        }
+
+        if tenant.derivations_used + aggregated_changes.derivation_count_change
+            > tenant.derivations_quota
+        {
+            errors.push(Error {
+                detail: format!(
+                    "Request to add {} derivations exceeds tenant '{}' quota of {}. {} are in use.",
+                    tenant.derivations_used + aggregated_changes.derivation_count_change,
+                    tenant_name,
+                    tenant.derivations_quota,
+                    tenant.derivations_used,
+                ),
+                ..Default::default()
+            })
+        }
+
+        if tenant.materializations_used + aggregated_changes.materialization_count_change
+            > tenant.materializations_quota
+        {
+            errors.push(Error {
+                detail: format!(
+                    "Request to add {} materializations exceeds tenant '{}' quota of {}. {} are in use.",
+                    tenant.materializations_used + aggregated_changes.materialization_count_change,
+                    tenant_name,
+                    tenant.materializations_quota,
+                    tenant.materializations_used,
+                ),
+                ..Default::default()
+            })
+        }
+
+        if tenant.collections_used + aggregated_changes.collection_count_change
+            > tenant.collections_quota
+        {
+            errors.push(Error {
+                detail: format!(
+                    "Request to add {} collections exceeds tenant '{}' quota of {}. {} are in use.",
+                    tenant.collections_used + aggregated_changes.collection_count_change,
+                    tenant_name,
+                    tenant.collections_quota,
+                    tenant.collections_used
+                ),
+                ..Default::default()
+            })
+        }
+    }
+
+    if errors.len() > 0 {
+        Ok(Either::Left(errors))
+    } else {
+        Ok(Either::Right(tenant_grouped_changes))
+    }
+}
+
+pub async fn update_tenants_resource_usage(
+    usage_changes: HashMap<String, ResourceUsageChanges>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<()> {
+    for (tenant_name, usage) in usage_changes.iter() {
+        agent_sql::publications::update_tenants_resource_usage(tenant_name.to_owned(), usage, txn)
+            .await?
+    }
+
+    Ok(())
 }
 
 pub async fn apply_updates_for_row(

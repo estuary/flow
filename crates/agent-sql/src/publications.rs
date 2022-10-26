@@ -209,6 +209,89 @@ pub async fn resolve_spec_rows(
 }
 
 #[derive(Debug)]
+pub struct Tenant {
+    pub name: String,
+    pub captures_quota: i32,
+    pub derivations_quota: i32,
+    pub materializations_quota: i32,
+    pub collections_quota: i32,
+    pub captures_used: i32,
+    pub derivations_used: i32,
+    pub materializations_used: i32,
+    pub collections_used: i32,
+}
+
+pub async fn find_tenant_for_catalog_name(
+    catalog_name: &str,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Option<Tenant>> {
+    sqlx::query_as!(
+        Tenant,
+        r#"
+        select 
+            tenant as name,
+            captures_quota,
+            derivations_quota,
+            materializations_quota,
+            collections_quota,
+            captures_used,
+            derivations_used,
+            materializations_used,
+            collections_used
+        from tenants
+        where $1 ILIKE tenant || '%';
+        "#,
+        catalog_name
+    )
+    .fetch_optional(txn)
+    .await
+}
+
+#[derive(Default)]
+pub struct ResourceUsageChanges {
+    pub capture_count_change: i32,
+    pub derivation_count_change: i32,
+    pub materialization_count_change: i32,
+    pub collection_count_change: i32,
+}
+
+impl ResourceUsageChanges {
+    pub fn merge(&mut self, other: &Self) {
+        self.capture_count_change += other.capture_count_change;
+        self.derivation_count_change += other.derivation_count_change;
+        self.materialization_count_change += other.materialization_count_change;
+        self.collection_count_change += other.collection_count_change;
+    }
+}
+
+pub async fn update_tenants_resource_usage(
+    tenant: String,
+    usage_update: &ResourceUsageChanges,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        update tenants set
+            captures_used = captures_used + $2,
+            derivations_used = derivations_used + $3,
+            materializations_used = materializations_used + $4,
+            collections_used = collections_used + $5
+        where tenants.tenant = $1
+        returning 1 as "must_exist";
+        "#,
+        tenant,
+        usage_update.capture_count_change,
+        usage_update.derivation_count_change,
+        usage_update.materialization_count_change,
+        usage_update.collection_count_change
+    )
+    .fetch_one(txn)
+    .await?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
 pub struct ExpandedRow {
     // Name of the specification.
     pub catalog_name: String,
