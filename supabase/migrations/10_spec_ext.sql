@@ -17,6 +17,13 @@ create type user_profile as (
   avatar_url text
 );
 
+create view user_profiles as
+  select
+    id,
+    email,
+    coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
+    coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url from auth.users;
+
 -- Provide API clients a way to map a User ID to a user profile.
 -- `bearer_user_id` is a UUID ID of the auth.users table and is treated as a bearer token:
 -- Anyone able to identify a UUID is able to retrieve their profile.
@@ -25,9 +32,9 @@ returns user_profile as $$
   select
     id as user_id,
     email,
-    coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
-    coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url
-  from auth.users where id = bearer_user_id;
+    full_name,
+    avatar_url
+  from user_profiles where id = bearer_user_id;
 $$ language sql stable security definer;
 
 comment on function view_user_profile is
@@ -89,14 +96,14 @@ select
   t.documentation_url as connector_tag_documentation_url,
   p.detail as last_pub_detail,
   p.user_id as last_pub_user_id,
-  coalesce(u.raw_user_meta_data->>'picture', u.raw_user_meta_data->>'avatar_url') as last_pub_user_avatar_url,
+  u.avatar_url as last_pub_user_avatar_url,
   u.email as last_pub_user_email,
-  coalesce(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name') as last_pub_user_full_name
+  u.full_name as last_pub_user_full_name
 from live_specs l
 left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
 left outer join connectors c on c.image_name = l.connector_image_name
 left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
-inner join auth.users u on u.id = p.user_id;
+inner join user_profiles u on u.id = p.user_id;
 ;
 alter view live_specs_ext owner to authenticated;
 
