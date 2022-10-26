@@ -117,6 +117,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		m.spec.EndpointType,
 		m.spec.EndpointSpecJson,
 		m.host.Config.Flow.Network,
+		shard.Spec().Id.String(),
 		m.LogPublisher,
 	)
 	if err != nil {
