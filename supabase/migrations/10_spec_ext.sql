@@ -73,8 +73,8 @@ select
   u.email as user_email,
   u.full_name as user_full_name,
   g.user_id as user_id
-from user_grants g,
-lateral view_user_profile(g.user_id) u
+from user_grants g
+left outer join internal.user_profiles u on u.user_id = g.user_id;
 ;
 alter view combined_grants_ext owner to authenticated;
 
