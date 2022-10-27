@@ -2,11 +2,7 @@ use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStr
 use crate::errors::{
     self, interceptor_stream_to_io_stream, io_stream_to_interceptor_stream, Error,
 };
-use crate::interceptors::{
-    airbyte_source_interceptor::AirbyteSourceInterceptor,
-    network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
-    network_tunnel_materialize_interceptor::NetworkTunnelMaterializeInterceptor,
-};
+use crate::interceptors::airbyte_source_interceptor::AirbyteSourceInterceptor;
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
 };
@@ -29,11 +25,9 @@ pub async fn run_flow_capture_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
-    let adapted_request_stream =
-        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?;
+    let adapted_request_stream = request_stream();
 
-    let adapted_response_stream =
-        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
+    let adapted_response_stream = response_stream(child_stdout);
 
     let streaming_all_task =
         streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
@@ -56,13 +50,9 @@ pub async fn run_flow_materialize_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
-    let adapted_request_stream =
-        NetworkTunnelMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
+    let adapted_request_stream = request_stream();
 
-    let adapted_response_stream = NetworkTunnelMaterializeInterceptor::adapt_response_stream(
-        op,
-        response_stream(child_stdout),
-    )?;
+    let adapted_response_stream = response_stream(child_stdout);
 
     let streaming_all_task =
         streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
@@ -87,10 +77,7 @@ pub async fn run_airbyte_source_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_delayed(entrypoint, args)?)?;
 
-    let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
-        op,
-        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
-    )?;
+    let adapted_request_stream = airbyte_interceptor.adapt_request_stream(op, request_stream())?;
 
     let res_stream =
         airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?;
@@ -129,8 +116,7 @@ pub async fn run_airbyte_source_connector(
         res_stream
     };
 
-    let adapted_response_stream =
-        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, res_stream)?;
+    let adapted_response_stream = res_stream;
 
     let streaming_all_task =
         streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
