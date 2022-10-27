@@ -51,3 +51,32 @@ Enumeration of Flow catalog specification types:
 "capture", "collection", "materialization", or "test"
 ';
 
+CREATE OR REPLACE FUNCTION notify_channel() RETURNS trigger AS $trigger$
+DECLARE
+  rec RECORD;
+  dat RECORD;
+  payload TEXT;
+BEGIN
+
+  -- Set record row depending on operation
+  CASE TG_OP
+  WHEN 'UPDATE' THEN
+     rec := NEW;
+     dat := OLD;
+  WHEN 'INSERT' THEN
+     rec := NEW;
+  WHEN 'DELETE' THEN
+     rec := OLD;
+  ELSE
+     RAISE EXCEPTION 'Unknown TG_OP: "%". Should not occur!', TG_OP;
+  END CASE;
+
+  -- Build the payload
+  payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'action',LOWER(TG_OP));
+
+  -- Notify the channel
+  PERFORM pg_notify(TG_ARGV[0], payload);
+
+  RETURN rec;
+END;
+$trigger$ LANGUAGE plpgsql;

@@ -5,17 +5,32 @@ mod jobs;
 pub mod logs;
 mod publications;
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
 pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use publications::PublishHandler;
+use sqlx::postgres::PgListener;
+use tokio::sync::mpsc;
+
+#[derive(Debug)]
+pub enum HandlerStatus {
+    MoreWork,
+    NoMoreWork,
+}
 
 /// Handler is the principal trait implemented by the various task-specific
 /// event handlers that the agent runs.
 #[async_trait::async_trait]
 pub trait Handler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration>;
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()>;
+
+    fn channel_name(&self) -> &'static str;
 
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
@@ -32,33 +47,74 @@ pub async fn serve<E>(
 where
     E: std::future::Future<Output = ()> + Send,
 {
-    let mut now = tokio::time::Instant::now();
-    let mut handlers = handlers.into_iter().map(|h| (h, now)).collect::<Vec<_>>();
+    let handlers_by_channel = handlers
+        .into_iter()
+        .map(|h| (h.channel_name(), Arc::new(Mutex::new(h))))
+        .collect::<HashMap<_, _>>();
+
+    let mut listener = PgListener::connect_with(&pg_pool).await?;
+
+    listener
+        .listen_all(handlers_by_channel.iter().map(|(channel, _)| *channel))
+        .await?;
+
+    let (task_tx, mut task_rx) = mpsc::channel::<String>(1000);
+    // VecDeque::from_iter(handlers_by_channel.iter().map(|(_, han)| *han.to_owned()));
+
+    // Each task gets run at least once to check if there is any pending work
+    for (handler_channel, _) in handlers_by_channel.iter() {
+        task_tx.send(handler_channel.to_string()).await?;
+    }
 
     tokio::pin!(exit);
-    loop {
-        // Pick handler with the next deadline.
-        let (handler, deadline) = handlers
-            .iter_mut()
-            .min_by_key(|i| i.1)
-            .expect("handlers is not empty");
 
-        // Sleep until its deadline has elapsed.
-        let sleep = tokio::time::sleep_until(*deadline);
-        tokio::select! {
-            _ = &mut exit => {
-                tracing::debug!("caught signal; exiting...");
-                return Ok(()) // All done.
+    let listen_to_queue = async {
+        loop {
+            let item = listener.recv().await?;
+            let channel = item.channel();
+            match handlers_by_channel.get(channel) {
+                Some(_) => {
+                    tracing::debug!(channel = channel, "Message received to invoke handler");
+                    task_tx.send(channel.to_string()).await?
+                }
+                None => tracing::warn!(channel = channel, "Message received on unknown channel"),
             }
-            _ = sleep => (),
-        };
+        }
+    };
 
-        now = tokio::time::Instant::now();
-        let next_interval = handler.handle(&pg_pool).await?;
-        tracing::trace!(delay=?now.checked_duration_since(*deadline), ?next_interval, handler = %handler.name(), "invoked handler");
+    let handle_from_queue = async {
+        while let Some(chan) = task_rx.recv().await {
+            let mut handler = handlers_by_channel
+                .get(chan.as_str())
+                .expect(format!("Unexpected task channel {}", chan).as_str())
+                .lock()
+                .unwrap();
 
-        // Update the handler deadline to reflect its current execution time.
-        *deadline = now + next_interval;
+            let handle_result = handler.handle(&pg_pool).await;
+
+            match handle_result {
+                Ok(status) => {
+                    tracing::info!(handler = %handler.name(), channel = %handler.channel_name(), "invoked handler");
+                }
+                Err(err) => {
+                    // Do we actually just want to crash here?
+                    tracing::error!(handler = %handler.name(), channel = %handler.channel_name(), "Error invoking handler: {}", err.to_string());
+                }
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    };
+
+    tokio::select! {
+        listen_res = listen_to_queue => {
+            return listen_res;
+        }
+        handle_res = handle_from_queue => {
+            return handle_res;
+        }
+        _ = exit => {
+            return Ok(())
+        }
     }
 }
 

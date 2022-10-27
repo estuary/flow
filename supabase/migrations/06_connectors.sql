@@ -71,6 +71,9 @@ create table connector_tags (
 -- Public, no RLS.
 alter publication supabase_realtime add table connector_tags;
 
+CREATE TRIGGER connector_tags_notify AFTER INSERT OR UPDATE OR DELETE ON connector_tags
+FOR EACH ROW EXECUTE PROCEDURE notify_channel("connector_tags");
+
 comment on table connector_tags is '
 Available image tags (versions) of connectors.
 Tags are _typically_ immutable versions,
