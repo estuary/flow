@@ -59,19 +59,21 @@ impl DirectiveHandler {
 
 #[async_trait::async_trait]
 impl Handler for DirectiveHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
-        while let Some(row) = agent_sql::directives::dequeue(&mut txn).await? {
-            let (id, status) = self.process(row, &mut txn).await?;
-            info!(%id, ?status, "finished");
+        let row: Row = match agent_sql::directives::dequeue(&mut txn).await? {
+            None => return Ok(HandlerStatus::NoMoreWork),
+            Some(row) => row,
+        };
 
-            agent_sql::directives::resolve(id, status, &mut txn).await?;
-            txn.commit().await?;
-            txn = pg_pool.begin().await?;
-        }
+        let (id, status) = self.process(row, &mut txn).await?;
+        info!(%id, ?status, "finished");
 
-        Ok(())
+        agent_sql::directives::resolve(id, status, &mut txn).await?;
+        txn.commit().await?;
+
+        Ok(HandlerStatus::MoreWork)
     }
 
     fn channel_name(&self) -> &'static str {

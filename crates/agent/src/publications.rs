@@ -61,31 +61,33 @@ impl PublishHandler {
 
 #[async_trait::async_trait]
 impl Handler for PublishHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
-        while let Some(row) = agent_sql::publications::dequeue(&mut txn).await? {
-            let delete_draft_id = if !row.dry_run {
-                Some(row.draft_id)
-            } else {
-                None
-            };
+        let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
+            None => return Ok(HandlerStatus::NoMoreWork),
+            Some(row) => row,
+        };
 
-            let (id, status) = self.process(row, &mut txn).await?;
-            info!(%id, ?status, "finished");
+        let delete_draft_id = if !row.dry_run {
+            Some(row.draft_id)
+        } else {
+            None
+        };
 
-            agent_sql::publications::resolve(id, &status, &mut txn).await?;
-            txn.commit().await?;
+        let (id, status) = self.process(row, &mut txn).await?;
+        info!(%id, ?status, "finished");
 
-            // As a separate transaction, delete the draft if it has no draft_specs.
-            // The user could have raced an insertion of a new spec.
-            if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
-                agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
-            }
-            txn = pg_pool.begin().await?;
+        agent_sql::publications::resolve(id, &status, &mut txn).await?;
+        txn.commit().await?;
+
+        // As a separate transaction, delete the draft if it has no draft_specs.
+        // The user could have raced an insertion of a new spec.
+        if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
+            agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(())
+        Ok(HandlerStatus::MoreWork)
     }
 
     fn channel_name(&self) -> &'static str {

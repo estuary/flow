@@ -28,7 +28,7 @@ pub enum HandlerStatus {
 /// event handlers that the agent runs.
 #[async_trait::async_trait]
 pub trait Handler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()>;
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus>;
 
     fn channel_name(&self) -> &'static str;
 
@@ -94,7 +94,14 @@ where
 
             match handle_result {
                 Ok(status) => {
-                    tracing::info!(handler = %handler.name(), channel = %handler.channel_name(), "invoked handler");
+                    tracing::info!(handler = %handler.name(), channel = %handler.channel_name(), status = ?status, "invoked handler");
+                    match status {
+                        HandlerStatus::MoreWork => {
+                            // Let's preemptively schedule another execution
+                            task_tx.send(handler.channel_name().to_string()).await?;
+                        }
+                        _ => {}
+                    }
                 }
                 Err(err) => {
                     // Do we actually just want to crash here?
