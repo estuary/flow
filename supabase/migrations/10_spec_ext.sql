@@ -85,7 +85,19 @@ comment on view combined_grants_ext is
 -- Extended view of live catalog specifications.
 create view live_specs_ext as
 select
-  l.*,
+  distinct on (l.catalog_name) catalog_name,
+  l.id,
+  l.connector_image_name,
+  l.connector_image_tag,
+  l.last_build_id,
+  l.last_pub_id,
+  l.reads_from,
+  l.spec,
+  l.spec_type,
+  l.writes_to,
+  l.created_at,
+  l.detail,
+  l.updated_at,
   c.external_url as connector_external_url,
   c.id as connector_id,
   c.title as connector_title,
@@ -100,12 +112,18 @@ select
   u.email as last_pub_user_email,
   u.full_name as last_pub_user_full_name
 from live_specs l
+inner join internal.user_roles(auth_uid()) on starts_with(l.catalog_name, role_prefix) and capability >= 'read'
 left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
 left outer join connectors c on c.image_name = l.connector_image_name
 left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
 left outer join internal.user_profiles u on u.user_id = p.user_id;
 ;
-alter view live_specs_ext owner to authenticated;
+-- Using `grant select` is discouraged because it allows the view to query the
+-- table as the user 'postgres' which bypasses RLS policies. However in this
+-- case, we are inlining the policy as a join in the query for performance
+-- reasons, and the join with internal.user_roles ensures that the rows returned
+-- are ones accessible by the authenticated user.
+grant select on live_specs_ext to authenticated;
 
 comment on view live_specs_ext is
   'View of `live_specs` extended with metadata of its last publication';
