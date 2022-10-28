@@ -76,20 +76,20 @@ const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[
             grain: g.grain,
             ts: g.ts,
             readBy: {
-                bytes: stats.bytesReadByMe,
-                docs: stats.docsReadByMe,
+                bytesTotal: stats.bytesReadByMe,
+                docsTotal: stats.docsReadByMe,
             },
             writtenBy: {
-                bytes: stats.bytesWrittenByMe,
-                docs: stats.docsWrittenByMe,
+                bytesTotal: stats.bytesWrittenByMe,
+                docsTotal: stats.docsWrittenByMe,
             },
             readFrom: {
-                bytes: stats.bytesReadFromMe,
-                docs: stats.docsReadFromMe,
+                bytesTotal: stats.bytesReadFromMe,
+                docsTotal: stats.docsReadFromMe,
             },
             writtenTo: {
-                bytes: stats.bytesWrittenToMe,
-                docs: stats.docsWrittenToMe,
+                bytesTotal: stats.bytesWrittenToMe,
+                docsTotal: stats.docsWrittenToMe,
             },
         })),
     );

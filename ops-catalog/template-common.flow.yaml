@@ -22,51 +22,17 @@ collections:
         partition: true
 
   ops/TENANT/catalog-stats:
-    schema:
-      type: object
-      reduce: { strategy: "merge" }
-      properties:
-        name: { type: string }
-        grain:
-          description: "Stats by month, day, or hour granularity."
-          enum:
-            - "monthly"
-            - "daily"
-            - "hourly"
-        ts: { type: string }
-        writtenBy: &docsAndBytes
-          type: object
-          reduce: { strategy: "merge" }
-          properties:
-            bytes:
-              type: number
-              reduce: { strategy: "sum" }
-            docs:
-              type: number
-              reduce: { strategy: "sum" }
-          required: [bytes, docs]
-        readBy: *docsAndBytes
-        writtenTo: *docsAndBytes
-        readFrom: *docsAndBytes
-      required: [
-        name,
-        grain,
-        writtenBy,
-        readBy,
-        writtenTo,
-        readFrom,
-        ts
-      ]
+    schema: catalog-stats-schema.json
     key: [/name, /grain, /ts]
     projections:
-      bytes_written_by: /writtenBy/bytes
-      docs_written_by: /writtenBy/docs
-      bytes_read_by: /readBy/bytes
-      docs_read_by: /readBy/docs
-      bytes_written_to: /writtenTo/bytes
-      docs_written_to: /writtenTo/docs
-      bytes_read_from: /readFrom/bytes
-      docs_read_from: /readFrom/docs
+      bytes_written_by: /writtenBy/bytesTotal
+      docs_written_by: /writtenBy/docsTotal
+      bytes_read_by: /readBy/bytesTotal
+      docs_read_by: /readBy/docsTotal
+      bytes_written_to: /writtenTo/bytesTotal
+      docs_written_to: /writtenTo/docsTotal
+      bytes_read_from: /readFrom/bytesTotal
+      docs_read_from: /readFrom/docsTotal
 
     derivation:
       shards:
@@ -158,243 +124,243 @@ tests:
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 65
+              bytesTotal: 65
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 20
+              bytesTotal: 20
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 45
+              bytesTotal: 45
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/cap"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 65
+              bytesTotal: 65
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
 
             # Collection & derivation combo entity
           - name: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z" # Capture day
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 65
+              bytesTotal: 65
           - name: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z" # Materialization day
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 150
+              bytesTotal: 150
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z" # Derivation day
             readBy:
-              bytes: 50
+              bytesTotal: 50
             writtenBy:
-              bytes: 75
+              bytesTotal: 75
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 75
+              bytesTotal: 75
           - name: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 20
+              bytesTotal: 20
           - name: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 45
+              bytesTotal: 45
           - name: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z" # Materialization hour
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 150
+              bytesTotal: 150
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z" # Derivation hour
             readBy:
-              bytes: 50
+              bytesTotal: 50
             writtenBy:
-              bytes: 75
+              bytesTotal: 75
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 75
+              bytesTotal: 75
           - name: "tenant/test/collection"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
             readBy:
-              bytes: 50
-              docs: 11
+              bytesTotal: 50
+              docsTotal: 11
             writtenBy:
-              bytes: 75
-              docs: 7
+              bytesTotal: 75
+              docsTotal: 7
             readFrom:
-              bytes: 150
-              docs: 10
+              bytesTotal: 150
+              docsTotal: 10
             writtenTo:
-              bytes: 140
-              docs: 13
+              bytesTotal: 140
+              docsTotal: 13
 
             # The materializaton task.
           - name: "tenant/test/mat"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z"
             readBy:
-              bytes: 150
+              bytesTotal: 150
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/mat"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z"
             readBy:
-              bytes: 150
+              bytesTotal: 150
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/mat"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             readBy:
-              bytes: 150
+              bytesTotal: 150
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 0
+              bytesTotal: 0
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
 
             # Source collections for the derivation.
           - name: "tenant/test/source-collection1"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 20
+              bytesTotal: 20
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/source-collection1"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 20
+              bytesTotal: 20
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/source-collection1"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 20
+              bytesTotal: 20
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/source-collection2"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 30
+              bytesTotal: 30
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/source-collection2"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 30
+              bytesTotal: 30
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
           - name: "tenant/test/source-collection2"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             readBy:
-              bytes: 0
+              bytesTotal: 0
             writtenBy:
-              bytes: 0
+              bytesTotal: 0
             readFrom:
-              bytes: 30
+              bytesTotal: 30
             writtenTo:
-              bytes: 0
+              bytesTotal: 0
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:
