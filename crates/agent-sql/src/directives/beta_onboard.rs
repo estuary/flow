@@ -107,11 +107,11 @@ pub async fn provision_tenant(
     .fetch_one(&mut *txn)
     .await?;
 
-    // Create partition of task_stats which will home all stats of the tenant.
+    // Create partition of catalog_stats which will home all stats of the tenant.
     sqlx::query(&format!(
         r#"
-        create table task_stat_partitions."{tenant}_stats"
-            partition of public.task_stats for values in ('{prefix}');
+        create table catalog_stat_partitions."{tenant}_stats"
+            partition of public.catalog_stats for values in ('{prefix}');
         "#
     ))
     .execute(&mut *txn)
@@ -120,7 +120,7 @@ pub async fn provision_tenant(
     // stats_loader must own the materialization target so that it can apply
     // related table DDL, such as comments.
     sqlx::query(&format!(
-        r#"alter table task_stat_partitions."{tenant}_stats" owner to stats_loader;"#
+        r#"alter table catalog_stat_partitions."{tenant}_stats" owner to stats_loader;"#
     ))
     .execute(&mut *txn)
     .await?;

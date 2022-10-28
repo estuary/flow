@@ -8,7 +8,7 @@ create type grain as enum ('monthly', 'daily', 'hourly');
 
 create table catalog_stats (
     name                catalog_name not null,
-    grain               timestamptz  not null,
+    grain               text         not null,
     bytes_written_by    bigint       not null,
     docs_written_by     bigint       not null,
     bytes_read_by       bigint       not null,
