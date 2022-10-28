@@ -10,9 +10,13 @@ create table catalog_stats (
     name                catalog_name not null,
     grain               timestamptz  not null,
     bytes_written_by    bigint       not null,
+    docs_written_by     bigint       not null,
     bytes_read_by       bigint       not null,
+    docs_read_by        bigint       not null,
     bytes_written_to    bigint       not null,
+    docs_written_to     bigint       not null,
     bytes_read_from     bigint       not null,
+    docs_read_from      bigint       not null,
     ts                  timestamptz  not null,
     flow_document       json         not null
 ) partition by list (substring(name for position('/' in name)));

@@ -17,9 +17,13 @@ materializations:
           include:
             name: {}
             grain: {}
-            bytes_written_by: {}
-            bytes_read_by: {}
-            bytes_written_to: {}
-            bytes_read_from: {}
             ts: {}
+            bytes_written_by: {}
+            docs_written_by: {}
+            bytes_read_by: {}
+            docs_read_by: {}
+            bytes_written_to: {}
+            docs_written_to: {}
+            bytes_read_from: {}
+            docs_read_from: {}
             flow_document: {}
