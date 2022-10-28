@@ -21,91 +21,273 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/TENANT/stats-by-hour:
+  ops/TENANT/catalog-stats:
     schema:
-      $ref: ops-stats-schema.json
+      type: object
+      reduce: { strategy: "merge" }
       properties:
-        shard:
-          properties:
-            split:
-              description: "The ID of this shard: the beginning value of its assigned key range composed with the beginning value of its assigned rClock range."
-              type: string
-              format: macaddr8
-              pattern: "[0-9a-f]{8}:[0-9a-f]{8}"
-          required: [split]
-
-    key: [/shard/name, /shard/split, /ts]
-    projections:
-      # This derivation aggregates timestamps to UTC hour.
-      hourstamp: /ts
-      shard_split: /shard/split
-      task_name: /shard/name
-      task_type: /shard/kind
+        name: { type: string }
+        grain:
+          description: "Stats by month, day, or hour granularity."
+          enum:
+            - "monthly"
+            - "daily"
+            - "hourly"
+        bytes_written_by:
+          type: number
+          reduce: { strategy: "sum" }
+        bytes_read_by:
+          type: number
+          reduce: { strategy: "sum" }
+        bytes_written_to:
+          type: number
+          reduce: { strategy: "sum" }
+        bytes_read_from:
+          type: number
+          reduce: { strategy: "sum" }
+        ts: { type: string }
+      required: [name, grain, bytes_written_by, bytes_read_by, bytes_written_to, bytes_read_from, ts]
+    key: [/name, /grain, /ts]
 
     derivation:
       shards:
         minTxnDuration: 5s
-      typescript: { module: "by-hour.ts" }
+      typescript: { module: "catalog-stats.ts" }
       transform:
-        byHour:
+        byGrain:
           source:
             name: ops/TENANT/stats
           publish: { lambda: typescript }
 
 tests:
-  ops/TENANT/tests/stats-by-hour:
+  ops/TENANT/tests/catalog-stats:
     - ingest:
         collection: ops/TENANT/stats
         documents:
-          - shard: &shard
+          # Capture
+          - shard:
               kind: capture
               name: tenant/test/cap
               keyBegin: "aabbccdd"
               rClockBegin: "00112233"
-            ts: "2022-04-03T01:02:03.45678Z"
+            ts: "2022-04-03T02:02:03.45678Z"
             capture:
               tenant/test/collection:
-                right: { docsTotal: 3, bytesTotal: 99 }
-                out: { docsTotal: 3, bytesTotal: 99 }
+                right: { docsTotal: 1, bytesTotal: 15 }
+                out: { docsTotal: 2, bytesTotal: 20 }
             txnCount: 2
             openSecondsTotal: 0.012
-          - shard: *shard
-            ts: "2022-04-03T01:37:33.45678Z"
+          # Same capture at a different hour, but the same day & month.
+          - shard:
+              kind: capture
+              name: tenant/test/cap
+              keyBegin: "aabbccdd"
+              rClockBegin: "00112233"
+            ts: "2022-04-03T03:02:03.45678Z"
             capture:
               tenant/test/collection:
-                right: { docsTotal: 1, bytesTotal: 2 }
-                out: { docsTotal: 2, bytesTotal: 4 }
-            txnCount: 1
-            openSecondsTotal: 0.02
-          - shard: *shard
-            ts: "2022-04-03T02:04:00.123Z"
-            capture:
+                right: { docsTotal: 3, bytesTotal: 35 }
+                out: { docsTotal: 4, bytesTotal: 45 }
+            txnCount: 2
+            openSecondsTotal: 0.012
+
+          # Materialization
+          # Sources from the same collection that the capture writes to, but on a different day &
+          # hour during the same month.
+          - shard:
+              kind: materialization
+              name: tenant/test/mat
+              keyBegin: "aabbccdd"
+              rClockBegin: "00112233"
+            ts: "2022-04-04T03:02:03.45678Z"
+            materialize:
               tenant/test/collection:
-                right: { docsTotal: 3, bytesTotal: 8 }
-                out: { docsTotal: 7, bytesTotal: 9 }
-            txnCount: 1
-            openSecondsTotal: 0.03
+                right: { docsTotal: 10, bytesTotal: 150 }
+            txnCount: 2
+            openSecondsTotal: 0.012
+
+          # Derivation
+          - shard:
+              kind: derivation
+              name: tenant/test/collection # Same collection as the materialization & derivation use.
+              keyBegin: "aabbccdd"
+              rClockBegin: "00112233"
+            ts: "2022-04-05T05:12:23.45678Z" # Same month but different day & hour than the materialization / derivation.
+            derive:
+              transforms:
+                transform1:
+                  source: "tenant/test/source-collection1" # This collection is read from.
+                  input: { docsTotal: 5, bytesTotal: 20 }
+                  update:
+                    out: { docsTotal: 1, bytesTotal: 1 }
+                    secondsTotal: 1
+                transform2:
+                  source: "tenant/test/source-collection2" # This collection is also read from.
+                  input: { docsTotal: 6, bytesTotal: 30 }
+                  publish:
+                    out: { docsTotal: 2, bytesTotal: 2 }
+                    secondsTotal: 2
+              out: { docsTotal: 7, bytesTotal: 75 } # What was written to the collection.
+            txnCount: 2
+            openSecondsTotal: 0.012
     - verify:
-        collection: ops/TENANT/stats-by-hour
+        collection: ops/TENANT/catalog-stats
         documents:
-          - shard: &mappedShard
-              <<: *shard
-              split: "aabbccdd:00112233"
-            ts: "2022-04-03T01:00:00.000Z"
-            capture:
-              tenant/test/collection:
-                right: { docsTotal: 4, bytesTotal: 101 }
-                out: { docsTotal: 5, bytesTotal: 103 }
-            txnCount: 3
-            openSecondsTotal: 0.032
-          - shard: *mappedShard
+            # Capture task
+          - name: "tenant/test/cap"
+            grain: "daily"
+            bytes_written_by: 65
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-03T00:00:00.000Z"
+          - name: "tenant/test/cap"
+            grain: "hourly"
+            bytes_written_by: 20
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 0
             ts: "2022-04-03T02:00:00.000Z"
-            capture:
-              tenant/test/collection:
-                right: { docsTotal: 3, bytesTotal: 8 }
-                out: { docsTotal: 7, bytesTotal: 9 }
-            txnCount: 1
-            openSecondsTotal: 0.03
+          - name: "tenant/test/cap"
+            grain: "hourly"
+            bytes_written_by: 45
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-03T03:00:00.000Z"
+          - name: "tenant/test/cap"
+            grain: "monthly"
+            bytes_written_by: 65
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-01T00:00:00.000Z"
+
+            # Collection & derivation combo entity
+          - name: "tenant/test/collection"
+            grain: "daily"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 65
+            bytes_read_from: 0
+            ts: "2022-04-03T00:00:00.000Z" # Capture day
+          - name: "tenant/test/collection"
+            grain: "daily"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 150
+            ts: "2022-04-04T00:00:00.000Z" # Materialization day
+          - name: "tenant/test/collection"
+            grain: "daily"
+            bytes_written_by: 75
+            bytes_read_by: 50
+            bytes_written_to: 75
+            bytes_read_from: 0
+            ts: "2022-04-05T00:00:00.000Z" # Derivation day
+          - name: "tenant/test/collection"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 20
+            bytes_read_from: 0
+            ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
+          - name: "tenant/test/collection"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 45
+            bytes_read_from: 0
+            ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
+          - name: "tenant/test/collection"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 150
+            ts: "2022-04-04T03:00:00.000Z" # Materialization hour
+          - name: "tenant/test/collection"
+            grain: "hourly"
+            bytes_written_by: 75
+            bytes_read_by: 50
+            bytes_written_to: 75
+            bytes_read_from: 0
+            ts: "2022-04-05T05:00:00.000Z" # Derivation hour
+          - name: "tenant/test/collection"
+            grain: "monthly"
+            bytes_written_by: 75
+            bytes_read_by: 50
+            bytes_written_to: 140
+            bytes_read_from: 150
+            ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
+
+            # The materializaton task.
+          - name: "tenant/test/mat"
+            grain: "daily"
+            bytes_written_by: 0
+            bytes_read_by: 150
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-04T00:00:00.000Z"
+          - name: "tenant/test/mat"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 150
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-04T03:00:00.000Z"
+          - name: "tenant/test/mat"
+            grain: "monthly"
+            bytes_written_by: 0
+            bytes_read_by: 150
+            bytes_written_to: 0
+            bytes_read_from: 0
+            ts: "2022-04-01T00:00:00.000Z"
+
+            # Source collections for the derivation.
+          - name: "tenant/test/source-collection1"
+            grain: "daily"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 20
+            ts: "2022-04-05T00:00:00.000Z"
+          - name: "tenant/test/source-collection1"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 20
+            ts: "2022-04-05T05:00:00.000Z"
+          - name: "tenant/test/source-collection1"
+            grain: "monthly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 20
+            ts: "2022-04-01T00:00:00.000Z"
+
+          - name: "tenant/test/source-collection2"
+            grain: "daily"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 30
+            ts: "2022-04-05T00:00:00.000Z"
+          - name: "tenant/test/source-collection2"
+            grain: "hourly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 30
+            ts: "2022-04-05T05:00:00.000Z"
+          - name: "tenant/test/source-collection2"
+            grain: "monthly"
+            bytes_written_by: 0
+            bytes_read_by: 0
+            bytes_written_to: 0
+            bytes_read_from: 30
+            ts: "2022-04-01T00:00:00.000Z"
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:

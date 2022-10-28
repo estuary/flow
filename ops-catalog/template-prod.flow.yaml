@@ -2,21 +2,24 @@ import:
   - template-common.flow.yaml
 
 materializations:
-  ops/TENANT/stats-by-hour-view:
+  ops/TENANT/catalog-stats-view:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres-rc:v1
         config: stats-production-endpoint.sops.yaml
 
     bindings:
-      - source: ops/TENANT/stats-by-hour
+      - source: ops/TENANT/catalog-stats
         resource:
           table: TENANT_stats
         fields:
           recommended: false
           include:
+            name: {}
+            grain: {}
+            bytes_written_by: {}
+            bytes_read_by: {}
+            bytes_written_to: {}
+            bytes_read_from: {}
+            ts: {}
             flow_document: {}
-            hourstamp: {}
-            shard_split: {}
-            task_name: {}
-            task_type: {}

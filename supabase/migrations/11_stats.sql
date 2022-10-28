@@ -1,44 +1,33 @@
 -- This migration creates the tables needed for materialization
 -- of task stats into the control plane.
 
-create type task_type as enum ('capture', 'derivation', 'materialization');
+create type grain as enum ('monthly', 'daily', 'hourly');
 
--- The `task_stats` table is _not_ identical to what the connector would have created.
+-- The `catalog_stats` table is _not_ identical to what the connector would have created.
 -- They have slightly different column types to make things a little more ergonomic and consistent.
 
-create table task_stats (
-    flow_document   json         not null,
-    hourstamp       timestamptz  not null,
-    shard_split     macaddr8     not null,
-    task_name       catalog_name not null,
-    task_type       task_type    not null
-) partition by list (substring(task_name for position('/' in task_name)));
-alter table task_stats enable row level security;
+create table catalog_stats (
+    name                catalog_name not null,
+    grain               timestamptz  not null,
+    bytes_written_by    bigint       not null,
+    bytes_read_by       bigint       not null,
+    bytes_written_to    bigint       not null,
+    bytes_read_from     bigint       not null,
+    ts                  timestamptz  not null,
+    flow_document       json         not null
+) partition by list (substring(name for position('/' in name)));
+alter table catalog_stats enable row level security;
 
-create policy "Users must be authorized to the catalog task name"
-  on task_stats as permissive for select
-  using (auth_catalog(task_name, 'admin'));
-grant select on task_stats to authenticated;
+create policy "Users must be authorized to the catalog name"
+  on catalog_stats as permissive for select
+  using (auth_catalog(name, 'admin'));
+grant select on catalog_stats to authenticated;
 
-comment on table task_stats is
-    'Statistics for catalog tasks and their shards';
-comment on column task_stats.flow_document is
-    'Aggregated statistics document for the given shard split and hour';
-comment on column task_stats.hourstamp is
-    'The aggregated UTC hour of the stats';
-comment on column task_stats.shard_split is '
-Split of the catalog task shard.
-
-Split values compose the beginning value of the shard''s key range
-with the beginning value of the shard''s rClock range.
-';
-comment on column task_stats.task_name is
-    'Name of the catalog task';
-comment on column task_stats.task_type is '
-The type of catalog task to which stats pertain.
-
-One of "capture", "derivation", or "materialization".
-';
+-- TODO(whb): Finish these comments.
+comment on table catalog_stats is
+    'Statistics for catalogs and their shards';
+comment on column catalog_stats.flow_document is
+    'Aggregated statistics document for the given catalog name and grain';
 
 do $$
 begin
@@ -48,8 +37,8 @@ begin
 end
 $$;
 
-create schema task_stat_partitions;
-comment on schema task_stat_partitions is
-    'Private schema which holds per-tenant partitions of task_stats.';
+create schema catalog_stat_partitions;
+comment on schema catalog_stat_partitions is
+    'Private schema which holds per-tenant partitions of catalog_stats.';
 
-grant create, usage on schema task_stat_partitions to stats_loader;
+grant create, usage on schema catalog_stat_partitions to stats_loader;
