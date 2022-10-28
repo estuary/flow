@@ -5,7 +5,7 @@ members = [ "crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.64"
+rust-version = "1.65"
 authors = ["Estuary developers <engineering@estuary.dev>"]
 readme = "./README.md"
 homepage = "https://estuary.dev/"
@@ -19,11 +19,13 @@ async-compression = { version = "0.3", features = ["all-algorithms", "tokio", "f
 async-trait = "0.1"
 atty = "0.2"
 avro-rs = { version = "0.13", features = ["snappy"] }
+
 base64 = "0.13"
 # TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
 bitvec = "0.19"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
 bytes = "1.2"
+bumpalo = { version = "3.11", features = ["collections"] }
 bytelines = "2.4"
 byteorder = "1.4"
 caseless = "0.2"
@@ -42,6 +44,7 @@ futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 fxhash = "0.2"
+hexdump = "0.1"
 humantime = "2.1"
 humantime-serde = "1.1"
 itertools = "0.10"
@@ -70,12 +73,12 @@ prost = "0.11"
 protobuf = "3.1"
 protobuf-json-mapping = "3.1"
 protobuf-parse = "3.1"
-rand = "0.8"
-regex = "1.5"
 
+regex = "1.5"
 reqwest = { version = "0.11", default_features = false, features = ["json", "rustls-tls", "stream"] }
 rocksdb = { version = "0.17", default-features = false, features = ["snappy", "rtti"] }
 rusqlite = { version = "0.27", features = ["bundled-full"]}
+rkyv = { version = "0.7", features = ["archive_le"] }
 schemars = "0.8"
 scopeguard = "1.1"
 serde = { version = "1.0", features = ["derive"]}
@@ -114,9 +117,11 @@ zstd = "0.11.2"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
-insta = { version = "1.20", features = ["redactions", "json", "yaml"]}
 criterion = "0.3"
 glob = "0.3"
+insta = { version = "1.20", features = ["redactions", "json", "yaml"]}
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = { version = "0.4" }
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"

@@ -1,4 +1,3 @@
-use bumpalo::Bump;
 use doc_poc::{Annotation, Pointer};
 use json::schema::{build::build_schema, index::IndexBuilder};
 use json::validator::{SpanContext, Validator};
@@ -11,12 +10,12 @@ use std::time::Instant;
 // This benchmark is regularly run as part of our test sweet to ensure it remains functional.
 // When actually developing it, you may wish to run as:
 //
-//   cargo test --release -p derive --test combiner_perf -- --nocapture
+//   cargo test --release -p doc-poc --test combiner_perf -- --nocapture
 //
 // And additionally increase TOTAL_ROUNDS to a larger value.
 
 // How many total rounds to run?
-const TOTAL_ROUNDS: usize = 1000;
+const TOTAL_ROUNDS: usize = 10000;
 // Keys are drawn from the Zipfian distribution. The choice of parameter means
 // that about 55% of sampled keys are unique, and the remaining 45% are duplicates.
 // Of the duplicates, key 1 is about twice as likely as key 2, which is twice as
@@ -111,11 +110,12 @@ pub fn combiner_perf() {
     let mut val = Validator::<Annotation, SpanContext>::new(&index);
 
     // Initialize the combiner itself.
-    let mut spill = doc_poc::combine::SpillWriter::new(tempfile::tempfile().unwrap()).unwrap();
-
-    let mut alloc = doc_poc::HeapNode::new_allocator();
-    let mut dedup = doc_poc::HeapNode::new_deduper(&alloc);
-    let mut memtable = doc_poc::combine::MemTable::new(key.clone(), schema.curi.clone());
+    let mut accum = doc_poc::combine::Accumulator::new(
+        key.clone(),
+        schema.curi.clone(),
+        tempfile::tempfile().unwrap(),
+    )
+    .unwrap();
 
     // Begin to measure performance.
     let start_stats = allocator::current_mem_stats();
@@ -123,17 +123,6 @@ pub fn combiner_perf() {
 
     let mut buf = Vec::new();
     for _round in 0..TOTAL_ROUNDS {
-        /*
-        if _round % 100000 == 0 {
-            memtable.spill(&alloc, &mut spill).unwrap();
-            std::mem::forget(dedup);
-
-            alloc = doc_poc::HeapNode::new_allocator();
-            dedup = doc_poc::HeapNode::new_deduper(&alloc);
-            memtable = doc_poc::combine::MemTable::new(key.clone(), schema.curi.clone());
-        }
-        */
-
         // Build up the the next document to combine.
         buf.clear();
         write!(
@@ -170,24 +159,28 @@ pub fn combiner_perf() {
         }
         buf.push(b'}');
 
+        let memtable = accum.memtable().unwrap();
         let doc = doc_poc::HeapNode::from_serde(
             &mut serde_json::Deserializer::from_slice(&buf),
-            &alloc,
-            &mut dedup,
+            memtable.alloc(),
+            memtable.dedup(),
         )
         .unwrap();
 
-        memtable
-            .combine_right(&alloc, &mut dedup, doc, &mut val)
-            .unwrap();
+        memtable.combine_right(doc, &mut val).unwrap();
     }
 
-    /*
     let peak_stats = allocator::current_mem_stats();
     let mut drained: usize = 0;
-    for (_entry, _reduced) in memtable.drain_entries() {
-        drained += 1;
-    }
+
+    let mut drainer = accum.into_drainer().unwrap();
+    while drainer
+        .drain_while(&mut val, |_entry, _reduce| {
+            drained += 1;
+            Ok::<_, doc_poc::combine::Error>(true)
+        })
+        .unwrap()
+    {}
 
     let duration = begin.elapsed();
     let trough_stats = allocator::current_mem_stats();
@@ -205,5 +198,4 @@ pub fn combiner_perf() {
         trough_stats.counts.dealloc_ops - start_stats.counts.dealloc_ops,
         trough_stats.counts.realloc_ops - start_stats.counts.realloc_ops,
     );
-    */
 }

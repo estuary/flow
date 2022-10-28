@@ -1,0 +1,143 @@
+---
+source: crates/doc-poc/src/lib.rs
+expression: doc
+---
+Object(
+    BumpVec(
+        [
+            HeapField {
+                property: SharedString(
+                    "big string",
+                ),
+                value: StringOwned(
+                    OwnedString(
+                        "a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string",
+                    ),
+                ),
+            },
+            HeapField {
+                property: SharedString(
+                    "nested",
+                ),
+                value: Object(
+                    BumpVec(
+                        [
+                            HeapField {
+                                property: SharedString(
+                                    "false",
+                                ),
+                                value: Bool(
+                                    false,
+                                ),
+                            },
+                            HeapField {
+                                property: SharedString(
+                                    "shared string",
+                                ),
+                                value: Object(
+                                    BumpVec(
+                                        [
+                                            HeapField {
+                                                property: SharedString(
+                                                    "shared string",
+                                                ),
+                                                value: StringShared(
+                                                    SharedString(
+                                                        "shared string",
+                                                    ),
+                                                ),
+                                            },
+                                        ],
+                                    ),
+                                ),
+                            },
+                            HeapField {
+                                property: SharedString(
+                                    "true",
+                                ),
+                                value: Bool(
+                                    true,
+                                ),
+                            },
+                            HeapField {
+                                property: SharedString(
+                                    "two",
+                                ),
+                                value: PosInt(
+                                    2,
+                                ),
+                            },
+                        ],
+                    ),
+                ),
+            },
+            HeapField {
+                property: SharedString(
+                    "null",
+                ),
+                value: Null,
+            },
+            HeapField {
+                property: SharedString(
+                    "numbers",
+                ),
+                value: Array(
+                    BumpVec(
+                        [
+                            PosInt(
+                                1229782938247303441,
+                            ),
+                            NegInt(
+                                -1234,
+                            ),
+                            Float(
+                                56.7891122334455,
+                            ),
+                        ],
+                    ),
+                ),
+            },
+            HeapField {
+                property: SharedString(
+                    "shared string",
+                ),
+                value: StringShared(
+                    SharedString(
+                        "shared string",
+                    ),
+                ),
+            },
+            HeapField {
+                property: SharedString(
+                    "small string",
+                ),
+                value: StringOwned(
+                    OwnedString(
+                        "smol",
+                    ),
+                ),
+            },
+            HeapField {
+                property: SharedString(
+                    "some",
+                ),
+                value: Object(
+                    BumpVec(
+                        [
+                            HeapField {
+                                property: SharedString(
+                                    "bytes",
+                                ),
+                                value: StringShared(
+                                    SharedString(
+                                        "c29tZSBieXRlcw==",
+                                    ),
+                                ),
+                            },
+                        ],
+                    ),
+                ),
+            },
+        ],
+    ),
+)
