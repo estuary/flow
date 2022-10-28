@@ -6,7 +6,20 @@ export class Derivation implements IDerivation {
         const ts = new Date(source.ts);
         const grains = grainsFromTS(ts);
 
-        const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source));
+        const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source)).map((doc) => ({
+            ...doc,
+            // For documents generated specific to this task, retain the detailed information about
+            // the task itself.
+            taskStats: {
+                capture: source.capture,
+                derive: source.derive,
+                materialize: source.materialize,
+            },
+        }));
+
+        // Documents generated for collections involved in this task will not have associated
+        // detailed task information. If the collection is a derivation, that will be accounted for
+        // above.
         const collectionDocs = mapStatsToDocsByGrain(grains, collectionStats(source));
 
         return [...taskDocs, ...collectionDocs];
@@ -46,81 +59,65 @@ const grainsFromTS = (ts: Date): TimeGrain[] => {
 };
 
 type StatsData = {
-    [k: string]: {
-        bytesWrittenByMe: number;
-        docsWrittenByMe: number;
-        bytesReadByMe: number;
-        docsReadByMe: number;
-        bytesWrittenToMe: number;
-        docsWrittenToMe: number;
-        bytesReadFromMe: number;
-        docsReadFromMe: number;
-    };
+    [k: string]: Document['statsSummary'];
 };
 
-const initStatsData = () => ({
-    bytesWrittenByMe: 0,
-    docsWrittenByMe: 0,
-    bytesReadByMe: 0,
-    docsReadByMe: 0,
-    bytesWrittenToMe: 0,
-    docsWrittenToMe: 0,
-    bytesReadFromMe: 0,
-    docsReadFromMe: 0,
+const newDocumentStats = (): Document['statsSummary'] => ({
+    writtenBy: {
+        bytesTotal: 0,
+        docsTotal: 0,
+    },
+    readBy: {
+        bytesTotal: 0,
+        docsTotal: 0,
+    },
+    writtenTo: {
+        bytesTotal: 0,
+        docsTotal: 0,
+    },
+    readFrom: {
+        bytesTotal: 0,
+        docsTotal: 0,
+    },
 });
 
 const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[] =>
-    Object.entries(stats).flatMap(([name, stats]) =>
+    Object.entries(stats).flatMap(([name, statsSummary]) =>
         grains.map((g) => ({
+            ...g,
             name,
-            grain: g.grain,
-            ts: g.ts,
-            readBy: {
-                bytesTotal: stats.bytesReadByMe,
-                docsTotal: stats.docsReadByMe,
-            },
-            writtenBy: {
-                bytesTotal: stats.bytesWrittenByMe,
-                docsTotal: stats.docsWrittenByMe,
-            },
-            readFrom: {
-                bytesTotal: stats.bytesReadFromMe,
-                docsTotal: stats.docsReadFromMe,
-            },
-            writtenTo: {
-                bytesTotal: stats.bytesWrittenToMe,
-                docsTotal: stats.docsWrittenToMe,
-            },
+            statsSummary,
         })),
     );
 
 const taskStats = (source: ByGrainSource) => {
-    const output: StatsData = {};
-    output[source.shard.name] = initStatsData();
+    const stats = newDocumentStats();
 
     switch (source.shard.kind) {
         case 'capture':
             for (const collectionStats of Object.values(source.capture!)) {
-                output[source.shard.name].bytesWrittenByMe += collectionStats.out!.bytesTotal;
-                output[source.shard.name].docsWrittenByMe += collectionStats.out!.docsTotal;
+                stats.writtenBy.bytesTotal += collectionStats.out!.bytesTotal;
+                stats.writtenBy.docsTotal += collectionStats.out!.docsTotal;
             }
             break;
         case 'materialization':
             for (const collectionStats of Object.values(source.materialize!)) {
-                output[source.shard.name].bytesReadByMe += collectionStats.right!.bytesTotal;
-                output[source.shard.name].docsReadByMe += collectionStats.right!.docsTotal;
+                stats.readBy.bytesTotal += collectionStats.right!.bytesTotal;
+                stats.readBy.docsTotal += collectionStats.right!.docsTotal;
             }
             break;
         case 'derivation':
-            output[source.shard.name].bytesWrittenByMe += source.derive!.out.bytesTotal;
-            output[source.shard.name].docsWrittenByMe += source.derive!.out.docsTotal;
+            stats.writtenBy.bytesTotal += source.derive!.out.bytesTotal;
+            stats.writtenBy.docsTotal += source.derive!.out.docsTotal;
 
             for (const transformStats of Object.values(source.derive!.transforms)) {
-                output[source.shard.name].bytesReadByMe += transformStats.input.bytesTotal;
-                output[source.shard.name].docsReadByMe += transformStats.input.docsTotal;
+                stats.readBy.bytesTotal += transformStats.input.bytesTotal;
+                stats.readBy.docsTotal += transformStats.input.docsTotal;
             }
     }
 
+    const output: StatsData = {};
+    output[source.shard.name] = stats;
     return output;
 };
 
@@ -131,32 +128,32 @@ const collectionStats = (source: ByGrainSource): StatsData => {
         case !!source.capture:
             for (const [collectionName, stats] of Object.entries(source.capture!)) {
                 if (!output[collectionName]) {
-                    output[collectionName] = initStatsData();
+                    output[collectionName] = newDocumentStats();
                 }
 
-                output[collectionName].bytesWrittenToMe += stats.out!.bytesTotal;
-                output[collectionName].docsWrittenToMe += stats.out!.docsTotal;
+                output[collectionName].writtenTo.bytesTotal += stats.out!.bytesTotal;
+                output[collectionName].writtenTo.docsTotal += stats.out!.docsTotal;
             }
             break;
         case !!source.materialize:
             for (const [collectionName, stats] of Object.entries(source.materialize!)) {
                 if (!output[collectionName]) {
-                    output[collectionName] = initStatsData();
+                    output[collectionName] = newDocumentStats();
                 }
 
-                output[collectionName].bytesReadFromMe += stats.right!.bytesTotal;
-                output[collectionName].docsReadFromMe += stats.right!.docsTotal;
+                output[collectionName].readFrom.bytesTotal += stats.right!.bytesTotal;
+                output[collectionName].readFrom.docsTotal += stats.right!.docsTotal;
             }
             break;
 
         case !!source.derive:
             // The collection being written to is the name of the task.
             if (!output[source.shard.name]) {
-                output[source.shard.name] = initStatsData();
+                output[source.shard.name] = newDocumentStats();
             }
 
-            output[source.shard.name].bytesWrittenToMe += source.derive!.out.bytesTotal;
-            output[source.shard.name].docsWrittenToMe += source.derive!.out.docsTotal;
+            output[source.shard.name].writtenTo.bytesTotal += source.derive!.out.bytesTotal;
+            output[source.shard.name].writtenTo.docsTotal += source.derive!.out.docsTotal;
 
             // Each transform will include a source collection that is read from.
             for (const transform of Object.values(source.derive!.transforms)) {
@@ -165,11 +162,11 @@ const collectionStats = (source: ByGrainSource): StatsData => {
                 }
 
                 if (!output[transform.source]) {
-                    output[transform.source] = initStatsData();
+                    output[transform.source] = newDocumentStats();
                 }
 
-                output[transform.source].bytesReadFromMe += transform.input.bytesTotal;
-                output[transform.source].docsReadFromMe += transform.input.docsTotal;
+                output[transform.source].readFrom.bytesTotal += transform.input.bytesTotal;
+                output[transform.source].readFrom.docsTotal += transform.input.docsTotal;
             }
     }
 
