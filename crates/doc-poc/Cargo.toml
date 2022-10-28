@@ -1,0 +1,38 @@
+[package]
+name = "doc-poc"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+json = { path = "../json" }
+tuple = { path = "../tuple" }
+
+base64 = { workspace = true }
+bumpalo = { workspace = true }
+fxhash = { workspace = true }
+itertools = { workspace = true }
+rkyv = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+allocator = { path = "../allocator" }
+
+criterion = { workspace = true }
+hexdump = { workspace = true }
+insta = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
