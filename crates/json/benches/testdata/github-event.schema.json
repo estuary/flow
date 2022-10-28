@@ -30,7 +30,7 @@
         },
         "url": {
           "type": "string",
-          "format": "uri"
+          "pattern": "\\w+:(\\/?\\/?)[^\\s]+"
         },
         "avatar_url": {
           "type": "string",
@@ -296,7 +296,6 @@
                 "properties": {
                   "id": {
                     "type": "integer",
-                    "format": "int64",
                     "example": 208045946
                   },
                   "node_id": {

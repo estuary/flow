@@ -1,4 +1,5 @@
 {
+  "$id": "https://example/citi-rides.schema.json",
   "$defs": {
     "location": {
       "description": "Geographic Location as Latitude & Longitude",
