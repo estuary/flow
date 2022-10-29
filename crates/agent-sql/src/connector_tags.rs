@@ -1,7 +1,7 @@
 use super::{Id, TextJson as Json};
 
 use chrono::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::{types::Uuid, FromRow};
 
@@ -42,42 +42,28 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
-/// JobStatus is the possible outcomes of a handled connector tag.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-pub enum JobStatus {
-    Queued,
-    PullFailed,
-    SpecFailed,
-    OpenGraphFailed { error: String },
-    Success,
-}
-
 // ConnectorTags represent all of the tags defined for a particular connector
 #[derive(Debug, FromRow)]
-pub struct ConnectorTags {
-    pub connector_id: Id,
+pub struct UnknownConnector {
+    pub catalog_name: String,
     pub image_name: String,
-    pub tags: sqlx::types::Json<Vec<(String, JobStatus)>>,
 }
 
-pub async fn find_tags(
-    image_name: String,
+pub async fn resolve_unknown_connectors(
+    live_spec_ids: Vec<Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<Option<ConnectorTags>> {
-    let res = sqlx::query_as::<_, ConnectorTags>(
+) -> sqlx::Result<Vec<UnknownConnector>> {
+    let res = sqlx::query_as::<_, UnknownConnector>(
         r#"select
-            connector.id as connector_id,
-            connector.image_name,
-            json_agg(json_build_array(tag.image_tag, tag.job_status)) as tags
-        from connectors as connector
-        join connector_tags as tag on tag.connector_id = connector.id
-        where connector.image_name = $1
-        group by connector.id, tag.id
-        order by tag.id asc;"#,
+            live_spec.connector_image_name,
+            live_spec.catalog_name
+        from live_specs as live_spec
+        left join connectors as connector on connector.image_name = live_spec.connector_image_name
+        where live_spec.id = ANY($1) and connector.image_name is null
+        order by live_specs.id asc;"#,
     )
-    .bind(image_name)
-    .fetch_optional(txn)
+    .bind(&live_spec_ids[..])
+    .fetch_all(txn)
     .await;
 
     res

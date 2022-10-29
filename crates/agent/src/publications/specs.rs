@@ -1,7 +1,6 @@
 use super::Error;
 use crate::Id;
 
-use agent_sql::connector_tags::JobStatus;
 use agent_sql::publications::{ExpandedRow, SpecRow};
 use agent_sql::{Capability, CatalogType};
 use anyhow::Context;
@@ -115,30 +114,6 @@ pub async fn insert_errors(
     Ok(())
 }
 
-pub async fn validate_connector_tag(
-    (image, tag): (String, String),
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<()> {
-    let found_tags = agent_sql::connector_tags::find_tags(image.clone(), txn)
-        .await?
-        .ok_or(anyhow::anyhow!(
-            "'{}' is not an authorized connector image",
-            image
-        ))?
-        .tags
-        .0;
-
-    if found_tags.len() == 0 {
-        anyhow::bail!("No connector tags found for '{}'", image)
-    } else {
-        match found_tags.iter().find(|(found_tag, _)| found_tag.eq(&tag)) {
-            Some((_, JobStatus::Success)) => Ok(()),
-            Some((_, status)) => anyhow::bail!("tag '{}' status is '{:?}'", tag, status),
-            None => anyhow::bail!("'{}' is not an allowed tag", tag),
-        }
-    }
-}
-
 pub fn extend_catalog<'a>(
     catalog: &mut models::Catalog,
     it: impl Iterator<Item = (CatalogType, &'a str, &'a RawValue)>,
@@ -227,23 +202,8 @@ pub async fn validate_transition(
             continue;
         }
         // Check that the specification is authorized to its referants.
-        let (reads_from, writes_to, tag) = extract_spec_metadata(draft, spec_row);
+        let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
 
-        if let Some((image_name, image_tag)) = tag {
-            match validate_connector_tag((image_name.clone(), image_tag.clone()), txn).await {
-                Err(err) => errors.push(Error {
-                    catalog_name: catalog_name.clone(),
-                    detail: format!(
-                        "Error validating connector tag '{}{}' because {}",
-                        image_name,
-                        image_tag,
-                        err.to_string()
-                    ),
-                    ..Default::default()
-                }),
-                Ok(_) => {}
-            }
-        }
         for source in reads_from.iter().flatten() {
             if !spec_capabilities.iter().any(|c| {
                 source.starts_with(&c.object_role)
