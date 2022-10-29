@@ -69,6 +69,20 @@ pub async fn resolve_unknown_connectors(
     res
 }
 
+pub async fn does_connector_exist(
+    connector_image: String,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<bool> {
+    sqlx::query!(
+        r#"select 1 as "exists: bool" from connectors
+        where connectors.image_name = $1;"#,
+        connector_image
+    )
+    .fetch_optional(txn)
+    .await
+    .map(|exists| exists.is_some())
+}
+
 pub async fn resolve<S>(
     id: Id,
     status: S,
