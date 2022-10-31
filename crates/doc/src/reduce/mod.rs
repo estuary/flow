@@ -1,14 +1,14 @@
-pub use super::Valid;
+use super::{
+    dedup::Deduper,
+    lazy::{LazyDestructured, LazyField, LazyNode},
+    AsNode, Field, Fields, HeapField, HeapNode, Node, Valid,
+};
 use itertools::EitherOrBoth;
-pub use json::{schema::types, validator::Context, LocatedItem, LocatedProperty, Location};
-use serde_json::Value;
 
-mod set;
-mod strategy;
-
+pub mod strategy;
 pub use strategy::Strategy;
 
-type Index<'a> = &'a [(&'a Strategy, u64)];
+pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -31,14 +31,55 @@ pub enum Error {
         #[source]
         detail: Box<Error>,
     },
-    #[error("having types LHS: {:?}, RHS: {:?}", .lhs_type, .rhs_type)]
-    WithTypes {
-        lhs_type: types::Set,
-        rhs_type: types::Set,
+    #[error("having values LHS: {lhs}, RHS: {rhs}")]
+    WithValues {
+        lhs: serde_json::Value,
+        rhs: serde_json::Value,
         #[source]
         detail: Box<Error>,
     },
 }
+
+impl Error {
+    fn with_location(self, loc: json::Location) -> Self {
+        Error::WithLocation {
+            ptr: loc.pointer_str().to_string(),
+            detail: Box::new(self),
+        }
+    }
+
+    fn with_values<L: AsNode, R: AsNode>(
+        self,
+        lhs: LazyDestructured<'_, '_, L>,
+        rhs: LazyDestructured<'_, '_, R>,
+    ) -> Self {
+        let lhs = match lhs.restructure() {
+            Ok(d) => serde_json::to_value(d.as_node()).unwrap(),
+            Err(d) => serde_json::to_value(&d).unwrap(),
+        };
+        let rhs = match rhs.restructure() {
+            Ok(d) => serde_json::to_value(d.as_node()).unwrap(),
+            Err(d) => serde_json::to_value(&d).unwrap(),
+        };
+
+        Error::WithValues {
+            lhs,
+            rhs,
+            detail: Box::new(self),
+        }
+    }
+
+    fn with_details<L: AsNode, R: AsNode>(
+        self,
+        loc: json::Location,
+        lhs: LazyDestructured<'_, '_, L>,
+        rhs: LazyDestructured<'_, '_, R>,
+    ) -> Self {
+        self.with_location(loc).with_values(lhs, rhs)
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 /// Reduce a RHS document validation into a preceding LHS document.
 /// The RHS validation provides reduction annotation outcomes used in the reduction.
@@ -46,160 +87,170 @@ pub enum Error {
 /// sequence. Depending on the reduction strategy, additional pruning can be done
 /// in this case (i.e., removing tombstones) that isn't possible in a partial
 /// non-root reduction.
-pub fn reduce<'sm, 'v>(lhs: Option<Value>, rhs: Valid<'sm, 'v>, prune: bool) -> Result<Value> {
-    let tape = rhs.extract_reduce_annotations();
+pub fn reduce<'alloc, N: AsNode>(
+    lhs: LazyNode<'alloc, '_, N>,
+    rhs: LazyNode<'alloc, '_, N>,
+    rhs_valid: Valid,
+    alloc: &'alloc bumpalo::Bump,
+    dedup: &Deduper<'alloc>,
+    full: bool,
+) -> Result<HeapNode<'alloc>> {
+    let tape = rhs_valid.extract_reduce_annotations();
     let tape = &mut tape.as_slice();
 
-    let reduced = match lhs {
-        Some(lhs) => Cursor::Both {
-            tape,
-            loc: Location::Root,
-            prune,
-            lhs,
-            rhs: rhs.0.document,
-        },
-        None => Cursor::Right {
-            tape,
-            loc: Location::Root,
-            prune,
-            rhs: rhs.0.document,
-        },
+    let reduced = Cursor {
+        tape,
+        loc: json::Location::Root,
+        full,
+        lhs,
+        rhs,
+        alloc,
+        dedup,
     }
     .reduce()?;
+
     assert!(tape.is_empty());
     Ok(reduced)
 }
 
-impl Error {
-    fn cursor(cur: Cursor, detail: Error) -> Error {
-        let (ptr, lhs_type, rhs_type) = match cur {
-            Cursor::Both { loc, lhs, rhs, .. } => (
-                loc.pointer_str().to_string(),
-                types::Set::for_value(&lhs),
-                types::Set::for_value(&rhs),
-            ),
-            Cursor::Right { loc, rhs, .. } => (
-                loc.pointer_str().to_string(),
-                types::INVALID,
-                types::Set::for_value(&rhs),
-            ),
-        };
-
-        Error::WithLocation {
-            ptr,
-            detail: Box::new(Error::WithTypes {
-                lhs_type,
-                rhs_type,
-                detail: Box::new(detail),
-            }),
-        }
-    }
-
-    fn at(loc: Location, detail: Error) -> Error {
-        Error::WithLocation {
-            ptr: loc.pointer_str().to_string(),
-            detail: Box::new(detail),
-        }
-    }
-}
-
-type Result<T> = std::result::Result<T, Error>;
-
 /// Cursor models a joint document location which is being reduced.
-enum Cursor<'i, 'l, 'a> {
-    Both {
-        tape: &'i mut Index<'a>,
-        loc: Location<'l>,
-        prune: bool,
-        lhs: Value,
-        rhs: Value,
-    },
-    Right {
-        tape: &'i mut Index<'a>,
-        loc: Location<'l>,
-        prune: bool,
-        rhs: Value,
-    },
+pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
+    tape: &'tmp mut Index<'schema>,
+    loc: json::Location<'tmp>,
+    full: bool,
+    lhs: LazyNode<'alloc, 'l, L>,
+    rhs: LazyNode<'alloc, 'r, R>,
+    alloc: &'alloc bumpalo::Bump,
+    dedup: &'tmp Deduper<'alloc>,
 }
 
-trait Reducer {
-    fn reduce(&self, cur: Cursor) -> Result<Value>;
-}
+type Index<'a> = &'a [(&'a Strategy, u64)];
 
-impl Cursor<'_, '_, '_> {
-    pub fn reduce(self) -> Result<Value> {
-        let (strategy, _) = match &self {
-            Cursor::Both { tape, .. } | Cursor::Right { tape, .. } => tape.first().unwrap(),
-        };
-        strategy.reduce(self)
+impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
+    pub fn reduce(self) -> Result<HeapNode<'alloc>> {
+        let (strategy, _) = self.tape.first().unwrap();
+        strategy.apply(self)
     }
 }
 
-fn reduce_prop<'i, 'l, 'a>(
-    tape: &'i mut Index<'a>,
-    loc: Location<'l>,
-    prune: bool,
-    eob: EitherOrBoth<(String, Value), (String, Value)>,
-) -> Result<(String, Value)> {
-    match eob {
-        EitherOrBoth::Left((prop, lhs)) => Ok((prop, lhs)),
-        EitherOrBoth::Right((prop, rhs)) => {
-            let v = Cursor::Right {
-                tape,
-                loc: loc.push_prop(&prop),
-                prune,
-                rhs,
-            }
-            .reduce()?;
+fn count_nodes<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
+    match v {
+        LazyNode::Node(doc) => count_nodes_generic(&doc.as_node()),
+        LazyNode::Heap(doc) => count_nodes_heap(doc),
+    }
+}
 
-            Ok((prop, v))
+fn count_nodes_generic<N: AsNode>(node: &Node<'_, N>) -> usize {
+    match node {
+        Node::Bool(_) | Node::Null | Node::String(_) | Node::Number(_) | Node::Bytes(_) => 1,
+        Node::Array(v) => v
+            .iter()
+            .fold(1, |c, vv| c + count_nodes_generic(&vv.as_node())),
+        Node::Object(v) => v.iter().fold(1, |c, field| {
+            c + count_nodes_generic(&field.value().as_node())
+        }),
+    }
+}
+
+// A HeapNode can also be counted as an AsNode, but this is faster (it avoids Node<> conversion).
+fn count_nodes_heap(node: &HeapNode<'_>) -> usize {
+    match node {
+        HeapNode::Bool(_)
+        | HeapNode::Bytes(_)
+        | HeapNode::Float(_)
+        | HeapNode::NegInt(_)
+        | HeapNode::Null
+        | HeapNode::PosInt(_)
+        | HeapNode::StringOwned(_)
+        | HeapNode::StringShared(_) => 1,
+        HeapNode::Array(v) => v.0.iter().fold(1, |c, vv| c + count_nodes_heap(vv)),
+        HeapNode::Object(v) => {
+            v.0.iter()
+                .fold(1, |c, field| c + count_nodes_heap(&field.value))
         }
-        EitherOrBoth::Both((prop, lhs), (_, rhs)) => {
-            let v = Cursor::Both {
+    }
+}
+
+fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
+    tape: &mut Index<'_>,
+    loc: json::Location<'_>,
+    full: bool,
+    eob: EitherOrBoth<LazyField<'alloc, '_, L>, LazyField<'alloc, '_, R>>,
+    alloc: &'alloc bumpalo::Bump,
+    dedup: &Deduper<'alloc>,
+) -> Result<HeapField<'alloc>> {
+    match eob {
+        EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc, dedup)),
+        EitherOrBoth::Right(rhs) => {
+            let rhs = rhs.into_heap_field(alloc, dedup);
+            *tape = &tape[count_nodes_heap(&rhs.value)..];
+            Ok(rhs)
+        }
+        EitherOrBoth::Both(lhs, rhs) => {
+            let (property, lhs, rhs) = match (lhs, rhs) {
+                (LazyField::Heap(lhs), LazyField::Heap(rhs)) => (
+                    lhs.property,
+                    LazyNode::Heap(lhs.value),
+                    LazyNode::Heap(rhs.value),
+                ),
+                (LazyField::Heap(lhs), LazyField::Doc(rhs)) => (
+                    lhs.property,
+                    LazyNode::Heap(lhs.value),
+                    LazyNode::Node(rhs.value()),
+                ),
+                (LazyField::Doc(lhs), LazyField::Heap(rhs)) => (
+                    rhs.property,
+                    LazyNode::Node(lhs.value()),
+                    LazyNode::Heap(rhs.value),
+                ),
+                (LazyField::Doc(lhs), LazyField::Doc(rhs)) => (
+                    dedup.alloc_shared_string(lhs.property()),
+                    LazyNode::Node(lhs.value()),
+                    LazyNode::Node(rhs.value()),
+                ),
+            };
+
+            let value = Cursor {
                 tape,
-                loc: loc.push_prop(&prop),
-                prune,
+                loc: loc.push_prop(property.0),
+                full,
                 lhs,
                 rhs,
+                alloc,
+                dedup,
             }
             .reduce()?;
 
-            Ok((prop, v))
+            Ok(HeapField { property, value })
         }
     }
 }
 
-fn reduce_item<'i, 'l, 'a>(
-    tape: &'i mut Index<'a>,
-    loc: Location<'l>,
-    prune: bool,
-    eob: EitherOrBoth<(usize, Value), (usize, Value)>,
-) -> Result<Value> {
+fn reduce_item<'alloc, L: AsNode, R: AsNode>(
+    tape: &mut Index<'_>,
+    loc: json::Location<'_>,
+    full: bool,
+    eob: EitherOrBoth<(usize, LazyNode<'alloc, '_, L>), (usize, LazyNode<'alloc, '_, R>)>,
+    alloc: &'alloc bumpalo::Bump,
+    dedup: &Deduper<'alloc>,
+) -> Result<HeapNode<'alloc>> {
     match eob {
-        EitherOrBoth::Left((_, lhs)) => Ok(lhs),
-        EitherOrBoth::Right((index, rhs)) => Cursor::Right {
-            tape,
-            loc: loc.push_item(index),
-            prune,
-            rhs,
+        EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc, dedup)),
+        EitherOrBoth::Right((_, rhs)) => {
+            let rhs = rhs.into_heap_node(alloc, dedup);
+            *tape = &tape[count_nodes_heap(&rhs)..];
+            Ok(rhs)
         }
-        .reduce(),
-        EitherOrBoth::Both((_, lhs), (index, rhs)) => Cursor::Both {
+        EitherOrBoth::Both((_, lhs), (index, rhs)) => Cursor {
             tape,
             loc: loc.push_item(index),
-            prune,
+            full,
             lhs,
             rhs,
+            alloc,
+            dedup,
         }
         .reduce(),
-    }
-}
-
-fn count_nodes(v: &Value) -> usize {
-    match v {
-        Value::Bool(_) | Value::Null | Value::String(_) | Value::Number(_) => 1,
-        Value::Array(v) => v.iter().fold(1, |c, vv| c + count_nodes(vv)),
-        Value::Object(v) => v.iter().fold(1, |c, (_prop, vv)| c + count_nodes(vv)),
     }
 }
 
@@ -214,26 +265,39 @@ pub mod test {
 
     #[test]
     fn test_node_counting() {
-        assert_eq!(count_nodes(&json!(true)), 1);
-        assert_eq!(count_nodes(&json!("string")), 1);
-        assert_eq!(count_nodes(&json!(1234)), 1);
-        assert_eq!(count_nodes(&Value::Null), 1);
+        let alloc = HeapNode::new_allocator();
+        let dedup = HeapNode::new_deduper(&alloc);
 
-        assert_eq!(count_nodes(&json!([])), 1);
-        assert_eq!(count_nodes(&json!([2, 3, 4])), 4);
-        assert_eq!(count_nodes(&json!([2, [4, 5]])), 5);
+        let test_case = |fixture: Value, expect: usize| {
+            assert_eq!(count_nodes_generic(&fixture.as_node()), expect);
+            assert_eq!(
+                count_nodes_heap(&HeapNode::from_node(fixture.as_node(), &alloc, &dedup)),
+                expect
+            );
+        };
 
-        assert_eq!(count_nodes(&json!({})), 1);
-        assert_eq!(count_nodes(&json!({"2": 2, "3": 3})), 3);
-        assert_eq!(count_nodes(&json!({"2": 2, "3": {"4": 4, "5": 5}})), 5);
+        test_case(json!(true), 1);
+        test_case(json!("string"), 1);
+        test_case(json!(1234), 1);
+        test_case(Value::Null, 1);
 
-        let doc = json!({
-            "two": [3, [5, 6], {"eight": 8}],
-            "nine": "nine",
-            "ten": null,
-            "eleven": true,
-        });
-        assert_eq!(count_nodes(&doc), 11);
+        test_case(json!([]), 1);
+        test_case(json!([2, 3, 4]), 4);
+        test_case(json!([2, [4, 5]]), 5);
+
+        test_case(json!({}), 1);
+        test_case(json!({"2": 2, "3": 3}), 3);
+        test_case(json!({"2": 2, "3": {"4": 4, "5": 5}}), 5);
+
+        test_case(
+            json!({
+                "two": [3, [5, 6], {"eight": 8}],
+                "nine": "nine",
+                "ten": null,
+                "eleven": true,
+            }),
+            11,
+        );
     }
 
     pub enum Case {
@@ -251,24 +315,46 @@ pub mod test {
         index.verify_references().unwrap();
         let index = index.into_index();
 
+        let alloc = HeapNode::new_allocator();
+        let dedup = HeapNode::new_deduper(&alloc);
+
         let mut validator = Validator::new(&index);
-        let mut lhs: Option<Value> = None;
+        let mut lhs: Option<HeapNode<'_>> = None;
 
         for case in cases {
             let (rhs, expect, prune) = match case {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
-            let rhs = Validation::validate(&mut validator, &curi, rhs)
+            let rhs_valid = Validation::validate(&mut validator, &curi, &rhs)
                 .unwrap()
                 .ok()
                 .unwrap();
-            let reduced = reduce(lhs.clone(), rhs, prune);
+
+            let lhs_cloned = lhs
+                .as_ref()
+                .map(|doc| HeapNode::from_node(doc.as_node(), &alloc, &dedup));
+
+            let reduced = match lhs_cloned {
+                Some(lhs) => reduce(
+                    LazyNode::Heap(lhs),
+                    LazyNode::Node(&rhs),
+                    rhs_valid,
+                    &alloc,
+                    &dedup,
+                    prune,
+                ),
+                None => Ok(HeapNode::from_node(rhs.as_node(), &alloc, &dedup)),
+            };
 
             match expect {
                 Ok(expect) => {
                     let reduced = reduced.unwrap();
-                    assert_eq!(&reduced, &expect);
+                    assert_eq!(
+                        crate::compare(&reduced, &expect),
+                        std::cmp::Ordering::Equal,
+                        "reduced: {reduced:?} expected: {expect:?}",
+                    );
                     lhs = Some(reduced)
                 }
                 Err(expect) => {
@@ -284,3 +370,5 @@ pub mod test {
         }
     }
 }
+
+mod set;

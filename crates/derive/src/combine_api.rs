@@ -2,7 +2,7 @@ use super::ValidatorGuard;
 use crate::{DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc_poc::{self as doc, AsNode};
+use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 use std::rc::Rc;

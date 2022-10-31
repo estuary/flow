@@ -1,8 +1,7 @@
 use super::reduce;
-use json::{schema, validator, validator::Context};
+use json::schema;
 use serde::Deserialize;
 use serde_json::Value;
-use std::convert::TryFrom;
 
 /// Enumeration of JSON-Schema associated annotations understood by Estuary.
 #[derive(Debug)]
@@ -24,7 +23,7 @@ pub enum Annotation {
     /// This is from the airbyte spec.
     Order(i32),
     /// It has become a sort of convention in JSONSchema and OpenAPI to use X- prefixed fields
-    /// for custom behaviour. We parse these fields to avoid breaking on such custom fields.
+    /// for custom behavior. We parse these fields to avoid breaking on such custom fields.
     X(Value),
     /// Discriminator is an annotation from the [openapi spec](https://spec.openapis.org/oas/latest.html#discriminator-object),
     /// which is used by the Estuary UI when rendering forms containing `oneOf`s.
@@ -88,32 +87,12 @@ impl schema::build::AnnotationBuilder for Annotation {
     }
 }
 
-impl<'sm, 'v> super::Valid<'sm, 'v> {
-    pub fn extract_reduce_annotations(&self) -> Vec<(&'sm reduce::Strategy, u64)> {
-        let mut idx = std::iter::repeat((DEFAULT_STRATEGY, 0))
-            .take(self.0.span.end)
-            .collect::<Vec<_>>();
-
-        for (outcome, ctx) in self.0.validator.outcomes() {
-            let subspan = ctx.span();
-
-            if let validator::Outcome::Annotation(Annotation::Reduce(strategy)) = outcome {
-                idx[subspan.begin] = (strategy, subspan.hashed);
-            }
-        }
-        idx
-    }
-}
-
-static DEFAULT_STRATEGY: &reduce::Strategy = &reduce::Strategy::LastWriteWins;
-
 #[cfg(test)]
 mod test {
+    use super::Annotation;
     use json::schema::build::build_schema;
     use serde_json::json;
     use url::Url;
-
-    use crate::Annotation;
 
     #[test]
     fn build_with_advanced_annotation() {
