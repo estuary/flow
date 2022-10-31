@@ -1007,7 +1007,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cgo",
- "doc-poc",
+ "doc",
  "futures",
  "insta",
  "itertools 0.10.5",
@@ -1081,36 +1081,11 @@ dependencies = [
 name = "doc"
 version = "0.0.0"
 dependencies = [
- "fancy-regex",
- "insta",
- "itertools 0.10.5",
- "json",
- "lazy_static",
- "quickcheck",
- "quickcheck_macros",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror",
- "tinyvec",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "doc-comment"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
-
-[[package]]
-name = "doc-poc"
-version = "0.0.0"
-dependencies = [
  "allocator",
  "base64",
  "bumpalo",
  "criterion",
+ "fancy-regex",
  "futures",
  "fxhash",
  "hexdump",
@@ -1125,11 +1100,19 @@ dependencies = [
  "serde",
  "serde-transcode",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "thiserror",
+ "tracing",
  "tuple",
  "url",
 ]
+
+[[package]]
+name = "doc-comment"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "dotenvy"

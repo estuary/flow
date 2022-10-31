@@ -8,7 +8,7 @@ impl<'alloc> HeapNode<'alloc> {
     /// provided bump allocator and string de-duplicator.
     ///
     /// ```
-    /// use doc_poc::HeapNode;
+    /// use doc::HeapNode;
     ///
     /// let alloc = HeapNode::new_allocator();
     /// let dedup = HeapNode::new_deduper(&alloc);

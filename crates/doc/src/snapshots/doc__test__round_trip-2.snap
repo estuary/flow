@@ -1,5 +1,5 @@
 ---
-source: crates/doc-poc/src/lib.rs
+source: crates/doc/src/lib.rs
 expression: archive_buf_hexdump
 ---
 |62696720 73747269 6e676120 62696720| big stringa big  00000000

@@ -8,7 +8,9 @@ use crate::libs::airbyte_catalog::{
 use crate::libs::command::READY;
 use crate::libs::json::{create_root_schema, tokenize_jsonpointer};
 use crate::libs::protobuf::encode_message;
-use crate::libs::stream::{get_airbyte_response, get_decoded_message, stream_airbyte_responses, stream_runtime_messages};
+use crate::libs::stream::{
+    get_airbyte_response, get_decoded_message, stream_airbyte_responses, stream_runtime_messages,
+};
 
 use bytes::Bytes;
 use proto_flow::capture::{
@@ -61,7 +63,10 @@ impl AirbyteSourceInterceptor {
         Box::pin(stream::once(async {
             let message = get_airbyte_response(in_stream, |m| m.spec.is_some(), "spec").await?;
             let spec = message.spec.unwrap();
-            let auth_spec = spec.auth_specification.map(|s| serde_json::from_str(s.get())).transpose()?;
+            let auth_spec = spec
+                .auth_specification
+                .map(|s| serde_json::from_str(s.get()))
+                .transpose()?;
 
             encode_message(&SpecResponse {
                 endpoint_spec_schema_json: spec.connection_specification.to_string(),
@@ -93,7 +98,8 @@ impl AirbyteSourceInterceptor {
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
         Box::pin(stream::once(async {
-            let message = get_airbyte_response(in_stream, |m| m.catalog.is_some(), "catalog").await?;
+            let message =
+                get_airbyte_response(in_stream, |m| m.catalog.is_some(), "catalog").await?;
             let catalog = message.catalog.unwrap();
 
             let mut resp = DiscoverResponse::default();
@@ -118,7 +124,12 @@ impl AirbyteSourceInterceptor {
                     None => Vec::new(),
                     Some(keys) => keys
                         .iter()
-                        .map(|k| doc::Pointer::from_vec(k).to_string())
+                        .map(|k| {
+                            k.iter()
+                                .map(|t| doc::ptr::Token::from_str(t))
+                                .collect::<doc::Pointer>()
+                                .to_string()
+                        })
                         .collect(),
                 };
                 let recommended_name = stream_to_recommended_name(&stream.name);
@@ -157,19 +168,23 @@ impl AirbyteSourceInterceptor {
         in_stream: InterceptorStream,
     ) -> InterceptorStream {
         Box::pin(stream::once(async move {
-            let message =
-                get_airbyte_response(in_stream, |m| m.connection_status.is_some(), "connection status").await?;
+            let message = get_airbyte_response(
+                in_stream,
+                |m| m.connection_status.is_some(),
+                "connection status",
+            )
+            .await?;
 
             let connection_status = message.connection_status.unwrap();
 
             if connection_status.status != Status::Succeeded {
-                return Err(Error::ConnectionStatusUnsuccessful(connection_status.message.unwrap_or_default()))
+                return Err(Error::ConnectionStatusUnsuccessful(
+                    connection_status.message.unwrap_or_default(),
+                ));
             }
 
             let req = validate_request.lock().await;
-            let req = req
-                .as_ref()
-                .ok_or(Error::MissingValidateRequest)?;
+            let req = req.as_ref().ok_or(Error::MissingValidateRequest)?;
             let mut resp = ValidateResponse::default();
             for binding in &req.bindings {
                 let resource: ResourceSpec = serde_json::from_str(&binding.resource_spec_json)?;
@@ -325,9 +340,9 @@ impl AirbyteSourceInterceptor {
                     Ok(Some((encode_message(&resp)?, (stb, stream))))
                 } else if let Some(record) = message.record {
                     let stream_to_binding = stb.lock().await;
-                    let binding = stream_to_binding.get(&record.stream).ok_or(
-                        Error::DanglingConnectorRecord(record.stream)
-                    )?;
+                    let binding = stream_to_binding
+                        .get(&record.stream)
+                        .ok_or(Error::DanglingConnectorRecord(record.stream))?;
                     let arena = record.data.get().as_bytes().to_vec();
                     let arena_len: u32 = arena.len() as u32;
                     resp.documents = Some(Documents {
