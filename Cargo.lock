@@ -1035,7 +1035,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cgo",
- "doc",
+ "doc-poc",
  "futures",
  "insta",
  "itertools 0.10.5",
@@ -1155,6 +1155,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tuple",
  "url",
 ]
 

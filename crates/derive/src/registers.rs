@@ -1,6 +1,6 @@
 use crate::{DebugJson, StatsAccumulator};
 
-use doc::{reduce, FailedValidation, Validation, Validator};
+use doc_poc::{self as doc, reduce, AsNode, FailedValidation, Validation, Validator};
 use prost::Message;
 use proto_flow::flow::derive_api;
 use proto_gazette::consumer::Checkpoint;
@@ -144,29 +144,42 @@ impl Registers {
         initial: &Value,
         deltas: impl IntoIterator<Item = Value>,
         validator: &mut Validator,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         // Obtain a &mut to the pre-loaded Value into which we'll reduce.
-        let lhs = self
+        let reg_ref = self
             .cache
             .get_mut(key)
             .expect("key must be loaded before reduce");
 
-        // If the register doesn't exist, initialize it now.
-        if !matches!(lhs, Some(_)) {
-            self.stats.inc_created();
-            *lhs = Some(initial.clone());
-        }
+        let alloc = doc::HeapNode::new_allocator();
+        let dedup = doc::HeapNode::new_deduper(&alloc);
+
+        let mut reg = match reg_ref {
+            Some(v) => doc::HeapNode::from_node(v.as_node(), &alloc, &dedup),
+            None => {
+                // If the register doesn't exist, initialize it now.
+                self.stats.inc_created();
+                doc::HeapNode::from_node(initial.as_node(), &alloc, &dedup)
+            }
+        };
 
         // Apply all register deltas, in order.
         for rhs in deltas.into_iter() {
             // Validate the RHS delta, reduce, and then validate the result.
-            let rhs = Validation::validate(validator, schema, rhs)?.ok()?;
-            let reduced = reduce::reduce(lhs.take(), rhs, true)?;
-            let reduced = Validation::validate(validator, schema, reduced)?.ok()?;
-
-            *lhs = Some(reduced.0.document);
+            let rhs_valid = Validation::validate(validator, schema, &rhs)?.ok()?;
+            reg = doc::reduce::reduce(
+                doc::LazyNode::Heap(reg),
+                doc::LazyNode::Node(&rhs),
+                rhs_valid,
+                &alloc,
+                &dedup,
+                true,
+            )?;
+            Validation::validate(validator, schema, &reg)?.ok()?;
         }
-        Ok(true)
+
+        *reg_ref = Some(serde_json::to_value(reg.as_node()).unwrap());
+        Ok(())
     }
 
     /// Prepare for commit, storing all modified registers with an accompanying Checkpoint.
@@ -321,16 +334,14 @@ mod test {
         reg.load(&[b"key"]).unwrap();
 
         // Reduce in updates which validate successfully.
-        let applied = reg
-            .reduce(
-                b"key",
-                &guard.schema.curi,
-                &initial,
-                vec![json!({"sum": 1}), json!({"sum": -0.1}), json!({"sum": 1.2})],
-                &mut guard.validator,
-            )
-            .unwrap();
-        assert!(applied);
+        reg.reduce(
+            b"key",
+            &guard.schema.curi,
+            &initial,
+            vec![json!({"sum": 1}), json!({"sum": -0.1}), json!({"sum": 1.2})],
+            &mut guard.validator,
+        )
+        .unwrap();
 
         assert_eq!(
             reg.read(b"key", &initial),
@@ -349,12 +360,5 @@ mod test {
             .unwrap_err();
 
         assert!(matches!(err, Error::FailedValidation(_)));
-
-        // Expect register was replaced to an initial state
-        // (although the caller has likely bailed out by now).
-        assert_eq!(
-            reg.read(b"key", &initial),
-            &json!({"positive": true, "sum": 0})
-        );
     }
 }
