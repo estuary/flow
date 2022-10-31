@@ -21,7 +21,11 @@ pub struct SpillWriter<F: io::Read + io::Write + io::Seek> {
 impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
     /// Build a SpillWriter around the given spill file.
     pub fn new(mut spill: F) -> Result<Self, std::io::Error> {
-        assert_eq!(spill.seek(io::SeekFrom::Current(0))?, 0);
+        assert_eq!(
+            spill.seek(io::SeekFrom::Current(0))?,
+            0,
+            "expected file offset to be zero"
+        );
 
         Ok(Self {
             ranges: Vec::new(),
