@@ -1,4 +1,5 @@
 use anyhow::Context;
+use doc_poc as doc;
 use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 
@@ -6,7 +7,6 @@ pub mod combine_api;
 pub mod derive_api;
 pub mod extract_api;
 
-pub mod combiner;
 mod pipeline;
 mod registers;
 

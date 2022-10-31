@@ -11,7 +11,7 @@ license.workspace = true
 [dependencies]
 allocator = { path = "../allocator" }
 cgo = { path = "../cgo" }
-doc = { path = "../doc" }
+doc-poc = { path = "../doc-poc" }
 json = { path = "../json" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
@@ -28,6 +28,7 @@ prost = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
@@ -35,6 +36,5 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
-tempfile = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }

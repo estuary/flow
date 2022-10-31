@@ -147,9 +147,10 @@ impl cgo::Service for API {
                     self.state = State::Flushing(pipeline);
                 }
             }
-            (Code::DrainChunk, State::Draining(mut pipeline)) if data.len() == 4 => {
-                if !pipeline.drain_chunk(data.get_u32() as usize, arena, out) {
-                    self.state = State::Draining(pipeline); // Not done yet.
+            (Code::DrainChunk, State::Draining(pipeline)) if data.len() == 4 => {
+                let (pipeline, more) = pipeline.drain_chunk(data.get_u32() as usize, arena, out)?;
+                if more {
+                    self.state = State::Draining(pipeline);
                 } else {
                     self.state = State::Prepare(pipeline);
                 }

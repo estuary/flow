@@ -1,22 +1,21 @@
-use super::combiner;
 use super::registers;
 use super::ValidatorGuard;
 use crate::{DocCounter, StatsAccumulator};
 use anyhow::Context;
-
-mod block;
-mod invocation;
-#[cfg(test)]
-mod pipeline_test;
-
 use block::{Block, BlockInvoke};
+use doc_poc::{self as doc, AsNode};
 use futures::{stream::FuturesOrdered, StreamExt};
 use invocation::{Invocation, InvokeOutput, InvokeStats};
 use itertools::Itertools;
 use proto_flow::flow::{self, derive_api};
 use proto_gazette::{consumer, message_flags};
-use serde_json::Value;
+use std::rc::Rc;
 use std::task;
+
+mod block;
+mod invocation;
+#[cfg(test)]
+mod pipeline_test;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -29,7 +28,7 @@ pub enum Error {
     #[error("lambda returned more rows than expected")]
     TooManyRows,
     #[error("derived document reduction error")]
-    Combiner(#[from] combiner::Error),
+    Combiner(#[from] doc::combine::Error),
     #[error("failed to open registers RocksDB")]
     #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
@@ -52,14 +51,12 @@ pub struct Pipeline {
     await_update: FuturesOrdered<BlockInvoke>,
     // Invocation futures awaiting completion of "publish" lambdas.
     await_publish: FuturesOrdered<BlockInvoke>,
-    // Combiner of derived documents.
-    combiner: combiner::Combiner,
-    // Draining iterator over combined documents.
-    combiner_drain_iter: Option<combiner::DrainIter>,
+    // Combiner which is accumulating or draining derived documents.
+    combiner: doc::Combiner,
     // Statistics of the derived-document combiner.
     combiner_stats: DocCounter,
     // Key components of derived documents.
-    document_key_ptrs: Vec<doc::Pointer>,
+    document_key_ptrs: Rc<[doc::Pointer]>,
     // Schema against which documents must validate.
     document_schema_guard: ValidatorGuard,
     // JSON pointer to the derived document UUID.
@@ -72,7 +69,7 @@ pub struct Pipeline {
     // pristine, and cloned to produce working instances given to new Blocks.
     publishes_model: Vec<Invocation>,
     // Initial value of registers which have not yet been written.
-    register_initial: Value,
+    register_initial: serde_json::Value,
     // Schema against which registers must validate.
     register_schema_guard: ValidatorGuard,
     // Registers updated by "update" lambdas.
@@ -153,7 +150,7 @@ impl Pipeline {
             return Err(anyhow::anyhow!("document uuid JSON-pointer cannot be empty").into());
         }
 
-        let document_key_ptrs: Vec<doc::Pointer> =
+        let document_key_ptrs: Rc<[doc::Pointer]> =
             document_key_ptrs.iter().map(doc::Pointer::from).collect();
         let document_uuid_ptr = doc::Pointer::from(&document_uuid_ptr);
 
@@ -173,10 +170,12 @@ impl Pipeline {
         // Build Combiner.
         let document_schema_guard =
             ValidatorGuard::new(&document_schema_json).context("parsing collection schema")?;
-        let combiner = combiner::Combiner::new(
-            document_schema_guard.schema.curi.clone(),
+        let combiner = doc::Combiner::new(
             document_key_ptrs.clone().into(),
-        );
+            document_schema_guard.schema.curi.clone(),
+            tempfile::tempfile().context("opening temporary spill file")?,
+        )
+        .map_err(Error::Combiner)?;
 
         // Identify partitions to extract on combiner drain.
         let partitions = projections
@@ -204,7 +203,6 @@ impl Pipeline {
             await_publish: FuturesOrdered::new(),
             await_update: FuturesOrdered::new(),
             combiner,
-            combiner_drain_iter: None,
             combiner_stats: DocCounter::default(),
             document_key_ptrs,
             document_schema_guard,
@@ -393,36 +391,36 @@ impl Pipeline {
     // This may be called only after the pipeline has been flushed
     // and then polled to completion.
     pub fn drain_chunk(
-        &mut self,
+        mut self,
         target_length: usize,
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
-    ) -> bool {
+    ) -> Result<(Self, bool), Error> {
         assert_eq!(self.next.num_bytes, 0);
         assert!(self.trampoline.is_empty());
 
-        let mut it = match self.combiner_drain_iter.take() {
-            Some(it) => it,
-            None => self.combiner.drain_entries(),
+        let mut drainer = match self.combiner {
+            doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
+            doc::Combiner::Drainer(d) => d,
         };
 
-        let done = crate::combine_api::drain_chunk(
-            &mut it,
+        let more = crate::combine_api::drain_chunk(
+            &mut drainer,
             target_length,
             &self.document_key_ptrs,
             &self.partitions,
-            Some(&self.document_uuid_ptr),
+            &mut self.document_schema_guard.validator,
             arena,
             out,
             &mut self.combiner_stats,
-        );
+        )?;
 
-        if !done {
-            self.combiner_drain_iter = Some(it);
-            return false;
+        if more {
+            self.combiner = doc::Combiner::Drainer(drainer);
+            return Ok((self, true));
         }
 
-        self.combiner_drain_iter = None;
+        self.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
 
         // Send a final message with the stats for this transaction.
         cgo::send_message(
@@ -440,7 +438,7 @@ impl Pipeline {
             out,
         );
 
-        true
+        Ok((self, false))
     }
 
     fn update_registers(
@@ -520,6 +518,11 @@ impl Pipeline {
             .map(|u| u.parsed.into_iter())
             .collect_vec();
 
+        let memtable = match &mut self.combiner {
+            doc::Combiner::Accumulator(accumulator) => accumulator.memtable()?,
+            _ => panic!("implementation error: combiner is draining, not accumulating"),
+        };
+
         for tf_ind in &block.transforms {
             let tf = &self.transforms[*tf_ind as usize];
 
@@ -534,11 +537,29 @@ impl Pipeline {
             };
 
             for doc in derived_docs {
-                self.combiner
-                    .combine_right(doc, &mut self.document_schema_guard.validator)?;
+                // TODO(johnny): Deserialize into HeapNode directly, without serde_json::Value.
+                // We'd need to first update the owned InvokeOutput type to bytes::Bytes
+                // or similar first, which will make sense to do with Deno and/or using hyper
+                // to directly invoke lambdas from rust.
+                let mut doc =
+                    doc::HeapNode::from_node(doc.as_node(), memtable.alloc(), memtable.dedup());
+
+                if let Some(node) = self.document_uuid_ptr.create_heap_node(
+                    &mut doc,
+                    memtable.alloc(),
+                    memtable.dedup(),
+                ) {
+                    *node = doc::HeapNode::StringShared(
+                        memtable
+                            .dedup()
+                            .alloc_shared_string(crate::combine_api::UUID_PLACEHOLDER),
+                    );
+                }
+
+                memtable.combine_right(doc, &mut self.document_schema_guard.validator)?;
             }
         }
-        tracing::trace!(combiner = ?self.combiner, "combined documents");
+        tracing::trace!(block = %block.transforms.len(), total = ?memtable.len(), "combined documents");
 
         // Verify that we precisely consumed expected outputs from each lambda.
         for mut it in tf_derived_docs {
