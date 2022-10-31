@@ -1,5 +1,6 @@
 use super::ValidatorGuard;
 use crate::JsonError;
+use doc_poc as doc;
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -35,7 +36,7 @@ pub enum Error {
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
 pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
-    let v_uuid = ptr.query(&v).unwrap_or(&serde_json::Value::Null);
+    let v_uuid = ptr.query(v).unwrap_or(&serde_json::Value::Null);
     v_uuid
         .as_str()
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
@@ -125,19 +126,13 @@ impl cgo::Service for API {
                     }
                 })?;
 
-                let doc = match &mut state.schema_validator {
-                    Some(guard)
-                        // Transaction acknowledgements aren't expected to validate.
-                        if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
-                    {
-                        doc::Validation::validate(&mut guard.validator, &guard.schema.curi, doc)?
-                            .ok()
-                            .map_err(Error::FailedValidation)?
-                            .0
-                            .document
-                    }
-                    _ => doc,
-                };
+                if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags != 0 {
+                    // Transaction acknowledgements aren't expected to validate.
+                } else if let Some(guard) = &mut state.schema_validator {
+                    doc::Validation::validate(&mut guard.validator, &guard.schema.curi, &doc)?
+                        .ok()
+                        .map_err(Error::FailedValidation)?;
+                }
 
                 // Send extracted UUID.
                 cgo::send_message(Code::ExtractedUuid as u32, &uuid, arena, out);
@@ -164,6 +159,7 @@ impl cgo::Service for API {
 mod test {
     use super::{extract_uuid_parts, Code, API};
     use cgo::Service;
+    use doc_poc as doc;
     use proto_flow::flow;
     use serde_json::{json, Value};
 

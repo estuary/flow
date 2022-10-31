@@ -90,7 +90,7 @@ impl Fixture {
 
     // Polls the pipeline and resolves all trampoline tasks. The final output documents and stats
     // are returned.
-    fn poll_to_completion(&mut self) -> (Vec<Value>, derive_api::Stats) {
+    fn poll_to_completion(mut self) -> (Vec<Value>, derive_api::Stats) {
         self.pipeline.flush();
 
         let mut arena = Vec::with_capacity(1024);
@@ -170,7 +170,10 @@ impl Fixture {
             out.clear();
         }
 
-        while !self.pipeline.drain_chunk(1, &mut arena, &mut out) {}
+        let mut more = true;
+        while more {
+            (self.pipeline, more) = self.pipeline.drain_chunk(1, &mut arena, &mut out).unwrap();
+        }
 
         let mut outputs = Vec::new();
         for frame in out.iter() {
