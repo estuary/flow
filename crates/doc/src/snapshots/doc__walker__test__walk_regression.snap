@@ -1,5 +1,5 @@
 ---
-source: crates/doc-poc/src/walker.rs
+source: crates/doc/src/walker.rs
 expression: "&walker.calls"
 ---
 [

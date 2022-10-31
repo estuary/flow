@@ -11,7 +11,7 @@ license.workspace = true
 [dependencies]
 allocator = { path = "../allocator" }
 cgo = { path = "../cgo" }
-doc-poc = { path = "../doc-poc" }
+doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }

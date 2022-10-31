@@ -1,6 +1,5 @@
 use super::ValidatorGuard;
 use crate::JsonError;
-use doc_poc as doc;
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -159,7 +158,6 @@ impl cgo::Service for API {
 mod test {
     use super::{extract_uuid_parts, Code, API};
     use cgo::Service;
-    use doc_poc as doc;
     use proto_flow::flow;
     use serde_json::{json, Value};
 

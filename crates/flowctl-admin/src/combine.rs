@@ -1,5 +1,5 @@
-use derive::combiner::Combiner;
-use doc::{ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
+use anyhow::Context;
+use doc::{combine, ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
 use futures::future::LocalBoxFuture;
 use protocol::flow::{self, build_api};
 use std::io;
@@ -9,9 +9,6 @@ use url::Url;
 pub struct CombineArgs {
     #[clap(flatten)]
     build_source: SchemaAndKeySource,
-    /// Maximum number of documents to add to the combiner before draining it. If 0, then there is no maximum
-    #[clap(long, default_value = "0")]
-    max_docs: u64,
 }
 
 /// How to get the schema and key
@@ -35,73 +32,58 @@ pub struct SchemaAndKeySource {
     pub collection: Option<String>,
 }
 
-pub fn run(
-    CombineArgs {
-        build_source,
-        max_docs,
-    }: CombineArgs,
-) -> Result<(), anyhow::Error> {
+pub fn run(CombineArgs { build_source }: CombineArgs) -> Result<(), anyhow::Error> {
     let (index, schema_url, key_pointers) = get_indexed_schemas_and_key(build_source)?;
 
-    let mut combiner = Combiner::new(schema_url, key_pointers.into());
+    let mut accumulator = combine::Accumulator::new(
+        key_pointers.into(),
+        schema_url,
+        tempfile::tempfile().context("opening tempfile")?,
+    )?;
     let mut validator = Validator::new(&index);
 
-    let sin = io::stdin();
-    let stdin_locked = sin.lock();
+    let mut in_docs = 0usize;
+    let mut in_bytes = 0usize;
+    let mut out_docs = 0usize;
+    // We don't track out_bytes because it's awkward to do so
+    // and the user can trivially measure for themselves.
 
-    let sout = io::stdout();
-    let mut stdout_locked = sout.lock();
+    for line in io::stdin().lines() {
+        let line = line?;
 
-    let mut in_docs = 0u64;
-    let mut out_docs = 0u64;
-    let mut out_bytes = 0u64;
+        let memtable = accumulator.memtable()?;
+        let rhs = doc::HeapNode::from_serde(
+            &mut serde_json::Deserializer::from_str(&line),
+            memtable.alloc(),
+            memtable.dedup(),
+        )?;
 
-    let mut deser = serde_json::de::Deserializer::from_reader(stdin_locked).into_iter();
-    while let Some(result) = deser.next() {
-        let json: serde_json::Value = result?;
         in_docs += 1;
-        combiner.combine_right(json, &mut validator)?;
-        if max_docs > 0 && out_docs % max_docs == 0 {
-            let (d, b) = drain_combiner(&mut combiner, &mut stdout_locked)?;
-            out_docs += d;
-            out_bytes += b;
-        }
+        in_bytes = line.len() + 1;
+        memtable.combine_right(rhs, &mut validator)?;
     }
-    if combiner.len() > 0 {
-        let (d, b) = drain_combiner(&mut combiner, &mut stdout_locked)?;
-        out_docs += d;
-        out_bytes += b;
-    }
-    let in_bytes = deser.byte_offset() as u64;
+
+    let mut out = io::BufWriter::new(io::stdout().lock());
+
+    let mut drainer = accumulator.into_drainer()?;
+    assert_eq!(
+        false,
+        drainer.drain_while(&mut validator, |node, _fully_reduced| {
+            serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
+            out_docs += 1;
+            Ok::<_, anyhow::Error>(true)
+        })?,
+        "implementation error: drain_while exited with remaining items to drain"
+    );
 
     tracing::info!(
         input_docs = in_docs,
         input_bytes = in_bytes,
         output_docs = out_docs,
-        output_bytes = out_bytes,
         "completed combine"
     );
 
     Ok(())
-}
-
-fn drain_combiner(
-    combiner: &mut Combiner,
-    mut out: impl io::Write,
-) -> Result<(u64, u64), anyhow::Error> {
-    let mut docs = 0u64;
-    let mut bytes = 0u64;
-
-    let mut line_buf = Vec::with_capacity(4096);
-    for (doc, _) in combiner.drain_entries() {
-        line_buf.clear();
-        serde_json::to_writer(&mut line_buf, &doc)?;
-        docs += 1;
-        bytes += line_buf.len() as u64;
-        line_buf.push(b'\n');
-        out.write_all(&line_buf)?;
-    }
-    Ok((docs, bytes))
 }
 
 fn get_indexed_schemas_and_key(

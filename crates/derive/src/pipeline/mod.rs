@@ -3,7 +3,7 @@ use super::ValidatorGuard;
 use crate::{DocCounter, StatsAccumulator};
 use anyhow::Context;
 use block::{Block, BlockInvoke};
-use doc_poc::{self as doc, AsNode};
+use doc::AsNode;
 use futures::{stream::FuturesOrdered, StreamExt};
 use invocation::{Invocation, InvokeOutput, InvokeStats};
 use itertools::Itertools;

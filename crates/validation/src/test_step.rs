@@ -114,7 +114,7 @@ pub fn walk_test_step(
     } else {
         let mut validator = doc::Validator::new(&shape.index);
         for doc in ingest {
-            if let Err(err) = doc::Validation::validate(&mut validator, &shape.schema, doc.clone())
+            if let Err(err) = doc::Validation::validate(&mut validator, &shape.schema, doc)
                 .unwrap()
                 .ok()
             {

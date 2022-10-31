@@ -1126,18 +1126,18 @@ impl Shape {
         (shape, exists)
     }
 
-    fn locate_token(&self, token: Token) -> (&Shape, Exists) {
+    fn locate_token(&self, token: &Token) -> (&Shape, Exists) {
         match token {
             Token::Index(index) if self.type_.overlaps(types::ARRAY) => {
-                let exists = if self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0) {
+                let exists = if self.type_ == types::ARRAY && *index < self.array.min.unwrap_or(0) {
                     // A sub-item must exist iff this location can _only_
                     // be an array, and it's within the minItems bound.
                     Exists::Must
-                } else if index >= self.array.max.unwrap_or(std::usize::MAX) {
+                } else if *index >= self.array.max.unwrap_or(std::usize::MAX) {
                     // It cannot exist if outside the maxItems bound.
                     Exists::Cannot
                 } else if self.array.max.is_some()
-                    || index < self.array.tuple.len()
+                    || *index < self.array.tuple.len()
                     || self.array.additional.is_some()
                 {
                     // It may exist if there is a defined array maximum that we're within,
@@ -1150,7 +1150,7 @@ impl Shape {
                     Exists::Implicit
                 };
 
-                if let Some(tuple) = self.array.tuple.get(index) {
+                if let Some(tuple) = self.array.tuple.get(*index) {
                     (tuple, exists)
                 } else if let Some(addl) = &self.array.additional {
                     (addl.as_ref(), exists)

@@ -1,12 +1,14 @@
-use super::{count_nodes, reduce_item, reduce_prop, Cursor, Error, Reducer, Result};
-use itertools::EitherOrBoth;
-use json::{json_cmp, json_cmp_at, Number};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::cmp::Ordering;
-use std::convert::TryFrom;
+use super::{
+    count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error,
+    Result,
+};
+use crate::{
+    heap::BumpVec,
+    lazy::{LazyArray, LazyDestructured, LazyObject},
+    AsNode, HeapNode, Node, Pointer,
+};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
     /// Append each item of RHS to the end of LHS. RHS must be an array.
@@ -33,7 +35,7 @@ pub enum Strategy {
     /// in LHS and RHS are merged together, extending the shorter of the two by taking
     /// items of the longer.
     ///
-    /// If LHS and RHS are both Objects then it perform a deep merge of each property.
+    /// If LHS and RHS are both Objects then it performs a deep merge of each property.
     Merge(Merge),
     /// Minimize keeps the smaller of the LHS & RHS.
     /// A provided key, if present, determines the relative ordering.
@@ -66,7 +68,7 @@ pub enum Strategy {
     /// Whether arrays or objects are used, the selected type must always be
     /// consistent across the "add" / "intersect" / "remove" terms of both
     /// sides of the reduction.
-    Set(Set),
+    Set(super::set::Set),
     /// Sum the LHS and RHS, both of which must be numbers.
     /// Sum will fail if the operation would result in a numeric overflow
     /// (in other words, the numbers become too large to be represented).
@@ -76,44 +78,40 @@ pub enum Strategy {
     Sum,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Minimize {
-    #[serde(default)]
-    key: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Maximize {
-    #[serde(default)]
-    key: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Merge {
-    #[serde(default)]
-    key: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Set {
-    #[serde(default)]
-    pub key: Vec<String>,
-}
-
-impl std::convert::TryFrom<&Value> for Strategy {
+impl std::convert::TryFrom<&serde_json::Value> for Strategy {
     type Error = serde_json::Error;
 
-    fn try_from(v: &Value) -> std::result::Result<Self, Self::Error> {
-        Strategy::deserialize(v)
+    fn try_from(v: &serde_json::Value) -> std::result::Result<Self, Self::Error> {
+        <Strategy as serde::Deserialize>::deserialize(v)
     }
 }
 
-impl Reducer for Strategy {
-    fn reduce(&self, cur: Cursor) -> Result<Value> {
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Maximize {
+    #[serde(default)]
+    key: Vec<Pointer>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Merge {
+    #[serde(default)]
+    key: Vec<Pointer>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct Minimize {
+    #[serde(default)]
+    key: Vec<Pointer>,
+}
+
+impl Strategy {
+    pub fn apply<'alloc, 'schema, L: AsNode, R: AsNode>(
+        &'schema self,
+        cur: Cursor<'alloc, 'schema, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
         match self {
             Strategy::Append => Self::append(cur),
             Strategy::FirstWriteWins => Self::first_write_wins(cur),
@@ -121,274 +119,289 @@ impl Reducer for Strategy {
             Strategy::Maximize(max) => Self::maximize(cur, max),
             Strategy::Merge(merge) => Self::merge(cur, merge),
             Strategy::Minimize(min) => Self::minimize(cur, min),
-            Strategy::Set(set) => set.reduce(cur),
+            Strategy::Set(set) => set.apply(cur),
             Strategy::Sum => Self::sum(cur),
         }
     }
-}
 
-impl Strategy {
-    fn append(cur: Cursor) -> Result<Value> {
-        let (tape, loc, prune, lhs, rhs) = match cur {
-            // Merge of Null <= Array (treated as no-op).
-            Cursor::Both {
-                tape,
-                lhs: Value::Null,
-                rhs: rhs @ Value::Array(..),
-                ..
-            } => {
-                *tape = &tape[count_nodes(&rhs)..];
-                return Ok(Value::Null);
+    fn append<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            lhs,
+            rhs,
+            alloc,
+            dedup,
+            full: _,
+        } = cur;
+
+        match (lhs.destructure(), rhs.destructure()) {
+            (LazyDestructured::Array(lhs), LazyDestructured::Array(rhs)) => {
+                *tape = &tape[1..]; // Increment for self.
+
+                let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
+
+                for lhs in lhs.into_iter() {
+                    arr.0.push(lhs.into_heap_node(alloc, dedup));
+                }
+                for rhs in rhs.into_iter() {
+                    let rhs = rhs.into_heap_node(alloc, dedup);
+                    *tape = &tape[count_nodes_heap(&rhs)..];
+                    arr.0.push(rhs)
+                }
+
+                Ok(HeapNode::Array(arr))
             }
-            // Merge of Array <= Array.
-            Cursor::Both {
-                tape,
-                loc,
-                prune,
-                lhs: Value::Array(lhs),
-                rhs: Value::Array(rhs),
-            } => (tape, loc, prune, lhs, rhs),
-            // Merge of Undefined <= Array.
-            Cursor::Right {
-                tape,
-                loc,
-                prune,
-                rhs: Value::Array(rhs),
-            } => (tape, loc, prune, Vec::new(), rhs),
 
-            cur => return Err(Error::cursor(cur, Error::AppendWrongType)),
+            // Merge of Null <= Array (takes the null LHS).
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Array(LazyArray::Heap(arr)),
+            ) => {
+                *tape = &tape[count_nodes_heap(&HeapNode::Array(arr))..];
+                Ok(HeapNode::Null)
+            }
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Array(LazyArray::Node(arr)),
+            ) => {
+                *tape = &tape[count_nodes_generic(&Node::Array(arr))..];
+                Ok(HeapNode::Null)
+            }
+
+            (lhs, rhs) => Err(Error::with_details(Error::AppendWrongType, loc, lhs, rhs)),
+        }
+    }
+
+    fn first_write_wins<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        *cur.tape = &cur.tape[count_nodes(&cur.rhs)..];
+        Ok(cur.lhs.into_heap_node(cur.alloc, cur.dedup))
+    }
+
+    fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let rhs = cur.rhs.into_heap_node(cur.alloc, cur.dedup);
+        *cur.tape = &cur.tape[count_nodes_heap(&rhs)..];
+        Ok(rhs)
+    }
+
+    fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        key: &[Pointer],
+        reverse: bool,
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            full,
+            lhs,
+            rhs,
+            alloc,
+            dedup,
+        } = cur;
+
+        let ord = match (key.is_empty(), reverse) {
+            (false, false) => lhs.compare(key, &rhs),
+            (false, true) => rhs.compare(key, &lhs),
+            (true, false) => lhs.compare(&[Pointer::empty()], &rhs),
+            (true, true) => rhs.compare(&[Pointer::empty()], &lhs),
         };
 
-        *tape = &tape[1..]; // Consume array container.
+        use std::cmp::Ordering;
 
-        let rhs = rhs
-            .into_iter()
-            .enumerate()
-            .map(|item| reduce_item(tape, loc, prune, EitherOrBoth::Right(item)));
-
-        Ok(Value::Array(
-            lhs.into_iter()
-                .map(Result::Ok)
-                .chain(rhs)
-                .collect::<Result<_>>()?,
-        ))
-    }
-
-    fn first_write_wins(cur: Cursor) -> Result<Value> {
-        match cur {
-            Cursor::Right { tape, rhs, .. } => {
+        match ord {
+            Ordering::Less => {
                 *tape = &tape[count_nodes(&rhs)..];
+                Ok(lhs.into_heap_node(alloc, dedup))
+            }
+            Ordering::Greater => {
+                let rhs = rhs.into_heap_node(alloc, dedup);
+                *tape = &tape[count_nodes_heap(&rhs)..];
                 Ok(rhs)
             }
-            Cursor::Both { tape, lhs, rhs, .. } => {
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(lhs)
-            }
-        }
-    }
-
-    fn last_write_wins(cur: Cursor) -> Result<Value> {
-        match cur {
-            Cursor::Right { tape, rhs, .. } | Cursor::Both { tape, rhs, .. } => {
-                *tape = &tape[count_nodes(&rhs)..];
+            Ordering::Equal if key.is_empty() => {
+                let rhs = rhs.into_heap_node(alloc, dedup);
+                *tape = &tape[count_nodes_heap(&rhs)..];
                 Ok(rhs)
             }
-        }
-    }
-
-    fn min_max_helper(cur: Cursor, key: &[String], reverse: bool) -> Result<Value> {
-        match cur {
-            Cursor::Right { tape, rhs, .. } => {
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
-            }
-            Cursor::Both {
-                tape,
-                loc,
-                prune,
-                lhs,
-                rhs,
-            } => {
-                let ord = match (key.is_empty(), reverse) {
-                    (false, false) => json_cmp_at(key, &lhs, &rhs),
-                    (false, true) => json_cmp_at(key, &rhs, &lhs),
-                    (true, false) => json_cmp(&lhs, &rhs),
-                    (true, true) => json_cmp(&rhs, &lhs),
+            Ordering::Equal => {
+                // Lhs and RHS are equal on the chosen key. Deeply merge them.
+                let cur = Cursor {
+                    tape,
+                    loc,
+                    full,
+                    lhs,
+                    rhs,
+                    alloc,
+                    dedup,
                 };
-
-                match ord {
-                    Ordering::Less => {
-                        *tape = &tape[count_nodes(&rhs)..];
-                        Ok(lhs)
-                    }
-                    Ordering::Greater => {
-                        *tape = &tape[count_nodes(&rhs)..];
-                        Ok(rhs)
-                    }
-                    Ordering::Equal if !key.is_empty() => {
-                        let cur = Cursor::Both {
-                            tape,
-                            loc,
-                            prune,
-                            lhs,
-                            rhs,
-                        };
-                        Self::merge_with_key(key, cur)
-                    }
-                    Ordering::Equal => {
-                        *tape = &tape[count_nodes(&rhs)..];
-                        Ok(lhs)
-                    }
-                }
+                Self::merge_with_key(cur, &[])
             }
         }
     }
 
-    fn minimize(cur: Cursor, min: &Minimize) -> Result<Value> {
+    fn minimize<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        min: &Minimize,
+    ) -> Result<HeapNode<'alloc>> {
         Self::min_max_helper(cur, &min.key, false)
     }
 
-    fn maximize(cur: Cursor, max: &Maximize) -> Result<Value> {
+    fn maximize<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        max: &Maximize,
+    ) -> Result<HeapNode<'alloc>> {
         Self::min_max_helper(cur, &max.key, true)
     }
 
-    fn sum(cur: Cursor) -> Result<Value> {
-        match cur {
-            Cursor::Both {
-                tape,
+    fn sum<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            full: _,
+            lhs,
+            rhs,
+            alloc: _,
+            dedup: _,
+        } = cur;
+
+        let (lhs, rhs) = (lhs.destructure(), rhs.destructure());
+
+        let ln = match &lhs {
+            LazyDestructured::ScalarNode(Node::Number(n)) => *n,
+            LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
+            LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
+            LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
+            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+        };
+        let rn = match &rhs {
+            LazyDestructured::ScalarNode(Node::Number(n)) => *n,
+            LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
+            LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
+            LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
+            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+        };
+
+        *tape = &tape[1..];
+
+        match json::Number::checked_add(ln, rn) {
+            Some(json::Number::Float(n)) => Ok(HeapNode::Float(n)),
+            Some(json::Number::Unsigned(n)) => Ok(HeapNode::PosInt(n)),
+            Some(json::Number::Signed(n)) => Ok(HeapNode::NegInt(n)),
+            None => Err(Error::with_details(
+                Error::SumNumericOverflow,
                 loc,
-                lhs: Value::Number(lhs),
-                rhs: Value::Number(rhs),
-                ..
-            } => {
-                *tape = &tape[1..];
-
-                let sum = Number::checked_add((&lhs).into(), (&rhs).into());
-                let sum = sum
-                    .ok_or(Error::SumNumericOverflow)
-                    .map_err(|err| Error::at(loc, err))?;
-
-                Ok(Value::try_from(sum).unwrap())
-            }
-            Cursor::Right {
-                tape,
-                rhs: Value::Number(rhs),
-                ..
-            } => {
-                *tape = &tape[1..];
-                Ok(Value::Number(rhs))
-            }
-            cur => Err(Error::cursor(cur, Error::SumWrongType)),
+                lhs,
+                rhs,
+            )),
         }
     }
 
-    fn merge_with_key(key: &[String], cur: Cursor) -> Result<Value> {
-        match cur {
+    fn merge<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        merge: &Merge,
+    ) -> Result<HeapNode<'alloc>> {
+        Self::merge_with_key(cur, &merge.key)
+    }
+
+    fn merge_with_key<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+        key: &[Pointer],
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            lhs,
+            rhs,
+            alloc,
+            dedup,
+            full,
+        } = cur;
+
+        match (lhs.destructure(), rhs.destructure()) {
             // Merge of Object <= Object.
-            Cursor::Both {
-                tape,
-                loc,
-                prune,
-                lhs: Value::Object(lhs),
-                rhs: Value::Object(rhs),
-            } => {
+            (LazyDestructured::Object(lhs), LazyDestructured::Object(rhs)) => {
                 *tape = &tape[1..]; // Increment for self.
 
-                let m = itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
-                    lhs.0.cmp(&rhs.0)
-                })
-                .map(|eob| reduce_prop(tape, loc, prune, eob))
-                .collect::<Result<_>>()?;
-
-                Ok(Value::Object(m))
+                let mut fields = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
+                for field in
+                    itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
+                        lhs.property().cmp(rhs.property())
+                    })
+                    .map(|eob| reduce_prop(tape, loc, full, eob, alloc, dedup))
+                {
+                    fields.0.push(field?);
+                }
+                Ok(HeapNode::Object(fields))
             }
-            // Merge of Undefined <= Object.
-            Cursor::Right {
-                tape,
-                loc,
-                prune,
-                rhs: Value::Object(rhs),
-            } => {
-                *tape = &tape[1..];
-
-                let m = rhs
-                    .into_iter()
-                    .map(|prop| reduce_prop(tape, loc, prune, EitherOrBoth::Right(prop)))
-                    .collect::<Result<_>>()?;
-
-                Ok(Value::Object(m))
-            }
-            // Merge of Null <= Object (treated as no-op).
-            Cursor::Both {
-                tape,
-                lhs: Value::Null,
-                rhs: rhs @ Value::Object(..),
-                ..
-            } => {
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(Value::Null)
-            }
-
             // Merge of Array <= Array.
-            Cursor::Both {
-                tape,
-                loc,
-                prune,
-                lhs: Value::Array(lhs),
-                rhs: Value::Array(rhs),
-            } => {
-                *tape = &tape[1..];
+            (LazyDestructured::Array(lhs), LazyDestructured::Array(rhs)) => {
+                *tape = &tape[1..]; // Increment for self.
 
-                let m = itertools::merge_join_by(
+                let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
+                for item in itertools::merge_join_by(
                     lhs.into_iter().enumerate(),
                     rhs.into_iter().enumerate(),
-                    |(lhs_ind, lhs), (rhs_ind, rhs)| -> Ordering {
+                    |(lhs_ind, lhs), (rhs_ind, rhs)| {
                         if key.is_empty() {
                             lhs_ind.cmp(rhs_ind)
                         } else {
-                            json_cmp_at(key, lhs, rhs)
+                            lhs.compare(key, rhs)
                         }
                     },
                 )
-                .map(|eob| reduce_item(tape, loc, prune, eob))
-                .collect::<Result<_>>()?;
-
-                Ok(Value::Array(m))
-            }
-            // Merge of Undefined <= Array.
-            Cursor::Right {
-                tape,
-                loc,
-                prune,
-                rhs: Value::Array(rhs),
-            } => {
-                *tape = &tape[1..];
-
-                let m = rhs
-                    .into_iter()
-                    .enumerate()
-                    .map(|item| reduce_item(tape, loc, prune, EitherOrBoth::Right(item)))
-                    .collect::<Result<_>>()?;
-
-                Ok(Value::Array(m))
-            }
-            // Merge of Null <= Array (treated as no-op).
-            Cursor::Both {
-                tape,
-                lhs: Value::Null,
-                rhs: rhs @ Value::Array(..),
-                ..
-            } => {
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(Value::Null)
+                .map(|eob| reduce_item(tape, loc, full, eob, alloc, dedup))
+                {
+                    arr.0.push(item?);
+                }
+                Ok(HeapNode::Array(arr))
             }
 
-            cur => Err(Error::cursor(cur, Error::MergeWrongType)),
+            // Merge of Null <= Array or Object (takes the null LHS).
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Array(LazyArray::Heap(arr)),
+            ) => {
+                *tape = &tape[count_nodes_heap(&HeapNode::Array(arr))..];
+                Ok(HeapNode::Null)
+            }
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Array(LazyArray::Node(arr)),
+            ) => {
+                *tape = &tape[count_nodes_generic(&Node::Array(arr))..];
+                Ok(HeapNode::Null)
+            }
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Object(LazyObject::Heap(fields)),
+            ) => {
+                *tape = &tape[count_nodes_heap(&HeapNode::Object(fields))..];
+                Ok(HeapNode::Null)
+            }
+            (
+                LazyDestructured::ScalarNode(Node::Null)
+                | LazyDestructured::ScalarHeap(HeapNode::Null),
+                LazyDestructured::Object(LazyObject::Node(fields)),
+            ) => {
+                *tape = &tape[count_nodes_generic(&Node::Object::<R>(fields))..];
+                Ok(HeapNode::Null)
+            }
+
+            (lhs, rhs) => Err(Error::with_details(Error::MergeWrongType, loc, lhs, rhs)),
         }
-    }
-
-    fn merge(cur: Cursor, merge: &Merge) -> Result<Value> {
-        Self::merge_with_key(&merge.key, cur)
     }
 }
 
@@ -406,7 +419,11 @@ mod test {
                 "else": { "reduce": { "strategy": "append" } },
             }),
             vec![
-                // Non-array RHS (without LHS) returns an error.
+                Partial {
+                    rhs: json!([]),
+                    expect: Ok(json!([])),
+                },
+                // Non-array RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::AppendWrongType),
@@ -648,7 +665,11 @@ mod test {
         run_reduce_cases(
             json!({ "reduce": { "strategy": "sum" } }),
             vec![
-                // Non-numeric RHS (without LHS) returns an error.
+                Partial {
+                    rhs: json!(0),
+                    expect: Ok(json!(0)),
+                },
+                // Non-numeric RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::SumWrongType),
@@ -726,7 +747,11 @@ mod test {
                 "reduce": { "strategy": "merge" },
             }),
             vec![
-                // Non-numeric RHS (without LHS) returns an error.
+                Partial {
+                    rhs: json!([]),
+                    expect: Ok(json!([])),
+                },
+                // Non-array RHS returns an error.
                 Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::MergeWrongType),

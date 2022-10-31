@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc_poc::{combine, Annotation, HeapNode, Pointer};
+use doc::{combine, Annotation, HeapNode, Pointer};
 use json::schema::{build::build_schema, index::IndexBuilder};
 use json::validator::{SpanContext, Validator};
 use serde_json::json;
