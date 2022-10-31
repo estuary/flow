@@ -3,7 +3,7 @@ use crate::{
     validation::{FailedValidation, Validator},
     ArchivedNode, LazyNode, Pointer,
 };
-use std::io;
+use std::io::{self, Seek};
 use std::rc::Rc;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
@@ -136,7 +136,9 @@ impl Drainer {
                 Ok(Accumulator::new(key, schema, spill)?)
             }
             Drainer::Spill { drainer } => {
-                let (key, schema, spill) = drainer.into_parts();
+                let (key, schema, mut spill) = drainer.into_parts();
+
+                spill.seek(io::SeekFrom::Start(0))?; // Reset to start.
                 spill.set_len(0)?; // Release allocated size to OS.
 
                 Ok(Accumulator::new(key, schema, spill)?)
