@@ -161,17 +161,6 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let errors_or_usage =
-            specs::enforce_resource_quotas(&draft_catalog, &live_catalog, txn).await?;
-        match errors_or_usage {
-            itertools::Either::Left(errors) => {
-                return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
-            }
-            itertools::Either::Right(usage) => {
-                specs::update_tenants_resource_usage(usage, txn).await?;
-            }
-        }
-
         for spec_row in &spec_rows {
             specs::apply_updates_for_row(
                 &draft_catalog,
@@ -183,6 +172,11 @@ impl PublishHandler {
             )
             .await
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
+        }
+
+        let errors = specs::enforce_resource_quotas(&spec_rows, txn).await?;
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
         let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;

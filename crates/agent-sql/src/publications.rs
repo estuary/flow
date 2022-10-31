@@ -221,30 +221,64 @@ pub struct Tenant {
     pub collections_used: i32,
 }
 
-pub async fn find_tenant_for_catalog_name(
-    catalog_name: &str,
+#[derive(Debug)]
+struct TenantFromDB {
+    pub name: String,
+    pub captures_quota: i32,
+    pub derivations_quota: i32,
+    pub materializations_quota: i32,
+    pub collections_quota: i32,
+    // These are Option<i64> because even if we add `coalesce(.., 0) to the query
+    // sqlx still infers them as nullable. So for our purposes assume None to be 0
+    pub captures_used: Option<i64>,
+    pub derivations_used: Option<i64>,
+    pub materializations_used: Option<i64>,
+    pub collections_used: Option<i64>,
+}
+
+impl From<TenantFromDB> for Tenant {
+    fn from(db: TenantFromDB) -> Self {
+        Tenant {
+            name: db.name,
+            captures_quota: db.captures_quota,
+            derivations_quota: db.derivations_quota,
+            materializations_quota: db.materializations_quota,
+            collections_quota: db.collections_quota,
+            captures_used: db.captures_used.unwrap_or(0) as i32,
+            derivations_used: db.derivations_used.unwrap_or(0) as i32,
+            materializations_used: db.materializations_used.unwrap_or(0) as i32,
+            collections_used: db.collections_used.unwrap_or(0).try_into().unwrap(),
+        }
+    }
+}
+
+pub async fn find_tenant_quotas(
+    tenant_names: Vec<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<Option<Tenant>> {
+) -> sqlx::Result<Vec<Tenant>> {
     sqlx::query_as!(
-        Tenant,
+        TenantFromDB,
         r#"
-        select 
-            tenant as name,
-            captures_quota,
-            derivations_quota,
-            materializations_quota,
-            collections_quota,
-            captures_used,
-            derivations_used,
-            materializations_used,
-            collections_used
+        select
+            tenants.tenant as name,
+            tenants.captures_quota,
+            tenants.derivations_quota,
+            tenants.materializations_quota,
+            tenants.collections_quota,
+            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'capture') as captures_used,
+            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null) as derivations_used,
+            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'materialization') as materializations_used,
+            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'collection') as collections_used
         from tenants
-        where $1 ILIKE tenant || '%';
+        join live_specs on live_specs.catalog_name LIKE tenants.tenant || '%'
+        where tenants.tenant = ANY($1)
+        group by tenants.tenant, tenants.captures_quota, tenants.materializations_quota, tenants.derivations_quota, tenants.collections_quota;
         "#,
-        catalog_name
+        &tenant_names[..]
     )
-    .fetch_optional(txn)
+    .fetch_all(txn)
     .await
+    .map(|tenants| tenants.into_iter().map(Tenant::from).collect())
 }
 
 #[derive(Default)]
