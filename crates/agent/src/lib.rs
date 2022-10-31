@@ -5,10 +5,7 @@ mod jobs;
 pub mod logs;
 mod publications;
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
 pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
@@ -16,7 +13,7 @@ pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use publications::PublishHandler;
 use sqlx::postgres::PgListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug)]
 pub enum HandlerStatus {
@@ -59,7 +56,6 @@ where
         .await?;
 
     let (task_tx, mut task_rx) = mpsc::channel::<String>(1000);
-    // VecDeque::from_iter(handlers_by_channel.iter().map(|(_, han)| *han.to_owned()));
 
     // Each task gets run at least once to check if there is any pending work
     for (handler_channel, _) in handlers_by_channel.iter() {
@@ -88,7 +84,7 @@ where
                 .get(chan.as_str())
                 .expect(format!("Unexpected task channel {}", chan).as_str())
                 .lock()
-                .unwrap();
+                .await;
 
             let handle_result = handler.handle(&pg_pool).await;
 
@@ -97,7 +93,7 @@ where
                     tracing::info!(handler = %handler.name(), channel = %handler.channel_name(), status = ?status, "invoked handler");
                     match status {
                         HandlerStatus::MoreWork => {
-                            // Let's preemptively schedule another execution
+                            // Re-schedule another run to handle this MoreWork
                             task_tx.send(handler.channel_name().to_string()).await?;
                         }
                         _ => {}
