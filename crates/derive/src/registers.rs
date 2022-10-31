@@ -1,6 +1,6 @@
 use crate::{DebugJson, StatsAccumulator};
 
-use doc_poc::{self as doc, reduce, AsNode, FailedValidation, Validation, Validator};
+use doc::{reduce, AsNode, FailedValidation, Validation, Validator};
 use prost::Message;
 use proto_flow::flow::derive_api;
 use proto_gazette::consumer::Checkpoint;

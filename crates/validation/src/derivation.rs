@@ -108,7 +108,7 @@ fn walk_derivation(
     } else if let Err(err) = doc::Validation::validate(
         &mut doc::Validator::new(&register_schema.index),
         &register_schema.schema,
-        register_initial.clone(),
+        register_initial,
     )
     .unwrap()
     .ok()

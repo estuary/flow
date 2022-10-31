@@ -1,5 +1,4 @@
 use anyhow::Context;
-use doc_poc as doc;
 use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 

@@ -1,4 +1,4 @@
-use doc_poc::{Annotation, Pointer};
+use doc::{Annotation, Pointer};
 use json::schema::{build::build_schema, index::IndexBuilder};
 use json::validator::{SpanContext, Validator};
 use rand::{distributions::Distribution, Rng, SeedableRng};
@@ -110,7 +110,7 @@ pub fn combiner_perf() {
     let mut val = Validator::<Annotation, SpanContext>::new(&index);
 
     // Initialize the combiner itself.
-    let mut accum = doc_poc::combine::Accumulator::new(
+    let mut accum = doc::combine::Accumulator::new(
         key.clone(),
         schema.curi.clone(),
         tempfile::tempfile().unwrap(),
@@ -160,7 +160,7 @@ pub fn combiner_perf() {
         buf.push(b'}');
 
         let memtable = accum.memtable().unwrap();
-        let doc = doc_poc::HeapNode::from_serde(
+        let doc = doc::HeapNode::from_serde(
             &mut serde_json::Deserializer::from_slice(&buf),
             memtable.alloc(),
             memtable.dedup(),
@@ -177,7 +177,7 @@ pub fn combiner_perf() {
     while drainer
         .drain_while(&mut val, |_entry, _reduce| {
             drained += 1;
-            Ok::<_, doc_poc::combine::Error>(true)
+            Ok::<_, doc::combine::Error>(true)
         })
         .unwrap()
     {}
