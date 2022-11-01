@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft-07/schema",
+    "title": "Flow catalog task stats",
+    "description": "Statistics related to the processing of a Flow catalog.",
+    "type": "object",
+    "properties": {
+        "catalogName": {
+            "description": "Name of the Flow catalog",
+            "type": "string"
+        },
+        "grain": {
+            "description": "Time grain that the stats are aggregated over",
+            "enum": [
+                "monthly",
+                "daily",
+                "hourly"
+            ]
+        },
+        "ts": {
+            "description": "Timestamp of the catalog stat aggregate",
+            "type": "string",
+            "format": "date-time"
+        },
+        "statsSummary": {
+            "type": "object",
+            "properties": {
+                "readByMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
+                "readFromMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
+                "writtenByMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
+                "writtenToMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" }
+            },
+            "reduce": {"strategy": "merge"},
+            "required": ["readByMe", "readFromMe", "writtenByMe", "writtenToMe"]
+        },
+        "taskStats": {
+            "type": "object",
+            "properties": {
+                "capture": { "$ref": "ops-stats-schema.json#/properties/capture" },
+                "materialize": { "$ref": "ops-stats-schema.json#/properties/materialize" },
+                "derive": { "$ref": "ops-stats-schema.json#/properties/derive" }
+            },
+            "reduce": {"strategy": "merge"}
+        }
+    },
+    "reduce": {"strategy": "merge"},
+    "required": ["catalogName", "grain", "ts", "statsSummary"]
+}
