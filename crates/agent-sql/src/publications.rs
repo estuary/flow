@@ -270,7 +270,7 @@ pub async fn find_tenant_quotas(
             count(live_specs.catalog_name) filter (where live_specs.spec_type = 'materialization') as materializations_used,
             count(live_specs.catalog_name) filter (where live_specs.spec_type = 'collection') as collections_used
         from tenants
-        join live_specs on live_specs.catalog_name LIKE tenants.tenant || '%'
+        join live_specs on live_specs.catalog_name LIKE tenants.tenant || '%' and (live_specs.spec->'shards'->>'disable')::boolean is not true
         where tenants.tenant = ANY($1)
         group by tenants.tenant, tenants.captures_quota, tenants.materializations_quota, tenants.derivations_quota, tenants.collections_quota;
         "#,
